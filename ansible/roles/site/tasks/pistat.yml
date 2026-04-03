@@ -1,4 +1,8 @@
 ---
+# pistat - real-time Pi status via WebSocket
+# pip install handled by fpgas-online-site.yml
+# Pi-side scripts (send.py, send_stat.py) are in the fpgas-online-setup-pi deb
+
 - name: Install redis
   apt:
     name:
@@ -6,43 +10,18 @@
   tags:
     - pistat
 
-- name: PIP install pistat site app
-  ansible.builtin.pip:
-    name: "pistat @ git+https://github.com/CarlFK/pici.git#subdirectory=ansible/roles/site/files/pib/pistat"
+- name: Run Django collectstatic for pistat
+  community.general.django_manage:
+    command: collectstatic --noinput
+    project_path: "{{ django_dir }}"
     virtualenv: "{{ django_dir }}/venv"
-    state: forcereinstall
-  tags:
-    - pistat
-
-- name: status chat js
-  copy:
-    src: files/pib/pistat/src/pistat/static/dcws.js
-    dest: "{{ static_dir }}/dcws.js"
   tags:
     - pistat
     - index.html
 
-- name: Install nginx pistat conf
-  ansible.builtin.copy:
-    src: files/pib/pistat/nginx/pistat.conf
-    dest: "/etc/nginx/includes/{{ conference_name }}-pistat.conf"
-  tags:
-    - pistat
-
-- name: copy scripts into usr/local/bin
+- name: Install dnsmasq send_stat.conf
   copy:
-    src: "pib/pistat/scripts/{{ item }}"
-    dest: "/usr/local/bin"
-    mode: preserve
-  loop:
-    - send.py
-    - send_stat.py
-  tags:
-    - pistat
-
-- name: copy conf into /etc/dnsmasq.d
-  copy:
-    src: pib/pistat/dnsmasq/send_stat.conf
+    src: "{{ role_path }}/../pxe/files/send_stat.conf"
     dest: /etc/dnsmasq.d/send_stat.conf
     mode: preserve
   notify: restart dnsmasq

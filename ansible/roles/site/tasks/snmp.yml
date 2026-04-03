@@ -1,4 +1,8 @@
 ---
+# snmp_switch - PoE switch management
+# pip install handled by fpgas-online-site.yml (installs fpgas-online-poe[cli])
+# poe.sh/allpoe.sh scripts are now in the fpgas-online-poe pip package
+
 - name: populate /etc/environment
   lineinfile:
     dest: "{{ item[0] }}"
@@ -50,34 +54,3 @@
   tags:
     - snmp
     - manage
-
-
-- name: copy poe.sh and allpoe.sh into usr/local/bin
-  copy:
-    src: "pib/snmp_switch/scripts/{{ item }}"
-    dest: "/usr/local/bin"
-    mode: preserve
-  loop:
-    - poe.sh
-    - allpoe.sh
-  tags:
-    - snmp
-    - manage
-
-# pip install "django[bcrypt] @ git+ssh://git@github.com/django/django.git" should work fine.
-- name: PIP install snmp_switch site app
-  ansible.builtin.pip:
-    name: "snmp_switch[cli] @ git+https://github.com/CarlFK/pici.git#subdirectory=ansible/roles/site/files/pib/snmp_switch"
-    virtualenv: "{{ django_dir }}/venv"
-    state: forcereinstall
-  tags:
-    - snmp
-
-- name: nginx/snmp_switch.conf
-  copy:
-    src: files/pib/snmp_switch/nginx/snmp_switch.conf
-    dest: "/etc/nginx/includes/{{ conference_name }}-snmp_switch.conf"
-  tags:
-    - snmp
-
-

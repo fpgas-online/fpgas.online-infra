@@ -1,0 +1,13 @@
+---
+# Install the fpgas.online Django site and PoE switch management packages.
+# Replaces the per-app pip installs from the old carlfk/pici monorepo.
+
+- name: Install fpgas.online Django site
+  ansible.builtin.pip:
+    name:
+      - "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"
+      - "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
+    virtualenv: "{{ django_dir }}/venv"
+    state: forcereinstall
+  tags:
+    - django

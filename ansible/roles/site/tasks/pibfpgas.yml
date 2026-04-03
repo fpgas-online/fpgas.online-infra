@@ -1,26 +1,7 @@
 ---
-- name: PIP install pibfpgas site app
-  ansible.builtin.pip:
-    name: "pibfpgas @ git+https://github.com/CarlFK/pici.git#subdirectory=ansible/roles/site/files/pib/pibfpgas"
-    virtualenv: "{{ django_dir }}/venv"
-    state: forcereinstall
-  tags:
-    - pibfpgas
-    - django
+# pibfpgas - FPGA board management and demos
+# pip install handled by fpgas-online-site.yml
 
-- name: Install nginx conf
-  ansible.builtin.copy:
-    src: files/pib/pibfpgas/nginx/pibfpgas.conf
-    dest: "/etc/nginx/includes/{{ conference_name }}-pibfpgas.conf"
-  tags:
-    - pibfpgas
-    - django
-
-- name: Install demo code on pi
-  ansible.posix.synchronize:
-    src: files/pib/pibfpgas/Demos
-    dest: "{{nfs_root}}/root/home/pi"
-  tags:
-    - pibfpgas
-    - django
-    - demos
+# TODO(fpgas-online/todo#25): Demo bitstreams need migrating from old repo.
+# The Demos/ directory was in the pip package source but should be hosted
+# as release artifacts or in fpgas.online-test-designs instead.

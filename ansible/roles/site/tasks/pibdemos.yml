@@ -1,15 +1,3 @@
 ---
-- name: PIP install pibdemos site app
-  ansible.builtin.pip:
-    name: "pibdemos @ git+https://github.com/CarlFK/pici.git#subdirectory=ansible/roles/site/files/pib/pibdemos"
-    virtualenv: "{{ django_dir }}/venv"
-    state: forcereinstall
-  tags:
-    - pibdemos
-
-- name: Install nginx conf
-  ansible.builtin.copy:
-    src: files/pib/pibdemos/nginx/pibdemos.conf
-    dest: "/etc/nginx/includes/{{ conference_name }}-pibdemos.conf"
-  tags:
-    - pibdemos
+# pibdemos - demo management
+# pip install handled by fpgas-online-site.yml
