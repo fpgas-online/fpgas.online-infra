@@ -113,10 +113,7 @@ git clone ~/github/pici /tmp/pici-for-infra
 cd /tmp/pici-for-infra
 ```
 
-- [ ] **Step 3: Filter to keep ansible/ and root docs, excluding content for other repos**
-
-Single `git filter-repo` call — keeps ansible/ and root docs but excludes
-paths that belong in other repos:
+- [ ] **Step 3: Filter to keep only ansible/ and root docs**
 
 ```bash
 git filter-repo \
@@ -124,34 +121,40 @@ git filter-repo \
   --path README.md \
   --path TECHDEBT.md \
   --path CONTRIBUTORS.txt \
-  --path notes.txt \
-  --invert-paths \
-  --path ansible/roles/site/files/pib/ \
-  --path ansible/roles/site/files/js/ \
-  --path ansible/roles/ci/ \
-  --path ansible/roles/fixpi/files/scripts/ \
-  --path ansible/roles/fixpi/files/pipw.sh \
-  --path ansible/roles/fixpi/files/boot/ncc.py \
-  --path ansible/roles/fixpi/files/etc/profile.d/ \
-  --path ansible/roles/fixpi/files/etc/keyboard \
-  --path ansible/roles/fixpi/files/etc/ssh/ \
-  --path ansible/roles/fixpi/files/etc/issue \
-  --path ansible/roles/fixpi/files/etc/systemd/network/ \
-  --path ansible/roles/onpi/files/ \
-  --path ansible/roles/cam/pi/files/ \
-  --path ansible/roles/img/files/img2files.sh
+  --path notes.txt
 ```
 
-Note: `--path` before `--invert-paths` specifies what to include;
-`--path` after `--invert-paths` specifies what to exclude from that set.
+- [ ] **Step 4: Remove content that belongs in other repos**
+
+`--invert-paths` is a global flag (inverts all --path args), so we cannot
+combine include and exclude in one call. Use `git rm` instead:
+
+```bash
+git rm -rf \
+  ansible/roles/site/files/pib/ \
+  ansible/roles/site/files/js/ \
+  ansible/roles/ci/ \
+  ansible/roles/fixpi/files/scripts/ \
+  ansible/roles/fixpi/files/pipw.sh \
+  ansible/roles/fixpi/files/boot/ncc.py \
+  ansible/roles/fixpi/files/etc/profile.d/ \
+  ansible/roles/fixpi/files/etc/keyboard \
+  ansible/roles/fixpi/files/etc/ssh/ \
+  ansible/roles/fixpi/files/etc/issue \
+  ansible/roles/fixpi/files/etc/systemd/network/ \
+  ansible/roles/onpi/files/ \
+  ansible/roles/cam/pi/files/ \
+  ansible/roles/img/files/img2files.sh
+git commit -m "Remove content moving to other repos"
+```
 
 Note: `ansible/roles/fixpi/files/etc/network/interfaces.d/eth1.conf` stays in
 infra (it contains a host-specific IP that needs templating).
 
-Note: `pistat/dnsmasq/send_stat.conf` is inside `files/pib/` and gets excluded
-above. It needs to be manually added back to infra — see Step 4.
+Note: `pistat/dnsmasq/send_stat.conf` was inside `files/pib/` and was removed
+above. It needs to be manually added back — see Step 5.
 
-- [ ] **Step 4: Add pistat dnsmasq config back to infra**
+- [ ] **Step 5: Add pistat dnsmasq config back to infra**
 
 This file was excluded with `files/pib/` but belongs in infra per the spec:
 
@@ -164,14 +167,14 @@ git add ansible/roles/pxe/files/send_stat.conf
 git commit -m "Add pistat dnsmasq send_stat.conf (from pici site role)"
 ```
 
-- [ ] **Step 5: Push to the new repo**
+- [ ] **Step 6: Push to the new repo**
 
 ```bash
 git remote add origin git@github.com:fpgas-online/fpgas.online-infra.git
 git push -u origin main
 ```
 
-- [ ] **Step 6: Verify the result**
+- [ ] **Step 7: Verify the result**
 
 ```bash
 cd /tmp/pici-for-infra
@@ -184,16 +187,13 @@ ls ansible/roles/fixpi/tasks/main.yml
 ls ansible/roles/fixpi/templates/boot/cmdline.txt.j2
 ls ansible/roles/cam/stream-server/templates/nginx-rtmp.conf.j2
 ls ansible/roles/wssh/
+ls ansible/roles/site/files/nginx/certbot.sh
 
 # Should NOT exist:
 test ! -d ansible/roles/site/files/pib && echo "OK: pib removed"
 test ! -d ansible/roles/ci && echo "OK: ci removed"
 test ! -d ansible/roles/onpi/files && echo "OK: onpi files removed"
 ```
-
-- [ ] **Step 7: Commit verification notes**
-
-No commit needed — the push in Step 5 is the deliverable.
 
 - [ ] **Step 8: Clean up**
 
@@ -898,6 +898,8 @@ Create `.github/workflows/receive-deb.yml`:
 name: Receive and publish deb package
 
 on:
+  repository_dispatch:
+    types: [receive-deb]
   workflow_dispatch:
     inputs:
       package_name:
@@ -923,13 +925,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set parameters from dispatch type
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "source_repo=${{ github.event.client_payload.source_repo }}" >> "$GITHUB_OUTPUT"
+            echo "run_id=${{ github.event.client_payload.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "package_name=${{ github.event.client_payload.package_name }}" >> "$GITHUB_OUTPUT"
+            echo "package_version=${{ github.event.client_payload.package_version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "source_repo=${{ inputs.source_repo }}" >> "$GITHUB_OUTPUT"
+            echo "run_id=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+            echo "package_name=${{ inputs.package_name }}" >> "$GITHUB_OUTPUT"
+            echo "package_version=${{ inputs.package_version }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download deb artifact
         uses: actions/download-artifact@v4
         with:
           name: deb-package
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ inputs.source_repo }}
-          run-id: ${{ inputs.run_id }}
+          repository: ${{ steps.params.outputs.source_repo }}
+          run-id: ${{ steps.params.outputs.run_id }}
           path: incoming/
 
       - name: Move deb to pool
@@ -951,7 +968,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Add ${{ inputs.package_name }} ${{ inputs.package_version }}"
+          git commit -m "Add ${{ steps.params.outputs.package_name }} ${{ steps.params.outputs.package_version }}"
           git push
 
       - name: Deploy to GitHub Pages
