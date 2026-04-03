@@ -425,9 +425,14 @@ The infra `site` role pins versions in a requirements file.
 
 ### Phase 1: Create repos and extract content
 1. Create all 7 new GitHub repos under fpgas-online
-2. Extract content from pici into each repo (preserving git history where
-   practical via `git filter-repo`)
-3. Set up basic README, LICENSE (Apache 2.0), and CI for each
+2. For each repo, use `git filter-repo` on a clone of pici to extract the
+   relevant subtree(s) with full commit history. For repos that draw from
+   multiple paths (e.g., setup-pi pulls from both `ansible/roles/onpi/files/`
+   and `ansible/roles/fixpi/files/` and `pistat/scripts/`), use multiple
+   `--path` arguments or merge filtered branches.
+3. Restructure extracted content to match the new repo's intended layout
+   (e.g., move `ansible/roles/site/files/pib/*` to repo root for the site repo)
+4. Set up basic README, LICENSE (Apache 2.0), and CI for each
 
 ### Phase 2: Packaging pipelines
 1. Add `pyproject.toml` to site and poe repos, verify pip install works
@@ -458,19 +463,16 @@ The infra `site` role pins versions in a requirements file.
 2. **wssh**: Resolved — no separate repo needed. The wssh role has 4 static
    config files and 1 Jinja2 template, all small. Keep entirely in infra.
 
-3. **Version numbering**: Resolved — start at 0.1.0. Reserve 0.1.0 for after
+3. **Version numbering**: Resolved — start at 0.1.0. Reserve 1.0.0 for after
    the first successful end-to-end deployment from the split repos.
 
-## Open Questions
+4. **sensors2mqtt**: Resolved — tracked as fpgas-online/todo#24. Covers both
+   server-side (tweed mosquitto/dashboard) and Pi-side (MQTT sensor reporters).
 
-1. **sensors2mqtt**: The sensors dashboard and mosquitto MQTT integration on
-   tweed are not in the pici repo. Should this be tracked/added to one of
-   the new repos?
+5. **Git history preservation**: Resolved — use `git filter-repo` to preserve
+   commit history for each extracted subtree. Each new repo gets the relevant
+   subset of the pici history.
 
-2. **Git history preservation**: Should we use `git filter-repo` to preserve
-   commit history for each extracted subtree, or start fresh repos?
-
-3. **Demo bitstreams**: The `pibfpgas/Demos/` directory contains binary FPGA
-   bitstreams and Linux images. Should these move to
-   `fpgas.online-test-designs`, be hosted as GitHub release assets, or handled
-   some other way?
+6. **Demo bitstreams**: Resolved — tracked as fpgas-online/todo#25. Need to
+   compare `pibfpgas/Demos/` against `fpgas.online-test-designs` and determine
+   migration strategy. Binaries must not be shipped in the pip wheel.
