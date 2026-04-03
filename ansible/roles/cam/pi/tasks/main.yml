@@ -26,25 +26,18 @@
   tags:
     - streaming
 
-- name: cam script
-  copy:
-    src: files/gst-libcam.sh
-    dest: /usr/local/bin/gst-libcam.sh
-    mode: u+x
+# Camera scripts and systemd service are in the fpgas-online-cam deb.
+# The deb's postinstall runs systemctl daemon-reload.
+- name: Install fpgas-online-cam
+  ansible.builtin.apt:
+    name: fpgas-online-cam
+    state: present
   tags:
-    cam
-
-- name: systemd cam.service
-  copy:
-    src: files/cam.service
-    dest: /etc/systemd/system/cam.service
-  notify: reload-systemd
-  tags:
-    cam
+    - cam
 
 - name: enable cam.service
   systemd:
-    name: cam.service
+    name: fpgas-cam.service
     enabled: yes
   tags:
     cam
