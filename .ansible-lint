@@ -8,7 +8,6 @@ skip_list:
   - risky-file-permissions
   - fqcn[action-core]
   - role-name[path]
-  - load-failure
 
 warn_list:
   - experimental
@@ -17,3 +16,4 @@ offline: true
 
 exclude_paths:
   - .github/
+  - ansible/switch.yml
