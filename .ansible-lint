@@ -1,0 +1,14 @@
+skip_list:
+  - yaml[line-length]
+  - name[missing]
+  - no-changed-when
+  - command-instead-of-module
+  - risky-shell-pipe
+
+warn_list:
+  - experimental
+
+offline: true
+
+exclude_paths:
+  - .github/
