@@ -1,0 +1,18 @@
+---
+# Add the fpgas.online apt repository to hosts that need fpgas-online deb packages.
+
+- name: Add fpgas.online apt signing key
+  ansible.builtin.get_url:
+    url: https://fpgas-online.github.io/apt/pubkey.gpg
+    dest: /usr/share/keyrings/fpgas-online.gpg
+    mode: '0644'
+
+- name: Add fpgas.online apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas-online.github.io/apt bookworm main"
+    state: present
+    filename: fpgas-online
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
