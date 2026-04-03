@@ -184,7 +184,11 @@ installed alongside the pistat systemd services that invoke them.
 **Purpose**: SNMP PoE switch management — Python library and CLI tool.
 
 **Source content from pici**:
-- `ansible/roles/site/files/pib/snmp_switch/`
+- `ansible/roles/site/files/pib/snmp_switch/` (views, urls, utils, models)
+- `ansible/roles/site/files/pib/snmp_switch/scripts/poe.sh`,
+  `allpoe.sh`, `allpoeoff.sh` — shell scripts for PoE switch control
+- `ansible/roles/site/files/pib/snmp_switch/nginx/snmp_switch.conf` — nginx
+  location config (shipped as package data)
 
 **Packaging**: pip package with `[cli]` extra (already structured this way).
 `fpgas-online-poe` for the library, `fpgas-online-poe[cli]` for the CLI.
@@ -334,6 +338,7 @@ The following content from pici is **not moved to any new repo**:
 | `ansible/roles/fixpi/notes.txt` | Developer notes, not production content. |
 | `ansible/roles/onpi/notes.txt` | Developer notes, not production content. |
 | `ansible/roles/wssh/notes.txt` | Developer notes, not production content. |
+| `ansible/roles/fixpi/README.md` | Role documentation, superseded by new repo READMEs. |
 
 ## Apt Repository Setup
 
