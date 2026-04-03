@@ -6,18 +6,18 @@
 - {include_tasks: index.yml, tags: index.html}
 - {include_tasks: js_player.yml, tags: django}
 
-- {include_tasks: fpgas-online-site.yml, tags: [django] }
+- {include_tasks: fpgas-online-site.yml, tags: [django]}
 
-- {include_tasks: snmp.yml, tags: [snmp, django, manage] }
-- {include_tasks: pistat.yml, tags: [pistat, django, index.html] }
-- {include_tasks: pibdemos.yml, tags: [pibdemos, django, index.html] }
-- {include_tasks: pibup.yml, tags: [pibup, django, index.html] }
-- {include_tasks: pibfpgas.yml, tags: [pifpgas, django, demos] }
+- {include_tasks: snmp.yml, tags: [snmp, django, manage]}
+- {include_tasks: pistat.yml, tags: [pistat, django, index.html]}
+- {include_tasks: pibdemos.yml, tags: [pibdemos, django, index.html]}
+- {include_tasks: pibup.yml, tags: [pibup, django, index.html]}
+- {include_tasks: pibfpgas.yml, tags: [pifpgas, django, demos]}
 
-- {include_tasks: django.yml, tags: [snmp, django] }
+- {include_tasks: django.yml, tags: [snmp, django]}
 
 - {include_tasks: gunicorn.yml, tags: django}
 - {include_tasks: uvicorn.yml, tags: django}
 - {include_tasks: daphne.yml, tags: django}
 
-- {include_tasks: switch.yml, tags: [switch,] }
+- {include_tasks: switch.yml, tags: [switch]}

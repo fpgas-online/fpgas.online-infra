@@ -37,4 +37,3 @@
     dest: "/etc/nginx/includes/{{ conference_name }}-live-hls.conf"
   tags:
     - streaming
-

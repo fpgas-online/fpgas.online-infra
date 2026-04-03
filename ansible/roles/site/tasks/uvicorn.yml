@@ -3,7 +3,7 @@
 - name: pip install uvicorn
   pip:
     name:
-    - uvicorn
+      - uvicorn
     virtualenv: "{{ django_dir }}/venv"
 
 - name: copy uvicorn systemd file to /etc/systemd/system/uvicorn.service
@@ -16,8 +16,8 @@
 - name: Enable services
   systemd:
     service: "{{ item }}"
-    daemon_reload: yes
-    enabled: yes
+    daemon_reload: true
+    enabled: true
     state: started
   with_items:
     - uvicorn.service
@@ -26,7 +26,7 @@
 
 - name: Start/Make sure uvicorn.service systemd service is running
   systemd:
-    daemon_reload: yes
+    daemon_reload: true
     state: started
     name: uvicorn.service
   tags:

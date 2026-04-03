@@ -6,4 +6,3 @@ usb_hubs:
     subsystem: "usb"
     idVendor: "2001"
     idProduct: "f103"
-

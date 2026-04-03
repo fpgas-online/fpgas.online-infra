@@ -24,7 +24,7 @@
   with_items:
     - wssh.socket
   notify:
-   - reload systemd
+    - reload systemd
   tags:
     - wssh
 
@@ -33,8 +33,8 @@
     src: templates/wssh.service.j2
     dest: /etc/systemd/system/wssh.service
   notify:
-   - reload systemd
-   - restart wssh
+    - reload systemd
+    - restart wssh
   tags:
     - wssh
 
@@ -61,4 +61,3 @@
     - pibsite
   notify:
     - reload nginx
-

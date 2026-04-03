@@ -18,4 +18,3 @@
 - {include_tasks: tftpd.yml, tags: tftpd}
 - {include_tasks: sshkeys.yml, tags: sshkeys}
 - {include_tasks: tweeks.yml, tags: pitweeks}
-

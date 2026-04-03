@@ -4,7 +4,7 @@
     name:
       - expect
   tags:
-  - ia
+    - ia
 
 - name: arty_here
   copy:
@@ -15,7 +15,7 @@
     - arty_here.sh
     - arty_here.exp
   tags:
-  - ia
+    - ia
 
 - name: install systemd arty_here service
   copy:
@@ -23,12 +23,11 @@
     dest: /etc/systemd/system/arty_here.service
   notify: reload-systemd
   tags:
-  - ia
+    - ia
 
 - name: enable arty_here.service
   systemd:
     name: arty_here.service
-    enabled: yes
+    enabled: true
   tags:
-  - ia
-
+    - ia

@@ -5,4 +5,3 @@
     dest: "{{ static_dir }}/videojs-contrib-media-sources.js"
   tags:
     - cam
-

@@ -6,7 +6,7 @@
 - name: Install redis
   apt:
     name:
-    - redis
+      - redis
   tags:
     - pistat
 

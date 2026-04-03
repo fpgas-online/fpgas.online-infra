@@ -7,7 +7,7 @@
   with_items:
     - arty_blink.sh
   tags:
-  - ab
+    - ab
 
 - name: install systemd arty_blink service
   copy:
@@ -15,11 +15,11 @@
     dest: /etc/systemd/system/arty_blink.service
   notify: reload-systemd
   tags:
-  - ab
+    - ab
 
 - name: enable arty_blink.service
   systemd:
     name: arty_blink.service
-    enabled: yes
+    enabled: true
   tags:
-  - ab
+    - ab

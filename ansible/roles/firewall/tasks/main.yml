@@ -2,8 +2,8 @@
 - name: Install nftables
   apt:
     name:
-    - nftables
-    - nmap
+      - nftables
+      - nmap
 
 - name: Write nftables rules
   template:
@@ -17,7 +17,7 @@
 - name: Enable nftables service
   systemd:
     service: nftables.service
-    enabled: yes
+    enabled: true
     state: restarted
   tags:
     nftables

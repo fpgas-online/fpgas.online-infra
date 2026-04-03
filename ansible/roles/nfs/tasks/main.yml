@@ -3,7 +3,7 @@
   apt:
     name:
       - nfs-kernel-server
-    install_recommends: yes
+    install_recommends: true
   tags:
     - nfs
 
@@ -27,12 +27,11 @@
 - name: enable and start server service rpcbind
   systemd:
     name: rpcbind
-    enabled: yes
+    enabled: true
     state: started
 
 - name: enable and start server service nfs-kernel-server
   systemd:
     name: nfs-kernel-server
-    enabled: yes
+    enabled: true
     state: started
-

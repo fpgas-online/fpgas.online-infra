@@ -18,11 +18,11 @@
       - gstreamer1.0-plugins-ugly
       - gstreamer1.0-plugins-base-apps
       - gstreamer1.0-libcamera
-        # - libcamera0
+      # - libcamera0
       - rpicam-apps-lite
-        # - rpicam-apps
+      # - rpicam-apps
       - lm-sensors
-# Tenkawa: this combination seems to work   rpicam-apps  libcamera-ipa libcamera0.3 gstreamer1.0-libcamera
+  # Tenkawa: this combination seems to work   rpicam-apps  libcamera-ipa libcamera0.3 gstreamer1.0-libcamera
   tags:
     - streaming
 
@@ -38,6 +38,6 @@
 - name: enable cam.service
   systemd:
     name: fpgas-cam.service
-    enabled: yes
+    enabled: true
   tags:
     cam

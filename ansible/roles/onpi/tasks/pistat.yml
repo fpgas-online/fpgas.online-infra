@@ -14,7 +14,7 @@
 - name: enable and start services
   systemd:
     name: "{{ item }}"
-    enabled: yes
+    enabled: true
     state: started
   with_items:
     - pistat_ssh
@@ -23,4 +23,3 @@
     - pistat_shutdown
   tags:
     - pistat
-

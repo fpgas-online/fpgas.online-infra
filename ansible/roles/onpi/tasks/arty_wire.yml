@@ -7,7 +7,7 @@
   with_items:
     - arty_wire.sh
   tags:
-  - ia
+    - ia
 
 - name: install systemd arty_wire service
   copy:
@@ -15,11 +15,11 @@
     dest: /etc/systemd/system/arty_wire.service
   notify: reload-systemd
   tags:
-  - ia
+    - ia
 
 - name: enable arty_wire.service
   systemd:
     name: arty_wire.service
-    enabled: yes
+    enabled: true
   tags:
-  - ia
+    - ia

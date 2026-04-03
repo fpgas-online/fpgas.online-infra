@@ -3,7 +3,7 @@
 - name: pip install gunicorn
   pip:
     name:
-    - gunicorn
+      - gunicorn
     virtualenv: "{{ django_dir }}/venv"
 
 - name: copy gunicorn socket file to /etc/systemd/system/gunicorn.socket
@@ -21,8 +21,8 @@
 - name: Enable services
   systemd:
     service: "{{ item }}"
-    daemon_reload: yes
-    enabled: yes
+    daemon_reload: true
+    enabled: true
     state: started
   with_items:
     - gunicorn.socket
@@ -32,7 +32,7 @@
 # Not sure what needs to be started.  start both above fine?
 - name: force systemd to reread configs
   systemd:
-    daemon_reload: yes
+    daemon_reload: true
 - name: Start/Make sure the gunicorn.socket systemd service is running
   systemd:
     name: gunicorn.socket

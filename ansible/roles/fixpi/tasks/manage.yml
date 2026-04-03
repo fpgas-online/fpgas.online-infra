@@ -4,7 +4,7 @@
     name:
       - qemu-user-static
   tags:
-  - qemu
+    - qemu
 
 - name: install scripts to manage pi states
   copy:
@@ -12,13 +12,13 @@
     dest: "/usr/local/sbin/{{ item }}"
     mode: preserve
   with_items:
-   - maintenance.sh
-   - production.sh
-   - chroot-mount-pi-fs.bash
+    - maintenance.sh
+    - production.sh
+    - chroot-mount-pi-fs.bash
   tags:
-  - manage
-  - qemu
+    - manage
+    - qemu
 
 - name: put the pi boot system into maintenance mode
   command: maintenance.sh
-  when: False
+  when: false

@@ -14,7 +14,7 @@
   args:
     creates: "{{nfs_root}}/root/etc/ssh/password.txt"
   tags:
-  - pipw
+    - pipw
 
 - name: enable sshd
   file:
@@ -25,7 +25,7 @@
   get_url:
     url: "https://raw.githubusercontent.com/RPi-Distro/raspberrypi-sys-mods/{{ dist }}/debian/raspberrypi-sys-mods.sshswitch.service"
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/sshswitch.service"
-  when: False
+  when: false
 
 - name: sshd password settings
   copy:
@@ -37,7 +37,7 @@
     name: "{{ user_name }}"
     generate_ssh_key: true  # This will not overwrite an existing SSH key.
   tags:
-  - keys
+    - keys
 
 - name: create .ssh dirs
   file:
@@ -47,7 +47,7 @@
     - root
     - home/pi
   tags:
-  - keys
+    - keys
 
 - name: Generate ssh keys for pi users pi and root
   community.crypto.openssh_keypair:
@@ -56,7 +56,7 @@
     - root
     - home/pi
   tags:
-  - keys
+    - keys
 
 - name: Set authorized key for pi root user
   ansible.posix.authorized_key:
@@ -67,19 +67,19 @@
   with_items:
     - root
   tags:
-  - keys
+    - keys
   when: false
 
 - name: Copy keys to pi pi and root authorized_keys
   ansible.builtin.copy:
     remote_src: true
-    src:  "/home/{{ user_name }}/.ssh/id_rsa.pub"
+    src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
     dest: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
   with_items:
     - root
     - home/pi
   tags:
-  - keys
+    - keys
 
 - name: set perms
   ansible.builtin.file:
@@ -90,5 +90,4 @@
   with_items:
     - home/pi
   tags:
-  - keys
-
+    - keys

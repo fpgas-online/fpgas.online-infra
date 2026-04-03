@@ -3,7 +3,7 @@
 - name: pip install daphne
   pip:
     name:
-    - daphne
+      - daphne
     virtualenv: "{{ django_dir }}/venv"
 
 - name: copy daphne socket file to /etc/systemd/system/daphne.socket
@@ -21,8 +21,8 @@
 - name: Enable services
   systemd:
     service: "{{ item }}"
-    daemon_reload: yes
-    enabled: yes
+    daemon_reload: true
+    enabled: true
     state: started
   with_items:
     - daphne.socket

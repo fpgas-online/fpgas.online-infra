@@ -11,8 +11,7 @@
 
 - name: reload-systemd
   systemd:
-    daemon_reload: yes
+    daemon_reload: true
 
 - name: Mount all
   ansible.builtin.command: mount -a
-

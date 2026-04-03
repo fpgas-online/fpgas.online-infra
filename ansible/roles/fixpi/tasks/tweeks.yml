@@ -21,17 +21,17 @@
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
   tags:
-  - hostname
-  - fixpi
+    - hostname
+    - fixpi
 
-#- name: pi etc/hosts
-#  lineinfile:
-#    path: "{{ nfs_root }}/root/etc/hosts"
-#    line: "127.0.1.1 pi{{ item.port }}"
-#  with_items: "{{ switch.nos }}"
-#  tags:
-#  - hostname
-#  - fixpi
+# - name: pi etc/hosts
+#   lineinfile:
+#     path: "{{ nfs_root }}/root/etc/hosts"
+#     line: "127.0.1.1 pi{{ item.port }}"
+#   with_items: "{{ switch.nos }}"
+#   tags:
+#   - hostname
+#   - fixpi
 
 - name: set pistat_host in /etc/environment
   lineinfile:
@@ -40,22 +40,22 @@
     create: true
     line: "pistat_host={{domain_name}}"
   tags:
-  - hostname
-  - fixpi
+    - hostname
+    - fixpi
 
 - name: etc overrides
   copy:
     src: "files/etc/"
     dest: "{{ nfs_root }}/root/etc/"
   tags:
-  - fixpi
+    - fixpi
 
 - name: resolve.conf
   template:
     src: templates/resolve.conf.j2
     dest: "{{ nfs_root }}/root/etc/resolve.conf"
   tags:
-  - fixpi
+    - fixpi
 
 - name: add time to bash prompt
   lineinfile:
@@ -64,8 +64,8 @@
     line: '{% raw %}PS1="\D{%T} $PS1"{% endraw %}'
   when: true
   tags:
-  - bashrc
-  - fixpi
+    - bashrc
+    - fixpi
 
 - name: config.txt disable bluetooth, ensable uart
   ansible.builtin.lineinfile:
@@ -76,7 +76,7 @@
     - enable_uart=1
     - uart_2ndstage=1
   tags:
-  - fixpi
+    - fixpi
 
 # the rest of these tasks config the server to monitor client boot spew
 
@@ -85,7 +85,7 @@
     path: /boot/firmware/config.txt
   register: is_pi
   tags:
-  - ispi
+    - ispi
 
 - name: enable /dev/serial0
   ansible.builtin.lineinfile:
@@ -96,7 +96,7 @@
     - dtoverlay=disable-bt
   when: is_pi.stat.exists
   tags:
-  - ispi
+    - ispi
 
 # https://bugs.debian.org/667616
 # brltty greedily grabs serial ports, ftdi_sio loses connection
@@ -126,7 +126,7 @@
     state: stopped
     name: serial-getty@ttyAMA0.service
   tags:
-  - ispi
+    - ispi
 
 - name: Git checkout this repo for safer 2 hour onpi
   ansible.builtin.git:
@@ -136,7 +136,7 @@
     single_branch: true
     accept_hostkey: true
     force: true
-      #  args:
-      # creates: "/home/{{ user_name }}/pici"
+    # args:
+    # creates: "/home/{{ user_name }}/pici"
 
- # ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts
+# ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts

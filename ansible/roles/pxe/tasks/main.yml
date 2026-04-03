@@ -18,4 +18,3 @@
     src: templates/switch.conf.j2
     dest: /etc/dnsmasq.d/switch.conf
   notify: restart dnsmasq
-

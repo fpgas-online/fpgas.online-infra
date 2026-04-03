@@ -58,79 +58,77 @@ switch:
     # pi for maintenance.sh
     mpi_port: 3
     mpi_ip: "{{ pib_network }}.{{ 100+3 }}"
-      # mpi_ip: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
+    # mpi_ip: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
 
     nos:
-    - { port:  2, mac: "b8:27:eb:2f:5d:08", sn: 042f5d08,
-        model: "Raspberry_Pi_3_Model_B_Rev_1",
-        loc: "front 1", cable_color: "grey" }
+        - {port: 2, mac: "b8:27:eb:2f:5d:08", sn: 042f5d08,
+           model: "Raspberry_Pi_3_Model_B_Rev_1",
+           loc: "front 1", cable_color: "grey"}
 
-    - { port:  3, mac: "dc:a6:32:05:32:45", sn: f1b7bb5a,
-        model: "Raspberry_Pi_4_Model_B_Rev_1",
-        loc: "front 2", cable_color: "white"}
+        - {port: 3, mac: "dc:a6:32:05:32:45", sn: f1b7bb5a,
+           model: "Raspberry_Pi_4_Model_B_Rev_1",
+           loc: "front 2", cable_color: "white"}
 
-    - { port:  5, mac: "b8:27:eb:d4:f1:74", sn: 9ed4f174,
-        model: "Raspberry_Pi_3_Model_B_Rev_1",
-        loc: "front 4", cable_color: "white" }
+        - {port: 5, mac: "b8:27:eb:d4:f1:74", sn: 9ed4f174,
+           model: "Raspberry_Pi_3_Model_B_Rev_1",
+           loc: "front 4", cable_color: "white"}
 
-    - { port:  7, mac: "b8:27:eb:33:51:27", sn: 48335127,
-        model: "Raspberry_Pi_3_Model_B_Plus_Rev_1",
-        loc: "front 5", cable_color: "blue" }
+        - {port: 7, mac: "b8:27:eb:33:51:27", sn: 48335127,
+           model: "Raspberry_Pi_3_Model_B_Plus_Rev_1",
+           loc: "front 5", cable_color: "blue"}
 
-    - { port:  9, mac: "b8:27:eb:a3:51:b4", sn: 8da351b4,
-        model: "Raspberry_Pi_3_Model_B_Plus_Rev_1",
-        loc: "front 6", cable_color: "blue" }
+        - {port: 9, mac: "b8:27:eb:a3:51:b4", sn: 8da351b4,
+           model: "Raspberry_Pi_3_Model_B_Plus_Rev_1",
+           loc: "front 6", cable_color: "blue"}
 
-    - { port: 11, mac: "b8:27:eb:51:01:df", sn: 265101df,
-        model: "Raspberry_Pi_3_Model_B_Rev_1",
-        loc: "front 7", cable_color: "blue" }
+        - {port: 11, mac: "b8:27:eb:51:01:df", sn: 265101df,
+           model: "Raspberry_Pi_3_Model_B_Rev_1",
+           loc: "front 7", cable_color: "blue"}
 
-    - { port: 13, mac: "b8:27:eb:68:fc:e7", sn: f168fce7,
-        model: "Raspberry_Pi_3_Model_B_Rev_1",
-        loc: "front 8", cable_color: "white" }
+        - {port: 13, mac: "b8:27:eb:68:fc:e7", sn: f168fce7,
+           model: "Raspberry_Pi_3_Model_B_Rev_1",
+           loc: "front 8", cable_color: "white"}
 
-    - { port: 21, mac: "2c:cf:67:39:18:66", sn: 88f393d3,
-        model: "pi4 tt06",
-        loc: "shelf", cable_color: "glue" }
+        - {port: 21, mac: "2c:cf:67:39:18:66", sn: 88f393d3,
+           model: "pi4 tt06",
+           loc: "shelf", cable_color: "glue"}
 
-          # - { port: 23, mac: "xxx", sn: 88f393d3,
-          #  model: "Raspberry_Pi_3_Model_B_Rev_1",
-          # loc: "shelf", cable_color: "glue" }
+        # - {port: 23, mac: "xxx", sn: 88f393d3,
+        #    model: "Raspberry_Pi_3_Model_B_Rev_1",
+        #    loc: "shelf", cable_color: "glue"}
 
-          #      - { port: 21, mac: "b8:27:eb:5f:de:85", sn: 7d5fde85,
-          #        model: "",
-          # loc: "back 7", cable_color: "blue" }
+        # - {port: 21, mac: "b8:27:eb:5f:de:85", sn: 7d5fde85,
+        #    model: "",
+        #    loc: "back 7", cable_color: "blue"}
 
-          # - { port: 23, mac: "b8:27:eb:0c:f8:43", sn: 9b0cf843,
-          #model: "Raspberry_Pi_3_Model_B_Rev_1",
-          #loc: "back 8", cable_color: "grey" }
+        # - {port: 23, mac: "b8:27:eb:0c:f8:43", sn: 9b0cf843,
+        #    model: "Raspberry_Pi_3_Model_B_Rev_1",
+        #    loc: "back 8", cable_color: "grey"}
 
-          #     - { port: , mac: "", sn: ,
-          # model: "",
-          # loc: "", cable_color: "" }
-
-
-    - { port: 14 , mac: "2c:cf:67:37:d4:bd", sn: "d00eb762",
-        model: "CM4 Rev 1.1 4GB",
-        loc: "blade box", cable_color: "blue" }
-
-    - { port: 16, mac: "2c:cf:67:fb:91:e5", sn: "cb291e63",
-        model: "CM5 Lite Rev 1.0 8GB",
-        loc: "blade box", cable_color: "blue" }
-
-    - { port: 18, mac: "2c:cf:67:37:d5:08", sn: "4e45f174",
-        model: "CM4 Rev 1.1 4GB",
-        loc: "blade box", cable_color: "blue" }
-
-    - { port: 20, mac: "2c:cf:67:fd:1e:be", sn: "de59093d",
-        model: "CM5 Lite Rev 1.0 8GB",
-        loc: "blade box", cable_color: "blue" }
+        # - {port: , mac: "", sn: ,
+        #    model: "",
+        #    loc: "", cable_color: ""}
 
 
+        - {port: 14, mac: "2c:cf:67:37:d4:bd", sn: "d00eb762",
+           model: "CM4 Rev 1.1 4GB",
+           loc: "blade box", cable_color: "blue"}
 
-    # - { port: 19, mac: "b8:27:eb:69:79:a0", sn: 426979a0, loc: "back 8", cable_color: "blue" }
-    # - { port: ?, mac: "b8:27:eb:5a:26:5b", sn: 035a265b }
-    # - { port: ?, mac: "e4:5f:01:64:76:05", sn: e897e1d3, loc: "front 3", cable_color: "white" }
+        - {port: 16, mac: "2c:cf:67:fb:91:e5", sn: "cb291e63",
+           model: "CM5 Lite Rev 1.0 8GB",
+           loc: "blade box", cable_color: "blue"}
+
+        - {port: 18, mac: "2c:cf:67:37:d5:08", sn: "4e45f174",
+           model: "CM4 Rev 1.1 4GB",
+           loc: "blade box", cable_color: "blue"}
+
+        - {port: 20, mac: "2c:cf:67:fd:1e:be", sn: "de59093d",
+           model: "CM5 Lite Rev 1.0 8GB",
+           loc: "blade box", cable_color: "blue"}
+
+    # - {port: 19, mac: "b8:27:eb:69:79:a0", sn: 426979a0, loc: "back 8", cable_color: "blue"}
+    # - {port: ?, mac: "b8:27:eb:5a:26:5b", sn: 035a265b}
+    # - {port: ?, mac: "e4:5f:01:64:76:05", sn: e897e1d3, loc: "front 3", cable_color: "white"}
 
 
     SNMP_SWITCH_SECURITY_LEVEL: authPriv
@@ -166,5 +164,3 @@ pi_pw: !vault |
           64383532313334616135323365363465323431656635396438303939363138303537396461386334
           3939353338653930370a623433633733333832616434343837666232616564346639666262643261
           6135
-
-

@@ -21,7 +21,7 @@
     removes: "{{ nfs_root }}/{{ item }}"
     creates: "{{ nfs_root }}/{{ item }}.org"
   with_items:
-#    - "boot/config.txt"
+    # - "boot/config.txt"
     - "boot/cmdline.txt"
     - "boot/user-data"
     - "root/fstab"
@@ -55,5 +55,3 @@
   tags:
     - netboot
     - qemu
-
-

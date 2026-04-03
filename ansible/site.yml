@@ -1,26 +1,25 @@
 ---
 - hosts: nbp
   roles:
-  - firewall
-  - nfs
-  - img
-  - fixpi
-  - pxe
+    - firewall
+    - nfs
+    - img
+    - fixpi
+    - pxe
 
 - hosts: uhubctl
   roles:
-  - uhubctl
+    - uhubctl
 
 - hosts: pig
   roles:
-  - site
-  - wssh
-  - cam/stream-server
-  # ci role removed — replaced by fpgas-online/fpgas.online-test-designs
+    - site
+    - wssh
+    - cam/stream-server
+    # ci role removed — replaced by fpgas-online/fpgas.online-test-designs
 
 - hosts: pi
   roles:
-  - fpgas-apt
-  - cam/pi
-  - onpi
-
+    - fpgas-apt
+    - cam/pi
+    - onpi

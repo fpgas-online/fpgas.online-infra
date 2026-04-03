@@ -5,4 +5,3 @@
     path: /boot/firmware/cmdline.txt
     regexp: "nfsvers=4.2"
     replace: ""
-
