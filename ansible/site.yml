@@ -16,7 +16,7 @@
   - site
   - wssh
   - cam/stream-server
-  - ci
+  # ci role removed — replaced by fpgas-online/fpgas.online-test-designs
 
 - hosts: pi
   roles:
