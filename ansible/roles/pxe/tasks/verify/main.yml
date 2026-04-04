@@ -76,12 +76,12 @@
 
 - name: Check efi-arm64.conf exists for UEFI PXE test clients
   stat:
-    path: /srv/tftp/grub/efi-arm64.conf
+    path: /etc/dnsmasq.d/efi-arm64.conf
   register: pxe_efi_conf_stat
   when: pxe_test_clients is defined
 
 - name: Assert efi-arm64.conf exists
   assert:
     that: pxe_efi_conf_stat.stat.exists
-    fail_msg: "/srv/tftp/grub/efi-arm64.conf not found"
+    fail_msg: "/etc/dnsmasq.d/efi-arm64.conf not found"
   when: pxe_test_clients is defined
