@@ -30,6 +30,7 @@ users:
 
 packages:
   - python3
+  - git
   - qemu-guest-agent
 
 runcmd:
