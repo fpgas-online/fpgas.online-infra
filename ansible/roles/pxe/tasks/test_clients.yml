@@ -1,0 +1,54 @@
+---
+# UEFI PXE boot support for QEMU aarch64 test clients.
+# Only included when pxe_test_clients is defined.
+
+- name: Install GRUB EFI arm64 binary
+  apt:
+    name:
+      - grub-efi-arm64-bin
+  tags:
+    - pxe-test
+
+- name: Create GRUB TFTP directory
+  file:
+    path: /srv/tftp/grub
+    state: directory
+  tags:
+    - pxe-test
+
+- name: Copy grubaa64.efi to TFTP root
+  copy:
+    src: /usr/lib/grub/arm64-efi/monolithic/grubnetaa64.efi
+    dest: /srv/tftp/grubaa64.efi
+    remote_src: true
+  tags:
+    - pxe-test
+
+- name: Template GRUB config for test clients
+  template:
+    src: templates/grub.cfg.j2
+    dest: /srv/tftp/grub/grub.cfg
+  notify: restart dnsmasq
+  tags:
+    - pxe-test
+
+- name: Add EFI arm64 architecture match to dnsmasq
+  copy:
+    content: |
+      # QEMU aarch64 UEFI PXE boot support
+      dhcp-match=set:efi-arm64,option:client-arch,11
+      dhcp-boot=tag:efi-arm64,grubaa64.efi
+    dest: /etc/dnsmasq.d/efi-arm64.conf
+  notify: restart dnsmasq
+  tags:
+    - pxe-test
+
+- name: Add DHCP host entries for test clients
+  lineinfile:
+    path: /etc/dnsmasq.d/pibs.conf
+    line: "dhcp-host={{ item.mac }},{{ item.name }},{{ item.ip }}"
+    create: false
+  with_items: "{{ pxe_test_clients }}"
+  notify: restart dnsmasq
+  tags:
+    - pxe-test
