@@ -109,16 +109,19 @@ dhcp-boot=tag:efi-arm64,grubaa64.efi
 ```
 set default=0
 set timeout=3
-menuentry "NFS Boot (test)" {
-    linux /<serial>/kernel8.img root=/dev/nfs nfsroot=10.21.0.1:/srv/nfs/rpi/bookworm/root,nfsvers=3 ro ip=dhcp rootwait console=ttyAMA0,115200 overlayroot=tmpfs
-    initrd /<serial>/initrd.img
+{% for client in pxe_test_clients %}
+menuentry "NFS Boot ({{ client.name }})" {
+    linux /{{ client.sn }}/kernel8.img root=/dev/nfs nfsroot=10.21.0.1:{{ client.nfs_root }},nfsvers=3 ro ip=dhcp rootwait console={{ client.console }} overlayroot=tmpfs
+    initrd /{{ client.sn }}/initrd.img
 }
+{% endfor %}
 ```
 
-The kernel and initrd paths point at the **real RPi boot files** already in the TFTP
-tree (symlinked by fixpi). `kernel8.img` is the RPi's aarch64 kernel -- it is a
-standard aarch64 Image with broad hardware support, so it boots on both real RPi
-hardware and QEMU's `-machine virt`.
+Each test client entry has a `sn` field matching one of the `switch.nos` serial numbers,
+so the kernel+initrd paths resolve to the existing TFTP serial-number directories
+(symlinked by fixpi to the NFS root `/boot/`). `kernel8.img` is the RPi's aarch64
+kernel -- a standard aarch64 Image with broad hardware support that boots on both
+real RPi hardware and QEMU's `-machine virt`.
 
 The cmdline uses `console=ttyAMA0,115200` for QEMU's PL011 UART (real RPis use
 `serial0` which is a Pi-specific alias). Other parameters (nfsroot, overlayroot)
@@ -128,29 +131,30 @@ match production.
 
 ```
 /srv/tftp/
-  grubaa64.efi                # From grub-efi-arm64-bin package on server
-  grub/
-    grub.cfg                  # Templated by pxe role
-  <serial>/                   # Already exists -- fixpi symlinks RPi boot files here
+  grubaa64.efi                # Copied from /usr/lib/grub/arm64-efi/grubaa64.efi
+  grub/                       #   (installed by grub-efi-arm64-bin on the server)
+    grub.cfg                  # Templated by pxe role from pxe_test_clients
+  <sn>/                       # Already exists -- fixpi symlinks RPi boot files here
     kernel8.img               # Real RPi aarch64 kernel (already in NFS root /boot/)
     initrd.img                # Real RPi initrd (already in NFS root /boot/)
     ...
 ```
 
-Only `grubaa64.efi` and `grub/grub.cfg` are new. The kernel and initrd are the same
-files that real RPis boot from, served from the existing TFTP serial-number directory.
-`grubaa64.efi` comes from the `grub-efi-arm64-bin` package, installable directly on
-the x86_64 server.
+Only `grubaa64.efi` and `grub/grub.cfg` are new. The pxe role extension adds tasks to:
+1. Install `grub-efi-arm64-bin` package on the server
+2. Copy `grubaa64.efi` from the package install path to `/srv/tftp/grubaa64.efi`
+3. Template `grub.cfg` from `pxe_test_clients` entries
 
 **`pxe_test_clients` variable schema:**
 
 ```yaml
 pxe_test_clients:
   - name: test-pi
+    sn: "deadbeef"                 # Must match an entry in switch.nos
     mac: "52:54:00:12:34:56"       # QEMU NIC MAC (matched in dnsmasq dhcp-host)
     ip: "10.21.0.128"              # Static DHCP assignment
     nfs_root: "/srv/nfs/rpi/bookworm/root"
-    console: "ttyAMA0,115200"
+    console: "ttyAMA0,115200"      # QEMU PL011 UART (not Pi's serial0)
 ```
 
 **Architecture:** The NFS root contains armhf (32-bit) userspace binaries since
@@ -358,12 +362,17 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `eth_local` | Internal NIC name | `eth1` (QEMU socket NIC) |
 | `eth_local_address` | Internal IP | `10.21.0.1` |
 | `eth_local_mac_address` | Internal NIC MAC | Matches QEMU socket NIC MAC |
-| `eth_local_netmask` | Internal NIC netmask | `255.255.255.0` |
+| `eth_local_netmask` | CIDR prefix length | `24` (not dotted-decimal) |
+| `eth_uplink_static_address` | Uplink IP (for nftables) | `203.0.113.1` (TEST-NET-3) |
+| `pib_network` | Pi network prefix | `10.21.0` |
 | `firewall_internal_networks` | nftables allowed nets | `["10.21.0.0/24"]` |
 | `switch.host` | PoE switch address | `10.21.0.200` (unreachable, OK) |
-| `switch.nos` | Pi list with sn, mac, port | 1-2 fake entries with dummy serials |
+| `switch.mac` | PoE switch MAC | `00:00:00:00:00:00` (dummy) |
+| `switch.nos` | Pi list with sn, mac, port | 1-2 entries; `sn` must match `pxe_test_clients.sn` |
 | `pi_pw` | Pi user password hash | plaintext test value (not vault-encrypted) |
+| `user_name` | Pi system user | `testuser` |
 | `domain` | Server domain | `test.fpgas.online` |
+| `domain_name` | Hostname for pistat etc. | `test.fpgas.online` |
 | `django_dir` | Django install path | `/srv/www/pib` |
 | `letsencrypt_email` | certbot email | `test@test.fpgas.online` |
 | `pxe_test_clients` | QEMU PXE client config | See schema in Pi VM PXE Boot section |
@@ -477,6 +486,19 @@ The Pi phase is gated in CI since aarch64 TCG is slow; it always runs locally.
 
 Image caching covers both the Debian cloud images and the Raspberry Pi OS image
 downloaded by the `img` role, avoiding ~1.5GB of downloads on each CI run.
+
+## Known Pre-Existing Role Issues
+
+These issues exist in the current roles and must be addressed before or during
+implementation. They are not introduced by this spec.
+
+| Role | Issue | Impact on Testing |
+|------|-------|-------------------|
+| fixpi | `manage.yml` copies from `files/scripts/` directory that doesn't exist in the repo (maintenance.sh, production.sh, chroot-mount-pi-fs.bash) | fixpi will fail; scripts must be created or task must be skipped |
+| site | `tasks/main.yml` includes `switch.yml` which doesn't exist in `site/tasks/` | site role will fail; file must be created or include must be conditional |
+
+These should be fixed in the roles before running the VM test, or handled with
+`--skip-tags` during initial test development.
 
 ## Future Work
 
