@@ -2,6 +2,12 @@
 # UEFI PXE boot support for QEMU aarch64 test clients.
 # Only included when pxe_test_clients is defined.
 
+- name: Add arm64 architecture for cross-arch GRUB package
+  command: dpkg --add-architecture arm64
+  changed_when: true
+  tags:
+    - pxe-test
+
 - name: Install GRUB EFI arm64 binary
   apt:
     name:
@@ -17,11 +23,20 @@
   tags:
     - pxe-test
 
-- name: Copy grubaa64.efi to TFTP root
-  copy:
-    src: /usr/lib/grub/arm64-efi/monolithic/grubnetaa64.efi
-    dest: /srv/tftp/grubaa64.efi
-    remote_src: true
+- name: Find grubnetaa64.efi or grubaa64.efi
+  shell: find /usr/lib/grub/arm64-efi -name 'grub*aa64.efi' -type f 2>&1 || find /usr/lib/grub -name '*aa64*' -type f 2>&1
+  changed_when: false
+  register: grub_efi_find
+  tags:
+    - pxe-test
+
+- name: Build GRUB EFI binary for network boot
+  command: >
+    grub-mkimage
+    -O arm64-efi
+    -o /srv/tftp/grubaa64.efi
+    -p /grub
+    net tftp http linux normal configfile
   tags:
     - pxe-test
 
