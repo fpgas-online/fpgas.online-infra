@@ -83,21 +83,87 @@ UEFI PXE instead. The pxe role is extended to serve both:
 - Real RPis: existing `bootcode.bin` + serial-number TFTP paths
 - QEMU test clients: architecture-tagged `dhcp-boot` serving an aarch64 kernel+initrd
 
-This is controlled by a `pxe_test_clients` variable in the inventory. When present,
-the pxe role adds dnsmasq configuration for QEMU PXE clients (architecture tag 0x0B
-for ARM64 UEFI):
+This is controlled by a `pxe_test_clients` variable in the inventory. When defined,
+the pxe role adds dnsmasq and TFTP configuration for QEMU UEFI PXE clients.
+
+**UEFI PXE boot chain (three stages):**
+
+1. **dnsmasq DHCP** responds to ARM64 UEFI client (architecture 0x0B) with
+   `grubaa64.efi` as the boot filename
+2. **GRUB EFI** (`grubaa64.efi`) is TFTP-fetched and executed as a UEFI application.
+   It fetches `/grub/grub.cfg` over TFTP.
+3. **GRUB loads kernel+initrd** specified in grub.cfg, boots into NFS root
 
 ```
 # Added to dnsmasq config when pxe_test_clients is defined
 dhcp-match=set:efi-arm64,option:client-arch,11
-dhcp-boot=tag:efi-arm64,<aarch64-boot-path>
+dhcp-boot=tag:efi-arm64,grubaa64.efi
+
+# Existing RPi PXE service (arch 0) is left unchanged.
+# The architecture tag ensures UEFI clients get grubaa64.efi
+# while RPi clients continue to get bootcode.bin.
 ```
 
-**Architecture:** The NFS root contains armhf (32-bit) binaries since production uses
-Raspberry Pi OS armhf. The QEMU aarch64 VM can execute armhf binaries via the kernel's
-32-bit compatibility layer, so the NFS root is fully functional. The kernel and initrd
-served over TFTP must be aarch64 -- these are prepared by the fixpi role as part of
-the test client setup.
+**GRUB config** (`/srv/tftp/grub/grub.cfg`), templated by the pxe role:
+
+```
+set default=0
+set timeout=3
+menuentry "NFS Boot (test)" {
+    linux /<serial>/kernel8.img root=/dev/nfs nfsroot=10.21.0.1:/srv/nfs/rpi/bookworm/root,nfsvers=3 ro ip=dhcp rootwait console=ttyAMA0,115200 overlayroot=tmpfs
+    initrd /<serial>/initrd.img
+}
+```
+
+The kernel and initrd paths point at the **real RPi boot files** already in the TFTP
+tree (symlinked by fixpi). `kernel8.img` is the RPi's aarch64 kernel -- it is a
+standard aarch64 Image with broad hardware support, so it boots on both real RPi
+hardware and QEMU's `-machine virt`.
+
+The cmdline uses `console=ttyAMA0,115200` for QEMU's PL011 UART (real RPis use
+`serial0` which is a Pi-specific alias). Other parameters (nfsroot, overlayroot)
+match production.
+
+**TFTP tree additions** (when `pxe_test_clients` is defined):
+
+```
+/srv/tftp/
+  grubaa64.efi                # From grub-efi-arm64-bin package on server
+  grub/
+    grub.cfg                  # Templated by pxe role
+  <serial>/                   # Already exists -- fixpi symlinks RPi boot files here
+    kernel8.img               # Real RPi aarch64 kernel (already in NFS root /boot/)
+    initrd.img                # Real RPi initrd (already in NFS root /boot/)
+    ...
+```
+
+Only `grubaa64.efi` and `grub/grub.cfg` are new. The kernel and initrd are the same
+files that real RPis boot from, served from the existing TFTP serial-number directory.
+`grubaa64.efi` comes from the `grub-efi-arm64-bin` package, installable directly on
+the x86_64 server.
+
+**`pxe_test_clients` variable schema:**
+
+```yaml
+pxe_test_clients:
+  - name: test-pi
+    mac: "52:54:00:12:34:56"       # QEMU NIC MAC (matched in dnsmasq dhcp-host)
+    ip: "10.21.0.128"              # Static DHCP assignment
+    nfs_root: "/srv/nfs/rpi/bookworm/root"
+    console: "ttyAMA0,115200"
+```
+
+**Architecture:** The NFS root contains armhf (32-bit) userspace binaries since
+production uses Raspberry Pi OS armhf. The RPi `kernel8.img` is aarch64 and can
+execute armhf binaries via the kernel's 32-bit compatibility layer, so the NFS root
+is fully functional. This is the same kernel+userspace combination used in production.
+
+**overlayroot requirement:** The NFS export is read-only (`ro`). Production Pis use
+`overlayroot=tmpfs` to create a writable tmpfs overlay at boot. The `overlayroot`
+package must be pre-installed in the NFS root before the Pi VM boots. The fixpi role
+already uses qemu-user-static chroot to install packages into the NFS root -- the
+`overlayroot` package must be included in this step (added to fixpi if not already
+present).
 
 **QEMU launch (no disk):**
 
@@ -292,6 +358,7 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `eth_local` | Internal NIC name | `eth1` (QEMU socket NIC) |
 | `eth_local_address` | Internal IP | `10.21.0.1` |
 | `eth_local_mac_address` | Internal NIC MAC | Matches QEMU socket NIC MAC |
+| `eth_local_netmask` | Internal NIC netmask | `255.255.255.0` |
 | `firewall_internal_networks` | nftables allowed nets | `["10.21.0.0/24"]` |
 | `switch.host` | PoE switch address | `10.21.0.200` (unreachable, OK) |
 | `switch.nos` | Pi list with sn, mac, port | 1-2 fake entries with dummy serials |
@@ -299,7 +366,7 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `domain` | Server domain | `test.fpgas.online` |
 | `django_dir` | Django install path | `/srv/www/pib` |
 | `letsencrypt_email` | certbot email | `test@test.fpgas.online` |
-| `pxe_test_clients` | QEMU PXE client config | aarch64 boot path, kernel, initrd |
+| `pxe_test_clients` | QEMU PXE client config | See schema in Pi VM PXE Boot section |
 
 **Cloud-init must configure the second NIC** (the socket-listen interface) with
 static IP 10.21.0.1/24 before Ansible runs, so that roles referencing
@@ -374,10 +441,12 @@ ansible/
 - `ansible-core` -- already required
 - `paramiko` -- SSH wait/connection logic
 
-### Inside VMs (via cloud-init)
+### Inside Server VM (via cloud-init and Ansible)
 
 - `python3` -- required by Ansible
 - `qemu-guest-agent` -- back-channel debugging
+- `grub-efi-arm64-bin` -- provides grubaa64.efi for Pi PXE boot (installed by pxe role)
+- RPi kernel+initrd -- already in NFS root /boot/ (no additional package needed)
 
 ## CI Integration
 
