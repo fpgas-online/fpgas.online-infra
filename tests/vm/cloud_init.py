@@ -35,12 +35,15 @@ packages:
 
 runcmd:
   - systemctl enable --now qemu-guest-agent
+  - systemctl disable --now systemd-resolved
+  - rm -f /etc/resolv.conf
+  - echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
 write_files:
-  - path: /etc/network/interfaces.d/eth1.cfg
+  - path: /etc/network/interfaces.d/enp0s3.cfg
     content: |
-      auto eth1
-      iface eth1 inet static
+      auto enp0s3
+      iface enp0s3 inet static
         address {eth_local_ip}
 
 package_update: false
