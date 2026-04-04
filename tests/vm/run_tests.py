@@ -108,6 +108,8 @@ def phase_server(args, workdir: Path) -> VMManager | None:
         "-e", f"ansible_ssh_private_key_file={key_path}",
         "--become",
     ])
+    if args.skip_tags:
+        extra.extend(["--skip-tags", args.skip_tags])
 
     # Run site.yml
     rc = run_ansible("site.yml", inventory, "test-vm", extra)
@@ -216,6 +218,8 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
+    parser.add_argument("--skip-tags", type=str, default="cam",
+                        help="Comma-separated Ansible tags to skip (default: cam)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
     args = parser.parse_args()
