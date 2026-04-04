@@ -1,7 +1,4 @@
 ---
-- name: js video player
-  copy:
-    src: files/js/videojs-contrib-media-sources.js
-    dest: "{{ static_dir }}/videojs-contrib-media-sources.js"
-  tags:
-    - cam
+# videojs-contrib-media-sources.js is now part of the fpgas-online-site
+# pip package (pibfpgas/src/pibfpgas/static/js/) and is deployed via
+# Django's collectstatic. No manual file copy needed.
