@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: vm-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   vm-test:
     runs-on: ubuntu-latest
