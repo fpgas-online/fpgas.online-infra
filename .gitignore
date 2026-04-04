@@ -1,0 +1,3 @@
+# QEMU VM test images
+tests/vm/images/*.qcow2
+tests/vm/images/*.img*
