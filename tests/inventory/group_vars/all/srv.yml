@@ -1,0 +1,15 @@
+---
+
+img_host: http://downloads.raspberrypi.org
+dir_date: 2024-07-04
+release_date: "{{ dir_date }}"
+dist: bookworm
+
+img_path: "raspios_lite_armhf/images/raspios_lite_armhf-{{ dir_date }}"
+base_name: "{{ release_date }}-raspios-{{ dist }}-armhf-lite"
+img_name: "{{ base_name }}.img"
+zip_name: "{{ img_name }}.xz"
+
+user: pi
+
+nfs_root: "/srv/nfs/rpi/{{ dist }}"

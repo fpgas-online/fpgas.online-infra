@@ -1,0 +1,17 @@
+[nbp]
+test-vm ansible_host=127.0.0.1 ansible_port=2222 ansible_user=debian
+
+[uhubctl]
+test-vm
+
+[pig]
+test-vm
+
+[pi]
+test-pi ansible_host=10.21.0.128 ansible_user=testuser
+
+[all:vars]
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+
+[pi:vars]
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyJump=debian@127.0.0.1:2222
