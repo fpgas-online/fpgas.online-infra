@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# Core dnsmasq configuration for PXE boot
+
+# Listen on the internal network interface
+{% if eth_local is defined %}
+interface={{ eth_local }}
+{% endif %}
+bind-interfaces
+
+# DHCP range
+dhcp-range={{ dhcp_range }}
+
+# Enable TFTP
+enable-tftp
+tftp-root=/srv/tftp
+
+# Log DHCP transactions for debugging
+log-dhcp
+
+# Don't use /etc/resolv.conf - we are the DNS server
+no-resolv
+server=8.8.8.8

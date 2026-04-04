@@ -38,6 +38,8 @@ runcmd:
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf
+  - ip link set enp0s3 up
+  - ip addr add {eth_local_ip} dev enp0s3
   - mkdir -p /etc/letsencrypt/live/test.fpgas.online
   - openssl req -x509 -newkey rsa:2048 -keyout /etc/letsencrypt/live/test.fpgas.online/privkey.pem -out /etc/letsencrypt/live/test.fpgas.online/fullchain.pem -days 1 -nodes -subj "/CN=test.fpgas.online"
 
@@ -47,6 +49,14 @@ write_files:
       auto enp0s3
       iface enp0s3 inet static
         address {eth_local_ip}
+  - path: /etc/systemd/network/10-enp0s3.network
+    content: |
+      [Match]
+      Name=enp0s3
+      [Network]
+      Address={eth_local_ip}
+      [Link]
+      RequiredForOnline=no
 
 package_update: false
 package_upgrade: false

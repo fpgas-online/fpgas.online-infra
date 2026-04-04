@@ -6,6 +6,14 @@
   tags:
     - pxe
 
+- name: configure dnsmasq base (DHCP, TFTP)
+  template:
+    src: templates/dnsmasq-base.conf.j2
+    dest: /etc/dnsmasq.d/base.conf
+  notify: restart dnsmasq
+  tags:
+    - pxe
+
 - name: enable Raspberry Pi Boot
   copy:
     src: files/rpi.conf
