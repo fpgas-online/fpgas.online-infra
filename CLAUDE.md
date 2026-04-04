@@ -29,10 +29,14 @@ from other repos:
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
 - `ansible/roles/` -- All deployment roles
 
-### Deployment Target
+### Deployment Targets
 
-The primary server is `tweed.welland.mithis.com` (also `welland.fpgas.online`).
-Two network interfaces: eth-local (10.21.0.1, FPGA network) and eth-uplink (upstream).
+- **`welland.fpgas.online`** (`tweed.welland.mithis.com`) -- Welland, South Australia.
+  Two network interfaces: eth-local (10.21.0.1, FPGA network) and eth-uplink (upstream).
+  PoE switch: Netgear S3300. FPGA boards: Arty, NeTV2, Fomu, TT FPGA, Acorn CLE-215+.
+- **`ps1.fpgas.online`** (`val2`) -- Pumping Station: One hackerspace, Chicago, IL.
+  Two network interfaces: eth-local (10.21.0.1/24, RPi network) and eth-uplink (76.227.131.147/25).
+  PoE switch: Netgear FS728TPv2. FPGA boards: Arty A7, LiteFury.
 
 ## Conventions
 
