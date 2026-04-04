@@ -8,11 +8,16 @@
   tags:
     - pxe-test
 
+- name: Update apt cache after adding arm64 architecture
+  apt:
+    update_cache: true
+  tags:
+    - pxe-test
+
 - name: Install GRUB EFI arm64 binary
   apt:
     name:
-      - grub-efi-arm64-bin
-    update_cache: true
+      - grub-efi-arm64-bin:arm64
   tags:
     - pxe-test
 
