@@ -1,0 +1,41 @@
+---
+- name: Check nginx package installed
+  command: dpkg -s nginx
+  changed_when: false
+  register: site_dpkg_nginx
+
+- name: Assert nginx is installed
+  assert:
+    that: site_dpkg_nginx.rc == 0
+    fail_msg: "nginx package is not installed"
+
+- name: Check nginx service active
+  command: systemctl is-active nginx
+  changed_when: false
+  register: site_nginx_active
+  failed_when: false
+
+- name: Assert nginx service is active
+  assert:
+    that: site_nginx_active.stdout == "active"
+    fail_msg: "nginx service is not active (got: {{ site_nginx_active.stdout }})"
+
+- name: Check Django venv python exists
+  stat:
+    path: "{{ django_dir }}/venv/bin/python"
+  register: site_venv_python_stat
+
+- name: Assert Django venv python exists
+  assert:
+    that: site_venv_python_stat.stat.exists
+    fail_msg: "Django venv python not found at {{ django_dir }}/venv/bin/python"
+
+- name: Check gunicorn.socket status
+  command: systemctl status gunicorn.socket
+  changed_when: false
+  register: site_gunicorn_socket_status
+  failed_when: false
+
+- name: Report gunicorn.socket status
+  debug:
+    msg: "gunicorn.socket status: {{ site_gunicorn_socket_status.stdout_lines | default([]) }}"

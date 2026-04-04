@@ -1,0 +1,10 @@
+---
+- name: Check nginx modules-enabled directory exists
+  stat:
+    path: /etc/nginx/modules-enabled
+  register: cam_nginx_modules_stat
+
+- name: Assert nginx modules-enabled directory exists
+  assert:
+    that: cam_nginx_modules_stat.stat.exists and cam_nginx_modules_stat.stat.isdir
+    fail_msg: "/etc/nginx/modules-enabled directory not found"

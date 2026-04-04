@@ -1,0 +1,87 @@
+---
+- name: Check dnsmasq service active
+  command: systemctl is-active dnsmasq
+  changed_when: false
+  register: pxe_dnsmasq_active
+  failed_when: false
+
+- name: Assert dnsmasq service is active
+  assert:
+    that: pxe_dnsmasq_active.stdout == "active"
+    fail_msg: "dnsmasq service is not active (got: {{ pxe_dnsmasq_active.stdout }})"
+
+- name: Check /etc/dnsmasq.d/rpi.conf exists
+  stat:
+    path: /etc/dnsmasq.d/rpi.conf
+  register: pxe_rpi_conf_stat
+
+- name: Assert /etc/dnsmasq.d/rpi.conf exists
+  assert:
+    that: pxe_rpi_conf_stat.stat.exists
+    fail_msg: "/etc/dnsmasq.d/rpi.conf not found"
+
+- name: Check /etc/dnsmasq.d/pibs.conf exists
+  stat:
+    path: /etc/dnsmasq.d/pibs.conf
+  register: pxe_pibs_conf_stat
+
+- name: Assert /etc/dnsmasq.d/pibs.conf exists
+  assert:
+    that: pxe_pibs_conf_stat.stat.exists
+    fail_msg: "/etc/dnsmasq.d/pibs.conf not found"
+
+- name: Read /etc/dnsmasq.d/pibs.conf
+  command: cat /etc/dnsmasq.d/pibs.conf
+  changed_when: false
+  register: pxe_pibs_content
+
+- name: Assert pibs.conf contains dhcp-host=
+  assert:
+    that: "'dhcp-host=' in pxe_pibs_content.stdout"
+    fail_msg: "/etc/dnsmasq.d/pibs.conf does not contain 'dhcp-host='"
+
+- name: Check /srv/tftp/bootcode.bin exists
+  stat:
+    path: /srv/tftp/bootcode.bin
+  register: pxe_bootcode_stat
+
+- name: Assert /srv/tftp/bootcode.bin exists
+  assert:
+    that: pxe_bootcode_stat.stat.exists
+    fail_msg: "/srv/tftp/bootcode.bin not found"
+
+- name: Check grubaa64.efi exists for UEFI PXE test clients
+  stat:
+    path: /srv/tftp/grubaa64.efi
+  register: pxe_grub_efi_stat
+  when: pxe_test_clients is defined
+
+- name: Assert grubaa64.efi exists
+  assert:
+    that: pxe_grub_efi_stat.stat.exists
+    fail_msg: "/srv/tftp/grubaa64.efi not found"
+  when: pxe_test_clients is defined
+
+- name: Check grub/grub.cfg exists for UEFI PXE test clients
+  stat:
+    path: /srv/tftp/grub/grub.cfg
+  register: pxe_grub_cfg_stat
+  when: pxe_test_clients is defined
+
+- name: Assert grub/grub.cfg exists
+  assert:
+    that: pxe_grub_cfg_stat.stat.exists
+    fail_msg: "/srv/tftp/grub/grub.cfg not found"
+  when: pxe_test_clients is defined
+
+- name: Check efi-arm64.conf exists for UEFI PXE test clients
+  stat:
+    path: /srv/tftp/grub/efi-arm64.conf
+  register: pxe_efi_conf_stat
+  when: pxe_test_clients is defined
+
+- name: Assert efi-arm64.conf exists
+  assert:
+    that: pxe_efi_conf_stat.stat.exists
+    fail_msg: "/srv/tftp/grub/efi-arm64.conf not found"
+  when: pxe_test_clients is defined

@@ -1,0 +1,41 @@
+---
+- name: Check nftables package installed
+  command: dpkg -s nftables
+  changed_when: false
+  register: firewall_dpkg_nftables
+
+- name: Assert nftables is installed
+  assert:
+    that: firewall_dpkg_nftables.rc == 0
+    fail_msg: "nftables package is not installed"
+
+- name: Check nftables service active
+  command: systemctl is-active nftables
+  changed_when: false
+  register: firewall_nftables_active
+  failed_when: false
+
+- name: Assert nftables service is active
+  assert:
+    that: firewall_nftables_active.stdout == "active"
+    fail_msg: "nftables service is not active (got: {{ firewall_nftables_active.stdout }})"
+
+- name: Get nft ruleset
+  command: nft list ruleset
+  changed_when: false
+  register: firewall_nft_ruleset
+
+- name: Assert nft ruleset has chain input
+  assert:
+    that: "'chain input' in firewall_nft_ruleset.stdout"
+    fail_msg: "nft ruleset missing 'chain input'"
+
+- name: Assert nft ruleset has chain internal_networks
+  assert:
+    that: "'chain internal_networks' in firewall_nft_ruleset.stdout"
+    fail_msg: "nft ruleset missing 'chain internal_networks'"
+
+- name: Assert nft ruleset has masquerade
+  assert:
+    that: "'masquerade' in firewall_nft_ruleset.stdout"
+    fail_msg: "nft ruleset missing 'masquerade'"

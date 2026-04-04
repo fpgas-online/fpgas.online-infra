@@ -1,0 +1,20 @@
+---
+- name: Check uhubctl package installed
+  command: dpkg -s uhubctl
+  changed_when: false
+  register: uhubctl_dpkg
+
+- name: Assert uhubctl is installed
+  assert:
+    that: uhubctl_dpkg.rc == 0
+    fail_msg: "uhubctl package is not installed"
+
+- name: Check udev rules file exists
+  stat:
+    path: /etc/udev/rules.d/52-uhubctl.rules
+  register: uhubctl_udev_stat
+
+- name: Assert udev rules file exists
+  assert:
+    that: uhubctl_udev_stat.stat.exists
+    fail_msg: "/etc/udev/rules.d/52-uhubctl.rules not found"

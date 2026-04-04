@@ -1,0 +1,20 @@
+---
+- name: Check wssh.socket unit file exists
+  stat:
+    path: /etc/systemd/system/wssh.socket
+  register: wssh_socket_stat
+
+- name: Assert wssh.socket unit file exists
+  assert:
+    that: wssh_socket_stat.stat.exists
+    fail_msg: "/etc/systemd/system/wssh.socket not found"
+
+- name: Check wssh.service unit file exists
+  stat:
+    path: /etc/systemd/system/wssh.service
+  register: wssh_service_stat
+
+- name: Assert wssh.service unit file exists
+  assert:
+    that: wssh_service_stat.stat.exists
+    fail_msg: "/etc/systemd/system/wssh.service not found"

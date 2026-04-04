@@ -1,0 +1,52 @@
+---
+- name: Check nfs-kernel-server package installed
+  command: dpkg -s nfs-kernel-server
+  changed_when: false
+  register: nfs_dpkg_nfsd
+
+- name: Assert nfs-kernel-server is installed
+  assert:
+    that: nfs_dpkg_nfsd.rc == 0
+    fail_msg: "nfs-kernel-server package is not installed"
+
+- name: Check nfs-kernel-server service active
+  command: systemctl is-active nfs-kernel-server
+  changed_when: false
+  register: nfs_server_active
+  failed_when: false
+
+- name: Assert nfs-kernel-server service is active
+  assert:
+    that: nfs_server_active.stdout == "active"
+    fail_msg: "nfs-kernel-server service is not active (got: {{ nfs_server_active.stdout }})"
+
+- name: Check rpcbind service active
+  command: systemctl is-active rpcbind
+  changed_when: false
+  register: nfs_rpcbind_active
+  failed_when: false
+
+- name: Assert rpcbind service is active
+  assert:
+    that: nfs_rpcbind_active.stdout == "active"
+    fail_msg: "rpcbind service is not active (got: {{ nfs_rpcbind_active.stdout }})"
+
+- name: Read /etc/exports
+  command: cat /etc/exports
+  changed_when: false
+  register: nfs_exports_content
+
+- name: Assert /etc/exports contains nfs_root
+  assert:
+    that: "nfs_root in nfs_exports_content.stdout"
+    fail_msg: "/etc/exports does not contain nfs_root path {{ nfs_root }}"
+
+- name: Check NFS root directory exists
+  stat:
+    path: "{{ nfs_root }}"
+  register: nfs_root_stat
+
+- name: Assert NFS root directory exists
+  assert:
+    that: nfs_root_stat.stat.exists and nfs_root_stat.stat.isdir
+    fail_msg: "NFS root directory {{ nfs_root }} does not exist"

@@ -1,0 +1,20 @@
+---
+- name: Check nfs_root/root/bin/bash exists
+  stat:
+    path: "{{ nfs_root }}/root/bin/bash"
+  register: img_bash_stat
+
+- name: Assert nfs_root/root/bin/bash exists
+  assert:
+    that: img_bash_stat.stat.exists
+    fail_msg: "{{ nfs_root }}/root/bin/bash not found — Pi root filesystem may not be unpacked"
+
+- name: Check nfs_root/boot/kernel8.img exists
+  stat:
+    path: "{{ nfs_root }}/boot/kernel8.img"
+  register: img_kernel_stat
+
+- name: Assert nfs_root/boot/kernel8.img exists
+  assert:
+    that: img_kernel_stat.stat.exists
+    fail_msg: "{{ nfs_root }}/boot/kernel8.img not found — Pi boot image may not be unpacked"

@@ -1,0 +1,72 @@
+---
+- name: Check qemu-user-static package installed
+  command: dpkg -s qemu-user-static
+  changed_when: false
+  register: fixpi_dpkg_qemu
+
+- name: Assert qemu-user-static is installed
+  assert:
+    that: fixpi_dpkg_qemu.rc == 0
+    fail_msg: "qemu-user-static package is not installed"
+
+- name: Check maintenance.sh script exists
+  stat:
+    path: /usr/local/sbin/maintenance.sh
+  register: fixpi_maintenance_stat
+
+- name: Assert maintenance.sh exists
+  assert:
+    that: fixpi_maintenance_stat.stat.exists
+    fail_msg: "/usr/local/sbin/maintenance.sh not found"
+
+- name: Check production.sh script exists
+  stat:
+    path: /usr/local/sbin/production.sh
+  register: fixpi_production_stat
+
+- name: Assert production.sh exists
+  assert:
+    that: fixpi_production_stat.stat.exists
+    fail_msg: "/usr/local/sbin/production.sh not found"
+
+- name: Check chroot-mount-pi-fs.bash script exists
+  stat:
+    path: /usr/local/sbin/chroot-mount-pi-fs.bash
+  register: fixpi_chroot_stat
+
+- name: Assert chroot-mount-pi-fs.bash exists
+  assert:
+    that: fixpi_chroot_stat.stat.exists
+    fail_msg: "/usr/local/sbin/chroot-mount-pi-fs.bash not found"
+
+- name: Check /srv/tftp/bootcode.bin symlink exists
+  stat:
+    path: /srv/tftp/bootcode.bin
+  register: fixpi_bootcode_stat
+
+- name: Assert /srv/tftp/bootcode.bin symlink exists
+  assert:
+    that: fixpi_bootcode_stat.stat.exists and fixpi_bootcode_stat.stat.islnk
+    fail_msg: "/srv/tftp/bootcode.bin symlink not found"
+
+- name: Check TFTP serial number directories from switch.nos
+  stat:
+    path: "/srv/tftp/{{ item.sn }}"
+  register: fixpi_sn_stats
+  with_items: "{{ switch.nos }}"
+
+- name: Assert TFTP serial number directories exist
+  assert:
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
+  with_items: "{{ fixpi_sn_stats.results }}"
+
+- name: Read cmdline.txt from nfs_root/boot
+  command: cat "{{ nfs_root }}/boot/cmdline.txt"
+  changed_when: false
+  register: fixpi_cmdline
+
+- name: Assert cmdline.txt contains nfsroot=
+  assert:
+    that: "'nfsroot=' in fixpi_cmdline.stdout"
+    fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"

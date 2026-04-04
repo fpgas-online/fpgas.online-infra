@@ -1,0 +1,30 @@
+---
+- name: Check NFS mount present
+  command: mount
+  changed_when: false
+  register: fixpi_pi_mounts
+
+- name: Assert NFS mount present
+  assert:
+    that: "'nfs' in fixpi_pi_mounts.stdout"
+    fail_msg: "No NFS mount found on Pi (expected 'nfs' in mount output)"
+
+- name: Get IP addresses on interfaces
+  command: ip addr show
+  changed_when: false
+  register: fixpi_pi_addrs
+
+- name: Assert 10.21.0.x address present
+  assert:
+    that: "'10.21.0.' in fixpi_pi_addrs.stdout"
+    fail_msg: "No 10.21.0.x address found on any interface"
+
+- name: Check python3 available
+  command: python3 --version
+  changed_when: false
+  register: fixpi_pi_python3
+
+- name: Assert python3 is available
+  assert:
+    that: fixpi_pi_python3.rc == 0
+    fail_msg: "python3 is not available on the Pi"
