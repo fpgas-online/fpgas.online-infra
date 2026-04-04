@@ -1,4 +1,11 @@
 ---
+- name: Install dnsmasq
+  apt:
+    name:
+      - dnsmasq
+  tags:
+    - pxe
+
 - name: enable Raspberry Pi Boot
   copy:
     src: files/rpi.conf
