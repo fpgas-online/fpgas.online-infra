@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -v \"^\\\\.$\")",
+      "Bash([ -f \"/home/tim/github/fpgas-online/fpgas.online-infra/ansible/roles/$role/tasks/main.yml\" ])"
+    ]
+  }
+}

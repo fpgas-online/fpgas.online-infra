@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Ansible infrastructure for fpgas.online — test harness"
 requires-python = ">=3.11"
 dependencies = [
+    "ansible-core",
     "paramiko",
 ]
 

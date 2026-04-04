@@ -9,6 +9,7 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -32,21 +33,32 @@ SSH_PORT = 2222
 VLAN_PORT = 12345
 
 
+def ensure_ansible_collections() -> None:
+    """Install required Ansible collections if not already present."""
+    subprocess.run(
+        ["uv", "run", "ansible-galaxy", "collection", "install",
+         "community.crypto", "ansible.posix", "--upgrade"],
+        check=True,
+        stdin=subprocess.DEVNULL,
+    )
+
+
 def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str] | None = None) -> int:
     """Run an ansible-playbook command and return exit code."""
     cmd = [
-        "ansible-playbook",
+        "uv", "run", "ansible-playbook",
         str(ANSIBLE_DIR / playbook),
         "-i", str(inventory),
         "--limit", limit,
-        "--ssh-extra-args", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+        "--ssh-extra-args", "-o StrictHostKeyChecking=accept-new",
     ]
     if extra_args:
         cmd.extend(extra_args)
     print(f"\n{'='*60}")
     print(f"Running: {' '.join(cmd)}")
     print(f"{'='*60}\n")
-    result = subprocess.run(cmd)
+    # Open /dev/null for stdin to avoid Ansible's non-blocking IO detection issue
+    result = subprocess.run(cmd, stdin=subprocess.DEVNULL)
     return result.returncode
 
 
@@ -55,6 +67,9 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     dist = args.distro
     image_url = DEBIAN_CLOUD_URL.format(dist=dist)
     image_path = IMAGES_DIR / "debian-12-genericcloud-amd64.qcow2"
+
+    # Ensure Ansible collections are installed
+    ensure_ansible_collections()
 
     # Download and prepare
     download_image(image_url, image_path)
@@ -88,19 +103,22 @@ def phase_server(args, workdir: Path) -> VMManager | None:
         inventory = TEST_INVENTORY
         extra = []
 
-    # Set SSH key for ansible
+    # Set SSH key and become for ansible (test VM uses non-root user)
     extra.extend([
         "-e", f"ansible_ssh_private_key_file={key_path}",
+        "--become",
     ])
 
     # Run site.yml
     rc = run_ansible("site.yml", inventory, "test-vm", extra)
     if rc != 0:
         print(f"ERROR: site.yml failed with exit code {rc}")
-        if not args.keep_vm:
-            server.shutdown()
-            server.cleanup()
-        return server if args.keep_vm else None
+        if args.keep_vm:
+            print(f"VM kept alive. SSH: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
+            return None  # Signal failure even with --keep-vm
+        server.shutdown()
+        server.cleanup()
+        return None
 
     # Run verify.yml
     rc = run_ansible("verify.yml", inventory, "test-vm", extra)

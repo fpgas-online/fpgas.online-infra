@@ -34,14 +34,24 @@ def download_image(url: str, dest: Path) -> Path:
     return dest
 
 
-def create_overlay(base_image: Path, overlay_path: Path) -> Path:
-    """Create a qcow2 overlay so the base image stays clean."""
+def create_overlay(base_image: Path, overlay_path: Path, size: str = "20G") -> Path:
+    """Create a qcow2 overlay so the base image stays clean.
+
+    The overlay is resized to `size` (default 20G) to accommodate the RPi OS
+    image extraction (~2.7GB) and installed packages.
+    """
     subprocess.run(
         [
             "qemu-img", "create", "-f", "qcow2",
             "-b", str(base_image.resolve()), "-F", "qcow2",
             str(overlay_path),
         ],
+        check=True,
+        capture_output=True,
+    )
+    # Resize the overlay so the guest filesystem can grow
+    subprocess.run(
+        ["qemu-img", "resize", str(overlay_path), size],
         check=True,
         capture_output=True,
     )

@@ -6,7 +6,6 @@ set timeout=3
 
 {% for client in pxe_test_clients %}
 menuentry "NFS Boot ({{ client.name }})" {
-    linux /{{ client.sn }}/kernel8.img root=/dev/nfs nfsroot={{ eth_local_address }}:{{ client.nfs_root }},nfsvers=3 ro ip=dhcp rootwait console={{ client.console }} overlayroot=tmpfs
-    initrd /{{ client.sn }}/initrd.img
+    linux /{{ client.sn }}/kernel8.img root=/dev/nfs nfsroot={{ eth_local_address }}:{{ client.nfs_root }},nfsvers=3 ro ip=dhcp rootwait console={{ client.console }}
 }
 {% endfor %}

@@ -1,4 +1,9 @@
 ---
+- name: create tftp root directory
+  file:
+    path: /srv/tftp
+    state: directory
+
 - name: link bootcode.bin in tftp root because pi netboot not too smart.
   file:
     src: "{{ nfs_root }}/boot/bootcode.bin"
