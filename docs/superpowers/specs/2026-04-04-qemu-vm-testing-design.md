@@ -6,15 +6,14 @@
 ## Goal
 
 Automated end-to-end testing of the fpgas.online Ansible infrastructure using QEMU VMs.
-The test harness boots a Debian server VM, applies the Ansible roles, then boots an
-aarch64 Pi VM on the same virtual LAN -- verifying both the server deployment and the
-NFS root filesystem it prepares for Pis.
+The test harness boots a Debian server VM, applies the Ansible roles, then PXE-boots a
+diskless aarch64 Pi VM from the server over a virtual LAN -- verifying the full netboot
+pipeline from DHCP through TFTP to NFS root.
 
 ## Requirements
 
 - Test server roles (nbp, pig, uhubctl) against a QEMU x86_64 VM
-- Test Pi environment: boot an aarch64 VM with RPi hardware config, mount and verify
-  the NFS root prepared by the server
+- Test Pi netboot: PXE-boot a diskless aarch64 VM from the server (DHCP + TFTP + NFS root)
 - Verification playbooks paired with each role, usable against test VMs and production
 - Works locally (with KVM) and in GitHub Actions CI (KVM or TCG fallback)
 - Minimal dependencies: QEMU, cloud-image-utils, Python stdlib + paramiko
@@ -53,36 +52,69 @@ v
 |       DHCP -> 10.21.0.x         |
 |  Guest agent: virtio-serial      |
 |                                  |
-|  Boots from cloud image,        |
-|  configured with RPi hardware    |
-|  vars, mounts + verifies NFS    |
-|  root from server                |
-|  No direct host access           |
+|  Diskless PXE boot:             |
+|  DHCP -> TFTP kernel+initrd     |
+|  -> NFS root mount              |
+|  No local disk, no direct host  |
+|  access                          |
 +----------------------------------+
 
 Access: host -> SSH server:2222 -> SSH pi:10.21.0.x (ProxyJump)
 ```
 
-### Pi VM Boot Approach
+### Pi VM PXE Boot
 
-Real Raspberry Pis use the VideoCore BootROM to PXE-boot -- a protocol that QEMU
-does not emulate. Instead, the Pi VM boots from a Debian aarch64 cloud image but is
-configured with the same Ansible variables as a real RPi (MAC, hostname, IP assignment).
+The Pi VM is **diskless** -- it PXE-boots entirely from the server, testing the real
+netboot chain end-to-end.
 
-After boot, the Pi VM:
-1. Gets a DHCP address from the server's dnsmasq (verifying DHCP config works)
-2. NFS-mounts `/srv/nfs/rpi/bookworm/root` from the server (verifying NFS exports work)
-3. Runs verification against both its own state and the NFS root contents
+**Boot sequence:**
 
-This tests everything except the actual PXE/TFTP boot chain (bootcode.bin, serial-number
-symlinks). Those are verified server-side via filesystem checks in the pxe role's
-verify playbook.
+1. QEMU aarch64 VM starts with no disk, only a NIC on the socket VLAN
+2. UEFI firmware (EDK2 `QEMU_EFI.fd`) or U-Boot attempts PXE boot
+3. dnsmasq on the server responds to DHCP, provides boot filename via `dhcp-boot`
+4. VM TFTPs the bootloader/kernel + initrd from the server
+5. Kernel boots with NFS root mount parameters (from cmdline)
+6. VM is now running from the server's NFS root -- same as a real Pi
 
-**Note on architecture:** The NFS root contains armhf (32-bit) binaries since production
-uses Raspberry Pi OS armhf. The Pi VM is aarch64 (64-bit), which can run armhf binaries
-via the kernel's 32-bit compat layer. The Pi VM does not chroot into the NFS root --
-it mounts and inspects the filesystem contents. For checks that require executing armhf
-binaries, the server's qemu-user-static chroot is used instead.
+**Real RPis vs QEMU:** Real Raspberry Pis use the VideoCore BootROM to fetch
+`bootcode.bin` by serial number -- a Pi-specific protocol. QEMU uses standard
+UEFI PXE instead. The pxe role is extended to serve both:
+
+- Real RPis: existing `bootcode.bin` + serial-number TFTP paths
+- QEMU test clients: architecture-tagged `dhcp-boot` serving an aarch64 kernel+initrd
+
+This is controlled by a `pxe_test_clients` variable in the inventory. When present,
+the pxe role adds dnsmasq configuration for QEMU PXE clients (architecture tag 0x0B
+for ARM64 UEFI):
+
+```
+# Added to dnsmasq config when pxe_test_clients is defined
+dhcp-match=set:efi-arm64,option:client-arch,11
+dhcp-boot=tag:efi-arm64,<aarch64-boot-path>
+```
+
+**Architecture:** The NFS root contains armhf (32-bit) binaries since production uses
+Raspberry Pi OS armhf. The QEMU aarch64 VM can execute armhf binaries via the kernel's
+32-bit compatibility layer, so the NFS root is fully functional. The kernel and initrd
+served over TFTP must be aarch64 -- these are prepared by the fixpi role as part of
+the test client setup.
+
+**QEMU launch (no disk):**
+
+```
+qemu-system-aarch64 \
+  -machine virt,accel=tcg \
+  -cpu max \
+  -m 1024 \
+  -bios QEMU_EFI.fd \                    # UEFI firmware with PXE support
+  -netdev socket,id=lan0,connect=:12345 \ # connect to server VLAN
+  -device virtio-net-pci,netdev=lan0 \    # single NIC, PXE boots from this
+  -nographic \                             # no display
+  -device virtio-serial \                  # guest agent channel
+  -device virtserialport,chardev=qga0 \
+  -chardev socket,path=pi-qga.sock,server=on,wait=off,id=qga0
+  # NO -drive flag -- diskless
+```
 
 ### Networking
 
@@ -144,17 +176,22 @@ on every run.
 
 ### Phase: pi
 
-Requires server VM running from the server phase.
+Requires server VM running from the server phase (Ansible roles applied, dnsmasq +
+TFTP + NFS all active).
 
 1. Verify server VM's socket-listen port is open (sequencing gate)
-2. Download/cache Debian bookworm cloud image (aarch64)
-3. Boot Pi VM (socket-connect NIC + guest agent, no user NIC)
-4. Wait for guest agent -- confirm DHCP address acquired from server's dnsmasq
-5. NFS-mount server's `/srv/nfs/rpi/bookworm/root` on the Pi VM
+2. Ensure UEFI firmware (`QEMU_EFI.fd`) is available (system package `qemu-efi-aarch64`)
+3. Boot Pi VM -- diskless, single NIC (socket-connect), guest agent, no local disk
+4. Pi VM UEFI does PXE: DHCP from dnsmasq → TFTP kernel+initrd → NFS root mount
+5. Wait for guest agent -- confirm boot succeeded, DHCP address acquired, NFS root mounted
 6. Wait for SSH via ProxyJump through server
 7. Run: `ansible-playbook ansible/verify.yml -i <inventory> --limit test-pi`
-   (verifies NFS root contents and Pi configuration)
+   (verifies Pi booted correctly, packages present, SSH keys, config files)
 8. Report results
+
+If the Pi VM fails to PXE boot (no DHCP, TFTP failure, kernel panic), the guest agent
+provides diagnostics. If the guest agent is also unreachable, QEMU serial console output
+(captured to a log file) is used for post-mortem debugging.
 
 ### Phase: all
 
@@ -203,7 +240,7 @@ ansible-playbook ansible/verify.yml -i ansible/inventory/ --limit fpgas.online -
 | nfs | nfs-kernel-server running, exports contain /srv/nfs/rpi, exportfs shows share |
 | img | /srv/nfs/rpi/bookworm/root/bin/bash exists (extracted image) |
 | fixpi | qemu-user-static registered, management scripts in place, cmdline.txt + fstab templated |
-| pxe | dnsmasq running, dhcp-range configured, TFTP directory populated, bootcode.bin symlinked, serial-number directories exist |
+| pxe | dnsmasq running, dhcp-range configured, TFTP directory populated, bootcode.bin symlinked, serial-number directories exist, aarch64 PXE boot path configured (when pxe_test_clients defined) |
 | site | nginx running, Django site returns 200, gunicorn/uvicorn socket active |
 | wssh | wssh service running |
 | cam/stream-server | nginx-rtmp configuration present |
@@ -211,18 +248,20 @@ ansible-playbook ansible/verify.yml -i ansible/inventory/ --limit fpgas.online -
 
 ### Pi Role Verifications
 
-Run on the Pi VM via ProxyJump. Verifies the NFS root and Pi environment:
+Run on the PXE-booted Pi VM via ProxyJump. The Pi VM is running from the server's
+NFS root, so these checks verify both the netboot chain and the NFS root contents:
 
 | Check | How |
 |-------|-----|
+| PXE boot succeeded | VM is running (guest agent responds, SSH reachable) |
 | DHCP from server | eth0 has 10.21.0.x address from dnsmasq |
-| NFS mount | server's /srv/nfs/rpi/bookworm/root is mounted |
-| NFS root contents | key files exist (bin/bash, usr/bin/openocd, etc.) |
-| fpgas-apt repo | apt sources configured in NFS root |
-| onpi packages | package manifests present in NFS root |
-| cam packages | gstreamer/rpicam-apps present in NFS root |
-| SSH keys | authorized_keys in NFS root contains expected keys |
-| Pi config files | cmdline.txt, config.txt, fstab correctly templated |
+| NFS root mounted | `mount` shows NFS root from server |
+| Kernel booted | `uname -a` shows expected kernel |
+| SSH keys | authorized_keys contains expected keys |
+| fpgas-apt repo | apt sources configured, signing key present |
+| onpi packages | overlayroot, openocd, openfpgaloader, python3 installed |
+| cam packages | gstreamer plugins, rpicam-apps, fpgas-online-cam installed |
+| Pi config | hostname, console, network config as expected |
 
 ## Test Inventory
 
@@ -260,6 +299,7 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `domain` | Server domain | `test.fpgas.online` |
 | `django_dir` | Django install path | `/srv/www/pib` |
 | `letsencrypt_email` | certbot email | `test@test.fpgas.online` |
+| `pxe_test_clients` | QEMU PXE client config | aarch64 boot path, kernel, initrd |
 
 **Cloud-init must configure the second NIC** (the socket-listen interface) with
 static IP 10.21.0.1/24 before Ansible runs, so that roles referencing
@@ -325,8 +365,9 @@ ansible/
 
 - `qemu-system-x86` -- server VM
 - `qemu-system-arm` -- Pi VM (aarch64)
+- `qemu-efi-aarch64` -- UEFI firmware for aarch64 PXE boot (provides QEMU_EFI.fd)
 - `qemu-utils` -- qemu-img for overlays
-- `cloud-image-utils` -- cloud-localds for seed ISOs
+- `cloud-image-utils` -- cloud-localds for seed ISOs (server VM only)
 
 ### Python Packages
 
@@ -345,7 +386,7 @@ ansible/
 - name: Install QEMU
   run: |
     sudo apt-get update
-    sudo apt-get install -y qemu-system-x86 qemu-system-arm qemu-utils cloud-image-utils
+    sudo apt-get install -y qemu-system-x86 qemu-system-arm qemu-efi-aarch64 qemu-utils cloud-image-utils
     sudo chmod 666 /dev/kvm  # if available
 
 - name: Cache VM images
