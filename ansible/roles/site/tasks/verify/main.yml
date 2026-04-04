@@ -24,18 +24,22 @@
   stat:
     path: "{{ django_dir }}/venv/bin/python"
   register: site_venv_python_stat
+  tags: [verify, django]
 
 - name: Assert Django venv python exists
   assert:
     that: site_venv_python_stat.stat.exists
     fail_msg: "Django venv python not found at {{ django_dir }}/venv/bin/python"
+  tags: [verify, django]
 
 - name: Check gunicorn.socket status
   command: systemctl status gunicorn.socket
   changed_when: false
   register: site_gunicorn_socket_status
   failed_when: false
+  tags: [verify, django]
 
 - name: Report gunicorn.socket status
   debug:
     msg: "gunicorn.socket status: {{ site_gunicorn_socket_status.stdout_lines | default([]) }}"
+  tags: [verify, django]
