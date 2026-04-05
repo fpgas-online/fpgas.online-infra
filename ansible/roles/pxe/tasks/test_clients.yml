@@ -49,7 +49,7 @@
     -o /srv/tftp/grubaa64.efi
     -p /grub
     -c /tmp/grub-early.cfg
-    net tftp http linux normal configfile
+    efinet net tftp http linux normal configfile
   tags:
     - pxe-test
 
