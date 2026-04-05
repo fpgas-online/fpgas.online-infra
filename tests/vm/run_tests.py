@@ -143,33 +143,21 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     return server
 
 
-def fetch_dtb_from_server(workdir: Path, key_path: Path) -> Path:
-    """Fetch bcm2837-rpi-3-b.dtb from the server VM's NFS root."""
-    import paramiko
+def get_uboot_dtb() -> Path:
+    """Get the bcm2837-rpi-3-b.dtb built by U-Boot (compatible with QEMU raspi3b)."""
+    from tests.vm.build_uboot import UBOOT_SRC
 
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        "127.0.0.1", port=SSH_PORT, username="debian",
-        key_filename=str(key_path), timeout=10,
-    )
-    sftp = client.open_sftp()
+    dtb = UBOOT_SRC / "arch" / "arm" / "dts" / "bcm2837-rpi-3-b.dtb"
+    if dtb.exists():
+        print(f"[pi] Using U-Boot DTB: {dtb} ({dtb.stat().st_size} bytes)")
+        return dtb
 
-    dtb_path = workdir / "bcm2837-rpi-3-b.dtb"
-    # The RPi OS uses bcm2710 naming; we need bcm2837 for QEMU raspi3b.
-    # Try bcm2710 first (RPi OS naming), fall back to bcm2837 (upstream).
-    for remote_name in ["bcm2710-rpi-3-b.dtb", "bcm2837-rpi-3-b.dtb"]:
-        try:
-            print(f"[pi] Fetching {remote_name} from server NFS root...")
-            sftp.get(f"/srv/nfs/rpi/bookworm/boot/{remote_name}", str(dtb_path))
-            print(f"[pi] DTB: {dtb_path} ({dtb_path.stat().st_size} bytes)")
-            break
-        except FileNotFoundError:
-            continue
+    # Fallback: use the pre-cached copy
+    dtb_cached = IMAGES_DIR / "bcm2837-rpi-3-b.dtb"
+    if dtb_cached.exists():
+        return dtb_cached
 
-    sftp.close()
-    client.close()
-    return dtb_path
+    raise FileNotFoundError("bcm2837-rpi-3-b.dtb not found — build U-Boot first")
 
 
 def build_uboot(workdir: Path) -> Path:
@@ -197,8 +185,8 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
     # Build U-Boot for raspi3b
     uboot_bin = build_uboot(workdir)
 
-    # Fetch DTB from server's NFS root (needed by QEMU -dtb)
-    dtb_path = fetch_dtb_from_server(workdir, key_path)
+    # Get DTB from U-Boot build (compatible with QEMU raspi3b)
+    dtb_path = get_uboot_dtb()
 
     # Boot Pi VM — U-Boot will PXE boot from server (DHCP + TFTP)
     pi = VMManager("pi", workdir)

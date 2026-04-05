@@ -50,38 +50,14 @@
     that: pxe_bootcode_stat.stat.exists
     fail_msg: "/srv/tftp/bootcode.bin not found"
 
-- name: Check grubaa64.efi exists for UEFI PXE test clients
+- name: Check U-Boot boot script exists for test clients
   stat:
-    path: /srv/tftp/grubaa64.efi
-  register: pxe_grub_efi_stat
+    path: /srv/tftp/boot.scr
+  register: pxe_boot_scr_stat
   when: pxe_test_clients is defined
 
-- name: Assert grubaa64.efi exists
+- name: Assert U-Boot boot script exists
   assert:
-    that: pxe_grub_efi_stat.stat.exists
-    fail_msg: "/srv/tftp/grubaa64.efi not found"
-  when: pxe_test_clients is defined
-
-- name: Check grub/grub.cfg exists for UEFI PXE test clients
-  stat:
-    path: /srv/tftp/grub/grub.cfg
-  register: pxe_grub_cfg_stat
-  when: pxe_test_clients is defined
-
-- name: Assert grub/grub.cfg exists
-  assert:
-    that: pxe_grub_cfg_stat.stat.exists
-    fail_msg: "/srv/tftp/grub/grub.cfg not found"
-  when: pxe_test_clients is defined
-
-- name: Check efi-arm64.conf exists for UEFI PXE test clients
-  stat:
-    path: /etc/dnsmasq.d/efi-arm64.conf
-  register: pxe_efi_conf_stat
-  when: pxe_test_clients is defined
-
-- name: Assert efi-arm64.conf exists
-  assert:
-    that: pxe_efi_conf_stat.stat.exists
-    fail_msg: "/etc/dnsmasq.d/efi-arm64.conf not found"
+    that: pxe_boot_scr_stat.stat.exists
+    fail_msg: "/srv/tftp/boot.scr not found"
   when: pxe_test_clients is defined
