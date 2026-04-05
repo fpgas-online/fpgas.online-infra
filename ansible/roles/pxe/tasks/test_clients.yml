@@ -35,6 +35,35 @@
   tags:
     - pxe-test
 
+- name: Install Debian arm64 kernel for QEMU PXE boot
+  apt:
+    name:
+      - linux-image-arm64
+    install_recommends: false
+  tags:
+    - pxe-test
+
+- name: Create aarch64 TFTP directory
+  file:
+    path: /srv/tftp/aarch64
+    state: directory
+  tags:
+    - pxe-test
+
+- name: Copy Debian arm64 kernel to TFTP
+  shell: cp /boot/vmlinuz-*-arm64 /srv/tftp/aarch64/vmlinuz
+  args:
+    creates: /srv/tftp/aarch64/vmlinuz
+  tags:
+    - pxe-test
+
+- name: Copy Debian arm64 initrd to TFTP
+  shell: cp /boot/initrd.img-*-arm64 /srv/tftp/aarch64/initrd.img
+  args:
+    creates: /srv/tftp/aarch64/initrd.img
+  tags:
+    - pxe-test
+
 - name: Template GRUB early config (embedded in EFI binary)
   template:
     src: templates/grub-early.cfg.j2
