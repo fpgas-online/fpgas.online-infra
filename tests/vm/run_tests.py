@@ -143,23 +143,53 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     return server
 
 
+def fetch_pi_boot_files(workdir: Path, key_path: Path) -> tuple[Path, Path]:
+    """Fetch kernel8.img and initramfs8 from the server VM's NFS root."""
+    import paramiko
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        "127.0.0.1", port=SSH_PORT, username="debian",
+        key_filename=str(key_path), timeout=10,
+    )
+    sftp = client.open_sftp()
+
+    kernel_path = workdir / "kernel8.img"
+    initrd_path = workdir / "initramfs8"
+
+    print("[pi] Fetching kernel8.img from server NFS root...")
+    sftp.get("/srv/nfs/rpi/bookworm/boot/kernel8.img", str(kernel_path))
+    print(f"[pi] kernel8.img: {kernel_path.stat().st_size} bytes")
+
+    print("[pi] Fetching initramfs8 from server NFS root...")
+    sftp.get("/srv/nfs/rpi/bookworm/boot/initramfs8", str(initrd_path))
+    print(f"[pi] initramfs8: {initrd_path.stat().st_size} bytes")
+
+    sftp.close()
+    client.close()
+    return kernel_path, initrd_path
+
+
 def phase_pi(args, workdir: Path, server: VMManager) -> bool:
-    """Run the Pi phase: PXE-boot diskless Pi VM from server."""
+    """Run the Pi phase: boot aarch64 Pi VM with RPi kernel from server NFS root."""
     # Verify server socket is listening
     if not wait_for_socket_listen(VLAN_PORT):
         print("ERROR: Server VLAN socket not listening.")
         return False
 
-    # Check UEFI firmware exists
-    efi_path = "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd"
-    if not Path(efi_path).exists():
-        print(f"ERROR: UEFI firmware not found at {efi_path}")
-        print("Install: sudo apt install qemu-efi-aarch64")
-        return False
+    key_path = workdir / "test_key"
 
-    # Boot Pi (diskless)
+    # Fetch RPi kernel and initramfs from the server's NFS root
+    kernel_path, initrd_path = fetch_pi_boot_files(workdir, key_path)
+
+    # Boot Pi with direct kernel boot (RPi kernel + initramfs)
     pi = VMManager("pi", workdir)
-    pi.boot_pi(vlan_port=VLAN_PORT, efi_firmware=efi_path)
+    pi.boot_pi(
+        vlan_port=VLAN_PORT,
+        kernel=str(kernel_path),
+        initrd=str(initrd_path),
+    )
 
     if not pi.wait_for_guest_agent(timeout=300):
         print("WARNING: Pi VM guest agent did not respond.")

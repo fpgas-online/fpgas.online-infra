@@ -186,16 +186,27 @@ class VMManager:
         self,
         vlan_port: int = 12345,
         memory: int = 1024,
-        efi_firmware: str = "/usr/share/qemu-efi-aarch64/QEMU_EFI.fd",
+        kernel: str = "",
+        initrd: str = "",
+        nfs_root: str = "10.21.0.1:/srv/nfs/rpi/bookworm/root",
+        cmdline_extra: str = "",
     ) -> None:
-        """Boot the aarch64 Pi VM — diskless, PXE boot from server."""
+        """Boot the aarch64 Pi VM with direct kernel boot from RPi NFS root.
+
+        Uses QEMU -kernel to load the RPi kernel8.img directly (bypassing
+        GRUB/UEFI since RPi kernel lacks EFI stub). The kernel + initramfs
+        are fetched from the server VM via SSH before boot.
+        """
+        cmdline = f"root=/dev/nfs nfsroot={nfs_root},nfsvers=3 ro ip=dhcp rootwait console=ttyAMA0,115200 {cmdline_extra}".strip()
         cmd = [
             "qemu-system-aarch64",
             "-machine", "virt,accel=tcg",
             "-cpu", "max",
             "-m", str(memory),
-            # UEFI firmware for PXE
-            "-bios", efi_firmware,
+            # Direct kernel boot (RPi kernel from server NFS root)
+            "-kernel", kernel,
+            "-initrd", initrd,
+            "-append", cmdline,
             # Single NIC: socket-connect to server VLAN
             "-netdev", f"socket,id=lan0,connect=:{vlan_port}",
             "-device", "virtio-net-pci,netdev=lan0,mac=52:54:00:12:34:56",
@@ -206,7 +217,7 @@ class VMManager:
             # Headless, serial to log
             "-nographic",
             "-serial", f"file:{self.serial_log}",
-            # NO disk — PXE boot only
+            # NO disk — NFS root only
         ]
         print(f"[{self.name}] Booting Pi VM (diskless PXE, aarch64 TCG)...")
         self.process = subprocess.Popen(
