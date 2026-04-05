@@ -186,42 +186,35 @@ class VMManager:
         self,
         vlan_port: int = 12345,
         memory: int = 1024,
-        kernel: str = "",
-        initrd: str = "",
-        nfs_root: str = "10.21.0.1:/srv/nfs/rpi/bookworm/root",
-        cmdline_extra: str = "",
+        uboot_bin: str = "",
+        dtb: str = "",
     ) -> None:
-        """Boot the aarch64 Pi VM with direct kernel boot from RPi NFS root.
+        """Boot the aarch64 Pi VM using QEMU raspi3b with U-Boot.
 
-        Uses QEMU -kernel to load the RPi kernel8.img directly (bypassing
-        GRUB/UEFI since RPi kernel lacks EFI stub). The kernel + initramfs
-        are fetched from the server VM via SSH before boot.
+        U-Boot emulates the VideoCore PXE boot sequence: DHCP from dnsmasq,
+        TFTP the same files a real RPi would request (bootcode.bin, config.txt,
+        kernel8.img, DTB), then boots the kernel with NFS root.
+
+        The -M raspi3b machine type emulates real RPi 3B hardware including
+        the USB ethernet controller (lan78xx/smsc95xx).
         """
-        cmdline = f"root=/dev/nfs nfsroot={nfs_root},nfsvers=3 ro ip=dhcp rootwait console=ttyAMA0,115200 {cmdline_extra}".strip()
         cmd = [
             "qemu-system-aarch64",
-            "-machine", "virt,accel=tcg",
-            "-cpu", "max",
+            "-M", "raspi3b",
             "-m", str(memory),
-            # Direct kernel boot (RPi kernel from server NFS root)
-            "-kernel", kernel,
-            "-initrd", initrd,
-            "-append", cmdline,
-            # Single NIC: socket-connect to server VLAN
-            # Use e1000 instead of virtio-net — the RPi initramfs has e1000
-            # drivers but not virtio-net drivers
-            "-netdev", f"socket,id=lan0,connect=:{vlan_port}",
-            "-device", "e1000,netdev=lan0,mac=52:54:00:12:34:56",
-            # Guest agent
-            "-device", "virtio-serial",
-            "-device", "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0",
-            "-chardev", f"socket,path={self.qga_socket},server=on,wait=off,id=qga0",
-            # Headless, serial to log
-            "-nographic",
+            # U-Boot as the bootloader
+            "-kernel", uboot_bin,
+            "-dtb", dtb,
+            # Connect to server VLAN via socket networking
+            "-netdev", f"socket,id=n0,connect=:{vlan_port}",
+            "-device", "usb-net,netdev=n0",
+            # Headless — RPi 3B uses mini UART (serial1), not PL011 (serial0)
+            "-display", "none",
+            "-serial", "null",
             "-serial", f"file:{self.serial_log}",
-            # NO disk — NFS root only
+            # NO disk — U-Boot does PXE -> kernel -> NFS root
         ]
-        print(f"[{self.name}] Booting Pi VM (diskless PXE, aarch64 TCG)...")
+        print(f"[{self.name}] Booting Pi VM (raspi3b + U-Boot PXE, aarch64 TCG)...")
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,

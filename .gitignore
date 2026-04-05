@@ -1,3 +1,6 @@
-# QEMU VM test images
+# QEMU VM test images and build artifacts
 tests/vm/images/*.qcow2
 tests/vm/images/*.img*
+tests/vm/images/*.bin
+tests/vm/images/*.dtb
+tests/vm/images/u-boot-*/

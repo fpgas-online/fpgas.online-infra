@@ -1,97 +1,28 @@
 ---
-# UEFI PXE boot support for QEMU aarch64 test clients.
+# PXE test client support for QEMU raspi3b VMs.
 # Only included when pxe_test_clients is defined.
+#
+# The QEMU Pi VM uses U-Boot to emulate the VideoCore PXE boot sequence,
+# issuing the same TFTP requests as a real RPi. dnsmasq serves the same
+# files it would to real hardware. U-Boot then loads kernel8.img + DTB
+# from the serial-number TFTP directory and boots into the NFS root.
 
-- name: Add arm64 architecture for cross-arch GRUB package
-  command: dpkg --add-architecture arm64
-  changed_when: true
-  tags:
-    - pxe-test
-
-- name: Update apt cache after adding arm64 architecture
-  apt:
-    update_cache: true
-  tags:
-    - pxe-test
-
-- name: Install GRUB EFI arm64 binary
+- name: Install u-boot-tools for mkimage
   apt:
     name:
-      - grub-efi-arm64-bin:arm64
+      - u-boot-tools
   tags:
     - pxe-test
 
-- name: Create GRUB TFTP directory
-  file:
-    path: /srv/tftp/grub
-    state: directory
-  tags:
-    - pxe-test
-
-- name: Find grubnetaa64.efi or grubaa64.efi
-  shell: find /usr/lib/grub/arm64-efi -name 'grub*aa64.efi' -type f 2>&1 || find /usr/lib/grub -name '*aa64*' -type f 2>&1
-  changed_when: false
-  register: grub_efi_find
-  tags:
-    - pxe-test
-
-- name: Create aarch64 TFTP directory
-  file:
-    path: /srv/tftp/aarch64
-    state: directory
-  tags:
-    - pxe-test
-
-- name: Download Debian arm64 netboot kernel
-  get_url:
-    url: "https://deb.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/linux"
-    dest: /srv/tftp/aarch64/vmlinuz
-    force: false
-  tags:
-    - pxe-test
-
-- name: Download Debian arm64 netboot initrd
-  get_url:
-    url: "https://deb.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/initrd.gz"
-    dest: /srv/tftp/aarch64/initrd.img
-    force: false
-  tags:
-    - pxe-test
-
-- name: Template GRUB early config (embedded in EFI binary)
-  template:
-    src: templates/grub-early.cfg.j2
-    dest: /tmp/grub-early.cfg
-  tags:
-    - pxe-test
-
-- name: Build GRUB EFI binary for network boot
-  command: >
-    grub-mkimage
-    -O arm64-efi
-    -o /srv/tftp/grubaa64.efi
-    -p /grub
-    -c /tmp/grub-early.cfg
-    efinet net tftp http linux normal configfile
-  tags:
-    - pxe-test
-
-- name: Template GRUB config for test clients
-  template:
-    src: templates/grub.cfg.j2
-    dest: /srv/tftp/grub/grub.cfg
-  notify: restart dnsmasq
-  tags:
-    - pxe-test
-
-- name: Add EFI arm64 architecture match to dnsmasq
+- name: Copy U-Boot boot script source
   copy:
-    content: |
-      # QEMU aarch64 UEFI PXE boot support
-      dhcp-match=set:efi-arm64,option:client-arch,11
-      dhcp-boot=tag:efi-arm64,grubaa64.efi
-    dest: /etc/dnsmasq.d/efi-arm64.conf
-  notify: restart dnsmasq
+    src: files/boot.scr.txt
+    dest: /srv/tftp/boot.scr.txt
+  tags:
+    - pxe-test
+
+- name: Compile U-Boot boot script
+  command: mkimage -T script -C none -n "Pi PXE boot" -d /srv/tftp/boot.scr.txt /srv/tftp/boot.scr
   tags:
     - pxe-test
 

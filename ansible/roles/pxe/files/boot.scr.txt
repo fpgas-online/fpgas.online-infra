@@ -1,0 +1,61 @@
+# U-Boot boot script emulating VideoCore PXE boot sequence
+# This script makes U-Boot issue the same TFTP reads as the RPi VideoCore
+# GPU bootloader, then boots the kernel from the NFS root.
+#
+# See docs/rpi-qemu-videocore-exact.md for the full sequence documentation.
+
+# --- Configuration ---
+setenv pi_serial deadbeef
+setenv scratch 0x02000000
+setenv have_kernel 0
+setenv have_dtb 0
+setenv kernel_name kernel8.img
+setenv dtb_name bcm2710-rpi-3-b.dtb
+
+# Helper: probe a file, set ${found}
+setenv probe 'setenv found 0 ; tftpboot ${scratch} ${path} && setenv found 1 || true'
+
+# --- DHCP with VideoCore-compatible options ---
+setenv bootp_vci "PXEClient:Arch:00000:UNDI:002001"
+setenv bootp_arch 0
+setenv autoload no
+dhcp
+
+# --- Root-level probes (pre-serial) ---
+setenv path bootcode.bin ; run probe
+setenv path bootsig.bin ; run probe
+
+# --- Serial-prefixed probes ---
+setenv path ${pi_serial}/start.elf ; run probe
+setenv path ${pi_serial}/autoboot.txt ; run probe
+setenv path ${pi_serial}/config.txt ; run probe
+setenv path ${pi_serial}/recovery.elf ; run probe
+setenv path ${pi_serial}/start.elf ; run probe
+setenv path ${pi_serial}/fixup.dat ; run probe
+setenv path ${pi_serial}/recovery.elf ; run probe
+setenv path ${pi_serial}/config.txt ; run probe
+setenv path ${pi_serial}/dt-blob.bin ; run probe
+setenv path ${pi_serial}/recovery.elf ; run probe
+setenv path ${pi_serial}/config.txt ; run probe
+setenv path ${pi_serial}/bootcfg.txt ; run probe
+setenv path ${pi_serial}/cmdline.txt ; run probe
+
+# --- Kernel probes: stop at first hit ---
+for k in kernel8.img kernel8-32.img kernel7.img kernel.img ; do
+    tftpboot ${kernel_addr_r} ${pi_serial}/${k} && setenv have_kernel 1 && setenv kernel_name ${k} && break || true
+done
+
+# --- DTB probes ---
+tftpboot ${fdt_addr_r} ${pi_serial}/${dtb_name} && setenv have_dtb 1 || true
+if test "${have_dtb}" = "0" ; then
+    tftpboot ${fdt_addr_r} ${pi_serial}/bcm2710-rpi-3-b.dtb && setenv have_dtb 1 || true
+fi
+
+# --- Boot ---
+if test "${have_kernel}" = "1" -a "${have_dtb}" = "1" ; then
+    setenv bootargs "root=/dev/nfs nfsroot=${serverip}:/srv/nfs/rpi/bookworm/root,nfsvers=3 ro ip=dhcp rootwait console=ttyAMA0,115200"
+    booti ${kernel_addr_r} - ${fdt_addr_r}
+else
+    echo "Boot failed: kernel=${have_kernel} dtb=${have_dtb}"
+    reset
+fi

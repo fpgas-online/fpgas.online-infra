@@ -143,8 +143,8 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     return server
 
 
-def fetch_pi_boot_files(workdir: Path, key_path: Path) -> tuple[Path, Path]:
-    """Fetch kernel8.img and initramfs8 from the server VM's NFS root."""
+def fetch_dtb_from_server(workdir: Path, key_path: Path) -> Path:
+    """Fetch bcm2837-rpi-3-b.dtb from the server VM's NFS root."""
     import paramiko
 
     client = paramiko.SSHClient()
@@ -155,24 +155,38 @@ def fetch_pi_boot_files(workdir: Path, key_path: Path) -> tuple[Path, Path]:
     )
     sftp = client.open_sftp()
 
-    kernel_path = workdir / "kernel8.img"
-    initrd_path = workdir / "initramfs8"
-
-    print("[pi] Fetching kernel8.img from server NFS root...")
-    sftp.get("/srv/nfs/rpi/bookworm/boot/kernel8.img", str(kernel_path))
-    print(f"[pi] kernel8.img: {kernel_path.stat().st_size} bytes")
-
-    print("[pi] Fetching initramfs8 from server NFS root...")
-    sftp.get("/srv/nfs/rpi/bookworm/boot/initramfs8", str(initrd_path))
-    print(f"[pi] initramfs8: {initrd_path.stat().st_size} bytes")
+    dtb_path = workdir / "bcm2837-rpi-3-b.dtb"
+    # The RPi OS uses bcm2710 naming; we need bcm2837 for QEMU raspi3b.
+    # Try bcm2710 first (RPi OS naming), fall back to bcm2837 (upstream).
+    for remote_name in ["bcm2710-rpi-3-b.dtb", "bcm2837-rpi-3-b.dtb"]:
+        try:
+            print(f"[pi] Fetching {remote_name} from server NFS root...")
+            sftp.get(f"/srv/nfs/rpi/bookworm/boot/{remote_name}", str(dtb_path))
+            print(f"[pi] DTB: {dtb_path} ({dtb_path.stat().st_size} bytes)")
+            break
+        except FileNotFoundError:
+            continue
 
     sftp.close()
     client.close()
-    return kernel_path, initrd_path
+    return dtb_path
+
+
+def build_uboot(workdir: Path) -> Path:
+    """Build U-Boot for RPi 3B if not already cached."""
+    from tests.vm.build_uboot import UBOOT_BIN, main as build_main
+
+    if UBOOT_BIN.exists():
+        print(f"[pi] Using cached U-Boot: {UBOOT_BIN}")
+        return UBOOT_BIN
+
+    print("[pi] Building U-Boot for raspi3b...")
+    build_main()
+    return UBOOT_BIN
 
 
 def phase_pi(args, workdir: Path, server: VMManager) -> bool:
-    """Run the Pi phase: boot aarch64 Pi VM with RPi kernel from server NFS root."""
+    """Run the Pi phase: boot QEMU raspi3b with U-Boot PXE from server."""
     # Verify server socket is listening
     if not wait_for_socket_listen(VLAN_PORT):
         print("ERROR: Server VLAN socket not listening.")
@@ -180,15 +194,18 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
 
     key_path = workdir / "test_key"
 
-    # Fetch RPi kernel and initramfs from the server's NFS root
-    kernel_path, initrd_path = fetch_pi_boot_files(workdir, key_path)
+    # Build U-Boot for raspi3b
+    uboot_bin = build_uboot(workdir)
 
-    # Boot Pi with direct kernel boot (RPi kernel + initramfs)
+    # Fetch DTB from server's NFS root (needed by QEMU -dtb)
+    dtb_path = fetch_dtb_from_server(workdir, key_path)
+
+    # Boot Pi VM — U-Boot will PXE boot from server (DHCP + TFTP)
     pi = VMManager("pi", workdir)
     pi.boot_pi(
         vlan_port=VLAN_PORT,
-        kernel=str(kernel_path),
-        initrd=str(initrd_path),
+        uboot_bin=str(uboot_bin),
+        dtb=str(dtb_path),
     )
 
     if not pi.wait_for_guest_agent(timeout=300):
