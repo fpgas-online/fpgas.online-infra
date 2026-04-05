@@ -208,8 +208,10 @@ class VMManager:
             "-initrd", initrd,
             "-append", cmdline,
             # Single NIC: socket-connect to server VLAN
+            # Use e1000 instead of virtio-net — the RPi initramfs has e1000
+            # drivers but not virtio-net drivers
             "-netdev", f"socket,id=lan0,connect=:{vlan_port}",
-            "-device", "virtio-net-pci,netdev=lan0,mac=52:54:00:12:34:56",
+            "-device", "e1000,netdev=lan0,mac=52:54:00:12:34:56",
             # Guest agent
             "-device", "virtio-serial",
             "-device", "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0",
