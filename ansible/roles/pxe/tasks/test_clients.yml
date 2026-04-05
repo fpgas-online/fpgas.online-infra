@@ -35,14 +35,6 @@
   tags:
     - pxe-test
 
-- name: Install Debian arm64 kernel for QEMU PXE boot
-  apt:
-    name:
-      - linux-image-arm64
-    install_recommends: false
-  tags:
-    - pxe-test
-
 - name: Create aarch64 TFTP directory
   file:
     path: /srv/tftp/aarch64
@@ -50,17 +42,19 @@
   tags:
     - pxe-test
 
-- name: Copy Debian arm64 kernel to TFTP
-  shell: cp /boot/vmlinuz-*-arm64 /srv/tftp/aarch64/vmlinuz
-  args:
-    creates: /srv/tftp/aarch64/vmlinuz
+- name: Download Debian arm64 netboot kernel
+  get_url:
+    url: "https://deb.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/linux"
+    dest: /srv/tftp/aarch64/vmlinuz
+    force: false
   tags:
     - pxe-test
 
-- name: Copy Debian arm64 initrd to TFTP
-  shell: cp /boot/initrd.img-*-arm64 /srv/tftp/aarch64/initrd.img
-  args:
-    creates: /srv/tftp/aarch64/initrd.img
+- name: Download Debian arm64 netboot initrd
+  get_url:
+    url: "https://deb.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/initrd.gz"
+    dest: /srv/tftp/aarch64/initrd.img
+    force: false
   tags:
     - pxe-test
 
