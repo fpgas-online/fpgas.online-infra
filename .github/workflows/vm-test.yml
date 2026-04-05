@@ -3,10 +3,12 @@ name: VM Integration Tests
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: vm-test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   vm-test:
@@ -27,8 +29,7 @@ jobs:
             qemu-system-arm \
             qemu-efi-aarch64 \
             qemu-utils \
-            cloud-image-utils \
-            ansible
+            cloud-image-utils
 
       - name: Enable KVM (if available)
         run: |
@@ -41,8 +42,8 @@ jobs:
             echo "KVM not available, using TCG (slower)"
           fi
 
-      - name: Install Python dependencies
-        run: uv pip install paramiko --system
+      - name: Sync Python dependencies
+        run: uv sync
 
       - name: Cache VM images
         uses: actions/cache@v4

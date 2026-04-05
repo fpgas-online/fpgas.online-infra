@@ -2,8 +2,11 @@ name: Lint
 
 on:
   push:
-    branches: [main]
   pull_request:
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ansible-lint:
