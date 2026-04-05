@@ -35,12 +35,20 @@
   tags:
     - pxe-test
 
+- name: Template GRUB early config (embedded in EFI binary)
+  template:
+    src: templates/grub-early.cfg.j2
+    dest: /tmp/grub-early.cfg
+  tags:
+    - pxe-test
+
 - name: Build GRUB EFI binary for network boot
   command: >
     grub-mkimage
     -O arm64-efi
     -o /srv/tftp/grubaa64.efi
     -p /grub
+    -c /tmp/grub-early.cfg
     net tftp http linux normal configfile
   tags:
     - pxe-test
