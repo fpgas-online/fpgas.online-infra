@@ -185,30 +185,29 @@ class VMManager:
     def boot_pi(
         self,
         vlan_port: int = 12345,
-        memory: int = 1024,
+        memory: int = 2048,
         uboot_bin: str = "",
         dtb: str = "",
     ) -> None:
-        """Boot the aarch64 Pi VM using QEMU raspi3b with U-Boot.
+        """Boot the aarch64 Pi VM using QEMU raspi4b with U-Boot.
 
         U-Boot emulates the VideoCore PXE boot sequence: DHCP from dnsmasq,
         TFTP the same files a real RPi would request (bootcode.bin, config.txt,
         kernel8.img, DTB), then boots the kernel with NFS root.
 
-        The -M raspi3b machine type emulates real RPi 3B hardware including
-        the USB ethernet controller (lan78xx/smsc95xx).
+        The -M raspi4b machine type emulates real RPi 4B hardware including
+        the native Broadcom GENET Gigabit Ethernet controller (no USB needed).
         """
         cmd = [
             "qemu-system-aarch64",
-            "-M", "raspi3b",
+            "-M", "raspi4b",
             "-m", str(memory),
             # U-Boot as the bootloader
             "-kernel", uboot_bin,
             "-dtb", dtb,
-            # Connect to server VLAN via socket networking
-            "-netdev", f"socket,id=n0,connect=:{vlan_port}",
-            "-device", "usb-net,netdev=n0",
-            # Headless — RPi 3B uses mini UART (serial1), not PL011 (serial0)
+            # Native GENET ethernet connected to server VLAN
+            "-nic", f"socket,model=bcmgenet,connect=:{vlan_port},mac=52:54:00:12:34:56",
+            # Headless — RPi 4B uses mini UART (serial1) by default
             "-display", "none",
             "-serial", "null",
             "-serial", f"file:{self.serial_log}",

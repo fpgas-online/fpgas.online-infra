@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Build U-Boot for Raspberry Pi 3B targeting QEMU raspi3b.
+"""Build U-Boot for Raspberry Pi 4B targeting QEMU raspi4b.
 
-Downloads U-Boot source, cross-compiles for aarch64 rpi_3_defconfig,
+Downloads U-Boot source, cross-compiles for aarch64 rpi_4_defconfig,
 and outputs u-boot.bin ready for QEMU -kernel.
 
-Requirements: gcc-aarch64-linux-gnu, make, bison, flex, libssl-dev
+The RPi 4B has native Gigabit Ethernet (Broadcom GENET) which QEMU's
+raspi4b machine emulates, avoiding the USB ethernet issues of raspi3b.
+rpi_4_defconfig enables CONFIG_BCMGENET=y.
+
+Requirements: gcc-aarch64-linux-gnu, make, bison, flex, libssl-dev, libgnutls28-dev
 """
 
 import os
@@ -16,7 +20,7 @@ UBOOT_VERSION = "v2025.01"
 UBOOT_URL = f"https://github.com/u-boot/u-boot/archive/refs/tags/{UBOOT_VERSION}.tar.gz"
 BUILD_DIR = Path(__file__).parent / "images"
 UBOOT_SRC = BUILD_DIR / f"u-boot-{UBOOT_VERSION.lstrip('v')}"
-UBOOT_BIN = BUILD_DIR / "u-boot-rpi3b.bin"
+UBOOT_BIN = BUILD_DIR / "u-boot-rpi4b.bin"
 
 
 def check_deps():
@@ -60,9 +64,9 @@ def build():
     env = os.environ.copy()
     env["CROSS_COMPILE"] = "aarch64-linux-gnu-"
 
-    print("Configuring U-Boot for rpi_3_defconfig...")
+    print("Configuring U-Boot for rpi_4_defconfig...")
     subprocess.run(
-        ["make", "rpi_3_defconfig"],
+        ["make", "rpi_4_defconfig"],
         cwd=UBOOT_SRC,
         env=env,
         check=True,

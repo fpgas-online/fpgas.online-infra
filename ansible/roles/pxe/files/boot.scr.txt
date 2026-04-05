@@ -10,7 +10,7 @@ setenv scratch 0x02000000
 setenv have_kernel 0
 setenv have_dtb 0
 setenv kernel_name kernel8.img
-setenv dtb_name bcm2710-rpi-3-b.dtb
+setenv dtb_name bcm2711-rpi-4-b.dtb
 
 # Helper: probe a file, set ${found}
 setenv probe 'setenv found 0 ; tftpboot ${scratch} ${path} && setenv found 1 || true'
@@ -48,7 +48,7 @@ done
 # --- DTB probes ---
 tftpboot ${fdt_addr_r} ${pi_serial}/${dtb_name} && setenv have_dtb 1 || true
 if test "${have_dtb}" = "0" ; then
-    tftpboot ${fdt_addr_r} ${pi_serial}/bcm2710-rpi-3-b.dtb && setenv have_dtb 1 || true
+    tftpboot ${fdt_addr_r} ${pi_serial}/bcm2711-rpi-4-b.dtb && setenv have_dtb 1 || true
 fi
 
 # --- Boot ---

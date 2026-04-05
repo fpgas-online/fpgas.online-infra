@@ -144,20 +144,20 @@ def phase_server(args, workdir: Path) -> VMManager | None:
 
 
 def get_uboot_dtb() -> Path:
-    """Get the bcm2837-rpi-3-b.dtb built by U-Boot (compatible with QEMU raspi3b)."""
+    """Get the bcm2711-rpi-4-b.dtb built by U-Boot (compatible with QEMU raspi4b)."""
     from tests.vm.build_uboot import UBOOT_SRC
 
-    dtb = UBOOT_SRC / "arch" / "arm" / "dts" / "bcm2837-rpi-3-b.dtb"
+    dtb = UBOOT_SRC / "arch" / "arm" / "dts" / "bcm2711-rpi-4-b.dtb"
     if dtb.exists():
         print(f"[pi] Using U-Boot DTB: {dtb} ({dtb.stat().st_size} bytes)")
         return dtb
 
     # Fallback: use the pre-cached copy
-    dtb_cached = IMAGES_DIR / "bcm2837-rpi-3-b.dtb"
+    dtb_cached = IMAGES_DIR / "bcm2711-rpi-4-b.dtb"
     if dtb_cached.exists():
         return dtb_cached
 
-    raise FileNotFoundError("bcm2837-rpi-3-b.dtb not found — build U-Boot first")
+    raise FileNotFoundError("bcm2711-rpi-4-b.dtb not found — build U-Boot first")
 
 
 def build_uboot(workdir: Path) -> Path:
