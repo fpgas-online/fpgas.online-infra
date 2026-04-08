@@ -31,12 +31,8 @@ def find_qemu_rpi_binary() -> str:
     2. Static binary downloaded to tests/vm/images/
     """
     # Check system PATH
-    result = subprocess.run(
-        ["which", QEMU_RPI_SYSTEM_BIN],
-        capture_output=True,
-    )
-    if result.returncode == 0:
-        path = result.stdout.decode().strip()
+    path = shutil.which(QEMU_RPI_SYSTEM_BIN)
+    if path:
         print(f"[qemu-rpi] Using system binary: {path}")
         return path
 
@@ -115,7 +111,6 @@ def download_qemu_rpi(dest_dir: Path) -> None:
     if not pxeboot_bin.exists():
         print(f"[qemu-rpi] Downloading pxeboot firmware from {QEMU_RPI_REPO}...")
         # Download the pxeboot deb and extract the firmware files
-        tmp_deb = dest_dir / "qemu-rpi-pxeboot.deb"
         subprocess.run(
             ["gh", "release", "download", "-R", QEMU_RPI_REPO,
              "-p", f"{QEMU_RPI_PXEBOOT_DEB}_*.deb", "-D", str(dest_dir),

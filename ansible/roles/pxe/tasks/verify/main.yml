@@ -91,3 +91,31 @@
     fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
   with_items: "{{ pxe_cmdline_txt_stat.results }}"
   when: pxe_test_clients is defined
+
+- name: Check kernel symlink exists and target is valid for test clients
+  stat:
+    path: "/srv/tftp/{{ item.sn }}/kernel8.img"
+  register: pxe_kernel_stat
+  with_items: "{{ pxe_test_clients }}"
+  when: pxe_test_clients is defined
+
+- name: Assert kernel exists for test clients
+  assert:
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/kernel8.img not found (broken symlink?)"
+  with_items: "{{ pxe_kernel_stat.results }}"
+  when: pxe_test_clients is defined
+
+- name: Check DTB symlink exists and target is valid for test clients
+  stat:
+    path: "/srv/tftp/{{ item.sn }}/bcm2711-rpi-4-b.dtb"
+  register: pxe_dtb_stat
+  with_items: "{{ pxe_test_clients }}"
+  when: pxe_test_clients is defined
+
+- name: Assert DTB exists for test clients
+  assert:
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/bcm2711-rpi-4-b.dtb not found (broken symlink?)"
+  with_items: "{{ pxe_dtb_stat.results }}"
+  when: pxe_test_clients is defined

@@ -42,7 +42,7 @@
 - name: Symlink initramfs from NFS root to TFTP serial directory (if exists)
   file:
     src: "{{ item.nfs_root }}/boot/initramfs8"
-    dest: "/srv/tftp/{{ item.sn }}/initramfs8"
+    dest: "/srv/tftp/{{ item.sn }}/initrd.img"
     state: link
     force: true
   with_items: "{{ pxe_test_clients }}"
