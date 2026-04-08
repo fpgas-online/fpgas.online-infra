@@ -40,24 +40,54 @@
     that: "'dhcp-host=' in pxe_pibs_content.stdout"
     fail_msg: "/etc/dnsmasq.d/pibs.conf does not contain 'dhcp-host='"
 
-- name: Check /srv/tftp/bootcode.bin exists
+- name: Check /srv/tftp directory exists
   stat:
-    path: /srv/tftp/bootcode.bin
-  register: pxe_bootcode_stat
+    path: /srv/tftp
+  register: pxe_tftp_dir_stat
 
-- name: Assert /srv/tftp/bootcode.bin exists
+- name: Assert /srv/tftp directory exists
   assert:
-    that: pxe_bootcode_stat.stat.exists
-    fail_msg: "/srv/tftp/bootcode.bin not found"
+    that: pxe_tftp_dir_stat.stat.exists and pxe_tftp_dir_stat.stat.isdir
+    fail_msg: "/srv/tftp directory not found"
 
-- name: Check U-Boot boot script exists for test clients
+- name: Check TFTP serial directories exist for test clients
   stat:
-    path: /srv/tftp/boot.scr
-  register: pxe_boot_scr_stat
+    path: "/srv/tftp/{{ item.sn }}"
+  register: pxe_serial_dir_stat
+  with_items: "{{ pxe_test_clients }}"
   when: pxe_test_clients is defined
 
-- name: Assert U-Boot boot script exists
+- name: Assert TFTP serial directories exist
   assert:
-    that: pxe_boot_scr_stat.stat.exists
-    fail_msg: "/srv/tftp/boot.scr not found"
+    that: item.stat.exists and item.stat.isdir
+    fail_msg: "/srv/tftp/{{ item.item.sn }} directory not found"
+  with_items: "{{ pxe_serial_dir_stat.results }}"
+  when: pxe_test_clients is defined
+
+- name: Check config.txt exists for test clients
+  stat:
+    path: "/srv/tftp/{{ item.sn }}/config.txt"
+  register: pxe_config_txt_stat
+  with_items: "{{ pxe_test_clients }}"
+  when: pxe_test_clients is defined
+
+- name: Assert config.txt exists for test clients
+  assert:
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/config.txt not found"
+  with_items: "{{ pxe_config_txt_stat.results }}"
+  when: pxe_test_clients is defined
+
+- name: Check cmdline.txt exists for test clients
+  stat:
+    path: "/srv/tftp/{{ item.sn }}/cmdline.txt"
+  register: pxe_cmdline_txt_stat
+  with_items: "{{ pxe_test_clients }}"
+  when: pxe_test_clients is defined
+
+- name: Assert cmdline.txt exists for test clients
+  assert:
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
+  with_items: "{{ pxe_cmdline_txt_stat.results }}"
   when: pxe_test_clients is defined
