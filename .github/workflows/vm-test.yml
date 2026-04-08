@@ -8,8 +8,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: vm-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  vm-test:
+  server-phase:
+    name: Server VM
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -24,8 +29,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             qemu-system-x86 \
-            qemu-system-arm \
-            qemu-efi-aarch64 \
             qemu-utils \
             cloud-image-utils \
             ansible
@@ -48,7 +51,63 @@ jobs:
         uses: actions/cache@v4
         with:
           path: tests/vm/images
-          key: vm-images-bookworm-v1
+          key: vm-images-bookworm-v2
 
       - name: Run server VM tests
         run: uv run tests/vm/run_tests.py --phase server
+
+  pi-phase:
+    name: Pi PXE Boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: server-phase
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-system-x86 \
+            qemu-utils \
+            cloud-image-utils \
+            ansible
+
+      - name: Add qemu-rpi APT repository
+        run: |
+          echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
+            | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+          sudo apt-get update
+
+      - name: Install qemu-rpi packages
+        run: |
+          sudo apt-get install -y \
+            qemu-rpi-system-arm \
+            qemu-rpi-pxeboot
+
+      - name: Enable KVM (if available)
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo "KVM_AVAILABLE=true" >> "$GITHUB_ENV"
+            sudo chmod 666 /dev/kvm
+            echo "KVM acceleration enabled"
+          else
+            echo "KVM_AVAILABLE=false" >> "$GITHUB_ENV"
+            echo "KVM not available, using TCG (slower)"
+          fi
+
+      - name: Install Python dependencies
+        run: uv pip install paramiko --system
+
+      - name: Cache VM images
+        uses: actions/cache@v4
+        with:
+          path: tests/vm/images
+          key: vm-images-bookworm-v2
+
+      - name: Run full test (server + Pi PXE boot)
+        run: uv run tests/vm/run_tests.py --phase all
