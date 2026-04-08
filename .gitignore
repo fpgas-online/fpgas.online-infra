@@ -1,10 +1,9 @@
-# QEMU VM test images and build artifacts
+# QEMU VM test images and downloaded artifacts
 tests/vm/images/*.qcow2
 tests/vm/images/*.img*
 tests/vm/images/*.bin
 tests/vm/images/*.dtb
 tests/vm/images/*.tar.gz
 tests/vm/images/*.deb
-tests/vm/images/u-boot-*/
 tests/vm/images/pxeboot-extract/
 tests/vm/workdir/

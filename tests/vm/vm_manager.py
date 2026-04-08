@@ -13,8 +13,6 @@ import paramiko
 
 IMAGES_DIR = Path(__file__).parent / "images"
 DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-amd64.qcow2"
-DEBIAN_CLOUD_URL_ARM64 = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-arm64.qcow2"
-
 # rpi-qemu package constants
 QEMU_RPI_REPO = "fpgas-online/rpi-qemu"
 QEMU_RPI_STATIC_ASSET = "qemu-rpi-static-linux-amd64.tar.gz"
