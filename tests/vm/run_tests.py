@@ -22,6 +22,9 @@ from tests.vm.vm_manager import (
     VMManager,
     create_overlay,
     download_image,
+    download_qemu_rpi,
+    find_pxeboot_firmware,
+    find_qemu_rpi_binary,
     generate_ssh_keypair,
 )
 
@@ -143,38 +146,37 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     return server
 
 
-def get_uboot_dtb() -> Path:
-    """Get the bcm2711-rpi-4-b.dtb built by U-Boot (compatible with QEMU raspi4b)."""
-    from tests.vm.build_uboot import UBOOT_SRC
+def ensure_qemu_rpi() -> tuple[str, str, str]:
+    """Ensure qemu-rpi packages are available. Returns (qemu_bin, pxeboot_bin, pxeboot_dtb).
 
-    dtb = UBOOT_SRC / "arch" / "arm" / "dts" / "bcm2711-rpi-4-b.dtb"
-    if dtb.exists():
-        print(f"[pi] Using U-Boot DTB: {dtb} ({dtb.stat().st_size} bytes)")
-        return dtb
+    Tries system-installed packages first, then falls back to downloading
+    from GitHub releases.
+    """
+    try:
+        qemu_bin = find_qemu_rpi_binary()
+    except FileNotFoundError:
+        print("[pi] qemu-rpi not found system-wide, downloading...")
+        download_qemu_rpi(IMAGES_DIR)
+        qemu_bin = find_qemu_rpi_binary()
 
-    # Fallback: use the pre-cached copy
-    dtb_cached = IMAGES_DIR / "bcm2711-rpi-4-b.dtb"
-    if dtb_cached.exists():
-        return dtb_cached
+    try:
+        pxeboot_bin, pxeboot_dtb = find_pxeboot_firmware()
+    except FileNotFoundError:
+        print("[pi] pxeboot firmware not found, downloading...")
+        download_qemu_rpi(IMAGES_DIR)
+        pxeboot_bin, pxeboot_dtb = find_pxeboot_firmware()
 
-    raise FileNotFoundError("bcm2711-rpi-4-b.dtb not found — build U-Boot first")
-
-
-def build_uboot(workdir: Path) -> Path:
-    """Build U-Boot for RPi 3B if not already cached."""
-    from tests.vm.build_uboot import UBOOT_BIN, main as build_main
-
-    if UBOOT_BIN.exists():
-        print(f"[pi] Using cached U-Boot: {UBOOT_BIN}")
-        return UBOOT_BIN
-
-    print("[pi] Building U-Boot for raspi3b...")
-    build_main()
-    return UBOOT_BIN
+    return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
 def phase_pi(args, workdir: Path, server: VMManager) -> bool:
-    """Run the Pi phase: boot QEMU raspi3b with U-Boot PXE from server."""
+    """Run the Pi phase: boot QEMU raspi4b with PXE from server.
+
+    Uses qemu-rpi (patched QEMU with GENET ethernet) and qemu-rpi-pxeboot
+    firmware (U-Boot with embedded VideoCore PXE sequence). The firmware
+    autonomously does DHCP + TFTP from the server's dnsmasq, loads the
+    RPi kernel and DTB, and boots into the NFS root.
+    """
     # Verify server socket is listening
     if not wait_for_socket_listen(VLAN_PORT):
         print("ERROR: Server VLAN socket not listening.")
@@ -182,18 +184,16 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
 
     key_path = workdir / "test_key"
 
-    # Build U-Boot for raspi3b
-    uboot_bin = build_uboot(workdir)
+    # Ensure patched QEMU and PXE boot firmware are available
+    qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
 
-    # Get DTB from U-Boot build (compatible with QEMU raspi3b)
-    dtb_path = get_uboot_dtb()
-
-    # Boot Pi VM — U-Boot will PXE boot from server (DHCP + TFTP)
+    # Boot Pi VM — PXE firmware will boot from server (DHCP + TFTP + NFS)
     pi = VMManager("pi", workdir)
     pi.boot_pi(
         vlan_port=VLAN_PORT,
-        uboot_bin=str(uboot_bin),
-        dtb=str(dtb_path),
+        qemu_bin=qemu_bin,
+        pxeboot_bin=pxeboot_bin,
+        pxeboot_dtb=pxeboot_dtb,
     )
 
     if not pi.wait_for_guest_agent(timeout=300):

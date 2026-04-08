@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -13,6 +14,139 @@ import paramiko
 IMAGES_DIR = Path(__file__).parent / "images"
 DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-amd64.qcow2"
 DEBIAN_CLOUD_URL_ARM64 = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-arm64.qcow2"
+
+# rpi-qemu package constants
+QEMU_RPI_REPO = "fpgas-online/rpi-qemu"
+QEMU_RPI_STATIC_ASSET = "qemu-rpi-static-linux-amd64.tar.gz"
+QEMU_RPI_PXEBOOT_DEB = "qemu-rpi-pxeboot"
+QEMU_RPI_SYSTEM_BIN = "qemu-rpi-system-aarch64"
+QEMU_RPI_PXEBOOT_BIN = "rpi4b-pxeboot.bin"
+QEMU_RPI_PXEBOOT_DTB = "rpi4b-pxeboot.dtb"
+QEMU_RPI_PXEBOOT_SHARE = Path("/usr/share/qemu-rpi-pxeboot")
+
+
+def find_qemu_rpi_binary() -> str:
+    """Find the qemu-rpi-system-aarch64 binary.
+
+    Checks (in order):
+    1. System-installed binary (from qemu-rpi-system-arm APT package)
+    2. Static binary downloaded to tests/vm/images/
+    """
+    # Check system PATH
+    result = subprocess.run(
+        ["which", QEMU_RPI_SYSTEM_BIN],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        path = result.stdout.decode().strip()
+        print(f"[qemu-rpi] Using system binary: {path}")
+        return path
+
+    # Check for static binary in images dir
+    static_bin = IMAGES_DIR / f"{QEMU_RPI_SYSTEM_BIN}-static"
+    if static_bin.exists():
+        print(f"[qemu-rpi] Using static binary: {static_bin}")
+        return str(static_bin)
+
+    raise FileNotFoundError(
+        f"{QEMU_RPI_SYSTEM_BIN} not found. Install via:\n"
+        f"  APT: echo 'deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main' "
+        f"| sudo tee /etc/apt/sources.list.d/qemu-rpi.list && sudo apt update && "
+        f"sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
+        f"  Or download static binary: gh release download -R {QEMU_RPI_REPO} "
+        f"-p '{QEMU_RPI_STATIC_ASSET}' -D {IMAGES_DIR}"
+    )
+
+
+def find_pxeboot_firmware() -> tuple[str, str]:
+    """Find the rpi4b-pxeboot.bin and .dtb firmware files.
+
+    Returns (bin_path, dtb_path).
+
+    Checks (in order):
+    1. System-installed from qemu-rpi-pxeboot APT package
+    2. Downloaded to tests/vm/images/
+    """
+    # Check system install
+    sys_bin = QEMU_RPI_PXEBOOT_SHARE / QEMU_RPI_PXEBOOT_BIN
+    sys_dtb = QEMU_RPI_PXEBOOT_SHARE / QEMU_RPI_PXEBOOT_DTB
+    if sys_bin.exists() and sys_dtb.exists():
+        print(f"[qemu-rpi] Using system pxeboot firmware: {sys_bin}")
+        return str(sys_bin), str(sys_dtb)
+
+    # Check images dir
+    local_bin = IMAGES_DIR / QEMU_RPI_PXEBOOT_BIN
+    local_dtb = IMAGES_DIR / QEMU_RPI_PXEBOOT_DTB
+    if local_bin.exists() and local_dtb.exists():
+        print(f"[qemu-rpi] Using local pxeboot firmware: {local_bin}")
+        return str(local_bin), str(local_dtb)
+
+    raise FileNotFoundError(
+        f"PXE boot firmware not found. Install via:\n"
+        f"  APT: sudo apt install qemu-rpi-pxeboot\n"
+        f"  Or download: gh release download -R {QEMU_RPI_REPO} "
+        f"-p '*.deb' -D {IMAGES_DIR}"
+    )
+
+
+def download_qemu_rpi(dest_dir: Path) -> None:
+    """Download qemu-rpi static binary and pxeboot firmware from GitHub releases."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    static_bin = dest_dir / f"{QEMU_RPI_SYSTEM_BIN}-static"
+    if not static_bin.exists():
+        print(f"[qemu-rpi] Downloading static binary from {QEMU_RPI_REPO}...")
+        tarball = dest_dir / QEMU_RPI_STATIC_ASSET
+        subprocess.run(
+            ["gh", "release", "download", "-R", QEMU_RPI_REPO,
+             "-p", QEMU_RPI_STATIC_ASSET, "-D", str(dest_dir),
+             "--clobber"],
+            check=True,
+        )
+        subprocess.run(
+            ["tar", "xzf", str(tarball), "-C", str(dest_dir)],
+            check=True,
+        )
+        tarball.unlink()
+        if not static_bin.exists():
+            raise FileNotFoundError(f"Expected {static_bin} after extracting tarball")
+        static_bin.chmod(0o755)
+        print(f"[qemu-rpi] Static binary: {static_bin}")
+
+    pxeboot_bin = dest_dir / QEMU_RPI_PXEBOOT_BIN
+    if not pxeboot_bin.exists():
+        print(f"[qemu-rpi] Downloading pxeboot firmware from {QEMU_RPI_REPO}...")
+        # Download the pxeboot deb and extract the firmware files
+        tmp_deb = dest_dir / "qemu-rpi-pxeboot.deb"
+        subprocess.run(
+            ["gh", "release", "download", "-R", QEMU_RPI_REPO,
+             "-p", f"{QEMU_RPI_PXEBOOT_DEB}_*.deb", "-D", str(dest_dir),
+             "--clobber"],
+            check=True,
+        )
+        # Find the downloaded deb (filename includes version)
+        debs = list(dest_dir.glob(f"{QEMU_RPI_PXEBOOT_DEB}_*.deb"))
+        if not debs:
+            raise FileNotFoundError("Failed to download qemu-rpi-pxeboot deb")
+        deb_path = debs[0]
+        # Extract firmware files from the deb
+        subprocess.run(
+            ["dpkg-deb", "-x", str(deb_path), str(dest_dir / "pxeboot-extract")],
+            check=True,
+        )
+        extract_share = dest_dir / "pxeboot-extract" / "usr" / "share" / "qemu-rpi-pxeboot"
+        for fname in [QEMU_RPI_PXEBOOT_BIN, QEMU_RPI_PXEBOOT_DTB]:
+            src = extract_share / fname
+            dst = dest_dir / fname
+            if src.exists():
+                shutil.copy2(src, dst)
+        # Clean up
+        shutil.rmtree(dest_dir / "pxeboot-extract", ignore_errors=True)
+        deb_path.unlink(missing_ok=True)
+
+        if not pxeboot_bin.exists():
+            raise FileNotFoundError("Failed to extract pxeboot firmware from deb")
+        print(f"[qemu-rpi] PXE firmware: {pxeboot_bin}")
 
 
 def kvm_available() -> bool:
@@ -186,34 +320,36 @@ class VMManager:
         self,
         vlan_port: int = 12345,
         memory: int = 2048,
-        uboot_bin: str = "",
-        dtb: str = "",
+        qemu_bin: str = "",
+        pxeboot_bin: str = "",
+        pxeboot_dtb: str = "",
+        mac: str = "52:54:00:12:34:56",
     ) -> None:
-        """Boot the aarch64 Pi VM using QEMU raspi4b with U-Boot.
+        """Boot the aarch64 Pi VM using patched QEMU raspi4b with PXE boot.
 
-        U-Boot emulates the VideoCore PXE boot sequence: DHCP from dnsmasq,
-        TFTP the same files a real RPi would request (bootcode.bin, config.txt,
-        kernel8.img, DTB), then boots the kernel with NFS root.
+        Uses qemu-rpi-system-aarch64 (patched QEMU with BCM2838 GENET
+        ethernet emulation) and qemu-rpi-pxeboot firmware (U-Boot with
+        embedded VideoCore PXE boot sequence).
 
-        The -M raspi4b machine type emulates real RPi 4B hardware including
-        the native Broadcom GENET Gigabit Ethernet controller (no USB needed).
+        The firmware autonomously: DHCP from dnsmasq, TFTP probes the same
+        files a real RPi 4B VideoCore GPU would request (deadbeef/config.txt,
+        kernel8.img, DTB), then boots the kernel.
         """
         cmd = [
-            "qemu-system-aarch64",
+            qemu_bin,
             "-M", "raspi4b",
             "-m", str(memory),
-            # U-Boot as the bootloader
-            "-kernel", uboot_bin,
-            "-dtb", dtb,
+            # PXE boot firmware (U-Boot with embedded VideoCore emulation)
+            "-kernel", pxeboot_bin,
+            "-dtb", pxeboot_dtb,
             # Native GENET ethernet connected to server VLAN
-            "-nic", f"socket,model=bcmgenet,connect=:{vlan_port},mac=52:54:00:12:34:56",
-            # Headless — RPi 4B uses mini UART (serial1) by default
+            "-nic", f"socket,connect=:{vlan_port},mac={mac}",
+            # Headless — RPi 4B uses PL011 UART (serial0/ttyAMA0)
             "-display", "none",
-            "-serial", "null",
             "-serial", f"file:{self.serial_log}",
-            # NO disk — U-Boot does PXE -> kernel -> NFS root
+            # NO disk — PXE boot -> kernel -> NFS root
         ]
-        print(f"[{self.name}] Booting Pi VM (raspi3b + U-Boot PXE, aarch64 TCG)...")
+        print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
