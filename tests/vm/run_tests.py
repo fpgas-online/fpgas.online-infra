@@ -9,7 +9,6 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 """
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
