@@ -1,80 +1,11 @@
 ---
-# PXE test client support for QEMU raspi4b VMs.
+# PXE test client support.
 # Only included when pxe_test_clients is defined.
 #
-# The QEMU Pi VM uses qemu-rpi-pxeboot firmware which has an embedded
-# VideoCore PXE boot sequence. The firmware does DHCP, then probes TFTP
-# under <serial>/ for config.txt, kernel, DTB, and initramfs — exactly
-# as a real RPi 4B GPU bootloader does.
-#
-# This task sets up the TFTP serial directories with the right files
-# from the NFS root's /boot/ and creates config.txt/cmdline.txt.
-
-- name: Create TFTP serial directory for test clients
-  file:
-    path: "/srv/tftp/{{ item.sn }}"
-    state: directory
-    mode: "0755"
-  with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
-
-- name: Symlink kernel from NFS root to TFTP serial directory
-  file:
-    src: "{{ item.nfs_root }}/boot/kernel8.img"
-    dest: "/srv/tftp/{{ item.sn }}/kernel8.img"
-    state: link
-    force: true
-  with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
-
-- name: Symlink DTB from NFS root to TFTP serial directory
-  file:
-    src: "{{ item.nfs_root }}/boot/bcm2711-rpi-4-b.dtb"
-    dest: "/srv/tftp/{{ item.sn }}/bcm2711-rpi-4-b.dtb"
-    state: link
-    force: true
-  with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
-
-- name: Symlink initramfs from NFS root to TFTP serial directory (if exists)
-  file:
-    src: "{{ item.nfs_root }}/boot/initramfs8"
-    dest: "/srv/tftp/{{ item.sn }}/initrd.img"
-    state: link
-    force: true
-  with_items: "{{ pxe_test_clients }}"
-  failed_when: false
-  tags:
-    - pxe-test
-
-- name: Create config.txt for test clients
-  copy:
-    dest: "/srv/tftp/{{ item.sn }}/config.txt"
-    content: |
-      kernel=kernel8.img
-      device_tree=bcm2711-rpi-4-b.dtb
-      arm_64bit=1
-    mode: "0644"
-  with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
-
-- name: Create cmdline.txt for test clients
-  copy:
-    dest: "/srv/tftp/{{ item.sn }}/cmdline.txt"
-    content: >-
-      earlycon=pl011,mmio32,0xfe201000
-      console={{ item.console }}
-      root=/dev/nfs
-      nfsroot={{ eth_local_address }}:{{ item.nfs_root }},nfsvers=3
-      ro ip=dhcp rootwait
-    mode: "0644"
-  with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
+# Adds DHCP host entries for test clients and injects the test SSH key
+# into the Pi's authorized_keys in the NFS root. All TFTP boot files
+# (kernel, DTB, cmdline.txt, config.txt, initramfs) come from the
+# production fixpi/netboot.yml setup — no test-specific overrides.
 
 - name: Add DHCP host entries for test clients
   lineinfile:
@@ -83,5 +14,26 @@
     create: false
   with_items: "{{ pxe_test_clients }}"
   notify: restart dnsmasq
+  tags:
+    - pxe-test
+
+- name: Add test SSH key to Pi authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ user }}"
+    state: present
+    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
+    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
+  with_items: "{{ pxe_test_clients }}"
+  when: ansible_ssh_private_key_file is defined
+  tags:
+    - pxe-test
+
+- name: Fix SSH authorized_keys ownership for test clients
+  file:
+    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh"
+    recurse: true
+    owner: "1000"
+    group: "1000"
+  when: ansible_ssh_private_key_file is defined
   tags:
     - pxe-test
