@@ -11,6 +11,7 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from tests.vm.cloud_init import create_seed_iso
@@ -64,6 +65,45 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
     return result.returncode
 
 
+def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> bool:
+    """Monitor Pi serial log for boot progress milestones.
+
+    Returns True if the Pi reaches a login prompt, False on timeout.
+    """
+    milestones = [
+        ("DHCP", "Firmware got network"),
+        ("Loading", "TFTP loading files"),
+        ("Booting Linux", "Kernel handoff"),
+        ("login:", "System booted"),
+    ]
+    seen = set()
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        if pi.serial_log.exists():
+            content = pi.serial_log.read_text(errors="replace")
+            for marker, desc in milestones:
+                if marker in content and marker not in seen:
+                    seen.add(marker)
+                    print(f"[pi] Boot milestone: {desc} ({marker})")
+            if "login:" in content:
+                return True
+        # Check if QEMU process died
+        if not pi.is_alive():
+            print("[pi] ERROR: QEMU process exited unexpectedly")
+            break
+        time.sleep(5)
+
+    # Timeout or process died — print serial log tail for debugging
+    print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
+    if pi.serial_log.exists():
+        lines = pi.serial_log.read_text(errors="replace").splitlines()
+        print(f"[pi] Last 30 lines of serial log:")
+        for line in lines[-30:]:
+            print(f"  {line}")
+    return False
+
+
 def phase_server(args, workdir: Path) -> VMManager | None:
     """Run the server phase: boot VM, apply roles, verify."""
     dist = args.distro
@@ -113,21 +153,27 @@ def phase_server(args, workdir: Path) -> VMManager | None:
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
-    # Run site.yml
-    rc = run_ansible("site.yml", inventory, "test-vm", extra)
+    # Run site.yml (includes nspawn Pi provisioning)
+    rc = run_ansible("site.yml", inventory, "test-vm,test-pi-nfs", extra)
     if rc != 0:
         print(f"ERROR: site.yml failed with exit code {rc}")
         if args.keep_vm:
             print(f"VM kept alive. SSH: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
-            return None  # Signal failure even with --keep-vm
+            return None
         server.shutdown()
         server.cleanup()
         return None
 
-    # Run verify.yml
-    rc = run_ansible("verify.yml", inventory, "test-vm", extra)
+    # Run verify-server.yml
+    rc = run_ansible("verify-server.yml", inventory, "test-vm", extra)
     if rc != 0:
-        print(f"WARNING: verify.yml failed with exit code {rc}")
+        print(f"ERROR: verify-server.yml failed with exit code {rc}")
+        if args.keep_vm:
+            print(f"VM kept alive. SSH: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
+            return None
+        server.shutdown()
+        server.cleanup()
+        return None
 
     if args.ssh_to_server:
         print(f"\nSSH into server: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
@@ -195,18 +241,17 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         pxeboot_dtb=pxeboot_dtb,
     )
 
-    if not pi.wait_for_guest_agent(timeout=300):
-        print("WARNING: Pi VM guest agent did not respond.")
-        print(f"Serial log: {pi.serial_log}")
-        # Continue — the Pi may still be booting
+    # Monitor serial log for boot milestones
+    if not wait_for_pi_boot(pi, timeout=300):
+        print("WARNING: Pi did not reach login prompt within timeout.")
+        # Continue to try SSH anyway
 
     # Wait for SSH via ProxyJump through server
-    key_path = workdir / "test_key"
     proxy = proxy_jump_string("debian", "127.0.0.1", SSH_PORT)
 
     try:
         ssh = pi.wait_for_ssh(
-            host="10.21.0.128", port=22, username="testuser",
+            host="10.21.0.128", port=22, username="pi",
             key_path=key_path, proxy_jump=proxy, timeout=300,
         )
         ssh.close()
@@ -215,18 +260,22 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         pi.shutdown()
         return False
 
-    # Select inventory
+    # Run verify-pi.yml against the running Pi
     inventory = TEST_INVENTORY
-    extra = ["-e", f"ansible_ssh_private_key_file={key_path}"]
+    extra = [
+        "-e", f"ansible_ssh_private_key_file={key_path}",
+        "--become",
+    ]
+    if args.skip_tags:
+        extra.extend(["--skip-tags", args.skip_tags])
 
-    # Run verify.yml for Pi
-    rc = run_ansible("verify.yml", inventory, "test-pi", extra)
+    rc = run_ansible("verify-pi.yml", inventory, "test-pi", extra)
     if rc != 0:
-        print(f"WARNING: Pi verify.yml failed with exit code {rc}")
+        print(f"ERROR: verify-pi.yml failed with exit code {rc}")
 
     if args.ssh_to_pi:
         print(f"\nSSH into Pi via ProxyJump:")
-        print(f"  ssh -i {key_path} -o StrictHostKeyChecking=no -o ProxyJump=debian@127.0.0.1:{SSH_PORT} testuser@10.21.0.128")
+        print(f"  ssh -i {key_path} -o StrictHostKeyChecking=no -o ProxyJump=debian@127.0.0.1:{SSH_PORT} pi@10.21.0.128")
         print("Press Ctrl+C to exit.")
         try:
             subprocess.run([
@@ -234,7 +283,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
                 "-o", f"ProxyJump=debian@127.0.0.1:{SSH_PORT}",
-                "testuser@10.21.0.128",
+                "pi@10.21.0.128",
             ])
         except KeyboardInterrupt:
             pass
