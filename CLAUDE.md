@@ -48,13 +48,16 @@ from other repos:
 
 ### Key Files
 
-- `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi (nspawn chroot)
+- `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi
 - `ansible/verify-server.yml` -- Server-side verification (TFTP, NFS, packages, config)
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
 - `ansible/roles/` -- All deployment roles
 - `ansible/roles/nspawn-pi/` -- Manages nspawn+sshd lifecycle for Pi NFS root provisioning
-- `tests/vm/` -- QEMU VM test harness (run_tests.py, vm_manager.py)
+- `tests/vm/` -- QEMU VM test harness
+
+Note: `nspawn-pi` role, `verify-server.yml`, and `verify-pi.yml` are being implemented
+(replacing the current `verify.yml` and plain chroot approach in `fixpi/netboot.yml`).
 
 ### Deployment Targets
 

@@ -73,7 +73,7 @@ uv run ansible-playbook ansible/site.yml
 # Server roles only
 uv run ansible-playbook ansible/site.yml --limit nbp,uhubctl,pig
 
-# Pi NFS root provisioning only (runs in nspawn chroot on server)
+# Server setup + Pi NFS root provisioning
 uv run ansible-playbook ansible/site.yml --limit nbp,pi
 ```
 
@@ -159,7 +159,11 @@ test coverage grows correspondingly.
 - [fpgas.online-setup-pi](https://github.com/fpgas-online/fpgas.online-setup-pi) -- Pi environment setup
 - [fpgas.online-netboot-pi](https://github.com/fpgas-online/fpgas.online-netboot-pi) -- Netboot filesystem tools
 - [fpgas.online-test-designs](https://github.com/fpgas-online/fpgas.online-test-designs) -- FPGA test designs
+- [fpgas.online-tools](https://github.com/fpgas-online/fpgas.online-tools) -- Utility scripts
 - [rpi-qemu](https://github.com/fpgas-online/rpi-qemu) -- Patched QEMU with RPi 4B GENET ethernet for testing
+
+> **Note:** The `nspawn-pi` role, `verify-server.yml`, and `verify-pi.yml` are being
+> implemented — replacing the current single `verify.yml` and plain chroot approach.
 
 ## License
 
