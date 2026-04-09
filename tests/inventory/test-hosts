@@ -7,11 +7,19 @@ test-vm
 [pig]
 test-vm
 
+# Pi NFS root provisioning — connects to nspawn+sshd chroot on server
 [pi]
-test-pi ansible_host=10.21.0.128 ansible_user=testuser
+test-pi-nfs ansible_host=127.0.0.1 ansible_port=2200 ansible_user=root
+
+# Live Pi verification — connects to running Pi via ProxyJump through server
+[pi_live]
+test-pi ansible_host=10.21.0.128 ansible_user=pi
 
 [all:vars]
 ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 
 [pi:vars]
+ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyJump=debian@127.0.0.1:2222
+
+[pi_live:vars]
 ansible_ssh_common_args=-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ProxyJump=debian@127.0.0.1:2222
