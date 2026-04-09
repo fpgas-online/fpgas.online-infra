@@ -1,21 +1,5 @@
 ---
-# Stop the chroot sshd and clean up mounts.
-
-- name: Stop chroot sshd
-  shell: |
-    if [ -f /run/nspawn-pi-sshd.pid ]; then
-      kill $(cat /run/nspawn-pi-sshd.pid) 2>/dev/null || true
-      rm -f /run/nspawn-pi-sshd.pid
-    fi
-    pkill -f "sshd.*-p {{ nspawn_sshd_port }}" 2>/dev/null || true
-  changed_when: false
-
-- name: Wait for sshd to exit
-  wait_for:
-    host: 127.0.0.1
-    port: "{{ nspawn_sshd_port }}"
-    timeout: 10
-    state: stopped
+# Clean up the Pi NFS root chroot mounts and policy-rc.d.
 
 - name: Unmount chroot bind mounts
   shell: |

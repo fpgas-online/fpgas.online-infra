@@ -1,8 +1,8 @@
 ---
-# Start sshd on the Pi NFS root via chroot.
-# This makes the chroot'd ARM filesystem accessible via SSH so
-# Ansible can run Pi roles against it as if it were a real Pi.
-# Requires qemu-user-static for ARM binary emulation via binfmt_misc.
+# Prepare the Pi NFS root for Ansible access via SSH chroot wrapper.
+# Creates a 'piroot' user on the server whose shell is a script that
+# chroots into the NFS root. Ansible connects via SSH to piroot@server
+# and all commands execute inside the ARM chroot (qemu-user-static).
 
 - name: Install qemu-user-static
   apt:
@@ -20,16 +20,13 @@
     test -f /proc/sys/fs/binfmt_misc/qemu-arm
   changed_when: false
 
-- name: Ensure privilege separation directory exists
-  file:
-    path: "{{ nspawn_root }}/run/sshd"
-    state: directory
-    mode: "0755"
-
-- name: Generate SSH host keys in NFS root if missing
-  command: ssh-keygen -A -f "{{ nspawn_root }}"
-  args:
-    creates: "{{ nspawn_root }}/etc/ssh/ssh_host_ed25519_key"
+- name: Mount filesystems for chroot
+  shell: |
+    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
+    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
+    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
+    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
+  changed_when: false
 
 - name: Install policy-rc.d to suppress service starts during apt
   copy:
@@ -39,48 +36,27 @@
       exit 101
     mode: "0755"
 
-- name: Ensure sshd privilege separation user exists in chroot
-  shell: |
-    if ! chroot "{{ nspawn_root }}" id sshd >/dev/null 2>&1; then
-      chroot "{{ nspawn_root }}" useradd -r -d /run/sshd -s /usr/sbin/nologin sshd || true
-    fi
-  changed_when: false
-
-- name: Mount filesystems for chroot
-  shell: |
-    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
-    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
-    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
-    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
-  changed_when: false
-
-- name: Write minimal sshd config for chroot
+- name: Create chroot wrapper shell script
   copy:
-    dest: "{{ nspawn_root }}/etc/ssh/sshd_config_chroot"
+    dest: /usr/local/bin/chroot-shell
     content: |
-      Port {{ nspawn_sshd_port }}
-      ListenAddress 0.0.0.0
-      HostKey /etc/ssh/ssh_host_ed25519_key
-      HostKey /etc/ssh/ssh_host_rsa_key
-      PermitRootLogin yes
-      PubkeyAuthentication yes
-      PasswordAuthentication no
-      UsePAM no
-      Subsystem sftp /usr/lib/openssh/sftp-server
-    mode: "0644"
+      #!/bin/bash
+      # Wrapper shell that executes commands inside the Pi NFS root chroot.
+      # Used as the login shell for the piroot user so Ansible can connect
+      # via SSH and have all commands run in the ARM chroot.
+      exec chroot {{ nspawn_root }} /bin/bash "$@"
+    mode: "0755"
 
-- name: Start chroot sshd in background
-  shell: |
-    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -e \
-      -f /etc/ssh/sshd_config_chroot \
-      > /var/log/nspawn-pi-sshd.log 2>&1 &
-    echo $! > /run/nspawn-pi-sshd.pid
-  async: 3600
-  poll: 0
+- name: Create piroot user with chroot shell
+  user:
+    name: piroot
+    shell: /usr/local/bin/chroot-shell
+    create_home: true
+    system: false
 
-- name: Wait for chroot sshd to be ready
-  wait_for:
-    host: 127.0.0.1
-    port: "{{ nspawn_sshd_port }}"
-    timeout: 30
-    state: started
+- name: Set up SSH authorized_keys for piroot
+  ansible.posix.authorized_key:
+    user: piroot
+    state: present
+    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
+  when: ansible_ssh_private_key_file is defined
