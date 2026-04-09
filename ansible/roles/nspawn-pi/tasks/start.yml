@@ -39,13 +39,25 @@
       exit 101
     mode: "0755"
 
+- name: Ensure sshd privilege separation user exists in chroot
+  shell: |
+    if ! chroot "{{ nspawn_root }}" id sshd >/dev/null 2>&1; then
+      chroot "{{ nspawn_root }}" useradd -r -d /run/sshd -s /usr/sbin/nologin sshd || true
+    fi
+  changed_when: false
+
+- name: Mount filesystems for chroot
+  shell: |
+    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
+    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
+    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
+    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
+  changed_when: false
+
 - name: Start chroot sshd in background
   shell: |
-    mount --bind /proc "{{ nspawn_root }}/proc" 2>/dev/null || true
-    mount --bind /sys "{{ nspawn_root }}/sys" 2>/dev/null || true
-    mount --bind /dev "{{ nspawn_root }}/dev" 2>/dev/null || true
-    mount --bind /dev/pts "{{ nspawn_root }}/dev/pts" 2>/dev/null || true
-    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -p {{ nspawn_sshd_port }} &
+    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -e -p {{ nspawn_sshd_port }} \
+      > /var/log/nspawn-pi-sshd.log 2>&1 &
     echo $! > /run/nspawn-pi-sshd.pid
   async: 3600
   poll: 0
