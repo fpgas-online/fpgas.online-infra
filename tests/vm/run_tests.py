@@ -301,8 +301,8 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,django",
-                        help="Comma-separated Ansible tags to skip (default: cam,django)")
+    parser.add_argument("--skip-tags", type=str, default="cam,django,fpgas-apt",
+                        help="Comma-separated Ansible tags to skip (default: cam,django,fpgas-apt)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
     args = parser.parse_args()

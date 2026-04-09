@@ -32,9 +32,12 @@
 
 - hosts: pi
   roles:
-    - fpgas-apt
-    - cam/pi
-    - onpi
+    - role: fpgas-apt
+      tags: [fpgas-apt]
+    - role: cam/pi
+      tags: [cam]
+    - role: onpi
+      tags: [onpi]
 
 - hosts: nbp
   tasks:
