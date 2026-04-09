@@ -54,9 +54,25 @@
     mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
   changed_when: false
 
+- name: Write minimal sshd config for chroot
+  copy:
+    dest: "{{ nspawn_root }}/etc/ssh/sshd_config_chroot"
+    content: |
+      Port {{ nspawn_sshd_port }}
+      ListenAddress 0.0.0.0
+      HostKey /etc/ssh/ssh_host_ed25519_key
+      HostKey /etc/ssh/ssh_host_rsa_key
+      PermitRootLogin yes
+      PubkeyAuthentication yes
+      PasswordAuthentication no
+      UsePAM no
+      Subsystem sftp /usr/lib/openssh/sftp-server
+    mode: "0644"
+
 - name: Start chroot sshd in background
   shell: |
-    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -e -p {{ nspawn_sshd_port }} \
+    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -e \
+      -f /etc/ssh/sshd_config_chroot \
       > /var/log/nspawn-pi-sshd.log 2>&1 &
     echo $! > /run/nspawn-pi-sshd.pid
   async: 3600
