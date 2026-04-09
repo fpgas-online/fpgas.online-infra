@@ -53,6 +53,15 @@
     - cmdline
     - netboot
 
+- name: ensure DNS resolution works in chroot
+  copy:
+    remote_src: true
+    src: /etc/resolv.conf
+    dest: "{{ nfs_root }}/root/etc/resolv.conf"
+    force: false
+  tags:
+    - netboot
+
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
