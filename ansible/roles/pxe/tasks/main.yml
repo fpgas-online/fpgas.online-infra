@@ -34,7 +34,7 @@
     dest: /etc/dnsmasq.d/switch.conf
   notify: restart dnsmasq
 
-- name: configure UEFI PXE test clients
+- name: configure PXE test clients
   include_tasks: test_clients.yml
   when: pxe_test_clients is defined
   tags:
