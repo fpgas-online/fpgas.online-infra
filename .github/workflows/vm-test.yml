@@ -60,8 +60,5 @@ jobs:
           path: tests/vm/images
           key: vm-images-bookworm-v2
 
-      - name: Run server VM tests
-        run: uv run tests/vm/run_tests.py --phase server
-
-      - name: Run full test (server + Pi PXE boot)
+      - name: Run VM integration tests (server + Pi PXE boot)
         run: uv run tests/vm/run_tests.py --phase all
