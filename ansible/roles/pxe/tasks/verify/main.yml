@@ -50,72 +50,40 @@
     that: pxe_tftp_dir_stat.stat.exists and pxe_tftp_dir_stat.stat.isdir
     fail_msg: "/srv/tftp directory not found"
 
-- name: Check TFTP serial directories exist for test clients
+# Check TFTP serial directories — these are symlinks to nfs_root/boot
+# created by fixpi/netboot.yml for each Pi in switch.nos
+- name: Check TFTP serial directories exist
   stat:
     path: "/srv/tftp/{{ item.sn }}"
   register: pxe_serial_dir_stat
-  with_items: "{{ pxe_test_clients }}"
-  when: pxe_test_clients is defined
+  with_items: "{{ switch.nos }}"
 
 - name: Assert TFTP serial directories exist
   assert:
-    that: item.stat.exists and item.stat.isdir
-    fail_msg: "/srv/tftp/{{ item.item.sn }} directory not found"
+    that: item.stat.exists
+    fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
   with_items: "{{ pxe_serial_dir_stat.results }}"
-  when: pxe_test_clients is defined
 
-- name: Check config.txt exists for test clients
-  stat:
-    path: "/srv/tftp/{{ item.sn }}/config.txt"
-  register: pxe_config_txt_stat
-  with_items: "{{ pxe_test_clients }}"
-  when: pxe_test_clients is defined
-
-- name: Assert config.txt exists for test clients
-  assert:
-    that: item.stat.exists
-    fail_msg: "/srv/tftp/{{ item.item.sn }}/config.txt not found"
-  with_items: "{{ pxe_config_txt_stat.results }}"
-  when: pxe_test_clients is defined
-
-- name: Check cmdline.txt exists for test clients
-  stat:
-    path: "/srv/tftp/{{ item.sn }}/cmdline.txt"
-  register: pxe_cmdline_txt_stat
-  with_items: "{{ pxe_test_clients }}"
-  when: pxe_test_clients is defined
-
-- name: Assert cmdline.txt exists for test clients
-  assert:
-    that: item.stat.exists
-    fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
-  with_items: "{{ pxe_cmdline_txt_stat.results }}"
-  when: pxe_test_clients is defined
-
-- name: Check kernel symlink exists and target is valid for test clients
+- name: Check kernel8.img accessible via TFTP path
   stat:
     path: "/srv/tftp/{{ item.sn }}/kernel8.img"
   register: pxe_kernel_stat
-  with_items: "{{ pxe_test_clients }}"
-  when: pxe_test_clients is defined
+  with_items: "{{ switch.nos }}"
 
-- name: Assert kernel exists for test clients
+- name: Assert kernel8.img exists
   assert:
     that: item.stat.exists
-    fail_msg: "/srv/tftp/{{ item.item.sn }}/kernel8.img not found (broken symlink?)"
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/kernel8.img not found"
   with_items: "{{ pxe_kernel_stat.results }}"
-  when: pxe_test_clients is defined
 
-- name: Check DTB symlink exists and target is valid for test clients
+- name: Check cmdline.txt accessible via TFTP path
   stat:
-    path: "/srv/tftp/{{ item.sn }}/bcm2711-rpi-4-b.dtb"
-  register: pxe_dtb_stat
-  with_items: "{{ pxe_test_clients }}"
-  when: pxe_test_clients is defined
+    path: "/srv/tftp/{{ item.sn }}/cmdline.txt"
+  register: pxe_cmdline_stat
+  with_items: "{{ switch.nos }}"
 
-- name: Assert DTB exists for test clients
+- name: Assert cmdline.txt exists and contains nfsroot
   assert:
     that: item.stat.exists
-    fail_msg: "/srv/tftp/{{ item.item.sn }}/bcm2711-rpi-4-b.dtb not found (broken symlink?)"
-  with_items: "{{ pxe_dtb_stat.results }}"
-  when: pxe_test_clients is defined
+    fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
+  with_items: "{{ pxe_cmdline_stat.results }}"
