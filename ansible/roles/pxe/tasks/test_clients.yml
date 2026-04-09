@@ -17,20 +17,22 @@
   tags:
     - pxe-test
 
-- name: Add test SSH key to Pi authorized_keys
-  ansible.posix.authorized_key:
-    user: "{{ user }}"
-    state: present
-    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
+- name: Ensure Pi .ssh directory exists in NFS root
+  file:
+    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: "1000"
+    group: "1000"
   when: ansible_ssh_private_key_file is defined
   tags:
     - pxe-test
 
-- name: Fix SSH authorized_keys ownership for test clients
-  file:
-    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh"
-    recurse: true
+- name: Add test SSH key to Pi authorized_keys in NFS root
+  copy:
+    content: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}\n"
+    dest: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
+    mode: "0600"
     owner: "1000"
     group: "1000"
   when: ansible_ssh_private_key_file is defined
