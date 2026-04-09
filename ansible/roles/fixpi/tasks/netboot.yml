@@ -73,7 +73,8 @@
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
-    - "apt install -y nfs-common"
+    - "apt update"
+    - "apt install -y nfs-common overlayroot"
   tags:
     - netboot
     - qemu
