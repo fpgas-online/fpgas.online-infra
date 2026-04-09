@@ -1,0 +1,106 @@
+---
+# Pi-side verification — checks a running Pi (real or virtual) is
+# correctly booted and configured. Same playbook for test VMs and
+# production hardware.
+#
+# Usage:
+#   uv run ansible-playbook ansible/verify-pi.yml -i tests/inventory/test-hosts --limit pi_live
+#   uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi
+#
+# Hardware-dependent checks are tagged so they can be skipped:
+#   --skip-tags hw-camera,hw-fpga
+
+- name: Verify running Pi
+  hosts: pi_live
+  become: true
+  tasks:
+    # Boot infrastructure
+    - name: Check NFS mount present
+      command: mount
+      changed_when: false
+      register: verify_pi_mounts
+
+    - name: Assert NFS mount present
+      assert:
+        that: "'nfs' in verify_pi_mounts.stdout"
+        fail_msg: "No NFS mount found on Pi"
+      tags: [verify, boot]
+
+    - name: Check overlayfs mount present
+      assert:
+        that: "'overlay' in verify_pi_mounts.stdout"
+        fail_msg: "No overlayfs mount found on Pi (expected overlayroot tmpfs)"
+      tags: [verify, boot]
+
+    # Network
+    - name: Get IP addresses
+      command: ip addr show
+      changed_when: false
+      register: verify_pi_addrs
+
+    - name: Assert 10.21.0.x address present
+      assert:
+        that: "'10.21.0.' in verify_pi_addrs.stdout"
+        fail_msg: "No 10.21.0.x address found on any interface"
+      tags: [verify, network]
+
+    - name: Check can reach server
+      command: ping -c 1 -W 5 10.21.0.1
+      changed_when: false
+      tags: [verify, network]
+
+    # System services
+    - name: Check SSH service active
+      command: systemctl is-active ssh
+      changed_when: false
+      register: verify_pi_ssh
+      failed_when: false
+
+    - name: Assert SSH service is active
+      assert:
+        that: verify_pi_ssh.stdout == "active"
+        fail_msg: "SSH service is not active on Pi"
+      tags: [verify, services]
+
+    - name: Check python3 available
+      command: python3 --version
+      changed_when: false
+      tags: [verify, system]
+
+    - name: Get hostname
+      command: hostname
+      changed_when: false
+      register: verify_pi_hostname
+
+    - name: Assert hostname is set
+      assert:
+        that: verify_pi_hostname.stdout | length > 0
+        fail_msg: "Pi hostname is empty"
+      tags: [verify, system]
+
+    # Packages
+    - name: Check overlayroot package installed
+      command: dpkg -l overlayroot
+      changed_when: false
+      register: verify_pi_overlayroot
+      failed_when: false
+
+    - name: Assert overlayroot installed
+      assert:
+        that: verify_pi_overlayroot.rc == 0
+        fail_msg: "overlayroot package not installed on Pi"
+      tags: [verify, packages]
+
+    # Hardware-dependent services (tag-based skip)
+    - name: Check fpgas-cam service enabled
+      command: systemctl is-enabled fpgas-cam
+      changed_when: false
+      register: verify_pi_cam
+      failed_when: false
+      tags: [verify, hw-camera]
+
+    - name: Assert fpgas-cam service enabled
+      assert:
+        that: verify_pi_cam.stdout == "enabled"
+        fail_msg: "fpgas-cam service not enabled"
+      tags: [verify, hw-camera]
