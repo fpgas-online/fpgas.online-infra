@@ -1,0 +1,3 @@
+---
+nspawn_sshd_port: 2200
+nspawn_root: "{{ nfs_root }}/root"

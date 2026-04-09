@@ -1,0 +1,46 @@
+---
+# Start systemd-nspawn container with sshd on the Pi NFS root.
+# This makes the chroot'd ARM filesystem accessible via SSH so
+# Ansible can run Pi roles against it as if it were a real Pi.
+# Requires qemu-user-static for ARM binary emulation via binfmt_misc.
+
+- name: Install systemd-container
+  apt:
+    name: systemd-container
+    state: present
+
+- name: Ensure privilege separation directory exists
+  file:
+    path: "{{ nspawn_root }}/run/sshd"
+    state: directory
+    mode: "0755"
+
+- name: Generate SSH host keys in NFS root if missing
+  command: ssh-keygen -A -f "{{ nspawn_root }}"
+  args:
+    creates: "{{ nspawn_root }}/etc/ssh/ssh_host_ed25519_key"
+
+- name: Install policy-rc.d to suppress service starts during apt
+  copy:
+    dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
+    content: |
+      #!/bin/sh
+      exit 101
+    mode: "0755"
+
+- name: Start nspawn+sshd in background
+  shell: >-
+    systemd-nspawn
+    --quiet
+    -D "{{ nspawn_root }}"
+    /usr/sbin/sshd -D -p {{ nspawn_sshd_port }}
+    &
+  async: 0
+  poll: 0
+
+- name: Wait for nspawn sshd to be ready
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ nspawn_sshd_port }}"
+    timeout: 30
+    state: started
