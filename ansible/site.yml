@@ -16,10 +16,30 @@
     - site
     - wssh
     - cam/stream-server
-    # ci role removed — replaced by fpgas-online/fpgas.online-test-designs
+
+# Pi NFS root provisioning via nspawn+sshd chroot.
+# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
+# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
+# container is stopped. This bakes all Pi config into the NFS root so Pis
+# boot read-only with everything pre-installed.
+- hosts: nbp
+  tasks:
+    - name: start nspawn+sshd on Pi NFS root
+      include_role:
+        name: nspawn-pi
+        tasks_from: start.yml
+      tags: [pi]
 
 - hosts: pi
   roles:
     - fpgas-apt
     - cam/pi
     - onpi
+
+- hosts: nbp
+  tasks:
+    - name: stop nspawn+sshd
+      include_role:
+        name: nspawn-pi
+        tasks_from: stop.yml
+      tags: [pi]
