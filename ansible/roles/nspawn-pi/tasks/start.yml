@@ -4,9 +4,11 @@
 # Ansible can run Pi roles against it as if it were a real Pi.
 # Requires qemu-user-static for ARM binary emulation via binfmt_misc.
 
-- name: Install systemd-container
+- name: Install systemd-container and qemu-user-static
   apt:
-    name: systemd-container
+    name:
+      - systemd-container
+      - qemu-user-static
     state: present
 
 - name: Ensure privilege separation directory exists
@@ -34,8 +36,7 @@
     --quiet
     -D "{{ nspawn_root }}"
     /usr/sbin/sshd -D -p {{ nspawn_sshd_port }}
-    &
-  async: 0
+  async: 3600
   poll: 0
 
 - name: Wait for nspawn sshd to be ready
