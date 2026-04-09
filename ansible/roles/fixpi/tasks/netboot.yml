@@ -53,6 +53,14 @@
     - cmdline
     - netboot
 
+- name: create pi user in NFS root if missing
+  command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash {{ user }}"
+  tags:
+    - netboot
+    - qemu
+
 - name: ensure DNS resolution works in chroot
   copy:
     remote_src: true
