@@ -56,7 +56,7 @@
 - name: create pi user in NFS root if missing
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash {{ user }}"
+    "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
   tags:
     - netboot
     - qemu
