@@ -41,10 +41,7 @@
     dest: /usr/local/bin/chroot-shell
     content: |
       #!/bin/bash
-      # Wrapper shell that executes commands inside the Pi NFS root chroot.
-      # Used as the login shell for the piroot user so Ansible can connect
-      # via SSH and have all commands run in the ARM chroot.
-      exec chroot {{ nspawn_root }} /bin/bash "$@"
+      exec sudo /usr/sbin/chroot {{ nspawn_root }} /bin/bash "$@"
     mode: "0755"
 
 - name: Create piroot user with chroot shell
@@ -53,6 +50,13 @@
     shell: /usr/local/bin/chroot-shell
     create_home: true
     system: false
+
+- name: Allow piroot to run chroot without password
+  copy:
+    dest: /etc/sudoers.d/piroot
+    content: "piroot ALL=NOPASSWD: /usr/sbin/chroot\n"
+    mode: "0440"
+    validate: "visudo -cf %s"
 
 - name: Set up SSH authorized_keys for piroot
   ansible.posix.authorized_key:
