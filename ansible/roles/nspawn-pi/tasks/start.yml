@@ -1,15 +1,24 @@
 ---
-# Start systemd-nspawn container with sshd on the Pi NFS root.
+# Start sshd on the Pi NFS root via chroot.
 # This makes the chroot'd ARM filesystem accessible via SSH so
 # Ansible can run Pi roles against it as if it were a real Pi.
 # Requires qemu-user-static for ARM binary emulation via binfmt_misc.
 
-- name: Install systemd-container and qemu-user-static
+- name: Install qemu-user-static
   apt:
-    name:
-      - systemd-container
-      - qemu-user-static
+    name: qemu-user-static
     state: present
+
+- name: Ensure binfmt_misc is mounted and ARM handler registered
+  shell: |
+    if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+      mount binfmt_misc -t binfmt_misc /proc/sys/fs/binfmt_misc
+    fi
+    if [ ! -f /proc/sys/fs/binfmt_misc/qemu-arm ]; then
+      systemctl restart binfmt-support || update-binfmts --enable qemu-arm
+    fi
+    test -f /proc/sys/fs/binfmt_misc/qemu-arm
+  changed_when: false
 
 - name: Ensure privilege separation directory exists
   file:
@@ -30,16 +39,18 @@
       exit 101
     mode: "0755"
 
-- name: Start nspawn+sshd in background
-  shell: >-
-    systemd-nspawn
-    --quiet
-    -D "{{ nspawn_root }}"
-    /usr/sbin/sshd -D -p {{ nspawn_sshd_port }}
+- name: Start chroot sshd in background
+  shell: |
+    mount --bind /proc "{{ nspawn_root }}/proc" 2>/dev/null || true
+    mount --bind /sys "{{ nspawn_root }}/sys" 2>/dev/null || true
+    mount --bind /dev "{{ nspawn_root }}/dev" 2>/dev/null || true
+    mount --bind /dev/pts "{{ nspawn_root }}/dev/pts" 2>/dev/null || true
+    chroot "{{ nspawn_root }}" /usr/sbin/sshd -D -p {{ nspawn_sshd_port }} &
+    echo $! > /run/nspawn-pi-sshd.pid
   async: 3600
   poll: 0
 
-- name: Wait for nspawn sshd to be ready
+- name: Wait for chroot sshd to be ready
   wait_for:
     host: 127.0.0.1
     port: "{{ nspawn_sshd_port }}"

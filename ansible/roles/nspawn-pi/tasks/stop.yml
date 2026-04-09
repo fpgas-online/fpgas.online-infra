@@ -1,17 +1,29 @@
 ---
-# Stop the nspawn+sshd container and clean up.
-# Killing the nspawn process automatically tears down all namespace
-# mounts — no manual unmount needed.
+# Stop the chroot sshd and clean up mounts.
 
-- name: Stop nspawn sshd
-  shell: pkill -f "systemd-nspawn.*{{ nspawn_root }}.*sshd" || true
+- name: Stop chroot sshd
+  shell: |
+    if [ -f /run/nspawn-pi-sshd.pid ]; then
+      kill $(cat /run/nspawn-pi-sshd.pid) 2>/dev/null || true
+      rm -f /run/nspawn-pi-sshd.pid
+    fi
+    pkill -f "sshd.*-p {{ nspawn_sshd_port }}" 2>/dev/null || true
+  changed_when: false
 
-- name: Wait for nspawn to exit
+- name: Wait for sshd to exit
   wait_for:
     host: 127.0.0.1
     port: "{{ nspawn_sshd_port }}"
     timeout: 10
     state: stopped
+
+- name: Unmount chroot bind mounts
+  shell: |
+    umount "{{ nspawn_root }}/dev/pts" 2>/dev/null || true
+    umount "{{ nspawn_root }}/dev" 2>/dev/null || true
+    umount "{{ nspawn_root }}/sys" 2>/dev/null || true
+    umount "{{ nspawn_root }}/proc" 2>/dev/null || true
+  changed_when: false
 
 - name: Remove policy-rc.d
   file:
