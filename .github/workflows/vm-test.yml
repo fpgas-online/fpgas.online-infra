@@ -38,6 +38,7 @@ jobs:
             qemu-rpi-pxeboot \
             qemu-utils \
             cloud-image-utils \
+            systemd-container \
             ansible
 
       - name: Enable KVM (if available)
@@ -62,3 +63,11 @@ jobs:
 
       - name: Run VM integration tests (server + Pi PXE boot)
         run: uv run tests/vm/run_tests.py --phase all
+
+      - name: Upload serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-logs
+          path: tests/vm/workdir/*-serial.log
+          if-no-files-found: ignore
