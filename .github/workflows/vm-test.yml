@@ -38,12 +38,14 @@ jobs:
         run: |
           gh release download -R fpgas-online/rpi-qemu \
             -p 'qemu-rpi-static-linux-amd64.tar.gz' \
-            -p 'qemu-rpi-pxeboot_*.deb' \
             -D /tmp/qemu-rpi --clobber
           sudo tar xzf /tmp/qemu-rpi/qemu-rpi-static-linux-amd64.tar.gz \
             -C /usr/local/bin/
-          sudo dpkg -i /tmp/qemu-rpi/qemu-rpi-pxeboot_*.deb
           rm -rf /tmp/qemu-rpi
+          echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
+            | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+          sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
+          sudo apt-get install -y qemu-rpi-pxeboot
         env:
           GH_TOKEN: ${{ github.token }}
 
