@@ -24,22 +24,28 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Add qemu-rpi APT repository
-        run: |
-          echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
-            | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             qemu-system-x86 \
-            qemu-rpi-system-arm \
-            qemu-rpi-pxeboot \
             qemu-utils \
             cloud-image-utils \
             systemd-container \
             ansible
+
+      - name: Install qemu-rpi (static binary + pxeboot firmware)
+        run: |
+          gh release download -R fpgas-online/rpi-qemu \
+            -p 'qemu-rpi-static-linux-amd64.tar.gz' \
+            -p 'qemu-rpi-pxeboot_*.deb' \
+            -D /tmp/qemu-rpi --clobber
+          sudo tar xzf /tmp/qemu-rpi/qemu-rpi-static-linux-amd64.tar.gz \
+            -C /usr/local/bin/
+          sudo dpkg -i /tmp/qemu-rpi/qemu-rpi-pxeboot_*.deb
+          rm -rf /tmp/qemu-rpi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Enable KVM (if available)
         run: |
