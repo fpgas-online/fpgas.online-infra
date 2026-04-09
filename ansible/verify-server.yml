@@ -1,0 +1,127 @@
+---
+# Server-side verification — checks the x86 server is correctly configured
+# for Pi network booting. Run BEFORE Pis boot.
+#
+# Usage:
+#   uv run ansible-playbook ansible/verify-server.yml
+#   uv run ansible-playbook ansible/verify-server.yml --limit nbp
+
+- name: Verify server roles (nbp)
+  hosts: nbp
+  become: true
+  tasks:
+    - name: verify firewall
+      include_role:
+        name: firewall
+        tasks_from: verify/main.yml
+      tags: [verify, firewall]
+
+    - name: verify nfs
+      include_role:
+        name: nfs
+        tasks_from: verify/main.yml
+      tags: [verify, nfs]
+
+    - name: verify img
+      include_role:
+        name: img
+        tasks_from: verify/main.yml
+      tags: [verify, img]
+
+    - name: verify fixpi
+      include_role:
+        name: fixpi
+        tasks_from: verify/main.yml
+      tags: [verify, fixpi]
+
+    - name: verify pxe
+      include_role:
+        name: pxe
+        tasks_from: verify/main.yml
+      tags: [verify, pxe]
+
+    # NFS root package verification — check packages were installed
+    # into the NFS root by the nspawn chroot provisioning step.
+    - name: Check overlayroot installed in NFS root
+      command: dpkg --root={{ nfs_root }}/root -l overlayroot
+      changed_when: false
+      register: verify_overlayroot
+      failed_when: false
+      tags: [verify, nfs-root]
+
+    - name: Assert overlayroot installed in NFS root
+      assert:
+        that: verify_overlayroot.rc == 0
+        fail_msg: "overlayroot not installed in NFS root"
+      tags: [verify, nfs-root]
+
+    - name: Check nfs-common installed in NFS root
+      command: dpkg --root={{ nfs_root }}/root -l nfs-common
+      changed_when: false
+      register: verify_nfs_common
+      failed_when: false
+      tags: [verify, nfs-root]
+
+    - name: Assert nfs-common installed in NFS root
+      assert:
+        that: verify_nfs_common.rc == 0
+        fail_msg: "nfs-common not installed in NFS root"
+      tags: [verify, nfs-root]
+
+    # NFS root config verification
+    - name: Check pi user exists in NFS root
+      command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
+      changed_when: false
+      register: verify_pi_user
+      failed_when: false
+      tags: [verify, nfs-root]
+
+    - name: Assert pi user exists in NFS root
+      assert:
+        that: verify_pi_user.rc == 0
+        fail_msg: "User '{{ user }}' not found in NFS root /etc/passwd"
+      tags: [verify, nfs-root]
+
+    - name: Check Pi authorized_keys exists
+      stat:
+        path: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
+      register: verify_pi_authkeys
+      tags: [verify, nfs-root]
+
+    - name: Assert Pi authorized_keys exists
+      assert:
+        that: verify_pi_authkeys.stat.exists
+        fail_msg: "Pi authorized_keys not found at {{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
+      tags: [verify, nfs-root]
+
+- name: Verify uhubctl
+  hosts: uhubctl
+  become: true
+  tasks:
+    - name: verify uhubctl
+      include_role:
+        name: uhubctl
+        tasks_from: verify/main.yml
+      tags: [verify, uhubctl]
+
+- name: Verify web roles (pig)
+  hosts: pig
+  become: true
+  tasks:
+    - name: verify site
+      include_role:
+        name: site
+        tasks_from: verify/main.yml
+      tags: [verify, site]
+
+    - name: verify wssh
+      include_role:
+        name: wssh
+        tasks_from: verify/main.yml
+      tags: [verify, wssh]
+
+    - name: verify cam/stream-server
+      include_role:
+        name: cam/stream-server
+        tasks_from: verify/main.yml
+      tags: [verify, cam-stream]
