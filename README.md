@@ -162,9 +162,6 @@ test coverage grows correspondingly.
 - [fpgas.online-tools](https://github.com/fpgas-online/fpgas.online-tools) -- Utility scripts
 - [rpi-qemu](https://github.com/fpgas-online/rpi-qemu) -- Patched QEMU with RPi 4B GENET ethernet for testing
 
-> **Note:** The `nspawn-pi` role, `verify-server.yml`, and `verify-pi.yml` are being
-> implemented — replacing the current single `verify.yml` and plain chroot approach.
-
 ## License
 
 Apache 2.0

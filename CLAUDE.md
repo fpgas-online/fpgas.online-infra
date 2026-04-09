@@ -56,8 +56,6 @@ from other repos:
 - `ansible/roles/nspawn-pi/` -- Manages nspawn+sshd lifecycle for Pi NFS root provisioning
 - `tests/vm/` -- QEMU VM test harness
 
-Note: `nspawn-pi` role, `verify-server.yml`, and `verify-pi.yml` are being implemented
-(replacing the current `verify.yml` and plain chroot approach in `fixpi/netboot.yml`).
 
 ### Deployment Targets
 
