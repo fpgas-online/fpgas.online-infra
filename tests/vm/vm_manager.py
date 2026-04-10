@@ -338,15 +338,18 @@ class VMManager:
             "-dtb", pxeboot_dtb,
             # Native GENET ethernet connected to server VLAN
             "-nic", f"socket,connect=:{vlan_port},mac={mac}",
-            # Headless — RPi 4B uses PL011 UART (serial0/ttyAMA0)
+            # Headless
             "-display", "none",
+            "-monitor", "none",
+            # Serial output — PL011 UART (serial0/ttyAMA0)
             "-serial", f"file:{self.serial_log}",
             # NO disk — PXE boot -> kernel -> NFS root
         ]
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
+        print(f"[{self.name}] QEMU cmd: {' '.join(cmd)}")
         self.process = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
 
