@@ -241,6 +241,17 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         pxeboot_dtb=pxeboot_dtb,
     )
 
+    # Check QEMU started successfully
+    import time as _time
+    _time.sleep(2)
+    if not pi.is_alive():
+        stderr = ""
+        if pi.process and pi.process.stderr:
+            stderr = pi.process.stderr.read().decode(errors="replace")
+        print(f"ERROR: Pi QEMU process exited immediately.")
+        print(f"QEMU stderr:\n{stderr}")
+        return False
+
     # Monitor serial log for boot milestones
     if not wait_for_pi_boot(pi, timeout=300):
         print("WARNING: Pi did not reach login prompt within timeout.")
