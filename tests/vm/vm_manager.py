@@ -30,11 +30,12 @@ def find_qemu_rpi_binary() -> str:
     1. System-installed binary (from qemu-rpi-system-arm APT package)
     2. Static binary downloaded to tests/vm/images/
     """
-    # Check system PATH
-    path = shutil.which(QEMU_RPI_SYSTEM_BIN)
-    if path:
-        print(f"[qemu-rpi] Using system binary: {path}")
-        return path
+    # Check system PATH (APT-installed or static binary)
+    for name in [QEMU_RPI_SYSTEM_BIN, f"{QEMU_RPI_SYSTEM_BIN}-static"]:
+        path = shutil.which(name)
+        if path:
+            print(f"[qemu-rpi] Using system binary: {path}")
+            return path
 
     # Check for static binary in images dir
     static_bin = IMAGES_DIR / f"{QEMU_RPI_SYSTEM_BIN}-static"
