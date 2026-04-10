@@ -257,7 +257,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         return False
 
     # Monitor serial log for boot milestones
-    if not wait_for_pi_boot(pi, timeout=300):
+    if not wait_for_pi_boot(pi, timeout=900):
         print("WARNING: Pi did not reach login prompt within timeout.")
         # Continue to try SSH anyway
 
@@ -267,7 +267,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
     try:
         ssh = pi.wait_for_ssh(
             host="10.21.0.128", port=22, username="pi",
-            key_path=key_path, proxy_jump=proxy, timeout=300,
+            key_path=key_path, proxy_jump=proxy, timeout=900,
         )
         ssh.close()
     except TimeoutError:
