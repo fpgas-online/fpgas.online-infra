@@ -70,7 +70,12 @@
   apt:
     autoremove: true
 
-- name: set shell to zsh
-  command: "pipx install mpremote uv"
+- name: install mpremote via pipx
+  command: "pipx install mpremote"
+  tags:
+    - mp
+
+- name: install uv via pipx
+  command: "pipx install uv"
   tags:
     - mp
