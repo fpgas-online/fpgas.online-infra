@@ -21,5 +21,6 @@
   systemd:
     name: arty_blink.service
     enabled: true
+  failed_when: false
   tags:
     - ab

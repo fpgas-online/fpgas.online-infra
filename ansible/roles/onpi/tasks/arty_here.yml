@@ -29,5 +29,6 @@
   systemd:
     name: arty_here.service
     enabled: true
+  failed_when: false
   tags:
     - ia

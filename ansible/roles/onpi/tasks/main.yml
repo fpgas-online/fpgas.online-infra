@@ -13,6 +13,7 @@
     state: present
   tags:
     - setup-pi
+    - fpgas-apt
 
 - include_tasks: nonfs.yml
 - {include_tasks: tftpd.yml, tags: tftpd}

@@ -11,11 +11,11 @@
   tags:
     - pistat
 
-- name: enable and start services
+- name: enable pistat services
   systemd:
     name: "{{ item }}"
     enabled: true
-    state: started
+  failed_when: false
   with_items:
     - pistat_ssh
     - pistat_cam

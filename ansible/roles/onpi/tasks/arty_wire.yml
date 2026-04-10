@@ -21,5 +21,6 @@
   systemd:
     name: arty_wire.service
     enabled: true
+  failed_when: false
   tags:
     - ia

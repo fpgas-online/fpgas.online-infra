@@ -1,7 +1,13 @@
 - name: let kernel figure out nfs ver
   # (4.x doesn't work with overlayfs)
-  # sed -i "/nfsroot/s/,nfsvers=4.2//" /boot/firmware/cmdline.txt
+  # Remove nfsvers=4.2 from cmdline.txt if present.
+  # Path varies: /boot/firmware/cmdline.txt on newer Pi OS, /boot/cmdline.txt on older.
+  # fixpi/netboot.yml already sets nfsvers=3, so this is a safety net.
   replace:
-    path: /boot/firmware/cmdline.txt
+    path: "{{ item }}"
     regexp: "nfsvers=4.2"
     replace: ""
+  failed_when: false
+  with_items:
+    - /boot/firmware/cmdline.txt
+    - /boot/cmdline.txt

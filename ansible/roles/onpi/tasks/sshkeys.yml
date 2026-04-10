@@ -3,5 +3,7 @@
   become: true
   become_user: pi
   command: "ssh-import-id {{ item }}"
-  with_items: " {{ ssh_imports }} "
+  with_items: "{{ ssh_imports | default([]) }}"
+  when: ssh_imports is defined and ssh_imports | length > 0
+  failed_when: false
   tags: sshkeys
