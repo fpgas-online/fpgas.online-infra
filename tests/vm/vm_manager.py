@@ -341,7 +341,9 @@ class VMManager:
             # Headless
             "-display", "none",
             "-monitor", "none",
-            # Serial output — PL011 UART (serial0/ttyAMA0)
+            # RPi 4B uses mini UART (serial1) for console by default.
+            # serial0 = PL011 (unused), serial1 = mini UART (U-Boot/kernel output)
+            "-serial", "null",
             "-serial", f"file:{self.serial_log}",
             # NO disk — PXE boot -> kernel -> NFS root
         ]
