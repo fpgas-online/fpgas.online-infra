@@ -65,11 +65,13 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
     return result.returncode
 
 
-def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> bool:
+def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | None]:
     """Monitor Pi serial log for boot progress milestones.
 
-    Returns True if the Pi reaches a login prompt, False on timeout.
+    Returns (success, pi_ip) where pi_ip is extracted from DHCP output.
     """
+    import re
+
     milestones = [
         ("DHCP", "Firmware got network"),
         ("Loading", "TFTP loading files"),
@@ -77,6 +79,7 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> bool:
         ("login:", "System booted"),
     ]
     seen = set()
+    pi_ip = None
     deadline = time.time() + timeout
 
     while time.time() < deadline:
@@ -86,8 +89,14 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> bool:
                 if marker in content and marker not in seen:
                     seen.add(marker)
                     print(f"[pi] Boot milestone: {desc} ({marker})")
+            # Extract Pi's IP from DHCP output
+            if pi_ip is None:
+                ip_match = re.search(r"our IP address is (\d+\.\d+\.\d+\.\d+)", content)
+                if ip_match:
+                    pi_ip = ip_match.group(1)
+                    print(f"[pi] Pi IP from DHCP: {pi_ip}")
             if "login:" in content:
-                return True
+                return True, pi_ip
         # Check if QEMU process died
         if not pi.is_alive():
             print("[pi] ERROR: QEMU process exited unexpectedly")
@@ -101,7 +110,7 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> bool:
         print(f"[pi] Last 30 lines of serial log:")
         for line in lines[-30:]:
             print(f"  {line}")
-    return False
+    return False, pi_ip
 
 
 def phase_server(args, workdir: Path) -> VMManager | None:
@@ -257,16 +266,21 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         return False
 
     # Monitor serial log for boot milestones
-    if not wait_for_pi_boot(pi, timeout=900):
+    booted, pi_ip = wait_for_pi_boot(pi, timeout=900)
+    if not booted:
         print("WARNING: Pi did not reach login prompt within timeout.")
         # Continue to try SSH anyway
+
+    # Use Pi IP from DHCP if available, fall back to expected IP
+    pi_host = pi_ip or "10.21.0.128"
+    print(f"[pi] Using Pi IP: {pi_host}")
 
     # Wait for SSH via ProxyJump through server
     proxy = proxy_jump_string("debian", "127.0.0.1", SSH_PORT)
 
     try:
         ssh = pi.wait_for_ssh(
-            host="10.21.0.128", port=22, username="pi",
+            host=pi_host, port=22, username="pi",
             key_path=key_path, proxy_jump=proxy, timeout=900,
         )
         ssh.close()
@@ -290,7 +304,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
 
     if args.ssh_to_pi:
         print(f"\nSSH into Pi via ProxyJump:")
-        print(f"  ssh -i {key_path} -o StrictHostKeyChecking=no -o ProxyJump=debian@127.0.0.1:{SSH_PORT} pi@10.21.0.128")
+        print(f"  ssh -i {key_path} -o StrictHostKeyChecking=no -o ProxyJump=debian@127.0.0.1:{SSH_PORT} pi@{pi_host}")
         print("Press Ctrl+C to exit.")
         try:
             subprocess.run([
@@ -298,7 +312,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
                 "-o", f"ProxyJump=debian@127.0.0.1:{SSH_PORT}",
-                "pi@10.21.0.128",
+                f"pi@{pi_host}",
             ])
         except KeyboardInterrupt:
             pass
