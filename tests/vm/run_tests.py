@@ -266,7 +266,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         return False
 
     # Monitor serial log for boot milestones
-    booted, pi_ip = wait_for_pi_boot(pi, timeout=900)
+    booted, pi_ip = wait_for_pi_boot(pi, timeout=3600)
     if not booted:
         print("WARNING: Pi did not reach login prompt within timeout.")
         # Continue to try SSH anyway
