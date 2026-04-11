@@ -332,7 +332,7 @@ class VMManager:
         cmd = [
             qemu_bin,
             "-M", "raspi4b",
-            "-m", str(memory),
+            # raspi4b has fixed RAM, don't pass -m
             # PXE boot firmware (U-Boot with embedded VideoCore emulation)
             "-kernel", pxeboot_bin,
             "-dtb", pxeboot_dtb,
