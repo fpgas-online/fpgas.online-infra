@@ -82,9 +82,16 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
     pi_ip = None
     deadline = time.time() + timeout
 
+    uboot_log = Path(str(pi.serial_log) + ".uboot")
+
     while time.time() < deadline:
+        # Read both serial ports — kernel on serial0, U-Boot on serial1
+        content = ""
         if pi.serial_log.exists():
-            content = pi.serial_log.read_text(errors="replace")
+            content += pi.serial_log.read_text(errors="replace")
+        if uboot_log.exists():
+            content += uboot_log.read_text(errors="replace")
+        if content:
             for marker, desc in milestones:
                 if marker in content and marker not in seen:
                     seen.add(marker)

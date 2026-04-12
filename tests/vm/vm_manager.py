@@ -341,10 +341,10 @@ class VMManager:
             # Headless
             "-display", "none",
             "-monitor", "none",
-            # RPi 4B uses mini UART (serial1) for console by default.
-            # serial0 = PL011 (unused), serial1 = mini UART (U-Boot/kernel output)
-            "-serial", "null",
+            # RPi 4B: serial0 = PL011 (kernel console), serial1 = mini UART (U-Boot)
+            # Capture both to the same log file
             "-serial", f"file:{self.serial_log}",
+            "-serial", f"file:{self.serial_log}.uboot",
             # NO disk — PXE boot -> kernel -> NFS root
         ]
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
