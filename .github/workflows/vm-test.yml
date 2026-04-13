@@ -16,6 +16,18 @@ jobs:
   vm-test:
     name: Server + Pi PXE Boot
     runs-on: ubuntu-latest
+    # Run inside a Debian trixie container so qemu-rpi-system-arm (built
+    # for trixie) can be installed via APT. The package depends on
+    # libcapstone5, libfdt1 >= 1.7.2, and libglib2.0-0t64 >= 2.83.0, which
+    # are newer than what Ubuntu 24.04 ships. node:22-trixie provides
+    # trixie + the Node.js binary that GitHub Actions' JavaScript actions
+    # (checkout, setup-uv, cache, upload-artifact) need to run.
+    #
+    # --device=/dev/kvm exposes the runner's KVM device to the container
+    # so QEMU can use hardware acceleration when available.
+    container:
+      image: node:22-trixie
+      options: --device=/dev/kvm
     timeout-minutes: 180
 
     steps:
@@ -26,26 +38,28 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             qemu-system-x86 \
             qemu-utils \
             cloud-image-utils \
             systemd-container \
-            ansible
+            ansible \
+            openssh-client \
+            ca-certificates
 
       - name: Install qemu-rpi packages
         run: |
           echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
-            | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
-          sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
-          sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
+            > /etc/apt/sources.list.d/qemu-rpi.list
+          apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
+          apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
       - name: Enable KVM (if available)
         run: |
           if [ -e /dev/kvm ]; then
             echo "KVM_AVAILABLE=true" >> "$GITHUB_ENV"
-            sudo chmod 666 /dev/kvm
+            chmod 666 /dev/kvm
             echo "KVM acceleration enabled"
           else
             echo "KVM_AVAILABLE=false" >> "$GITHUB_ENV"
