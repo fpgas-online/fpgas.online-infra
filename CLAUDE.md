@@ -88,13 +88,10 @@ differs between test and production.
   server, `ssh.service` active, python3, hostname, `overlayroot` package
 
 ```bash
-# Install qemu-rpi (matches CI: static binary + pxeboot firmware via APT)
-gh release download -R fpgas-online/rpi-qemu -p 'qemu-rpi-static-linux-amd64.tar.gz'
-sudo tar xzf qemu-rpi-static-linux-amd64.tar.gz -C /usr/local/bin/
-rm qemu-rpi-static-linux-amd64.tar.gz
+# Install qemu-rpi packages
 echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
   | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
-sudo apt-get update && sudo apt-get install -y qemu-rpi-pxeboot
+sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
 # Full run locally (server + Pi + both verify playbooks)
 uv run tests/vm/run_tests.py --phase all
