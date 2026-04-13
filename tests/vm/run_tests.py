@@ -296,10 +296,14 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         pi.shutdown()
         return False
 
-    # Run verify-pi.yml against the running Pi
+    # Run verify-pi.yml against the running Pi.
+    # Pass the discovered IP via -e ansible_host=... so it matches the IP that
+    # DHCP actually assigned (may differ from the static reservation due to the
+    # BCM2711 GENET dual-MAC offset in QEMU).
     inventory = TEST_INVENTORY
     extra = [
         "-e", f"ansible_ssh_private_key_file={key_path}",
+        "-e", f"ansible_host={pi_host}",
         "--become",
     ]
     if args.skip_tags:
@@ -337,8 +341,8 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,django,fpgas-apt",
-                        help="Comma-separated Ansible tags to skip (default: cam,django,fpgas-apt)")
+    parser.add_argument("--skip-tags", type=str, default="cam,django,fpgas-apt,hw-camera,hw-fpga",
+                        help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
     args = parser.parse_args()
