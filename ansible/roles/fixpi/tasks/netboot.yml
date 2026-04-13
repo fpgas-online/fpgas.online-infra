@@ -78,3 +78,80 @@
   tags:
     - netboot
     - qemu
+
+# The chroot-regenerated initramfs (with overlayroot hooks) is written to
+# the rootfs /boot directory, but TFTP serves the FAT partition's initramfs8.
+# Copy the newest regenerated initramfs over the FAT one so the Pi boots with
+# overlayroot support. On real hardware this copy happens automatically via
+# the raspi-firmware hook, but that hook doesn't run correctly in our chroot.
+- name: find regenerated v8 initramfs (with overlayroot)
+  find:
+    paths: "{{ nfs_root }}/root/boot"
+    patterns: "initrd.img-*-v8"
+  register: fixpi_regenerated_initramfs
+  tags:
+    - netboot
+    - qemu
+
+- name: copy regenerated initramfs to FAT partition TFTP path
+  copy:
+    remote_src: true
+    src: "{{ fixpi_regenerated_initramfs.files[0].path }}"
+    dest: "{{ nfs_root }}/boot/initramfs8"
+    mode: "0755"
+  when: fixpi_regenerated_initramfs.files | length > 0
+  tags:
+    - netboot
+    - qemu
+
+# Enable ssh.service directly in the NFS root. RPi OS ships with ssh.service
+# disabled by default, to be enabled on first boot by sshswitch.service which
+# looks for /boot/firmware/ssh. But /boot/firmware is mounted noauto in our
+# fstab, so sshswitch never finds the file. Enable ssh.service unconditionally
+# here since we always want remote access on the Pi.
+- name: enable ssh.service in NFS root
+  file:
+    src: /lib/systemd/system/ssh.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/ssh.service"
+    state: link
+  tags:
+    - netboot
+    - qemu
+
+# Disable regenerate_ssh_host_keys.service — it unconditionally deletes and
+# regenerates host keys on first boot via ssh-keygen -A. Under QEMU TCG this
+# takes minutes per key (RSA is slowest), delaying sshd startup and blocking
+# all Pi test automation. We pre-generate keys in the next task so ssh.service
+# has valid host keys to use immediately.
+- name: disable regenerate_ssh_host_keys.service in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/regenerate_ssh_host_keys.service"
+    state: absent
+  tags:
+    - netboot
+    - qemu
+
+# Pre-generate SSH host keys in the NFS root so sshd starts immediately without
+# waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
+# on the server (native amd64 ssh-keygen), which is both faster and produces
+# valid keys that the Pi's sshd accepts directly.
+- name: check if SSH host keys already exist in NFS root
+  stat:
+    path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
+  register: fixpi_ssh_host_key_stat
+  tags:
+    - netboot
+    - qemu
+
+- name: pre-generate SSH host keys in NFS root
+  command: >-
+    ssh-keygen -q -N "" -t {{ item.type }}
+    -f {{ nfs_root }}/root/etc/ssh/ssh_host_{{ item.type }}_key
+  with_items:
+    - {type: rsa}
+    - {type: ecdsa}
+    - {type: ed25519}
+  when: not fixpi_ssh_host_key_stat.stat.exists
+  tags:
+    - netboot
+    - qemu
