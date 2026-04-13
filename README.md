@@ -95,26 +95,54 @@ uv run ansible-playbook ansible/verify-pi.yml --skip-tags hw-camera,hw-fpga
 
 ### Test (QEMU VMs)
 
-The test suite verifies the production setup without touching production systems. It boots
-a Debian server VM, applies the same `site.yml`, then PXE-boots a virtual Pi using
-[fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (patched QEMU with
-BCM2838 GENET ethernet emulation).
+The test suite verifies the production setup end-to-end without touching production
+systems. It boots a Debian server VM, applies the same `site.yml` used on real servers,
+PXE-boots a virtual Raspberry Pi from the resulting setup using patched QEMU from
+[fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838 GENET
+ethernet emulation on `raspi4b`), and runs both verify playbooks. Only the inventory
+differs between test and production.
+
+**What the end-to-end test covers:**
+
+| Stage | Verified |
+|-------|----------|
+| `site.yml` | All server roles converge; Pi NFS root provisioned via nspawn+chroot+qemu-user-static |
+| `verify-server.yml` | Firewall, dnsmasq, TFTP layout, NFS exports, NFS root packages and config |
+| Pi PXE chain | DHCP lease, TFTP (bootcode, kernel, DTB, initramfs), kernel handoff |
+| Kernel boot | `root=/dev/nfs`, overlayroot `tmpfs` overlay, NFS client, systemd → `multi-user.target` |
+| SSH reachability | `sshd` running on the Pi, reachable from the server via ProxyCommand |
+| `verify-pi.yml` | 14 assertions: NFS mount, overlayfs, 10.21.0.x IP, ping server, SSH service, python3, hostname, overlayroot package |
+
+**Run locally:**
 
 ```bash
-# Install qemu-rpi packages
+# Install qemu-rpi (matches CI: static binary + pxeboot firmware via APT)
+gh release download -R fpgas-online/rpi-qemu -p 'qemu-rpi-static-linux-amd64.tar.gz'
+sudo tar xzf qemu-rpi-static-linux-amd64.tar.gz -C /usr/local/bin/
+rm qemu-rpi-static-linux-amd64.tar.gz
+
 echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
   | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
-sudo apt update && sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot
+sudo apt-get update && sudo apt-get install -y qemu-rpi-pxeboot
 
-# Run full test (server + Pi PXE boot + verification)
+# Full run (server + Pi + both verify playbooks)
 uv run tests/vm/run_tests.py --phase all
 
-# Run server phase only (faster iteration)
+# Server phase only (faster iteration — skips the slow Pi boot)
 uv run tests/vm/run_tests.py --phase server --keep-vm
 
-# Debug: SSH into server after setup
+# Debug: SSH into the running VMs after setup
 uv run tests/vm/run_tests.py --phase all --ssh-to-server --keep-vm
+uv run tests/vm/run_tests.py --phase all --ssh-to-pi --keep-vm
 ```
+
+A full run under TCG takes roughly 2 hours (server phase is the long pole). KVM
+acceleration is used automatically when `/dev/kvm` is available, which cuts runtime
+substantially.
+
+**CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every push
+to `main` and on pull requests. Serial logs are uploaded as an artifact on every run
+(including failures) for post-mortem debugging.
 
 As rpi-qemu increases emulation fidelity (virtual camera, virtual USB hub, etc.),
 test coverage grows correspondingly.
