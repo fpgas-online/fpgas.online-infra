@@ -44,7 +44,6 @@ jobs:
             qemu-utils \
             cloud-image-utils \
             systemd-container \
-            ansible \
             openssh-client \
             ca-certificates
 
