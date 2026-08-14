@@ -3,6 +3,12 @@
 [Match]
 Name={{ item.iface }}
 
+[Link]
+# ~96-150 of these interfaces exist and most have no carrier until a Pi is
+# plugged into that port -- do not let systemd-networkd-wait-online stall
+# boot waiting on them.
+RequiredForOnline=no
+
 [Network]
 IPv4ProxyARP=true
 IPv6AcceptRA=no

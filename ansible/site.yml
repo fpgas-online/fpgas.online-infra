@@ -2,7 +2,7 @@
 - hosts: nbp
   roles:
     - firewall
-    - vlan-ports
+    - {role: vlan-ports, when: switches is defined}
     - nfs
     - img
     - fixpi
