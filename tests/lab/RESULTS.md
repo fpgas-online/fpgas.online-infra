@@ -233,3 +233,34 @@ design, does) overlap across VLANs.
     worth keeping explicit either way.
 - No radvd required anywhere in this design; dnsmasq's built-in RA plus the
   `off-link` mode flag fully covers goal (c).
+
+## Switch VLAN capacity (design risk #1)
+
+Verified 2026-08-14 against BOTH real switches via
+`fpgas.online-poe/scripts/vlan_capacity_probe.py` (VLAN IDs 3000-3149,
+deleted after — production block 2101-2348 never touched).
+
+| Switch | Mgmt IP | Model key | Result |
+|--------|---------|-----------|--------|
+| s3300 (production PoE, "switch 1") | 10.1.5.11 | s3300 (gsm7228ps) | **created=150 verified_present=150**, rc=0 |
+| s2 (prototype) | 10.1.5.23 | gsm7252ps | **created=150 verified_present=150**, rc=0 |
+
+Both switches hold 150 simultaneous VLANs with no error — comfortably above
+the ~146 the daisy-chained switch-1 trunk needs (its own 48 + two downstream
+48-blocks). **Risk #1 (S3300 max concurrent VLANs) is retired.**
+
+SNMP write communities: s2/GSM7252PS = `<switch-2-write-community>`, s3300 = `<switch-1-write-community>` (resolved via
+`gdoc2netcfg` on ten64). READ = `public` on both.
+
+Caveats for the provisioning tool (Task 11 / hardware prototype Task 14):
+- The net-snmp CLI transport is ~2s per SNMP op; a full 48-port converge
+  (create + 2 membership PDUs + PVID each) runs several minutes. Fine for
+  a rare provisioning action; not interactive.
+- VLAN create/delete on these switches intermittently returns
+  `Error in packet` / `commitFailed` yet the operation still applies (a
+  killed probe left an orphan VLAN 3000; bulk delete reported per-VLAN
+  failures but ended with the range empty). The provisioning tool's
+  diff-based convergence (re-run completes the job) absorbs this; a
+  one-shot script must not treat a single write error as fatal to the run.
+- A killed converge/probe leaves orphan VLANs; re-running the diff tool
+  cleans up (it deletes stale OWN_RANGE VLANs not in desired).
