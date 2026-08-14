@@ -29,20 +29,33 @@ both already verified against real hardware).
 `ansible/inventory/host_vars/fpgas.online.yml` already references
 `vault_switch1_snmp_rw_community` (s3300, index 1) and
 `vault_switch2_snmp_rw_community` (gsm7252ps, index 2) — see the
-`switches:` block and its comment. They don't exist yet. Known values
-(read community `public` works on both; write differs per switch):
+`switches:` block and its comment. They don't exist yet. The read
+community (`public`) is the same on both switches; the write community
+differs per switch and is a real secret — obtain it out-of-band, never
+from this file:
 
-| Switch | Write community |
+| Switch | Write community var |
 |---|---|
-| s3300 (switch 1) | `<switch-1-write-community>` |
-| s2 / GSM7252PS (switch 2) | `<switch-2-write-community>` |
+| s3300 (switch 1) | `<switch-1-write-community>` → `vault_switch1_snmp_rw_community` |
+| s2 / GSM7252PS (switch 2) | `<switch-2-write-community>` → `vault_switch2_snmp_rw_community` |
 
-Generate vault-encrypted strings (matches the existing `!vault \|` inline
-style already used in this file for `switch.SNMP_SWITCH_*` and `pi_pw`):
+Look up the real values out-of-band on ten64 (never paste them into this
+repo, a commit message, or a shell history file that gets committed):
 
 ```bash
-ansible-vault encrypt_string '<switch-1-write-community>' --name 'vault_switch1_snmp_rw_community'
-ansible-vault encrypt_string '<switch-2-write-community>' --name 'vault_switch2_snmp_rw_community'
+gdoc2netcfg password --type snmp sw-netgear-s3300-1
+gdoc2netcfg password --type snmp sw-netgear-gsm7252ps-s2
+```
+
+Then generate vault-encrypted strings from those real values (matches the
+existing `!vault \|` inline style already used in this file for
+`switch.SNMP_SWITCH_*` and `pi_pw`) — substitute the actual community
+string for each `<paste-real-value>` below, run interactively so the
+value doesn't land in shell history/scrollback you might paste elsewhere:
+
+```bash
+ansible-vault encrypt_string '<paste-real-value>' --name 'vault_switch1_snmp_rw_community'
+ansible-vault encrypt_string '<paste-real-value>' --name 'vault_switch2_snmp_rw_community'
 ```
 
 Paste both blocks into `ansible/inventory/host_vars/fpgas.online.yml` (top
@@ -101,10 +114,15 @@ checked out):
 ```bash
 cd fpgas.online-poe
 uv run scripts/vlan_capacity_probe.py --host 10.1.5.11 --model s3300 \
-  --community pib --count 150
+  --community '<switch-1-write-community>' --count 150
 uv run scripts/vlan_capacity_probe.py --host 10.1.5.23 --model gsm7252ps \
-  --community private --count 150
+  --community '<switch-2-write-community>' --count 150
 ```
+
+(Same out-of-band lookup as Stage 0 — `gdoc2netcfg password --type snmp
+sw-netgear-s3300-1` / `sw-netgear-gsm7252ps-s2` on ten64. Type the real
+value directly into the command when you run it; don't paste it anywhere
+that gets saved to this repo.)
 
 **Expected**: both runs print `created=150 verified_present=150` and exit
 0. VLAN IDs used are 3000–3149 (outside the production 2101–2348 block),
@@ -133,9 +151,14 @@ On tweed (or wherever `/etc/fpgas/switches.yml` will live — the
 run the CLI ad hoc against a local copy of `switches.yml` first if you
 want to preview before Stage 4 touches the real host):
 
+Set these interactively in your shell (never write the real values into a
+file in this repo, a commit, or a script) — look them up the same way as
+Stage 0, `gdoc2netcfg password --type snmp sw-netgear-s3300-1` /
+`sw-netgear-gsm7252ps-s2` on ten64:
+
 ```bash
-export FPGAS_SWITCH_COMMUNITY_1=pib      # s3300, do not commit
-export FPGAS_SWITCH_COMMUNITY_2=private  # s2/GSM7252PS, do not commit
+export FPGAS_SWITCH_COMMUNITY_1='<switch-1-write-community>'  # s3300, do not commit
+export FPGAS_SWITCH_COMMUNITY_2='<switch-2-write-community>'  # s2/GSM7252PS, do not commit
 
 # --- switch 1 (s3300) ---
 FPGAS_SWITCH_COMMUNITY="$FPGAS_SWITCH_COMMUNITY_1" \
@@ -343,21 +366,41 @@ normally letting the 12h lease expire is fine.
 Purpose: prove the core isolation goal — a Pi can reach tweed and the
 internet but never a Pi on another port, for both IPv4 and IPv6.
 
+tweed's own IPv6 address is per-VLAN, not a single flat address: each
+switch's per-port VLAN interface on tweed carries
+`2404:e80:a137:210<s>::ffff/64` (see
+`ansible/roles/vlan-ports/templates/vlan.network.j2`) — so the Pi on
+switch 1 reaches tweed at `2404:e80:a137:2101::ffff`, and the Pi on
+switch 2 reaches tweed at `2404:e80:a137:2102::ffff`. The old flat
+`eth-fpgas`/`2404:e80:a137:2100::1` address is retired and does not exist
+in this design — don't use it.
+
 From the switch-1-port-1 Pi (`10.21.1.1` / `2404:e80:a137:2101::1`):
 
 ```bash
 ping -c3 10.21.2.1                         # switch-2-port-1 Pi, v4 -> FAIL
 ping6 -c3 2404:e80:a137:2102::1            # switch-2-port-1 Pi, v6 -> FAIL
 ping -c3 10.21.0.1                         # tweed, v4 -> OK
-ping6 -c3 2404:e80:a137:2100::1            # tweed, v6 -> OK (if assigned)
+ping6 -c3 2404:e80:a137:2101::ffff         # tweed, v6 (switch 1's own VLAN gw addr) -> OK
 ssh root@10.21.0.1                          # tweed -> OK
 ping -c3 8.8.8.8                            # internet -> OK
 ```
 
-On the switch-2-port-1 Pi, run `tcpdump -ni any icmp` while the ping
-above runs — it should show **no** ICMP traffic from `10.21.1.1` at all
-(the drop happens in tweed's `forward` chain, `v* <-> v*` policy drop; it
-never reaches the second switch/Pi).
+From the switch-2-port-1 Pi (`10.21.2.1` / `2404:e80:a137:2102::1`):
+
+```bash
+ping -c3 10.21.1.1                         # switch-1-port-1 Pi, v4 -> FAIL
+ping6 -c3 2404:e80:a137:2101::1            # switch-1-port-1 Pi, v6 -> FAIL
+ping -c3 10.21.0.1                         # tweed, v4 -> OK
+ping6 -c3 2404:e80:a137:2102::ffff         # tweed, v6 (switch 2's own VLAN gw addr) -> OK
+ssh root@10.21.0.1                          # tweed -> OK
+ping -c3 8.8.8.8                            # internet -> OK
+```
+
+While either ping-the-other-Pi check above runs, run `tcpdump -ni any
+icmp` on the *target* Pi — it should show **no** ICMP traffic from the
+other Pi at all (the drop happens in tweed's `forward` chain, `v* <-> v*`
+policy drop; it never reaches the second switch/Pi).
 
 From tweed itself:
 
