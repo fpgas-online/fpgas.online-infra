@@ -273,10 +273,16 @@ class VMManager:
         overlay: Path,
         seed_iso: Path,
         ssh_port: int = 2222,
-        vlan_port: int = 12345,
+        trunk_port: int = 12345,
         memory: int = 2048,
     ) -> None:
-        """Boot the x86_64 server VM with two NICs + guest agent."""
+        """Boot the x86_64 server VM with two NICs + guest agent.
+
+        NIC 2 connects to the vswitch's trunk port (tests.vm.vswitch.
+        AccessPortSwitch) instead of listening directly -- the switch
+        tags/untags 802.1Q frames between this NIC and the Pi VM's NIC,
+        emulating a real switch access port.
+        """
         accel = "kvm" if kvm_available() else "tcg"
         cpu = "host" if accel == "kvm" else "max"
         cmd = [
@@ -292,8 +298,8 @@ class VMManager:
             # NIC 1: user-mode for SSH from host
             "-netdev", f"user,id=net0,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
-            # NIC 2: socket-listen for internal VLAN
-            "-netdev", f"socket,id=net1,listen=:{vlan_port}",
+            # NIC 2: internal VLAN -- connects to the vswitch trunk port
+            "-netdev", f"socket,id=net1,connect=:{trunk_port}",
             "-device", "virtio-net-pci,netdev=net1,mac=52:54:00:aa:bb:02",
             # Guest agent
             "-device", "virtio-serial",
@@ -312,7 +318,7 @@ class VMManager:
 
     def boot_pi(
         self,
-        vlan_port: int = 12345,
+        access_port: int = 12345,
         memory: int = 2048,
         qemu_bin: str = "",
         pxeboot_bin: str = "",
@@ -328,6 +334,11 @@ class VMManager:
         The firmware autonomously: DHCP from dnsmasq, TFTP probes the same
         files a real RPi 4B VideoCore GPU would request (deadbeef/config.txt,
         kernel8.img, DTB), then boots the kernel.
+
+        The Pi's NIC connects to the vswitch's access port (tests.vm.
+        vswitch.AccessPortSwitch) instead of the server directly -- the
+        switch tags this Pi's untagged frames into VLAN 2101 on the way to
+        the server's trunk NIC, and untags them on the way back.
         """
         cmd = [
             qemu_bin,
@@ -336,8 +347,8 @@ class VMManager:
             # PXE boot firmware (U-Boot with embedded VideoCore emulation)
             "-kernel", pxeboot_bin,
             "-dtb", pxeboot_dtb,
-            # Native GENET ethernet connected to server VLAN
-            "-nic", f"socket,connect=:{vlan_port},mac={mac}",
+            # Native GENET ethernet connected to the vswitch access port
+            "-nic", f"socket,connect=:{access_port},mac={mac}",
             # Headless
             "-display", "none",
             "-monitor", "none",

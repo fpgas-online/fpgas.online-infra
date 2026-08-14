@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 from tests.vm.cloud_init import create_seed_iso
-from tests.vm.network import proxy_jump_string, wait_for_socket_listen
+from tests.vm.network import proxy_jump_string
+from tests.vm.vswitch import AccessPortSwitch
 from tests.vm.vm_manager import (
     DEBIAN_CLOUD_URL,
     IMAGES_DIR,
@@ -33,7 +34,9 @@ ANSIBLE_DIR = REPO_ROOT / "ansible"
 TEST_INVENTORY = REPO_ROOT / "tests" / "inventory" / "test-hosts"
 
 SSH_PORT = 2222
-VLAN_PORT = 12345
+# Switch 1, port 1: 2000 + 100*1 + 1 (see ansible/filter_plugins/port_vlans.py).
+# Must match tests/inventory/host_vars/test-vm.yml's `switches:` entry.
+VLAN = 2101
 
 
 def ensure_ansible_collections() -> None:
@@ -120,7 +123,7 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
     return False, pi_ip
 
 
-def phase_server(args, workdir: Path) -> VMManager | None:
+def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     """Run the server phase: boot VM, apply roles, verify."""
     dist = args.distro
     image_url = DEBIAN_CLOUD_URL.format(dist=dist)
@@ -137,7 +140,7 @@ def phase_server(args, workdir: Path) -> VMManager | None:
 
     # Boot server
     server = VMManager("server", workdir)
-    server.boot_server(overlay, seed_iso, ssh_port=SSH_PORT, vlan_port=VLAN_PORT)
+    server.boot_server(overlay, seed_iso, ssh_port=SSH_PORT, trunk_port=switch.trunk_port)
 
     if not server.wait_for_guest_agent(timeout=180):
         print("ERROR: Server VM guest agent did not respond.")
@@ -230,19 +233,19 @@ def ensure_qemu_rpi() -> tuple[str, str, str]:
     return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
-def phase_pi(args, workdir: Path, server: VMManager) -> bool:
+def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
     Uses qemu-rpi (patched QEMU with GENET ethernet) and qemu-rpi-pxeboot
     firmware (U-Boot with embedded VideoCore PXE sequence). The firmware
     autonomously does DHCP + TFTP from the server's dnsmasq, loads the
     RPi kernel and DTB, and boots into the NFS root.
-    """
-    # Verify server socket is listening
-    if not wait_for_socket_listen(VLAN_PORT):
-        print("ERROR: Server VLAN socket not listening.")
-        return False
 
+    The Pi's NIC connects to the vswitch's access port; the server VM is
+    already connected to the trunk port (see phase_server), so no separate
+    "is the socket listening" wait is needed here -- the vswitch itself
+    started listening on both ports before either VM booted (see main()).
+    """
     key_path = workdir / "test_key"
 
     # Ensure patched QEMU and PXE boot firmware are available
@@ -251,7 +254,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
     # Boot Pi VM — PXE firmware will boot from server (DHCP + TFTP + NFS)
     pi = VMManager("pi", workdir)
     pi.boot_pi(
-        vlan_port=VLAN_PORT,
+        access_port=switch.access_port,
         qemu_bin=qemu_bin,
         pxeboot_bin=pxeboot_bin,
         pxeboot_dtb=pxeboot_dtb,
@@ -279,7 +282,9 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         # Continue to try SSH anyway
 
     # Use Pi IP from DHCP if available, fall back to expected IP
-    pi_host = pi_ip or "10.21.0.128"
+    # (switch 1, port 1 -- see tests/inventory/host_vars/test-vm.yml's
+    # `switches:` entry and ansible/filter_plugins/port_vlans.py)
+    pi_host = pi_ip or "10.21.1.1"
     print(f"[pi] Using Pi IP: {pi_host}")
 
     # Wait for SSH via ProxyJump through server
@@ -350,10 +355,17 @@ def main():
     workdir = Path(__file__).parent / "workdir"
     workdir.mkdir(exist_ok=True)
 
+    # The vswitch must be listening on both ports before either VM starts
+    # dialing out to it (QEMU socket netdevs with connect= dial once at
+    # boot), so it's started here, ahead of both phases, and stopped once
+    # both VMs are done with it.
+    switch = AccessPortSwitch(VLAN)
+    switch.start()
+
     server = None
     try:
         if args.phase in ("server", "all"):
-            server = phase_server(args, workdir)
+            server = phase_server(args, workdir, switch)
             if server is None:
                 print("\nSERVER PHASE FAILED")
                 sys.exit(1)
@@ -363,7 +375,7 @@ def main():
             if server is None:
                 print("ERROR: Pi phase requires a running server VM (use --phase all)")
                 sys.exit(1)
-            success = phase_pi(args, workdir, server)
+            success = phase_pi(args, workdir, server, switch)
             if not success:
                 print("\nPI PHASE FAILED")
                 sys.exit(1)
@@ -373,6 +385,7 @@ def main():
         if server and not args.keep_vm:
             server.shutdown()
             server.cleanup()
+        switch.stop()
 
     print("\nALL PHASES PASSED")
 
