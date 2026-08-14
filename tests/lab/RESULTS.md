@@ -249,8 +249,12 @@ Both switches hold 150 simultaneous VLANs with no error — comfortably above
 the ~146 the daisy-chained switch-1 trunk needs (its own 48 + two downstream
 48-blocks). **Risk #1 (S3300 max concurrent VLANs) is retired.**
 
-SNMP write communities: s2/GSM7252PS = `<switch-2-write-community>`, s3300 = `<switch-1-write-community>` (resolved via
-`gdoc2netcfg` on ten64). READ = `public` on both.
+SNMP read works with the `public` community on both switches. The per-switch
+SNMP **write** communities are resolved on ten64 via
+`gdoc2netcfg password --type snmp <switch>` and are stored, per switch, as the
+Ansible-vault vars `vault_switch1_snmp_rw_community` (s3300) and
+`vault_switch2_snmp_rw_community` (gsm7252ps) — see the switch-vlans role. They
+are deliberately not written in plaintext here (this repo is public).
 
 Caveats for the provisioning tool (Task 11 / hardware prototype Task 14):
 - The net-snmp CLI transport is ~2s per SNMP op; a full 48-port converge
