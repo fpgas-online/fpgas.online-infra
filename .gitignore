@@ -8,3 +8,4 @@ tests/vm/images/*.deb
 tests/vm/images/qemu-rpi-system-aarch64-static
 tests/vm/images/pxeboot-extract/
 tests/vm/workdir/
+tests/lab/tmp/
