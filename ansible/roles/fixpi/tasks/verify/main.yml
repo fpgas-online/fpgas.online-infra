@@ -49,17 +49,21 @@
     that: fixpi_bootcode_stat.stat.exists and fixpi_bootcode_stat.stat.islnk
     fail_msg: "/srv/tftp/bootcode.bin symlink not found"
 
+# Legacy MAC-table scheme only (switch.nos); per-port VLAN hosts (switches
+# defined) have no switch.nos -- see (D) in task-11.
 - name: Check TFTP serial number directories from switch.nos
   stat:
     path: "/srv/tftp/{{ item.sn }}"
   register: fixpi_sn_stats
   with_items: "{{ switch.nos }}"
+  when: switches is not defined
 
 - name: Assert TFTP serial number directories exist
   assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
   with_items: "{{ fixpi_sn_stats.results }}"
+  when: switches is not defined
 
 - name: Read cmdline.txt from nfs_root/boot
   command: cat "{{ nfs_root }}/boot/cmdline.txt"

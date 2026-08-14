@@ -40,6 +40,67 @@
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    # VLAN-per-port scheme verification — only applies to hosts with
+    # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
+    # (ps1.fpgas.online, slf.sytes.net, CI test-vm) don't have per-port
+    # networkd/dnsmasq/nft config, so these are skipped there.
+    - name: Check networkctl list for a per-port VLAN interface
+      command: networkctl list
+      changed_when: false
+      register: verify_networkctl_list
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Assert networkctl list shows a v* per-port VLAN interface
+      assert:
+        that: verify_networkctl_list.stdout | regex_search('\\bv[0-9]+\\b') is not none
+        fail_msg: "networkctl list does not show a v* per-port VLAN interface"
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Check dnsmasq config is valid
+      command: dnsmasq --test
+      changed_when: false
+      register: verify_dnsmasq_test
+      failed_when: false
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Assert dnsmasq --test exits 0
+      assert:
+        that: verify_dnsmasq_test.rc == 0
+        fail_msg: "dnsmasq --test failed: {{ verify_dnsmasq_test.stderr }}"
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Get nft forward chain
+      command: nft list chain inet filter forward
+      changed_when: false
+      register: verify_nft_forward_chain
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Assert nft forward chain has policy drop
+      assert:
+        that: "'policy drop' in verify_nft_forward_chain.stdout"
+        fail_msg: "nft chain inet filter forward missing 'policy drop'"
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Check /etc/dnsmasq.d/ports.conf exists
+      stat:
+        path: /etc/dnsmasq.d/ports.conf
+      register: verify_ports_conf_stat
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
+    - name: Assert /etc/dnsmasq.d/ports.conf exists
+      assert:
+        that: verify_ports_conf_stat.stat.exists
+        fail_msg: "/etc/dnsmasq.d/ports.conf not found"
+      when: switches is defined
+      tags: [verify, switch-vlans]
+
     # NFS root package verification — check packages were installed
     # into the NFS root by the nspawn chroot provisioning step.
     - name: Check overlayroot installed in NFS root

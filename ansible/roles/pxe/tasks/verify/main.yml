@@ -20,25 +20,31 @@
     that: pxe_rpi_conf_stat.stat.exists
     fail_msg: "/etc/dnsmasq.d/rpi.conf not found"
 
+# Legacy MAC-table scheme (pibs.conf) — hosts with `switches:` defined
+# (per-port VLAN scheme) don't render this file; see ports.conf.j2 instead.
 - name: Check /etc/dnsmasq.d/pibs.conf exists
   stat:
     path: /etc/dnsmasq.d/pibs.conf
   register: pxe_pibs_conf_stat
+  when: switches is not defined
 
 - name: Assert /etc/dnsmasq.d/pibs.conf exists
   assert:
     that: pxe_pibs_conf_stat.stat.exists
     fail_msg: "/etc/dnsmasq.d/pibs.conf not found"
+  when: switches is not defined
 
 - name: Read /etc/dnsmasq.d/pibs.conf
   command: cat /etc/dnsmasq.d/pibs.conf
   changed_when: false
   register: pxe_pibs_content
+  when: switches is not defined
 
 - name: Assert pibs.conf contains dhcp-host=
   assert:
     that: "'dhcp-host=' in pxe_pibs_content.stdout"
     fail_msg: "/etc/dnsmasq.d/pibs.conf does not contain 'dhcp-host='"
+  when: switches is not defined
 
 - name: Check /srv/tftp directory exists
   stat:
@@ -51,39 +57,46 @@
     fail_msg: "/srv/tftp directory not found"
 
 # Check TFTP serial directories — these are symlinks to nfs_root/boot
-# created by fixpi/netboot.yml for each Pi in switch.nos
+# created by fixpi/netboot.yml for each Pi in switch.nos (legacy MAC-table
+# scheme only; per-port VLAN hosts have no switch.nos, see (D)).
 - name: Check TFTP serial directories exist
   stat:
     path: "/srv/tftp/{{ item.sn }}"
   register: pxe_serial_dir_stat
   with_items: "{{ switch.nos }}"
+  when: switches is not defined
 
 - name: Assert TFTP serial directories exist
   assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
   with_items: "{{ pxe_serial_dir_stat.results }}"
+  when: switches is not defined
 
 - name: Check kernel8.img accessible via TFTP path
   stat:
     path: "/srv/tftp/{{ item.sn }}/kernel8.img"
   register: pxe_kernel_stat
   with_items: "{{ switch.nos }}"
+  when: switches is not defined
 
 - name: Assert kernel8.img exists
   assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }}/kernel8.img not found"
   with_items: "{{ pxe_kernel_stat.results }}"
+  when: switches is not defined
 
 - name: Check cmdline.txt accessible via TFTP path
   stat:
     path: "/srv/tftp/{{ item.sn }}/cmdline.txt"
   register: pxe_cmdline_stat
   with_items: "{{ switch.nos }}"
+  when: switches is not defined
 
 - name: Assert cmdline.txt exists and contains nfsroot
   assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
   with_items: "{{ pxe_cmdline_stat.results }}"
+  when: switches is not defined

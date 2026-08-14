@@ -15,8 +15,10 @@
     src: "{{ nfs_root }}/boot"
     dest: "/srv/tftp/{{ item.sn }}"
     state: link
+  # switch.nos is the legacy MAC-table scheme's Pi list; per-port VLAN
+  # hosts (switches defined) have no switch.nos, so this is a no-op there.
   with_items:
-    "{{ switch.nos }}"
+    "{{ switch.nos | default([]) }}"
   tags:
     - pibs
 
