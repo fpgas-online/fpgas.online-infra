@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Match]
+Name=eth-local
+Type=ether
+
+[Link]
+RequiredForOnline=yes
+
+[Network]
+Description=FPGA per-port VLAN trunk (untagged = VLAN 1 quarantine)
+{% for e in port_map %}
+VLAN={{ e.iface }}
+{% endfor %}
+
+[Address]
+Address={{ pib_network }}.0.1/24

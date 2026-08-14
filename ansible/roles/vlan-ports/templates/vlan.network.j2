@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+# {{ item.hostname }}: switch {{ item.switch }} port {{ item.port }}
+[Match]
+Name={{ item.iface }}
+
+[Network]
+IPv4ProxyARP=true
+IPv6AcceptRA=no
+ConfigureWithoutCarrier=yes
+
+# Gateway's own v4 address: literal /32, identical across every per-port
+# VLAN interface (dnsmasq disambiguates by receiving interface, not by
+# subnet -- see tests/lab/RESULTS.md, v4-single-range-by-tag).
+[Address]
+Address={{ pib_network }}.0.1/32
+
+# Gateway's own v6 address: MUST be a /64 sharing this switch's delegated
+# prefix, not a /128 -- dnsmasq's v6 dhcp-range requires the interface
+# prefix length to equal the range's prefix length, and the interface
+# address to fall inside the range's network (see RESULTS.md,
+# v6-single-range-by-tag). Every port on this switch shares the same /64;
+# per-Pi reachability is still exact because of the /128 host route below.
+[Address]
+Address={{ pib_network6_base }}{{ '%02d' | format(item.switch) }}::ffff/64
+
+[Route]
+Destination={{ item.ip4 }}/32
+
+[Route]
+Destination={{ item.ip6 }}/128

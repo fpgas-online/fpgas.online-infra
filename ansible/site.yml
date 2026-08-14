@@ -2,6 +2,7 @@
 - hosts: nbp
   roles:
     - firewall
+    - vlan-ports
     - nfs
     - img
     - fixpi
