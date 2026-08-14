@@ -7,8 +7,18 @@ interface={{ eth_local }}
 {% endif %}
 bind-interfaces
 
-# DHCP range
+# Pin the lease database to an explicit, absolute, persistent path.
+# dnsmasq daemonizes and chdir()s to "/" before opening a relative
+# dhcp-leasefile/pid-file/log path, silently failing if one is given
+# relative (tests/lab/RESULTS.md, "Other gotchas").
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+
+{% if dhcp_range is defined %}
+# DHCP range for legacy MAC-table hosts (no per-port switches config):
+# per-port hosts get their v4/v6 ranges from ports.conf instead, one
+# dhcp-range per switch port -- see tests/lab/RESULTS.md.
 dhcp-range={{ dhcp_range }}
+{% endif %}
 
 # Enable TFTP
 enable-tftp
