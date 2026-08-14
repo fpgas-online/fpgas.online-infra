@@ -22,6 +22,16 @@ pib_domain: fpgas.welland.mithis.com
 # firewall config from this via the port_vlan_map filter). Trunk port
 # numbers below are placeholders — Tim confirms exact cabling at hardware
 # prototype time (Task 14).
+#
+# snmp_rw_community: per-switch SNMP write community consumed by the
+# switch-vlans role (env FPGAS_SWITCH_COMMUNITY -> fpgas-switch-setup). The
+# s3300 and the GSM7252PS use DIFFERENT community strings, so each switch
+# gets its own vault var -- never write a real community string in
+# plaintext here, this repo is public. Tim must add these with
+# `ansible-vault encrypt_string` before the hardware prototype (Task 14):
+#   vault_switch1_snmp_rw_community  (s3300, index 1)
+#   vault_switch2_snmp_rw_community  (gsm7252ps, index 2)
+# The VM test never evaluates these (switches_manage: false skips the role).
 switches:
   - index: 1
     model: s3300
@@ -30,6 +40,7 @@ switches:
     gateway_trunk_port: 49
     downstream_trunk_ports: [50]
     house_uplink_port: 52
+    snmp_rw_community: "{{ vault_switch1_snmp_rw_community }}"
   - index: 2
     model: gsm7252ps
     mgmt_host: "10.1.5.23"
@@ -37,6 +48,7 @@ switches:
     gateway_trunk_port: 49
     downstream_trunk_ports: [50]
     house_uplink_port: 52
+    snmp_rw_community: "{{ vault_switch2_snmp_rw_community }}"
 
 firewall_internal_networks: [10.21.0.0/24]
 
