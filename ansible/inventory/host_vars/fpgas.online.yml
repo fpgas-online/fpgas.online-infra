@@ -10,7 +10,29 @@ eth_local_address: 10.21.0.1
 eth_local_netmask: 24
 dhcp_range: 10.21.0.128,10.21.0.254,6h
 
-pib_network: 10.21.0
+pib_network: "10.21"
+pib_network6_base: "2404:e80:a137:21"
+pib_domain: fpgas.welland.mithis.com
+
+# Per-port VLAN map source of truth (Tasks 8/9/10 derive networkd/dnsmasq/
+# firewall config from this via the port_vlan_map filter). Trunk port
+# numbers below are placeholders — Tim confirms exact cabling at hardware
+# prototype time (Task 14).
+switches:
+  - index: 1
+    model: s3300
+    mgmt_host: "10.1.5.11"
+    access_ports: 48
+    gateway_trunk_port: 49
+    downstream_trunk_ports: [50]
+    house_uplink_port: 52
+  - index: 2
+    model: gsm7252ps
+    mgmt_host: "10.1.5.23"
+    access_ports: 48
+    gateway_trunk_port: 49
+    downstream_trunk_ports: [50]
+    house_uplink_port: 52
 
 firewall_internal_networks: [10.21.0.0/24]
 
