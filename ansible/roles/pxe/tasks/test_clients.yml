@@ -7,6 +7,10 @@
 # (kernel, DTB, cmdline.txt, config.txt, initramfs) come from the
 # production fixpi/netboot.yml setup — no test-specific overrides.
 
+# Legacy MAC-table scheme only: hosts with `switches:` defined get their
+# Pi's IP from the per-port dhcp-range in ports.conf.j2 (keyed by receiving
+# VLAN interface, no MAC involved -- see pxe/tasks/main.yml), and pibs.conf
+# is removed entirely in that case, so this task has nothing to append to.
 - name: Add DHCP host entries for test clients
   lineinfile:
     path: /etc/dnsmasq.d/pibs.conf
@@ -14,6 +18,7 @@
     create: false
   with_items: "{{ pxe_test_clients }}"
   notify: restart dnsmasq
+  when: switches is not defined
   tags:
     - pxe-test
 

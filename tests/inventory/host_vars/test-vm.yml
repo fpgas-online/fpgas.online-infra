@@ -8,9 +8,14 @@ eth_local: enp0s3
 eth_local_mac_address: "52:54:00:aa:bb:02"
 eth_local_address: 10.21.0.1
 eth_local_netmask: 24
-dhcp_range: 10.21.0.128,10.21.0.254,6h
+# dhcp_range intentionally absent: this host defines `switches` (per-port
+# addressing), so dnsmasq-base.conf.j2 skips the bare pool range and every
+# port gets its own dhcp-range from ports.conf.j2 instead -- mirrors
+# ansible/inventory/host_vars/fpgas.online.yml (tweed).
 
-pib_network: 10.21.0
+pib_network: "10.21"
+pib_network6_base: "2001:db8:a137:21"  # RFC 3849 doc range; test only
+pib_domain: test.fpgas.online
 
 firewall_internal_networks: [10.21.0.0/24]
 
@@ -32,14 +37,15 @@ fixture_path: test.json
 
 switch_base: base
 
+# `nos`/`mpi_port`/`mpi_ip` removed: those are the legacy MAC-table scheme's
+# fields (see ansible/roles/site/tasks/snmp.yml, ansible/roles/fixpi), dropped
+# in Task 10 for hosts with `switches:` defined -- mirrors tweed's switch:
+# block (ansible/inventory/host_vars/fpgas.online.yml), kept here only for
+# the SNMP monitoring env vars.
 switch:
   mac: "00:00:00:00:00:00"
   oid: iso.3.6.1.2.1.105.1.1.1.3.1
   host: "10.21.0.200"
-  mpi_port: 2
-  mpi_ip: "{{ pib_network }}.102"
-  nos:
-    - {port: 2, mac: "52:54:00:12:34:56", sn: "deadbeef", loc: "", cable_color: ""}
   SNMP_SWITCH_SECURITY_LEVEL: authNoPriv
   SNMP_SWITCH_AUTH_PROTOCOL: SHA512
   SNMP_SWITCH_PRIV_PROTOCOL: AES128
@@ -47,9 +53,27 @@ switch:
   SNMP_SWITCH_AUTHKEY: test_auth_key
   SNMP_SWITCH_PRIVKEY: test_priv_key
 
+# Single switch, one access port -- the VM harness's AccessPortSwitch(2101)
+# emulates switch 1 port 1 (see tests/vm/vswitch.py, tests/vm/run_tests.py).
+# switches_manage: false skips the switch-vlans role (no real switch here).
+switches:
+  - index: 1
+    model: s3300
+    mgmt_host: 127.0.0.1
+    access_ports: 1
+    gateway_trunk_port: 49
+    downstream_trunk_ports: []
+    house_uplink_port: 52
+switches_manage: false
+
 pi_pw: "$6$test$testpasswordhash"
 
-# QEMU PXE test clients
+# QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
+# in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
+# involved), so the `ip`/`mac` DHCP host-entry task in
+# ansible/roles/pxe/tasks/test_clients.yml is skipped -- this list only
+# still triggers the ephemeral test SSH key injection into the Pi's
+# authorized_keys, which the harness needs regardless of addressing scheme.
 pxe_test_clients:
   - name: test-pi
     sn: "deadbeef"
