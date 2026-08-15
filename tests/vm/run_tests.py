@@ -113,13 +113,23 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
             break
         time.sleep(5)
 
-    # Timeout or process died — print serial log tail for debugging
+    # Timeout or process died — print BOTH serial logs' tails for debugging.
+    # serial0 (pi.serial_log) is the kernel console; serial1 (.uboot) is the
+    # U-Boot/firmware console. On a stall after TFTP the kernel log is where
+    # the NFS-root/boot failure shows up, so dump both (the kernel one is
+    # frequently the empty/interesting one).
     print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
-    if pi.serial_log.exists():
-        lines = pi.serial_log.read_text(errors="replace").splitlines()
-        print(f"[pi] Last 30 lines of serial log:")
-        for line in lines[-30:]:
-            print(f"  {line}")
+    for label, path in (
+        ("kernel serial0", pi.serial_log),
+        ("u-boot serial1", Path(str(pi.serial_log) + ".uboot")),
+    ):
+        if path.exists():
+            lines = path.read_text(errors="replace").splitlines()
+            print(f"[pi] Last 40 lines of {label} ({path.name}):")
+            for line in lines[-40:]:
+                print(f"  {line}")
+        else:
+            print(f"[pi] {label} log {path.name} does not exist")
     return False, pi_ip
 
 
