@@ -38,25 +38,16 @@ runcmd:
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf
+  # The internal NIC (enp0s3) is the per-port VLAN trunk. It must be owned
+  # SOLELY by systemd-networkd via the vlan-ports role's 30-eth-local.network
+  # (which sets its address AND declares VLAN=v2101...), mirroring tweed.
+  # Do NOT pre-configure it here: an ifupdown stanza or a lower-numbered
+  # /etc/systemd/network/10-enp0s3.network would win over the role's file and
+  # its VLAN= directives would be ignored, so the v* interfaces never appear.
+  - systemctl enable --now systemd-networkd
   - ip link set enp0s3 up
-  - ip addr add {eth_local_ip} dev enp0s3
   - mkdir -p /etc/letsencrypt/live/test.fpgas.online
   - openssl req -x509 -newkey rsa:2048 -keyout /etc/letsencrypt/live/test.fpgas.online/privkey.pem -out /etc/letsencrypt/live/test.fpgas.online/fullchain.pem -days 1 -nodes -subj "/CN=test.fpgas.online"
-
-write_files:
-  - path: /etc/network/interfaces.d/enp0s3.cfg
-    content: |
-      auto enp0s3
-      iface enp0s3 inet static
-        address {eth_local_ip}
-  - path: /etc/systemd/network/10-enp0s3.network
-    content: |
-      [Match]
-      Name=enp0s3
-      [Network]
-      Address={eth_local_ip}
-      [Link]
-      RequiredForOnline=no
 
 package_update: false
 package_upgrade: false
