@@ -19,9 +19,12 @@ host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.
 {% endfor %}
 
 # VLAN 1 quarantine on the untagged trunk: unconfigured ports land here,
-# visibly, instead of joining a per-port network.
-interface=eth-local
-dhcp-range=tag:eth-local,{{ pib_network }}.0.128,{{ pib_network }}.0.150,255.255.255.0,1h
+# visibly, instead of joining a per-port network. The trunk is the host's
+# own internal interface ({{ eth_local }}) -- literally "eth-local" on tweed
+# (renamed via a MAC-matched systemd .link), but e.g. "enp0s3" in the QEMU
+# VM test, so this must be the variable, not a hardcoded name.
+interface={{ eth_local }}
+dhcp-range=tag:{{ eth_local }},{{ pib_network }}.0.128,{{ pib_network }}.0.150,255.255.255.0,1h
 
 # RA is enabled once, globally, for all per-port interfaces above (each
 # range's off-link flag shapes what gets advertised per-interface).
