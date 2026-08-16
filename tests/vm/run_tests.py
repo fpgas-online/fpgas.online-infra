@@ -118,16 +118,21 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
     # U-Boot/firmware console. On a stall after TFTP the kernel log is where
     # the NFS-root/boot failure shows up, so dump both (the kernel one is
     # frequently the empty/interesting one).
+    # NOTE: the "milestones seen" above are substring matches and can false-
+    # positive (e.g. "Loading" matches U-Boot's "Loading Environment from
+    # FAT", not a TFTP kernel load), so treat them as hints only -- the full
+    # dumps below are authoritative.
     print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
     for label, path in (
         ("kernel serial0", pi.serial_log),
         ("u-boot serial1", Path(str(pi.serial_log) + ".uboot")),
     ):
         if path.exists():
-            lines = path.read_text(errors="replace").splitlines()
-            print(f"[pi] Last 40 lines of {label} ({path.name}):")
-            for line in lines[-40:]:
+            text = path.read_text(errors="replace")
+            print(f"[pi] ===== FULL {label} ({path.name}), {len(text)} bytes =====")
+            for line in text.splitlines():
                 print(f"  {line}")
+            print(f"[pi] ===== end {label} =====")
         else:
             print(f"[pi] {label} log {path.name} does not exist")
     return False, pi_ip
