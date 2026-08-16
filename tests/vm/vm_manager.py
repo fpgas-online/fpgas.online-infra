@@ -298,9 +298,14 @@ class VMManager:
             # NIC 1: user-mode for SSH from host
             "-netdev", f"user,id=net0,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
-            # NIC 2: internal VLAN -- connects to the vswitch trunk port
+            # NIC 2: internal VLAN trunk -- connects to the vswitch trunk port.
+            # host_mtu=1504 advertises room for a full 1500-byte VLAN payload
+            # plus the 4-byte 802.1Q tag, matching eth-local.network.j2's
+            # MTUBytes=1504 so the guest can actually transmit/receive full-size
+            # tagged frames (small DHCP/TFTP-handshake packets work without it,
+            # but the large netboot/NFS transfers stall).
             "-netdev", f"socket,id=net1,connect=:{trunk_port}",
-            "-device", "virtio-net-pci,netdev=net1,mac=52:54:00:aa:bb:02",
+            "-device", "virtio-net-pci,netdev=net1,mac=52:54:00:aa:bb:02,host_mtu=1504",
             # Guest agent
             "-device", "virtio-serial",
             "-device", "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0",

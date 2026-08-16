@@ -8,6 +8,11 @@ Name={{ item.iface }}
 # plugged into that port -- do not let systemd-networkd-wait-online stall
 # boot waiting on them.
 RequiredForOnline=no
+# Pin the VLAN payload MTU to 1500 (the Pi's MTU). The trunk parent carries
+# these as 1504-byte tagged frames (see eth-local.network.j2's MTUBytes).
+# Without pinning, a VLAN device can inherit the parent's larger MTU and then
+# emit frames the trunk can't carry.
+MTUBytes=1500
 
 [Network]
 IPv4ProxyARP=true
