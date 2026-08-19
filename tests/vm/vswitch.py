@@ -10,6 +10,7 @@ trunk->access frames are untagged if the VID matches, dropped otherwise
 import socket
 import struct
 import threading
+import time
 
 TPID = b"\x81\x00"
 
@@ -27,13 +28,25 @@ def untag_frame(frame: bytes, vlan: int) -> bytes | None:
 
 
 class AccessPortSwitch:
+    # How long each blocking accept() call waits before looping back to
+    # re-check self._stop. Small, so stop() unwedges an idle accept quickly;
+    # it is NOT a ceiling on how long we'll wait for a peer.
+    _ACCEPT_POLL = 1.0
+
     def __init__(self, vlan: int, host: str = "127.0.0.1",
-                 accept_timeout: float = 120.0):
+                 accept_timeout: float | None = None):
         self.vlan = vlan
         self.host = host
-        # Bounds how long _run() will block in accept() waiting for a VM
-        # that never connects, so a hung/misconfigured caller doesn't wedge
-        # the switch thread (and thus stop()/join()) forever.
+        # Overall cap on waiting for a peer to connect, or None to wait
+        # indefinitely (until stop()). The default is None because the real
+        # harness starts the switch once, up front: the server VM connects to
+        # the trunk within seconds, but the Pi VM only connects to the access
+        # port AFTER the entire server-provisioning phase (tens of minutes
+        # under TCG). A fixed ceiling here would kill the switch thread before
+        # the Pi ever boots, leaving the Pi with no connectivity (DHCP/netboot
+        # stalls). We instead poll self._stop (see _accept), so stop() -- which
+        # the harness always calls in its finally -- is what ends an idle wait.
+        # Tests pass a small float purely to bound their own teardown.
         self.accept_timeout = accept_timeout
         self._socks: list[socket.socket] = []
         self._threads: list[threading.Thread] = []
@@ -58,20 +71,45 @@ class AccessPortSwitch:
         t.start()
         self._threads.append(t)
 
+    def _accept(self, listener: socket.socket) -> socket.socket | None:
+        """Wait for one peer, polling self._stop so we never block forever.
+
+        Returns the connected socket, or None if stop() fired, the overall
+        accept_timeout elapsed, or the listener was closed. Unlike a single
+        blocking accept() with a fixed timeout, this keeps waiting across
+        many short windows -- so a peer that legitimately connects long after
+        the switch started (the Pi, after the server phase) is still accepted.
+        """
+        deadline = None
+        if self.accept_timeout is not None:
+            deadline = time.monotonic() + self.accept_timeout
+        while not self._stop.is_set():
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                listener.settimeout(min(self._ACCEPT_POLL, remaining))
+            else:
+                listener.settimeout(self._ACCEPT_POLL)
+            try:
+                conn, _ = listener.accept()
+                return conn
+            except socket.timeout:
+                continue  # re-check self._stop / deadline, keep waiting
+            except OSError:
+                return None  # listener closed by stop()
+        return None
+
     def _run(self, trunk_l, access_l) -> None:
-        trunk_l.settimeout(self.accept_timeout)
-        access_l.settimeout(self.accept_timeout)
-        try:
-            trunk, _ = trunk_l.accept()
-        except OSError:
-            return  # timed out, or closed by stop() before a peer connected
-        # Register the trunk socket for cleanup *before* the second accept()
+        trunk = self._accept(trunk_l)
+        if trunk is None:
+            return  # stop()ed or timed out before any peer connected
+        # Register the trunk socket for cleanup *before* the second accept
         # blocks -- otherwise a stop() call during that wait can't close it,
-        # leaking the fd and leaving the accept() stranded past its timeout.
+        # leaking the fd and stranding the accept loop.
         self._socks.append(trunk)
-        try:
-            access, _ = access_l.accept()
-        except OSError:
+        access = self._accept(access_l)
+        if access is None:
             return
         self._socks.append(access)
 
