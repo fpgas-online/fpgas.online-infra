@@ -81,6 +81,28 @@
     - netboot
     - qemu
 
+# Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
+# sudo's per-invocation getaddrinfo() of the machine name is instant instead of
+# stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
+# verify-pi.yml reports the Pi UNREACHABLE. See the unit file's own comment.
+- name: install self-hostname /etc/hosts service in NFS root
+  copy:
+    src: files/fpgas-hostname-hosts.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-hostname-hosts.service"
+    mode: "0644"
+  tags:
+    - netboot
+    - qemu
+
+- name: enable self-hostname /etc/hosts service in NFS root
+  file:
+    src: /etc/systemd/system/fpgas-hostname-hosts.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-hostname-hosts.service"
+    state: link
+  tags:
+    - netboot
+    - qemu
+
 - name: ensure DNS resolution works in chroot
   copy:
     remote_src: true
