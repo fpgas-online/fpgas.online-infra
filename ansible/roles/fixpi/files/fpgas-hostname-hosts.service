@@ -14,7 +14,10 @@ Before=systemd-user-sessions.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'H=$(hostname); grep -qw "$H" /etc/hosts || printf "127.0.1.1\t%s\n" "$H" >> /etc/hosts'
+# Logic lives in a script, not inline here: systemd expands $ and % in
+# ExecStart (e.g. %s = the service user's shell), which corrupts shell one-
+# liners. See the script's own comment.
+ExecStart=/usr/local/sbin/fpgas-hostname-hosts.sh
 
 [Install]
 WantedBy=multi-user.target

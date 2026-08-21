@@ -85,6 +85,15 @@
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
 # stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
 # verify-pi.yml reports the Pi UNREACHABLE. See the unit file's own comment.
+- name: install self-hostname script in NFS root
+  copy:
+    src: files/fpgas-hostname-hosts.sh
+    dest: "{{ nfs_root }}/root/usr/local/sbin/fpgas-hostname-hosts.sh"
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
 - name: install self-hostname /etc/hosts service in NFS root
   copy:
     src: files/fpgas-hostname-hosts.service
