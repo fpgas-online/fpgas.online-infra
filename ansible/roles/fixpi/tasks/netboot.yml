@@ -133,6 +133,27 @@
     - netboot
     - qemu
 
+# The RPi OS first-boot user-config wizard (userconfig.service) runs on tty1
+# and applies /boot/firmware/userconf.txt. But our fstab mounts /boot/firmware
+# noauto (see fstab.j2 -- the same reason ssh.service is enabled directly
+# above), so userconf.txt is never visible at boot: the wizard finds no config
+# and drops into an interactive setup that blocks multi-user.target forever.
+# Observed in the VM test: the job spins "userconfig.service/start running
+# (59min / no limit)" and the Pi never reaches login or starts sshd. We already
+# provision the pi user directly (see "create pi user in NFS root"), so this
+# wizard must never run -- mask it, same rationale as disabling
+# regenerate_ssh_host_keys.service above. Not QEMU-specific: a real headless Pi
+# (no display/keyboard) netbooting this NFS root would hang on it identically.
+- name: mask userconfig.service (first-boot wizard) in NFS root
+  file:
+    src: /dev/null
+    dest: "{{ nfs_root }}/root/etc/systemd/system/userconfig.service"
+    state: link
+    force: true
+  tags:
+    - netboot
+    - qemu
+
 # Pre-generate SSH host keys in the NFS root so sshd starts immediately without
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
 # on the server (native amd64 ssh-keygen), which is both faster and produces
