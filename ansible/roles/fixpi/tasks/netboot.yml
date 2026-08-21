@@ -63,6 +63,24 @@
     - netboot
     - qemu
 
+# On stock RPi OS the pi user gets passwordless sudo from the first-boot
+# userconf mechanism -- but we create the user directly (above) and mask that
+# wizard (userconfig.service is noauto-blind, see below), so nothing grants it
+# otherwise. Without this, ansible become over SSH fails on the running Pi with
+# "Timeout waiting for privilege escalation prompt" and verify-pi.yml (become:
+# true on every task) reports the host UNREACHABLE. 0440 root:root is mandatory
+# -- sudo ignores sudoers.d files that are group/world-writable. Matches the
+# RPi OS convention (/etc/sudoers.d/010_<user>-nopasswd) and is production-valid
+# for a headless appliance the pi user administers.
+- name: grant the pi user passwordless sudo in the NFS root
+  copy:
+    content: "{{ user }} ALL=(ALL) NOPASSWD: ALL\n"
+    dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ user }}-nopasswd"
+    mode: "0440"
+  tags:
+    - netboot
+    - qemu
+
 - name: ensure DNS resolution works in chroot
   copy:
     remote_src: true
