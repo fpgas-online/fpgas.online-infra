@@ -310,6 +310,27 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
             host=pi_host, port=22, username="pi",
             key_path=key_path, proxy_jump=proxy, timeout=900,
         )
+        # Diagnostic probe: verify-pi.yml runs `become: true` on every task, so
+        # slow/failing privilege escalation (e.g. sudo stalling on hostname
+        # resolution) shows up only as an opaque "UNREACHABLE" there. Capture
+        # the relevant state here, on a plain SSH channel, so a become failure
+        # is diagnosable without another multi-hour run.
+        print("[pi] ===== become/hostname diagnostic probe =====")
+        for label, cmd in [
+            ("hostname", "hostname"),
+            ("/etc/hosts", "cat /etc/hosts"),
+            ("/etc/resolv.conf", "cat /etc/resolv.conf"),
+            ("resolve self", "getent hosts $(hostname) || echo '(no result)'"),
+            ("sudo -n timing", "time sudo -n true 2>&1 || echo 'sudo rc='$?"),
+        ]:
+            try:
+                _in, _out, _err = ssh.exec_command(cmd, timeout=30)
+                out = _out.read().decode(errors="replace").strip()
+                err = _err.read().decode(errors="replace").strip()
+                print(f"[pi] [{label}] {out}{(' | stderr: ' + err) if err else ''}")
+            except Exception as exc:  # noqa: BLE001 - diagnostic must never fail the run
+                print(f"[pi] [{label}] probe error: {exc}")
+        print("[pi] ===== end diagnostic probe =====")
         ssh.close()
     except TimeoutError:
         print("ERROR: Pi VM SSH not reachable via ProxyJump.")
