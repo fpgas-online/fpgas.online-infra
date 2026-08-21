@@ -99,6 +99,10 @@
     src: /etc/systemd/system/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-hostname-hosts.service"
     state: link
+    # The src path is absolute inside the NFS root (valid once the Pi boots
+    # with nfs_root/root as /), but it does not exist at that path on the
+    # server, so ansible's link src-existence check would fail without force.
+    force: true
   tags:
     - netboot
     - qemu
