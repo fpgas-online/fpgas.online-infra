@@ -152,20 +152,24 @@ tt_boards:
   # The four FPGA emulation boards sit on S3300 ports 33-36 (pi-sw2-p33..p36):
   # TT demo board v3 (RP2350) with the FabricFox FPGA breakout.  Reflashed to
   # SDK 3.1.0 on 2026-08-23 (the shipped ttdbv3 build stalled at boot); with
-  # 3.1.0 the SDK comes up in FPGA mode.  fpga-1 is enabled for the Commander
-  # bring-up test; the rest follow once that is confirmed.
+  # 3.1.0 the SDK comes up in FPGA mode and the Commander connects (REPL /
+  # Interact / pinout; the project list is empty until the FPGA shuttle index
+  # and bitstream loading land in phase 2).
   - {slug: fpga-1, switch: 2, port: 33, kind: fpga, title: "TT FPGA emulation board 1", sort_order: 30,
      description: "TT demo board v3 (RP2350, SDK 3.1.0) with the FabricFox FPGA breakout (S3300 port 33).
        Bitstream loading arrives in phase 2; the Commander talks to the FPGA's factory-test design today.",
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
-  - {slug: fpga-2, switch: 2, port: 34, kind: fpga, title: "TT FPGA emulation board 2", sort_order: 31, enabled: false,
-     description: "Wired (S3300 port 34); TT demo board v3 (RP2350) with the FPGA breakout. Bitstream loading and the Commander bring-up for these boards arrive in phase 2.",
+  - {slug: fpga-2, switch: 2, port: 34, kind: fpga, title: "TT FPGA emulation board 2", sort_order: 31,
+     description: "TT demo board v3 (RP2350, SDK 3.1.0) with the FabricFox FPGA breakout (S3300 port 34).
+       Bitstream loading arrives in phase 2; the Commander talks to the FPGA's factory-test design today.",
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
-  - {slug: fpga-3, switch: 2, port: 35, kind: fpga, title: "TT FPGA emulation board 3", sort_order: 32, enabled: false,
-     description: "Wired (S3300 port 35); TT demo board v3 (RP2350) with the FPGA breakout. Bitstream loading and the Commander bring-up for these boards arrive in phase 2.",
+  - {slug: fpga-3, switch: 2, port: 35, kind: fpga, title: "TT FPGA emulation board 3", sort_order: 32,
+     description: "TT demo board v3 (RP2350, SDK 3.1.0) with the FabricFox FPGA breakout (S3300 port 35).
+       Bitstream loading arrives in phase 2; the Commander talks to the FPGA's factory-test design today.",
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
-  - {slug: fpga-4, switch: 2, port: 36, kind: fpga, title: "TT FPGA emulation board 4", sort_order: 33, enabled: false,
-     description: "Wired (S3300 port 36); TT demo board v3 (RP2350) with the FPGA breakout. Bitstream loading and the Commander bring-up for these boards arrive in phase 2.",
+  - {slug: fpga-4, switch: 2, port: 36, kind: fpga, title: "TT FPGA emulation board 4", sort_order: 33,
+     description: "TT demo board v3 (RP2350, SDK 3.1.0) with the FabricFox FPGA breakout (S3300 port 36).
+       Bitstream loading arrives in phase 2; the Commander talks to the FPGA's factory-test design today.",
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
 
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
