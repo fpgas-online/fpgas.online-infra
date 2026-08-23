@@ -177,8 +177,8 @@ tt_boards:
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
 
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
-tt_commander_embed_version: "0.1.0"
-tt_commander_embed_sha256: "57edff1050477480f41cac80cd8704214f319b53b7103f6734a027cfd90380b1"
+tt_commander_embed_version: "0.2.0"
+tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
 # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online; TLS is
 # terminated on tweed (ten64's SNI router lists the name since 2026-08-23 via
 # the gdoc2netcfg alias on tweed's row), so certbot runs here (webroot http-01
