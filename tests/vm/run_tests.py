@@ -43,7 +43,7 @@ def ensure_ansible_collections() -> None:
     """Install required Ansible collections if not already present."""
     subprocess.run(
         ["uv", "run", "ansible-galaxy", "collection", "install",
-         "community.crypto", "ansible.posix", "--upgrade"],
+         "-r", str(Path(__file__).resolve().parents[2] / "requirements.yml"), "--upgrade"],
         check=True,
         stdin=subprocess.DEVNULL,
     )
