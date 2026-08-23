@@ -126,8 +126,12 @@ pi_pw: !vault |
 tt_boards:
   - {slug: tt01, switch: 2, port: 1, kind: asic, shuttle: tt01, title: "Tiny Tapeout 1", enabled: false}
   - {slug: tt02, switch: 2, port: 2, kind: asic, shuttle: tt02, title: "Tiny Tapeout 2", enabled: false}
-  - {slug: tt03, switch: 2, port: 3, kind: asic, shuttle: tt03, title: "Tiny Tapeout 3",
-     blurb: "TT03 (sky130) on a demo board", pcb: "TT demo board (RP2040)"}
+  # pi-sw2-p3's demo board boots MicroPython 1.22.2 but the TT SDK does not come
+  # up (`tt` is None, no read_rom) -- the Commander cannot drive it; disabled
+  # until its firmware is fixed (2026-08-23).
+  - {slug: tt03, switch: 2, port: 3, kind: asic, shuttle: tt03, title: "Tiny Tapeout 3", enabled: false,
+     blurb: "TT03 (sky130) on a demo board", pcb: "TT demo board (RP2040)",
+     description: "Present but its demo-board firmware does not initialise the TT SDK yet; coming back once reflashed."}
   - {slug: tt04, switch: 2, port: 4, kind: asic, shuttle: tt04, title: "Tiny Tapeout 4",
      blurb: "TT04 (sky130) on a demo board", pcb: "TT demo board (RP2040)"}
   - {slug: tt05, switch: 2, port: 5, kind: asic, shuttle: tt05, title: "Tiny Tapeout 5",
@@ -145,11 +149,17 @@ tt_boards:
      pmods: [{name: "QSPI Pmod", url: "https://github.com/mole99/qspi-pmod", note: "flash + PSRAM"}],
      links: [{label: "Project page", url: "https://tinytapeout.com/chips/tt06/tt_um_kianV_rv32ima_uLinux_SoC/"}]}
   - {slug: kianv-2, port: null, kind: kianv, shuttle: "", title: "KianV RISC-V (second board)", sort_order: 21}
-  - {slug: fpga-1, port: null, kind: fpga, title: "TT FPGA emulation board 1", sort_order: 30,
+  # Four more TT demo boards (RP2040, 2e8a:0005) sit on S3300 ports 33-36
+  # (pi-sw2-p33..p36) -- mapped to the FPGA emulation slots, to be confirmed
+  # from what their firmware reports.
+  - {slug: fpga-1, switch: 2, port: 33, kind: fpga, title: "TT FPGA emulation board 1", sort_order: 30,
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
-  - {slug: fpga-2, port: null, kind: fpga, title: "TT FPGA emulation board 2", sort_order: 31}
-  - {slug: fpga-3, port: null, kind: fpga, title: "TT FPGA emulation board 3", sort_order: 32}
-  - {slug: fpga-4, port: null, kind: fpga, title: "TT FPGA emulation board 4", sort_order: 33}
+  - {slug: fpga-2, switch: 2, port: 34, kind: fpga, title: "TT FPGA emulation board 2", sort_order: 31,
+     blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
+  - {slug: fpga-3, switch: 2, port: 35, kind: fpga, title: "TT FPGA emulation board 3", sort_order: 32,
+     blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
+  - {slug: fpga-4, switch: 2, port: 36, kind: fpga, title: "TT FPGA emulation board 4", sort_order: 33,
+     blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
 
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
 tt_commander_embed_version: "0.1.0"
