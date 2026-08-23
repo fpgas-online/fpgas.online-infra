@@ -64,3 +64,30 @@
     that: ttsite_v_embed.stat.exists
     fail_msg: "Commander embed bundle {{ tt_commander_embed_version }} not unpacked"
   when: tt_commander_embed_version | length > 0
+
+- name: live fpga boards
+  set_fact:
+    ttsite_v_fpga_boards: "{{ ttsite_v_live | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'fpga') | list }}"
+
+- name: first live fpga board slug ('' when none)
+  set_fact:
+    ttsite_v_fpga: "{{ ttsite_v_fpga_boards[0].slug if ttsite_v_fpga_boards | length > 0 else '' }}"
+
+# Phase 2: the site proxies /api/board/<slug>/designs to the Pi's daemon. 200 =
+# the daemon answered; 502 = the Pi is unreachable (the VM has none) but the
+# proxy route exists and answers JSON either way.
+- name: designs API answers on the TT host
+  uri:
+    url: "http://127.0.0.1/api/board/{{ ttsite_v_fpga }}/designs"
+    headers:
+      Host: "{{ ttsite_domain }}"
+    status_code: [200, 502]
+    return_content: true
+  register: ttsite_v_designs
+  when: ttsite_v_fpga | length > 0
+
+- name: Assert designs API returns JSON
+  assert:
+    that: "'designs' in ttsite_v_designs.json or 'error' in ttsite_v_designs.json"
+    fail_msg: "/api/board/{{ ttsite_v_fpga }}/designs did not return designs/error JSON"
+  when: ttsite_v_fpga | length > 0
