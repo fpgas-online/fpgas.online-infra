@@ -1,0 +1,14 @@
+---
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+
+- name: restart django services
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop:
+    - gunicorn
+    - daphne
+    - uvicorn

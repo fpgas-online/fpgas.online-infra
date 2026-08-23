@@ -1,0 +1,24 @@
+---
+- name: embed bundle directory
+  file:
+    path: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}"
+    state: directory
+    mode: "0755"
+  when: tt_commander_embed_version | length > 0
+
+- name: download Commander embed bundle
+  get_url:
+    url: "https://github.com/fpgas-online/tt-commander-app/releases/download/embed-v{{ tt_commander_embed_version }}/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
+    dest: "{{ static_dir }}/tt-commander/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
+    checksum: "sha256:{{ tt_commander_embed_sha256 }}"
+    mode: "0644"
+  when: tt_commander_embed_version | length > 0
+  register: ttsite_embed_download
+
+- name: unpack Commander embed bundle
+  unarchive:
+    src: "{{ static_dir }}/tt-commander/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
+    dest: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}/"
+    remote_src: true
+    creates: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}/tt-commander-embed.js"
+  when: tt_commander_embed_version | length > 0

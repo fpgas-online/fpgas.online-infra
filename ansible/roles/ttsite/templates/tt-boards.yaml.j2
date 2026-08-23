@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Source: fpgas.online-infra host_vars tt_boards. Consumed by Django
+# (manage.py ttsite_loadboards) on the gateway and by fpgas-tt on every Pi.
+tt_boards:
+{% for b in tt_boards %}
+  - slug: {{ b.slug | to_json }}
+    kind: {{ b.kind | default('asic') | to_json }}
+    switch: {{ b.switch | default(1) }}
+    port: {{ 'null' if b.port is not defined or b.port is none else b.port }}
+    shuttle: {{ b.shuttle | default('') | to_json }}
+    title: {{ b.title | default(b.slug) | to_json }}
+    blurb: {{ b.blurb | default('') | to_json }}
+    description: {{ b.description | default('') | to_json }}
+    pcb: {{ b.pcb | default('') | to_json }}
+    pmods: {{ b.pmods | default([]) | to_json }}
+    links: {{ b.links | default([]) | to_json }}
+    enabled: {{ b.enabled | default(true) | to_json }}
+    sort_order: {{ b.sort_order | default(0) }}
+{% endfor %}
