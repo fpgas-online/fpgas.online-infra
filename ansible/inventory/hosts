@@ -15,9 +15,11 @@ slf.sytes.net
 fpgas.online
 ps1.fpgas.online
 
-[onpi]
-# pi ansible_host=10.21.0.134
-# pi ansible_host=10.21.0.102
-# pi ansible_host=192.168.1.121 ansible_port=10022
-# pi ansible_host=fpgas.mithis.com ansible_port=13422
-pi ansible_host=fpgas.online ansible_port=13622
+# Pi NFS-root provisioning: the `pi` play in site.yml SSHes to the server as
+# piroot, whose login shell chroots into {{ nfs_root }}/root (roles/nspawn-pi),
+# so the Pi roles (fpgas-apt, cam/pi, onpi) run "inside" the NFS root with
+# qemu-user-static. One entry per server that bakes a Pi root. (The old
+# [onpi] group held a live host literally named `pi`, which the `hosts: pi`
+# pattern also matched -- removed.)
+[pi]
+tweed-pi-nfs ansible_host=10.99.21.2 ansible_user=piroot

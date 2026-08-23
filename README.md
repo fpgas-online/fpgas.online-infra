@@ -66,8 +66,16 @@ The roles install packages from other fpgas-online repos rather than embedding s
 
 ### Deploy
 
+`ansible.cfg` supplies the inventory and `become`; the only thing to add is
+the vault password for hosts with vaulted vars (tweed's switch communities):
+
 ```bash
-# Full deployment (server + Pi NFS root provisioning)
+export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
+
+# Full deployment of tweed (server + its Pi NFS root via the piroot chroot host)
+uv run ansible-playbook ansible/site.yml --limit fpgas.online,tweed-pi-nfs
+
+# Full deployment (every host)
 uv run ansible-playbook ansible/site.yml
 
 # Server roles only
