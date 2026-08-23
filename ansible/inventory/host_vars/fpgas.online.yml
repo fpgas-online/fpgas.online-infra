@@ -148,6 +148,7 @@ tt_boards:
 tt_commander_embed_version: "0.1.0"
 tt_commander_embed_sha256: "57edff1050477480f41cac80cd8704214f319b53b7103f6734a027cfd90380b1"
 # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online; TLS is
-# terminated on tweed, so certbot runs here once ten64's SNI router lists the
-# name (gdoc2netcfg alias on tweed's row).  Flip to true after that.
-ttsite_certbot: false
+# terminated on tweed (ten64's SNI router lists the name since 2026-08-23 via
+# the gdoc2netcfg alias on tweed's row), so certbot runs here (webroot http-01
+# through ten64's /.well-known/ passthrough).
+ttsite_certbot: true
