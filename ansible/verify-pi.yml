@@ -6,12 +6,14 @@
 # Usage:
 #   uv run ansible-playbook ansible/verify-pi.yml -i tests/inventory/test-hosts --limit pi_live
 #   uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi
+#   # a live Pi by address (the static inventory has no per-Pi hosts):
+#   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
 # Hardware-dependent checks are tagged so they can be skipped:
 #   --skip-tags hw-camera,hw-fpga
 
 - name: Verify running Pi
-  hosts: pi_live:pi
+  hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
   become: true
   tasks:
     # Boot infrastructure
