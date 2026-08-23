@@ -16,8 +16,8 @@ fpgas.online
 ps1.fpgas.online
 
 [onpi]
-# pi ansible_host=10.21.0.134
-# pi ansible_host=10.21.0.102
-# pi ansible_host=192.168.1.121 ansible_port=10022
-# pi ansible_host=fpgas.mithis.com ansible_port=13422
-pi ansible_host=fpgas.online ansible_port=13622
+# Pi NFS-root provisioning target: NOT a running Pi but the nspawn/chroot
+# wrapper shell (user piroot) that roles/nspawn-pi/tasks/start.yml sets up on
+# the server -- same pattern as tests/inventory/test-hosts.  Reached over the
+# private ten64 <-> tweed link like the server itself.
+pi ansible_host=10.99.21.2 ansible_user=piroot
