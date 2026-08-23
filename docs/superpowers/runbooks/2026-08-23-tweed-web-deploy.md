@@ -38,6 +38,32 @@ uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --tags si
   + the same YAML into the NFS root during the `pi` play; the daemon needs no
   post-boot steps. (`fpgas-apt` now dearmours the repo key -- issue #13.)
 
+## Phase 2 (FPGA emulation boards)
+
+Phase 2 adds the daemon's design API (`fpgas-online-tt` >= the FPGA-API
+release), the demo bitstreams (`fpgas-online-tt-demos`, both pulled by the apt
+repo from their GitHub series releases), the site's gallery/upload UI and the
+Commander embed `0.2.0`. Rollout order:
+
+```bash
+# 1. tweed: site + embed 0.2.0 (pinned in host_vars)
+uv run ansible-playbook ansible/web.yml --limit fpgas.online --vault-password-file <file>
+uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --tags ttsite
+# 2. Pi NFS root: bake both debs (nspawn start -> fpgas-apt/onpi -> stop)
+uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi --tags pi,fpgas-apt,onpi --vault-password-file <file>
+# 3. the running FPGA Pis only see the new root after a reboot; for an
+#    immediate test install into the overlay instead (lost on reboot, harmless):
+ssh root@10.21.2.33 'apt-get update && apt-get install -y fpgas-online-tt fpgas-online-tt-demos && systemctl restart fpgas-tt'
+# 4. check
+curl -s https://tinytapeout.fpgas.online/api/board/fpga-1/designs | head -c 300
+uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi-sw2-p33
+```
+
+In the browser: the board page's "Demos" gallery lists the bundled demos, "Run"
+enables one (the Commander log shows the enable), uploading a built `.bin`
+adds it to the list, and the Commander project list / pinout tab follow the
+daemon's design list.
+
 ## Rollback
 
 - Site/Django: `pip install` an older `fpgas-online-site` ref into `/srv/www/pib/venv`
