@@ -1,0 +1,11 @@
+---
+# Name the uplink NIC gets (eth_local is set per host; both are MAC-matched
+# via systemd .link files written by this role). The firewall/NAT templates
+# reference {{ eth_uplink }}; hosts whose uplink is managed by something
+# else (the CI test VM: cloud-init) set uplink_manage: false and eth_uplink
+# to the NIC's existing name.
+uplink_manage: true
+# Reboot once when a NIC still carries its pre-rename name (fresh install):
+# .link files only apply at device add, and renaming the live uplink under
+# the SSH session is not worth the cleverness.
+netif_allow_reboot: true

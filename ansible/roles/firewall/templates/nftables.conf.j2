@@ -41,8 +41,8 @@ table inet filter {
     type filter hook forward priority 0; policy drop;
     ct state established,related counter accept;
     ct status dnat counter accept;
-    iifname "v*" oifname "eth-uplink" counter accept;
-    iifname "{{ eth_local }}" oifname "eth-uplink" counter accept;
+    iifname "v*" oifname "{{ eth_uplink }}" counter accept;
+    iifname "{{ eth_local }}" oifname "{{ eth_uplink }}" counter accept;
     # v* <-> v* (Pi to Pi) intentionally falls through to policy drop.
   }
 
@@ -56,7 +56,7 @@ table ip nat {
 
       chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
-        iifname {"{{ eth_local }}", "v*"} ip saddr {{ pib_network }}.0.0/16 oifname "eth-uplink" counter masquerade;
+        iifname {"{{ eth_local }}", "v*"} ip saddr {{ pib_network }}.0.0/16 oifname "{{ eth_uplink }}" counter masquerade;
       }
 
       chain prerouting {
@@ -117,7 +117,7 @@ table ip nat {
 
       chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
-        iifname "eth-local" ip saddr {{ eth_local_address }}/{{ eth_local_netmask }} oifname "eth-uplink" counter masquerade;
+        iifname "{{ eth_local }}" ip saddr {{ eth_local_address }}/{{ eth_local_netmask }} oifname "{{ eth_uplink }}" counter masquerade;
       }
 
       chain prerouting {
