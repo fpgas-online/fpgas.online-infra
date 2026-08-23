@@ -56,7 +56,8 @@ uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi --tags pi,fpgas
 ssh root@10.21.2.33 'apt-get update && apt-get install -y fpgas-online-tt fpgas-online-tt-demos && systemctl restart fpgas-tt'
 # 4. check
 curl -s https://tinytapeout.fpgas.online/api/board/fpga-1/designs | head -c 300
-uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi-sw2-p33
+# (the static inventory has no per-Pi hosts; pass the live Pi ad hoc)
+uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e ansible_python_interpreter=/usr/bin/python3
 ```
 
 In the browser: the board page's "Demos" gallery lists the bundled demos, "Run"
