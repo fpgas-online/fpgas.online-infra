@@ -13,3 +13,11 @@ zip_name: "{{img_name}}.xz"
 user: pi
 
 nfs_root: "/srv/nfs/rpi/{{ dist }}"
+
+# TFTP root served by dnsmasq. Per-port VLAN hosts (switches defined) serve
+# the Pi boot partition directly: the RPi 4 bootloader asks for
+# <serial>/<file> first and, if start4.elf is not there, "the prefix is
+# cleared" (TFTP_PREFIX, Raspberry Pi bootloader docs) and every file comes
+# from the root -- so no per-Pi serial registration is needed. Legacy
+# MAC-table hosts keep /srv/tftp with per-serial symlinks from switch.nos.
+tftp_root: "{{ (nfs_root ~ '/boot') if switches is defined else '/srv/tftp' }}"
