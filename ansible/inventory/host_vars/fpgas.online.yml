@@ -113,17 +113,21 @@ room_name: k207
 
 time_zone: America/Los_Angeles
 
-common_name: fpgas.online
+# The site this host serves. fpgas.online (the apex) is NOT this host; ten64's
+# front proxy forwards http://welland.fpgas.online (incl. ACME challenges) to
+# tweed and SNI-passes :443 to it, so certbot --nginx works here.
+common_name: welland.fpgas.online
 subject_alt_names:
   - fpgas.mithis.com
   - k207.fpgas.mithis.com
   - k207.fpgas.online
 
 streaming_frontend_aliases: []
-streaming_frontend_hostname: fpgas.online
+streaming_frontend_hostname: welland.fpgas.online
 domain_name: "{{ streaming_frontend_hostname}}"
 
-fixture_path: fpgas.online.json
+# fixture_path intentionally absent: the pibfpgas.pi fixture is the legacy
+# MAC-table board list (ps1 still loads its own).
 
 # Tim's
 # Netgear S3300-52X-PoE+
