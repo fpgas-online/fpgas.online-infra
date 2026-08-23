@@ -39,28 +39,55 @@ pib_domain: fpgas.welland.mithis.com
 # switch-vlans role (env FPGAS_SWITCH_COMMUNITY -> fpgas-switch-setup). The
 # s3300 and the GSM7252PS use DIFFERENT community strings, so each switch
 # gets its own vault var -- never write a real community string in
-# plaintext here, this repo is public. Tim must add these with
-# `ansible-vault encrypt_string` before the hardware prototype (Task 14):
-#   vault_switch1_snmp_rw_community  (s3300, index 1)
-#   vault_switch2_snmp_rw_community  (gsm7252ps, index 2)
+# plaintext here, this repo is public. Defined (vaulted) below:
+#   vault_switch1_snmp_rw_community  (gsm7252ps-s2, index 1, 10.1.5.23 -> "private")
+#   vault_switch2_snmp_rw_community  (s3300,        index 2, 10.1.5.11 -> "pib")
 # The VM test never evaluates these (switches_manage: false skips the role).
+# Trunk/port numbers below are the REAL welland cabling, confirmed 2026-08-22
+# from the switches' own LLDP/SNMP (not faceplate guesses):
+#   tweed eth-local  -> GSM7252PS-s2 (10.1.5.23) port 1/0/47   [gateway trunk]
+#   tweed eth-uplink -> GSM7252PS-s2 port 1/0/48
+#   tweed BMC        -> GSM7252PS-s2 port 1/0/46  (kept OUT of access range)
+#   GSM7252PS-s2 1/0/50 <-> S3300 1/xg51          [inter-switch trunk]
+#   GSM7252PS-s2 1/0/49 & 1/0/51 -> gsm7252ps-s1  (NOT fpgas; never touched)
+# The gateway (tweed) attaches to the GSM7252PS-s2, so it is the HEAD switch
+# (index 1); the S3300 is downstream (index 2). Ports are the switches' own
+# linear 1..52 index (library port_count=52); on the S3300 "1/xg51" = port 51.
 switches:
-  - index: 1
-    model: s3300
-    mgmt_host: "10.1.5.11"
-    access_ports: 48
-    gateway_trunk_port: 49
-    downstream_trunk_ports: [50]
-    house_uplink_port: 52
-    snmp_rw_community: "{{ vault_switch1_snmp_rw_community }}"
-  - index: 2
+  - index: 1                      # GSM7252PS-s2 — HEAD (tweed eth-local trunks here)
     model: gsm7252ps
     mgmt_host: "10.1.5.23"
-    access_ports: 48
-    gateway_trunk_port: 49
-    downstream_trunk_ports: [50]
+    access_ports: 40              # 1/0/1-40 only; 41+ reserved for special items
+    gateway_trunk_port: 47        # tweed eth-local
+    downstream_trunk_ports: [50]  # -> S3300 (GSM 1/0/50 <-> S3300 1/xg51)
+    house_uplink_port: 48         # tweed eth-uplink (informational; not used by plan)
+    snmp_rw_community: "{{ vault_switch1_snmp_rw_community }}"
+  - index: 2                      # S3300 (gsm7228ps) — downstream
+    model: s3300
+    mgmt_host: "10.1.5.11"
+    access_ports: 48              # kept at 48 for now (Pis on 42-47); recable to 1-40 later
+    gateway_trunk_port: 51        # 1/xg51 -> GSM 1/0/50
+    downstream_trunk_ports: []
     house_uplink_port: 52
     snmp_rw_community: "{{ vault_switch2_snmp_rw_community }}"
+
+# Per-switch SNMP RW (v2c) communities, referenced by the switches block above.
+# Netgear convention: public = read-only, these = read-write. Rotate off these
+# defaults (issue: rotate switch write communities) once the scheme is proven.
+vault_switch1_snmp_rw_community: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          66353061613034626636353361653233323863613835303231643033373966316435313736653732
+          3035313834633436323162306563653532303330633563320a393330396566323434666637353163
+          63393064653063386437623731623431393463363866633436336430343637626639316666663635
+          6561396533336539380a303431613564326330636536623662666664366434383838343033336366
+          3436
+vault_switch2_snmp_rw_community: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          61376331363466353538653631663138353361313462393432366631636164383366346663326261
+          3666653134373365383165373431323065626334306238350a653634303534353662353263333362
+          64303639333632656133313866663865303632643364343033373835623563393035613664386137
+          6238306366656434370a303636323536346364396663616335656465623962313733303962663564
+          3862
 
 firewall_internal_networks: [10.21.0.0/24]
 
