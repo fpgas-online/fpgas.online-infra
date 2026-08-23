@@ -1,20 +1,17 @@
-# install_gunicorn.yml
+# gunicorn (uvicorn worker) behind /run/gunicorn.sock; pip install is in
+# fpgas-online-site.yml.
 ---
-- name: pip install gunicorn
-  pip:
-    name:
-      - gunicorn
-    virtualenv: "{{ django_dir }}/venv"
-
 - name: copy gunicorn socket file to /etc/systemd/system/gunicorn.socket
   template:
     src: templates/gunicorn.socket.j2
     dest: /etc/systemd/system/gunicorn.socket
+  notify: restart gunicorn
 
 - name: copy gunicorn systemd file to /etc/systemd/system/gunicorn.service
   template:
     src: templates/gunicorn.service.j2
     dest: /etc/systemd/system/gunicorn.service
+  notify: restart gunicorn
   tags:
     - django
 
@@ -27,13 +24,3 @@
   with_items:
     - gunicorn.socket
     - gunicorn.service
-
-# Ensure gunicorn socket and system service is running
-# Not sure what needs to be started.  start both above fine?
-- name: force systemd to reread configs
-  systemd:
-    daemon_reload: true
-- name: Start/Make sure the gunicorn.socket systemd service is running
-  systemd:
-    name: gunicorn.socket
-    state: started

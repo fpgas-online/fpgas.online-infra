@@ -1,0 +1,8 @@
+# {{ ansible_managed }} -- pibfpgas (the FPGA board pages), site root redirects here
+  location = / {
+        return 301 /fpgas;
+    }
+  location /fpgas/ {
+    include proxy_params;
+    proxy_pass http://unix:/run/gunicorn.sock;
+  }

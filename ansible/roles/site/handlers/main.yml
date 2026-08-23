@@ -8,3 +8,18 @@
   systemd:
     name: nginx
     state: restarted
+
+- name: restart gunicorn
+  systemd:
+    name: gunicorn
+    state: restarted
+
+- name: restart daphne
+  systemd:
+    name: daphne
+    state: restarted
+
+- name: restart uvicorn
+  systemd:
+    name: uvicorn
+    state: restarted

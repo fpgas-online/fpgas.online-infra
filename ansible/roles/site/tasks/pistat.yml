@@ -10,15 +10,6 @@
   tags:
     - pistat
 
-- name: Run Django collectstatic for pistat
-  community.general.django_manage:
-    command: collectstatic --noinput
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
-  tags:
-    - pistat
-    - index.html
-
 - name: Install dnsmasq send_stat.conf
   copy:
     src: "{{ role_path }}/../pxe/files/send_stat.conf"
