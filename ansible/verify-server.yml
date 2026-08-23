@@ -114,6 +114,13 @@
         tasks_from: verify/main.yml
       tags: [verify, site]
 
+    - name: verify ttsite
+      include_role:
+        name: ttsite
+        tasks_from: verify/main.yml
+      when: tt_boards is defined
+      tags: [verify, ttsite]
+
     - name: verify wssh
       include_role:
         name: wssh
