@@ -11,3 +11,13 @@
   ansible.builtin.file:
     path: /etc/nginx/includes
     state: directory
+
+# Port 80 catch-all: serve ACME http-01 challenges from the webroot and send
+# everything else to https.  Replaces Debian's stock `default` vhost (removed
+# above); nginx otherwise picks an arbitrary vhost as default_server.
+- name: port-80 default vhost (ACME + https redirect)
+  template:
+    src: templates/00-http-default.conf.j2
+    dest: /etc/nginx/sites-enabled/00-http-default.conf
+    mode: "0644"
+  notify: reload nginx
