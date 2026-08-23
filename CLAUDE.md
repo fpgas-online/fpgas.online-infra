@@ -49,6 +49,7 @@ from other repos:
 ### Key Files
 
 - `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi
+- `ansible/web.yml` -- Web tier play (site, wssh, cam/stream-server, ttsite); imported by site.yml, runnable alone
 - `ansible/verify-server.yml` -- Server-side verification (TFTP, NFS, packages, config)
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
