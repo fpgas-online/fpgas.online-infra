@@ -18,16 +18,89 @@ eth_uplink_static: false
 # side. (Was 198.0.220.197, a long-gone public IP.)
 eth_uplink_static_address: 10.99.21.2
 
+# The internal NIC (MAC eth_local_mac_address) is renamed to "eth-local" by a
+# MAC-matched systemd .link file on tweed. The vlan-ports / pxe / firewall
+# templates reference this interface by the eth_local variable (not a hardcoded
+# name) so the same roles work in the QEMU VM test, where the interface is
+# enp0s3 (see tests/inventory/host_vars/test-vm.yml).
+eth_local: eth-local
 eth_local_mac_address: 0c:c4:7a:16:3b:4a
 eth_local_address: 10.21.0.1
-# /16, not /24: with the VLAN-per-port network (live since 2026-08-23) the Pis
-# are 10.21.<switch>.<port>, outside 10.21.0.0/24.  This netmask feeds the
-# camera RTMP publish ACL (roles/cam/stream-server) and the NFS export, both
-# of which must admit every port's Pi.
+# /16, not /24: in the per-port VLAN scheme the local net is the whole
+# 10.21.0.0/16 supernet -- Pi IPs are 10.21.<switch>.<port> (e.g. sw1 p1 =
+# 10.21.1.1), which fall outside 10.21.0.0/24. This netmask feeds the NFS
+# export (roles/nfs/templates/exports.j2) and the camera publish ACL, both
+# of which must admit every port's Pi. The eth-local trunk interface address
+# itself stays /24 (hardcoded in vlan-ports/templates/eth-local.network.j2).
 eth_local_netmask: 16
-dhcp_range: 10.21.0.128,10.21.0.254,6h
+# dhcp_range intentionally absent: this host defines `switches` (per-port
+# addressing), so dnsmasq-base.conf.j2 skips the bare pool range and every
+# port gets its own dhcp-range from ports.conf.j2 instead. Hosts still on
+# the legacy MAC-table scheme (ps1.fpgas.online, tests/inventory/host_vars/
+# test-vm.yml) keep their own dhcp_range.
 
-pib_network: 10.21.0
+pib_network: "10.21"
+pib_network6_base: "2404:e80:a137:21"
+pib_domain: fpgas.welland.mithis.com
+
+# Per-port VLAN map source of truth (Tasks 8/9/10 derive networkd/dnsmasq/
+# firewall config from this via the port_vlan_map filter). Trunk port
+# numbers below are placeholders — Tim confirms exact cabling at hardware
+# prototype time (Task 14).
+#
+# snmp_rw_community: per-switch SNMP write community consumed by the
+# switch-vlans role (env FPGAS_SWITCH_COMMUNITY -> fpgas-switch-setup). The
+# s3300 and the GSM7252PS use DIFFERENT community strings, so each switch
+# gets its own vault var -- never write a real community string in
+# plaintext here, this repo is public. Defined (vaulted) below:
+#   vault_switch1_snmp_rw_community  (gsm7252ps-s2, index 1, 10.1.5.23 -> "private")
+#   vault_switch2_snmp_rw_community  (s3300,        index 2, 10.1.5.11 -> "pib")
+# The VM test never evaluates these (switches_manage: false skips the role).
+# Trunk/port numbers below are the REAL welland cabling, confirmed 2026-08-22
+# from the switches' own LLDP/SNMP (not faceplate guesses):
+#   tweed eth-local  -> GSM7252PS-s2 (10.1.5.23) port 1/0/47   [gateway trunk]
+#   tweed eth-uplink -> GSM7252PS-s2 port 1/0/48
+#   tweed BMC        -> GSM7252PS-s2 port 1/0/46  (kept OUT of access range)
+#   GSM7252PS-s2 1/0/50 <-> S3300 1/xg51          [inter-switch trunk]
+#   GSM7252PS-s2 1/0/49 & 1/0/51 -> gsm7252ps-s1  (NOT fpgas; never touched)
+# The gateway (tweed) attaches to the GSM7252PS-s2, so it is the HEAD switch
+# (index 1); the S3300 is downstream (index 2). Ports are the switches' own
+# linear 1..52 index (library port_count=52); on the S3300 "1/xg51" = port 51.
+switches:
+  - index: 1                      # GSM7252PS-s2 — HEAD (tweed eth-local trunks here)
+    model: gsm7252ps
+    mgmt_host: "10.1.5.23"
+    access_ports: 40              # 1/0/1-40 only; 41+ reserved for special items
+    gateway_trunk_port: 47        # tweed eth-local
+    downstream_trunk_ports: [50]  # -> S3300 (GSM 1/0/50 <-> S3300 1/xg51)
+    house_uplink_port: 48         # tweed eth-uplink (informational; not used by plan)
+    snmp_rw_community: "{{ vault_switch1_snmp_rw_community }}"
+  - index: 2                      # S3300 (gsm7228ps) — downstream
+    model: s3300
+    mgmt_host: "10.1.5.11"
+    access_ports: 48              # kept at 48 for now (Pis on 42-47); recable to 1-40 later
+    gateway_trunk_port: 51        # 1/xg51 -> GSM 1/0/50
+    downstream_trunk_ports: []
+    house_uplink_port: 52
+    snmp_rw_community: "{{ vault_switch2_snmp_rw_community }}"
+
+# Per-switch SNMP RW (v2c) communities, referenced by the switches block above.
+# Netgear convention: public = read-only, these = read-write. Rotate off these
+# defaults (issue: rotate switch write communities) once the scheme is proven.
+vault_switch1_snmp_rw_community: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          66353061613034626636353361653233323863613835303231643033373966316435313736653732
+          3035313834633436323162306563653532303330633563320a393330396566323434666637353163
+          63393064653063386437623731623431393463363866633436336430343637626639316666663635
+          6561396533336539380a303431613564326330636536623662666664366434383838343033336366
+          3436
+vault_switch2_snmp_rw_community: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          61376331363466353538653631663138353361313462393432366631636164383366346663326261
+          3666653134373365383165373431323065626334306238350a653634303534353662353263333362
+          64303639333632656133313866663865303632643364343033373835623563393035613664386137
+          6238306366656434370a303636323536346364396663616335656465623962313733303962663564
+          3862
 
 firewall_internal_networks: [10.21.0.0/24]
 
@@ -63,24 +136,6 @@ switch:
   mac: 08:bd:43:6b:bb:e0
   oid: iso.3.6.1.2.1.105.1.1.1.3.1
   host: "10.21.0.200"
-
-  # pi mac n ports
-
-  # pi for maintenance.sh
-  mpi_port: 42
-  mpi_ip: "{{ pib_network }}.{{ 100+42 }}"
-
-  nos:
-    - {port: 34, mac: "b8:27:eb:6d:27:f6", sn: "7a6d27f6", loc: "", cable_color: "white"}
-    - {port: 36, mac: "b8:27:eb:86:39:63", sn: "80863963", loc: "", cable_color: "blue"}
-    - {port: 40, mac: "e4:5f:01:97:1f:7e", sn: "613a4524", loc: "", cable_color: "gray"}
-    - {port: 42, mac: "e4:5f:01:8d:f7:17", sn: "f77b8415",
-       model: "Raspberry_Pi_4_Model_B_Rev_1",
-       loc: "", cable_color: "yellow"}
-
-    # - {port: 44, mac: "dc:a6:32:b4:5e:c9", sn: "329205c6", loc: "", cable_color: "gray"}
-    - {port: 46, mac: "e4:5f:01:97:32:d2", sn: "8483b266", loc: "", cable_color: "gray/white"}
-    - {port: 48, mac: "e4:5f:01:96:f8:a5", sn: "ce8e3593", loc: "", cable_color: "blue"}
 
   SNMP_SWITCH_SECURITY_LEVEL: authNoPriv
   SNMP_SWITCH_AUTH_PROTOCOL: SHA512

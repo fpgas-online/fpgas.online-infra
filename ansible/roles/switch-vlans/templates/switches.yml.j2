@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Consumed by fpgas-switch-setup (Task 6 CLI contract). Only the switch
+# topology fields are written here -- SNMP write communities are per-switch
+# secrets and are passed to the CLI via the FPGAS_SWITCH_COMMUNITY
+# environment variable in tasks/main.yml instead, so they never land on
+# disk in this file.
+switches:
+{% for sw in switches %}
+  - index: {{ sw.index }}
+    model: {{ sw.model }}
+    mgmt_host: {{ sw.mgmt_host }}
+    access_ports: {{ sw.access_ports }}
+    gateway_trunk_port: {{ sw.gateway_trunk_port }}
+    downstream_trunk_ports: {{ sw.downstream_trunk_ports }}
+    house_uplink_port: {{ sw.house_uplink_port }}
+{% endfor %}

@@ -3,6 +3,79 @@
 
 flush ruleset
 
+{% if switches is defined %}
+# --- Per-port VLAN model (Task 10): hosts with `switches:` defined get
+# forward-default-drop with v* <-> v* (Pi to Pi) isolation, per-port DNAT
+# derived from the switches/port_vlan_map source of truth, and a /16
+# internal network (10.21.0.0/16-style pib_network). Hosts without
+# `switches:` (ps1.fpgas.online, slf.sytes.net) fall through to the
+# unchanged legacy scheme below.
+
+table inet filter {
+
+  chain input {
+    type filter hook input priority 0;
+    iif "lo" accept;
+          tcp dport http counter accept;
+          tcp dport https counter accept;
+          tcp dport ssh counter accept;
+              meta l4proto {icmp, icmpv6} counter accept;
+              udp dport { 67, 68, 546, 547 } counter accept;
+          # tcp dport 4433 counter accept;
+          # tcp dport 6379 counter accept;
+          # tcp dport 8084 counter accept;
+          # tcp dport 8888 counter accept;
+        jump internal_networks;
+    jump custom_rules;
+    ct state invalid,new,untracked counter drop;
+  }
+
+  chain internal_networks {
+          ip saddr {{ pib_network }}.0.0/16 counter accept;
+      }
+
+  chain custom_rules {
+      }
+
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+    ct state established,related counter accept;
+    ct status dnat counter accept;
+    iifname "v*" oifname "eth-uplink" counter accept;
+    iifname "{{ eth_local }}" oifname "eth-uplink" counter accept;
+    # v* <-> v* (Pi to Pi) intentionally falls through to policy drop.
+  }
+
+  chain output {
+    type filter hook output priority 0;
+  }
+
+}
+
+table ip nat {
+
+      chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        iifname {"{{ eth_local }}", "v*"} ip saddr {{ pib_network }}.0.0/16 oifname "eth-uplink" counter masquerade;
+      }
+
+      chain prerouting {
+            type nat hook prerouting priority -100; policy accept;
+
+# Per-port switch/PoE management now lives on the house net, so the .200
+# mgmt DNATs are gone. Per-port SSH/aux DNAT below, keyed by switch index
+# and port number: <switch><pp>22 -> pi:22, <switch><pp>44 -> pi:4444
+# (sw1 p7 -> 10722/10744, sw2 p7 -> 20722/20744).
+
+{% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
+            ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}22 } dnat to {{ e.ip4 }}:22
+            ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}44 } dnat to {{ e.ip4 }}:4444
+
+{% endfor %}
+    }
+}
+
+{% else %}
 table inet filter {
 
   chain input {
@@ -66,3 +139,4 @@ table ip nat {
             # ip daddr 198.0.220.197 tcp dport { 22622 } dnat to 10.21.0.226:22
     }
 }
+{% endif %}

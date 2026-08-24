@@ -7,6 +7,10 @@
 # (kernel, DTB, cmdline.txt, config.txt, initramfs) come from the
 # production fixpi/netboot.yml setup — no test-specific overrides.
 
+# Legacy MAC-table scheme only: hosts with `switches:` defined get their
+# Pi's IP from the per-port dhcp-range in ports.conf.j2 (keyed by receiving
+# VLAN interface, no MAC involved -- see pxe/tasks/main.yml), and pibs.conf
+# is removed entirely in that case, so this task has nothing to append to.
 - name: Add DHCP host entries for test clients
   lineinfile:
     path: /etc/dnsmasq.d/pibs.conf
@@ -14,6 +18,27 @@
     create: false
   with_items: "{{ pxe_test_clients }}"
   notify: restart dnsmasq
+  when: switches is not defined
+  tags:
+    - pxe-test
+
+# The RPi4 bootloader always prefixes its TFTP requests with the board
+# serial (e.g. 'deadbeef/kernel8.img'), so the server must expose a
+# /srv/tftp/<serial> directory for each Pi. In the legacy MAC-table scheme
+# fixpi/netboot.yml creates these symlinks from switch.nos; the per-port
+# VLAN scheme has no switch.nos (that loop is a no-op there), so without
+# this the Pi's every TFTP request 404s and U-Boot resets with "No kernel
+# image found". Register each test client's serial here. (Production Pis on
+# the VLAN scheme need the equivalent registration; the TFTP serial prefix
+# is a property of the RPi bootloader, independent of the addressing scheme.)
+- name: Link test client serial to the netboot dir for TFTP
+  file:
+    src: "{{ nfs_root }}/boot"
+    dest: "/srv/tftp/{{ item.sn }}"
+    state: link
+    force: true
+  with_items: "{{ pxe_test_clients }}"
+  when: switches is defined
   tags:
     - pxe-test
 

@@ -1,0 +1,37 @@
+---
+# Converges the Netgear switches' VLAN config to match host_vars `switches:`,
+# via the fpgas-switch-setup CLI (fpgas.online-poe pip package, installed by
+# the `site` role). Only runs on hosts with `switches:` defined, and only
+# when switches_manage is true (default) -- the VM test sets
+# switches_manage: false since it has no real switch to converge.
+
+- name: create /etc/fpgas directory
+  file:
+    path: /etc/fpgas
+    state: directory
+    mode: "0755"
+  tags: [switch-vlans]
+
+- name: install switches config
+  template:
+    src: switches.yml.j2
+    dest: /etc/fpgas/switches.yml
+    mode: "0644"
+  tags: [switch-vlans]
+
+# fpgas-switch-setup exits 0 whether or not it applied changes (with
+# --apply), 1 on error; check-mode-only rc 2 never happens here. The CLI
+# prints one line per pending/applied action, so non-empty stdout is the
+# reliable changed signal -- rc is not (see Task 6 CLI contract).
+- name: converge switch VLAN config
+  command: >-
+    fpgas-switch-setup --config /etc/fpgas/switches.yml
+    --switch {{ item.index }} --apply
+  loop: "{{ switches }}"
+  loop_control:
+    label: "switch {{ item.index }} ({{ item.mgmt_host }})"
+  environment:
+    FPGAS_SWITCH_COMMUNITY: "{{ item.snmp_rw_community }}"
+  register: switch_vlans_converge_result
+  changed_when: switch_vlans_converge_result.stdout | length > 0
+  tags: [switch-vlans]

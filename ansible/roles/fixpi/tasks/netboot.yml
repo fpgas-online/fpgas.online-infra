@@ -15,8 +15,10 @@
     src: "{{ nfs_root }}/boot"
     dest: "/srv/tftp/{{ item.sn }}"
     state: link
+  # switch.nos is the legacy MAC-table scheme's Pi list; per-port VLAN
+  # hosts (switches defined) have no switch.nos, so this is a no-op there.
   with_items:
-    "{{ switch.nos }}"
+    "{{ switch.nos | default([]) }}"
   tags:
     - pibs
 
@@ -57,6 +59,59 @@
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
+  tags:
+    - netboot
+    - qemu
+
+# On stock RPi OS the pi user gets passwordless sudo from the first-boot
+# userconf mechanism -- but we create the user directly (above) and mask that
+# wizard (userconfig.service is noauto-blind, see below), so nothing grants it
+# otherwise. Without this, ansible become over SSH fails on the running Pi with
+# "Timeout waiting for privilege escalation prompt" and verify-pi.yml (become:
+# true on every task) reports the host UNREACHABLE. 0440 root:root is mandatory
+# -- sudo ignores sudoers.d files that are group/world-writable. Matches the
+# RPi OS convention (/etc/sudoers.d/010_<user>-nopasswd) and is production-valid
+# for a headless appliance the pi user administers.
+- name: grant the pi user passwordless sudo in the NFS root
+  copy:
+    content: "{{ user }} ALL=(ALL) NOPASSWD: ALL\n"
+    dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ user }}-nopasswd"
+    mode: "0440"
+  tags:
+    - netboot
+    - qemu
+
+# Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
+# sudo's per-invocation getaddrinfo() of the machine name is instant instead of
+# stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
+# verify-pi.yml reports the Pi UNREACHABLE. See the unit file's own comment.
+- name: install self-hostname script in NFS root
+  copy:
+    src: files/fpgas-hostname-hosts.sh
+    dest: "{{ nfs_root }}/root/usr/local/sbin/fpgas-hostname-hosts.sh"
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
+- name: install self-hostname /etc/hosts service in NFS root
+  copy:
+    src: files/fpgas-hostname-hosts.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-hostname-hosts.service"
+    mode: "0644"
+  tags:
+    - netboot
+    - qemu
+
+- name: enable self-hostname /etc/hosts service in NFS root
+  file:
+    src: /etc/systemd/system/fpgas-hostname-hosts.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-hostname-hosts.service"
+    state: link
+    # The src path is absolute inside the NFS root (valid once the Pi boots
+    # with nfs_root/root as /), but it does not exist at that path on the
+    # server, so ansible's link src-existence check would fail without force.
+    force: true
   tags:
     - netboot
     - qemu
@@ -127,6 +182,27 @@
   file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/regenerate_ssh_host_keys.service"
     state: absent
+  tags:
+    - netboot
+    - qemu
+
+# The RPi OS first-boot user-config wizard (userconfig.service) runs on tty1
+# and applies /boot/firmware/userconf.txt. But our fstab mounts /boot/firmware
+# noauto (see fstab.j2 -- the same reason ssh.service is enabled directly
+# above), so userconf.txt is never visible at boot: the wizard finds no config
+# and drops into an interactive setup that blocks multi-user.target forever.
+# Observed in the VM test: the job spins "userconfig.service/start running
+# (59min / no limit)" and the Pi never reaches login or starts sshd. We already
+# provision the pi user directly (see "create pi user in NFS root"), so this
+# wizard must never run -- mask it, same rationale as disabling
+# regenerate_ssh_host_keys.service above. Not QEMU-specific: a real headless Pi
+# (no display/keyboard) netbooting this NFS root would hang on it identically.
+- name: mask userconfig.service (first-boot wizard) in NFS root
+  file:
+    src: /dev/null
+    dest: "{{ nfs_root }}/root/etc/systemd/system/userconfig.service"
+    state: link
+    force: true
   tags:
     - netboot
     - qemu

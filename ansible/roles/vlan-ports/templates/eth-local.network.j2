@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+[Match]
+Name={{ eth_local }}
+Type=ether
+
+[Link]
+RequiredForOnline=yes
+# This interface is the 802.1Q trunk: every per-port VLAN (v2101...) rides
+# it tagged. A tagged frame carrying a full 1500-byte payload is 1504 bytes
+# of L2 payload (1500 + the 4-byte VLAN tag), so the trunk's own MTU must be
+# at least 1504 or the kernel silently cannot transmit full-size VLAN frames
+# -- small packets (DHCP, the TFTP handshake) work, but large transfers
+# (the netboot kernel image over TFTP, NFS reads) stall. The VLAN
+# sub-interfaces themselves stay at 1500 (see vlan.network.j2).
+# NOTE (hardware): the physical switch trunk/inter-switch ports must also
+# allow >=1504 (enable jumbo/large frames) for the same reason.
+MTUBytes=1504
+
+[Network]
+Description=FPGA per-port VLAN trunk (untagged = VLAN 1 quarantine)
+{% for e in port_map %}
+VLAN={{ e.iface }}
+{% endfor %}
+
+[Address]
+Address={{ pib_network }}.0.1/24

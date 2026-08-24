@@ -3,6 +3,10 @@
 # pip install handled by fpgas-online-site.yml (installs fpgas-online-poe[cli])
 # poe.sh/allpoe.sh scripts are now in the fpgas-online-poe pip package
 
+# mpi_port/mpi_ip/pi_ports below come from the legacy MAC-table scheme's
+# switch.mpi_port/switch.nos (maintenance Pi + poe.sh port list). Per-port
+# VLAN hosts (switches defined, e.g. tweed) removed those fields in Task 10
+# and use fpgas-switch-setup instead, so this whole task is skipped there.
 - name: populate /etc/environment
   lineinfile:
     dest: "{{ item[0] }}"
@@ -10,6 +14,7 @@
     regexp: "^{{ 'export ' if 'export' in item[0] else '' }}{{ item[1].key }}="
     line: "{{ 'export ' if 'export' in item[0] else '' }}{{ item[1].key }}={{ item[1].value }}"
   loop: "{{ env_files | ansible.builtin.product(env_vars) }}"
+  when: switch.mpi_port is defined
   vars:
     env_files:
       - "/etc/environment"
@@ -42,7 +47,7 @@
       - key: mpi_ip
         value: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
       - key: pi_ports
-        value: "\"{% for pi in switch.nos %}{{pi.port}} {% endfor %}\""
+        value: "\"{% for pi in switch.nos | default([]) %}{{pi.port}} {% endfor %}\""
       - key: pi_dist
         value: "{{ dist }}"
       - key: nfs_pth

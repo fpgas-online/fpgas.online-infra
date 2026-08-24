@@ -2,6 +2,8 @@
 - hosts: nbp
   roles:
     - firewall
+    - {role: vlan-ports, when: switches is defined}
+    - {role: switch-vlans, when: switches is defined and (switches_manage | default(true))}
     - nfs
     - img
     - fixpi

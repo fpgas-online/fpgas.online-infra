@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+[NetDev]
+Name={{ item.iface }}
+Kind=vlan
+
+[VLAN]
+Id={{ item.vlan }}

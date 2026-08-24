@@ -40,10 +40,10 @@
       changed_when: false
       register: verify_pi_addrs
 
-    - name: Assert 10.21.0.x address present
+    - name: Assert 10.21.1.1 address present (switch 1, port 1)
       assert:
-        that: "'10.21.0.' in verify_pi_addrs.stdout"
-        fail_msg: "No 10.21.0.x address found on any interface"
+        that: "'10.21.1.1' in verify_pi_addrs.stdout"
+        fail_msg: "No 10.21.1.1 address found on any interface"
       tags: [verify, network]
 
     - name: Check can reach server
@@ -74,10 +74,10 @@
       changed_when: false
       register: verify_pi_hostname
 
-    - name: Assert hostname is set
+    - name: Assert hostname is pi-sw1-p1 (switch 1, port 1)
       assert:
-        that: verify_pi_hostname.stdout | length > 0
-        fail_msg: "Pi hostname is empty"
+        that: verify_pi_hostname.stdout == "pi-sw1-p1"
+        fail_msg: "Pi hostname is '{{ verify_pi_hostname.stdout }}', expected 'pi-sw1-p1'"
       tags: [verify, system]
 
     # Packages
