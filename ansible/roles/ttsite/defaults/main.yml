@@ -1,0 +1,8 @@
+---
+ttsite_boards_path: /etc/fpgas-online/tt-boards.yaml
+ttsite_daemon_port: 8765
+ttsite_ws_read_timeout: 3600s
+# Pi addresses are DERIVED from (switch, port) exactly as ttsite's Board model
+# does: <ttsite_pi_network>.<switch>.<port>.  The VLAN-per-port scheme uses
+# 10.21.<switch>.<port>; the legacy flat net is reachable as switch 0 / port 1xx.
+ttsite_pi_network: "10.21"

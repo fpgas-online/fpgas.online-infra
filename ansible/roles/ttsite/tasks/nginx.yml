@@ -1,0 +1,54 @@
+---
+- name: per-board websocket include
+  template:
+    src: ws-board.conf.j2
+    dest: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
+    mode: "0644"
+  notify: reload nginx
+
+- name: ACME webroot
+  file:
+    path: /var/www/html
+    state: directory
+    mode: "0755"
+
+- name: check for existing certificate
+  stat:
+    path: "/etc/letsencrypt/live/{{ ttsite_domain }}/fullchain.pem"
+  register: ttsite_cert
+
+# The vhost is rendered twice at most: plain-http first (so http-01 can be
+# answered from /var/www/html), then with the https server once the cert
+# exists.  The cert itself comes from `certbot certonly --webroot` -- the same
+# scheme tweed's other names use (snap certbot, renewals via the webroot) --
+# so certbot never rewrites nginx config behind Ansible's back.
+- name: vhost
+  template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
+    mode: "0644"
+  vars:
+    ttsite_cert_exists: "{{ ttsite_cert.stat.exists }}"
+  notify: reload nginx
+
+- name: flush handlers so nginx serves the vhost before certbot
+  meta: flush_handlers
+
+- name: obtain certificate (webroot http-01 via the port-80 vhost)
+  command: >-
+    certbot certonly --webroot -w /var/www/html -d {{ ttsite_domain }}
+    --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
+  args:
+    creates: "/etc/letsencrypt/live/{{ ttsite_domain }}/fullchain.pem"
+  when: ttsite_certbot and not ttsite_cert.stat.exists
+  register: ttsite_certonly
+
+- name: vhost (https, after the certificate was issued)
+  template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
+    mode: "0644"
+  vars:
+    ttsite_cert_exists: true
+  when: ttsite_certonly is changed
+  notify: reload nginx

@@ -9,6 +9,10 @@
       - "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
     virtualenv: "{{ django_dir }}/venv"
     state: forcereinstall
+  # a new wheel means new templates/code: the running gunicorn/daphne keep
+  # serving the old ones until restarted
+  notify:
+    - restart django services
   tags:
     - django
 

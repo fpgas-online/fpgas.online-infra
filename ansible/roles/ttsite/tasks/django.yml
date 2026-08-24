@@ -1,0 +1,23 @@
+---
+# ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS are owned by roles/site (they already
+# include ttsite_domain when tt_boards is defined); only the TTSITE_* lines
+# are ours.
+- name: ttsite settings in local_settings.py
+  lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    regexp: "^{{ item.key }} = "
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - {key: TTSITE_HOST, value: "'{{ ttsite_domain }}'"}
+    - {key: TTSITE_COMMANDER_VERSION, value: "'{{ tt_commander_embed_version }}'"}
+  loop_control:
+    label: "{{ item.key }}"
+  notify:
+    - restart django services
+
+- name: collectstatic (ttsite assets)
+  command: "{{ django_dir }}/venv/bin/python {{ django_dir }}/manage.py collectstatic --noinput"
+  args:
+    chdir: "{{ django_dir }}"
+  register: ttsite_collectstatic
+  changed_when: "' 0 static files copied' not in ttsite_collectstatic.stdout"
