@@ -3,6 +3,11 @@
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
 eth_uplink_static: false
 eth_uplink_static_address: 203.0.113.1  # TEST-NET-3 (RFC 5737)
+# QEMU net0 (user-mode NAT, cloud-init/ifupdown DHCP) is the VM's uplink;
+# the netif role must not rename it or move it to networkd under the
+# harness's SSH session. Names already match the kernel's, so no reboot.
+eth_uplink: enp0s2
+uplink_manage: false
 
 eth_local: enp0s3
 eth_local_mac_address: "52:54:00:aa:bb:02"
@@ -61,7 +66,8 @@ switch:
 
 # Single switch, one access port -- the VM harness's AccessPortSwitch(2101)
 # emulates switch 1 port 1 (see tests/vm/vswitch.py, tests/vm/run_tests.py).
-# switches_manage: false skips the switch-vlans role (no real switch here).
+# switches_manage: false skips only the SNMP converge step of the switch-vlans
+# role (no real switch here); the CLI install + config render still run.
 switches:
   - index: 1
     model: s3300

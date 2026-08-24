@@ -1,11 +1,5 @@
-# daphne.yml
 ---
-- name: pip install daphne
-  pip:
-    name:
-      - daphne
-    virtualenv: "{{ django_dir }}/venv"
-
+# pip install is in fpgas-online-site.yml.
 - name: copy daphne socket file to /etc/systemd/system/daphne.socket
   template:
     src: templates/daphne.socket.j2

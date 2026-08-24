@@ -1,9 +1,18 @@
 # install_django.yml
 ---
-- name: create site dir
+# Directories are owned by the service user: gunicorn/daphne/uvicorn run as
+# {{ user_name }} and must be able to write db.sqlite3 and STATIC_ROOT.
+- name: site directories
   file:
-    path: "{{ django_dir }}/pib"
+    path: "{{ item }}"
     state: directory
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0755"
+  loop:
+    - "{{ django_dir }}"
+    - "{{ django_dir }}/pib"
+    - "{{ static_dir }}"
   tags:
     - django
 
@@ -23,6 +32,8 @@
     src: "{{ site_pib_pkg.stdout }}/{{ item }}"
     dest: "{{ django_dir }}/pib/{{ item }}"
     remote_src: true
+    owner: "{{ user_name }}"
+    group: www-data
     mode: "0644"
   loop:
     - __init__.py
@@ -39,7 +50,46 @@
     dest: "{{ django_dir }}/pib/local_settings.py"
     content: "# site-local Django settings, lines managed by fpgas.online-infra (roles/site, roles/ttsite)\n"
     force: false
-    mode: "0644"
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0640"
+  tags:
+    - django
+
+# The wheel ships Django's insecure dev SECRET_KEY and DEBUG=True; production
+# settings come from local_settings.py. The key is generated once per host
+# (kept out of the inventory) and never rotated by Ansible.
+- name: generate a SECRET_KEY once
+  shell: >-
+    umask 077 && {{ django_dir }}/venv/bin/python -c
+    "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
+  args:
+    creates: "{{ django_dir }}/.secret_key"
+  tags:
+    - django
+
+- name: read the SECRET_KEY
+  slurp:
+    src: "{{ django_dir }}/.secret_key"
+  register: site_secret_key
+  no_log: true
+  tags:
+    - django
+
+- name: SECRET_KEY and DEBUG
+  lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: "^{{ item.key }} = "
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - {key: DEBUG, value: "False"}
+    - {key: SECRET_KEY, value: "{{ (site_secret_key.content | b64decode | trim) | to_json }}"}
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: "{{ item.key == 'SECRET_KEY' }}"
+  notify:
+    - restart django services
   tags:
     - django
 
@@ -106,6 +156,8 @@
 - name: manage.py
   copy:
     dest: "{{ django_dir }}/manage.py"
+    owner: "{{ user_name }}"
+    group: www-data
     mode: "0755"
     content: |
       #!{{ django_dir }}/venv/bin/python
@@ -119,21 +171,28 @@
   tags:
     - django
 
-# Run Django collectstatic
-- name: Run manage.py collectstatic
-  community.general.django_manage:
-    command: collectstatic
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
+# Management commands run through the generated manage.py as the service
+# user (so db.sqlite3 and STATIC_ROOT end up owned by it), with plain
+# command: community.general.django_manage needs a collection nothing
+# installs by default (requirements.yml lists it, but keep the role
+# self-sufficient).
+- name: Run manage.py migrate
+  command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
+  register: site_migrate
+  changed_when: "'No migrations to apply' not in site_migrate.stdout"
   tags:
     - django
 
-# Run Django manage.py migrate
-- name: Run manage.py migrate
-  community.general.django_manage:
-    command: migrate
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
+- name: Run manage.py collectstatic
+  command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
+  register: site_collectstatic
+  changed_when: "'0 static files copied' not in site_collectstatic.stdout"
   tags:
     - django
 
@@ -156,11 +215,11 @@
     - django
 
 - name: Load the initial_data fixture into the application
-  community.general.django_manage:
-    command: loaddata
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
-    fixtures: "{{ django_dir }}/{{ fixture_path }}"
+  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ django_dir }}/{{ fixture_path }}"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
   when: fixture_path is defined and site_fixture_file | length > 0
+  changed_when: true
   tags:
     - django

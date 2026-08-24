@@ -116,12 +116,25 @@
     - netboot
     - qemu
 
+# The chroot apt runs below resolve names through the NFS root's
+# /etc/resolv.conf. Copy the server's resolver config -- but never the
+# systemd-resolved stub (127.0.0.53), which is unreachable from the chroot's
+# point of view on a Pi and useless once it boots; resolved keeps the real
+# upstream list in /run/systemd/resolve/resolv.conf. (Pis rewrite this file
+# from DHCP at boot anyway.)
+- name: check for systemd-resolved's upstream resolv.conf
+  stat:
+    path: /run/systemd/resolve/resolv.conf
+  register: fixpi_resolved_upstream
+  tags:
+    - netboot
+
 - name: ensure DNS resolution works in chroot
   copy:
     remote_src: true
-    src: /etc/resolv.conf
+    src: "{{ '/run/systemd/resolve/resolv.conf' if fixpi_resolved_upstream.stat.exists else '/etc/resolv.conf' }}"
     dest: "{{ nfs_root }}/root/etc/resolv.conf"
-    force: false
+    follow: true
   tags:
     - netboot
 

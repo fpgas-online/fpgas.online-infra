@@ -26,9 +26,9 @@ dhcp-leasefile=/var/lib/misc/dnsmasq.leases
 dhcp-range={{ dhcp_range }}
 {% endif %}
 
-# Enable TFTP
+# Enable TFTP (see tftp_root in group_vars/all/srv.yml)
 enable-tftp
-tftp-root=/srv/tftp
+tftp-root={{ tftp_root }}
 
 # Log DHCP transactions for debugging
 log-dhcp

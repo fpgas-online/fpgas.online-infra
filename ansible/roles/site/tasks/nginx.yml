@@ -32,3 +32,20 @@
     dest: /etc/nginx/sites-enabled/00-http-default.conf
     mode: "0644"
   notify: reload nginx
+
+# The vhost (templates/nginx.conf.j2 / certbot's https conf) is just
+# `include includes/{{ conference_name }}-*.conf;` -- these are the location
+# blocks that actually route the Django apps to gunicorn (/run/gunicorn.sock)
+# and the pistat WebSocket to daphne. They were lost in the monorepo split
+# (tweed still carried the 2025 copies by hand).
+- name: nginx location includes for the Django apps
+  template:
+    src: "includes/{{ item }}.conf.j2"
+    dest: "/etc/nginx/includes/{{ conference_name }}-{{ item }}.conf"
+    mode: "0644"
+  loop:
+    - pibfpgas
+    - pistat
+    - pibup
+    - snmp_switch
+  notify: reload nginx

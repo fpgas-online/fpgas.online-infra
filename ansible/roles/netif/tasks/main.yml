@@ -1,0 +1,92 @@
+---
+# Predictable NIC names + networkd ownership of the uplink.
+#
+# Everything downstream (vlan-ports' trunk .network, pxe's dnsmasq interface
+# binding, the firewall's NAT/forward rules) refers to the two NICs by the
+# names {{ eth_local }} and {{ eth_uplink }}. A fresh Debian install names
+# them enpXsY and runs the uplink under ifupdown, so this role: writes
+# MAC-matched systemd .link files (the same shape tweed has carried since the
+# monorepo days), moves the uplink to systemd-networkd (static or DHCP) with a
+# static resolv.conf, comments the uplink out of /etc/network/interfaces, and
+# reboots ONCE if a NIC still has its old name (.link files apply at device
+# add; renaming the live uplink under our own SSH session is not worth it).
+# On an already-converged host (names right, networkd up) it is a no-op.
+
+- name: current names of the two NICs (by MAC)
+  set_fact:
+    netif_local_cur: >-
+      {{ eth_local if eth_local in ansible_facts.interfaces
+         else (ansible_facts | iface_by_mac(eth_local_mac_address)) }}
+    netif_uplink_cur: >-
+      {{ eth_uplink if eth_uplink in ansible_facts.interfaces
+         else (ansible_facts | iface_by_mac(eth_uplink_mac_address | default(''))) }}
+  tags: [netif]
+
+# systemd-networkd ships in the `systemd` package on every Debian release we
+# target (there is no separate systemd-networkd package on bookworm, and the
+# Debian 14 host running this was checked too), so nothing to install.
+- name: MAC-matched .link files
+  template:
+    src: templates/link.j2
+    dest: "/etc/systemd/network/10-{{ item.name }}.link"
+    mode: "0644"
+  loop:
+    - {name: "{{ eth_local }}", mac: "{{ eth_local_mac_address | default('') }}"}
+    - {name: "{{ eth_uplink }}", mac: "{{ eth_uplink_mac_address | default('') }}"}
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.mac | length > 0
+    - item.name != eth_local or eth_local_mac_address is defined
+    - item.name != eth_uplink or uplink_manage
+  tags: [netif]
+
+- name: uplink network (systemd-networkd)
+  template:
+    src: templates/uplink.network.j2
+    dest: "/etc/systemd/network/30-{{ eth_uplink }}.network"
+    mode: "0644"
+  notify: reload networkd
+  when: uplink_manage
+  tags: [netif]
+
+- name: static resolv.conf (networkd without systemd-resolved)
+  template:
+    src: templates/resolv.conf.j2
+    dest: /etc/resolv.conf
+    mode: "0644"
+    follow: false
+  when: uplink_manage and eth_uplink_dns_server is defined
+  tags: [netif]
+
+- name: take the uplink away from ifupdown
+  replace:
+    path: /etc/network/interfaces
+    # comment out: auto|allow-hotplug|iface <uplink by old or new name> ...
+    regexp: '^(\s*)(auto|allow-hotplug|iface)(\s+)({{ ([eth_uplink, netif_uplink_cur] | reject("equalto", "") | map("regex_escape") | join("|")) }})(\s|$)'
+    replace: '\1#\2\3\4\5'
+  when: uplink_manage
+  tags: [netif]
+
+- name: enable systemd-networkd
+  systemd:
+    name: systemd-networkd
+    enabled: true
+    state: started
+  tags: [netif]
+
+- name: reboot so the .link renames take effect
+  reboot:
+    msg: "netif: renaming NICs to {{ eth_local }}/{{ eth_uplink }}"
+    reboot_timeout: 600
+  when:
+    - netif_allow_reboot
+    - (netif_local_cur != eth_local) or (uplink_manage and netif_uplink_cur != eth_uplink)
+  tags: [netif]
+
+- name: re-gather facts after rename
+  setup:
+  when:
+    - netif_allow_reboot
+    - (netif_local_cur != eth_local) or (uplink_manage and netif_uplink_cur != eth_uplink)
+  tags: [netif]

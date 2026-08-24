@@ -1,0 +1,8 @@
+---
+# Ansible collections the playbooks need. Install with:
+#   uv run ansible-galaxy collection install -r requirements.yml --upgrade
+# (tests/vm/run_tests.py does this automatically.)
+collections:
+  - name: community.crypto   # openssh_keypair (fixpi)
+  - name: ansible.posix      # authorized_key (nspawn-pi, fixpi)
+  - name: community.general  # django_manage (site role)

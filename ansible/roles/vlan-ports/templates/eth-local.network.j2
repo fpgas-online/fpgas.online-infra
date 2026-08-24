@@ -24,3 +24,12 @@ VLAN={{ e.iface }}
 
 [Address]
 Address={{ pib_network }}.0.1/24
+{% if pib_network6_base is defined %}
+
+# Gateway IPv6 on the trunk: the /56 covering all per-port /64s (each VLAN
+# interface carries its own, more specific, /64). This is also the host's
+# public IPv6 (welland.fpgas.online AAAA), so it must survive the move to
+# the per-port scheme.
+[Address]
+Address={{ pib_network6_base }}00::1/56
+{% endif %}

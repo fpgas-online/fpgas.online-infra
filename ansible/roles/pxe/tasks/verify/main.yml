@@ -56,6 +56,29 @@
     that: pxe_tftp_dir_stat.stat.exists and pxe_tftp_dir_stat.stat.isdir
     fail_msg: "/srv/tftp directory not found"
 
+# Per-port VLAN scheme: dnsmasq serves the boot partition itself (tftp_root)
+# and the RPi bootloader's root fallback finds every file there.
+- name: Check boot files at the TFTP root (VLAN scheme)
+  stat:
+    path: "{{ tftp_root }}/{{ item }}"
+  register: pxe_tftp_root_files
+  loop: [start4.elf, fixup4.dat, config.txt, cmdline.txt, kernel8.img]
+  when: switches is defined
+
+- name: Assert boot files at the TFTP root (VLAN scheme)
+  assert:
+    that: item.stat.exists
+    fail_msg: "{{ tftp_root }}/{{ item.item }} not found"
+  loop: "{{ pxe_tftp_root_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: switches is defined
+
+- name: Assert dnsmasq serves TFTP from tftp_root (VLAN scheme)
+  command: grep -qx "tftp-root={{ tftp_root }}" /etc/dnsmasq.d/base.conf
+  changed_when: false
+  when: switches is defined
+
 # Check TFTP serial directories — these are symlinks to nfs_root/boot
 # created by fixpi/netboot.yml for each Pi in switch.nos (legacy MAC-table
 # scheme only; per-port VLAN hosts have no switch.nos, see (D)).

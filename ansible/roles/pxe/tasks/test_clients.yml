@@ -22,23 +22,23 @@
   tags:
     - pxe-test
 
-# The RPi4 bootloader always prefixes its TFTP requests with the board
-# serial (e.g. 'deadbeef/kernel8.img'), so the server must expose a
-# /srv/tftp/<serial> directory for each Pi. In the legacy MAC-table scheme
-# fixpi/netboot.yml creates these symlinks from switch.nos; the per-port
-# VLAN scheme has no switch.nos (that loop is a no-op there), so without
-# this the Pi's every TFTP request 404s and U-Boot resets with "No kernel
-# image found". Register each test client's serial here. (Production Pis on
-# the VLAN scheme need the equivalent registration; the TFTP serial prefix
-# is a property of the RPi bootloader, independent of the addressing scheme.)
+# The RPi4 bootloader prefixes its TFTP requests with the board serial
+# ('deadbeef/kernel8.img'). Real firmware clears the prefix and retries from
+# the TFTP root when <serial>/start4.elf is missing (see tftp_root in
+# group_vars/all/srv.yml) -- production Pis on the VLAN scheme therefore
+# need no registration. The rpi-qemu pxeboot firmware used by the VM test
+# implements no such fallback (CI run 32315276929: every request 404s and
+# U-Boot resets with "No kernel image found"), so give each test client its
+# <serial>/ -> boot-dir link. Under the VLAN scheme tftp_root IS the boot
+# dir, so this is a self-referential symlink inside it; legacy hosts get the
+# usual /srv/tftp/<serial> link.
 - name: Link test client serial to the netboot dir for TFTP
   file:
     src: "{{ nfs_root }}/boot"
-    dest: "/srv/tftp/{{ item.sn }}"
+    dest: "{{ tftp_root }}/{{ item.sn }}"
     state: link
     force: true
   with_items: "{{ pxe_test_clients }}"
-  when: switches is defined
   tags:
     - pxe-test
 

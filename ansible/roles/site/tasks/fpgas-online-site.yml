@@ -15,3 +15,18 @@
     - restart django services
   tags:
     - django
+
+# Servers + the Channels redis layer (pib.settings uses channels_redis, which
+# the site package does not declare). Installed here, before the unit files
+# in gunicorn.yml/uvicorn.yml/daphne.yml, so the first start of gunicorn
+# (uvicorn worker class) does not race the uvicorn install.
+- name: Install the app servers and channels-redis
+  ansible.builtin.pip:
+    name:
+      - gunicorn
+      - uvicorn
+      - daphne
+      - channels-redis
+    virtualenv: "{{ django_dir }}/venv"
+  tags:
+    - django
