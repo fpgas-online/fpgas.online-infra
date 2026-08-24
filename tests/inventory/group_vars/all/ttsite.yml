@@ -1,0 +1,9 @@
+---
+# Test counterpart of ansible/inventory/group_vars/all/ttsite.yml: the site
+# role's ALLOWED_HOSTS/CSRF lists add ttsite_domain whenever tt_boards is
+# defined (the test VM defines a catalogue), so the name must exist here too.
+# No public DNS, no certbot, no embed bundle in the VM.
+ttsite_domain: tinytapeout.test.fpgas.online
+ttsite_certbot: false
+tt_commander_embed_version: ""
+tt_commander_embed_sha256: ""
