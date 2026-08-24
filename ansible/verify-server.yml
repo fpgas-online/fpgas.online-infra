@@ -114,12 +114,14 @@
         tasks_from: verify/main.yml
       tags: [verify, site]
 
+    # ttsite is part of the Django deployment (web.yml tags the role django as
+    # well), so its verification must be skipped by the same --skip-tags django.
     - name: verify ttsite
       include_role:
         name: ttsite
         tasks_from: verify/main.yml
       when: tt_boards is defined
-      tags: [verify, ttsite]
+      tags: [verify, ttsite, django]
 
     - name: verify wssh
       include_role:
