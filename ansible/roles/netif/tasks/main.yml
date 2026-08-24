@@ -22,13 +22,9 @@
          else (ansible_facts | iface_by_mac(eth_uplink_mac_address | default(''))) }}
   tags: [netif]
 
-- name: install systemd-networkd
-  apt:
-    name: systemd-networkd
-    update_cache: true
-    cache_valid_time: 3600
-  tags: [netif]
-
+# systemd-networkd ships in the `systemd` package on every Debian release we
+# target (there is no separate systemd-networkd package on bookworm, and the
+# Debian 14 host running this was checked too), so nothing to install.
 - name: MAC-matched .link files
   template:
     src: templates/link.j2
