@@ -1,0 +1,19 @@
+---
+- name: create /etc/fpgas-online
+  file:
+    path: /etc/fpgas-online
+    state: directory
+    mode: "0755"
+
+- name: render tt-boards.yaml
+  template:
+    src: tt-boards.yaml.j2
+    dest: "{{ ttsite_boards_path }}"
+    mode: "0644"
+  register: ttsite_boards_file
+
+- name: load boards into Django
+  command: "{{ django_dir }}/venv/bin/python {{ django_dir }}/manage.py ttsite_loadboards {{ ttsite_boards_path }} --prune"
+  args:
+    chdir: "{{ django_dir }}"
+  changed_when: ttsite_boards_file.changed

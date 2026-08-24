@@ -13,11 +13,8 @@
   roles:
     - uhubctl
 
-- hosts: pig
-  roles:
-    - site
-    - wssh
-    - cam/stream-server
+# Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
+- import_playbook: web.yml
 
 # Pi NFS root provisioning via nspawn+sshd chroot.
 # The server starts a systemd-nspawn container with sshd on the Pi NFS root,

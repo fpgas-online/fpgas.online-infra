@@ -12,3 +12,6 @@ tests/lab/tmp/
 
 # Local scratch (CI logs, throwaway diagnostics) -- never committed
 /tmp/
+
+# git worktrees for feature branches (superpowers:using-git-worktrees)
+.worktrees/

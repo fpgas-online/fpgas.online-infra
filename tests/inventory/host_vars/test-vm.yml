@@ -87,3 +87,13 @@ pxe_test_clients:
     ip: "10.21.0.128"
     nfs_root: "/srv/nfs/rpi/bookworm/root"
     console: "ttyAMA0,115200"
+
+# tinytapeout.fpgas.online in the VM test: one live slot on the virtual Pi
+# (10.21.0.128 = switch 0 / port 128 in the legacy scheme), the rest unwired;
+# no public DNS => no certbot; no embed download.
+tt_boards:
+  - {slug: tt06, switch: 0, port: 128, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (VM)"}
+  - {slug: kianv-1, port: null, kind: kianv, title: "KianV (unwired)"}
+  - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
+ttsite_certbot: false
+tt_commander_embed_version: ""

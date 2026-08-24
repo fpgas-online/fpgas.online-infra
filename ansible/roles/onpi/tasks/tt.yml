@@ -1,0 +1,42 @@
+---
+# Tiny Tapeout bridge daemon (fpgas-online-tt) and the FPGA demo bitstreams
+# (fpgas-online-tt-demos, /usr/share/fpgas-tt/demos) baked into the shared Pi
+# NFS root: every Pi runs the daemon; a Pi without a /dev/ttboard just waits
+# for one, and only an `fpga` board gets the demos synced onto it.
+# tt_boards lives on the server host (the Pi "host" is the nspawn chroot on
+# that server), so read it from the first nbp host's vars.
+- name: tt_boards from the server host
+  set_fact:
+    tt_boards: "{{ hostvars[groups['nbp'][0]].tt_boards }}"
+  when: tt_boards is not defined and hostvars[groups['nbp'][0]].tt_boards is defined
+
+- name: Tiny Tapeout bridge (when this site has TT boards)
+  when: tt_boards is defined
+  block:
+    # Both debs are rolling releases from the fpgas-online apt repo:
+    # `latest` so re-running the pi play picks up a newer daemon/demo set.
+    - name: Install fpgas-online-tt + the FPGA demo bitstreams
+      ansible.builtin.apt:
+        name:
+          - fpgas-online-tt
+          - fpgas-online-tt-demos
+        state: latest
+        update_cache: true
+        cache_valid_time: 600
+
+    - name: create /etc/fpgas-online
+      ansible.builtin.file:
+        path: /etc/fpgas-online
+        state: directory
+        mode: "0755"
+
+    - name: bake tt-boards.yaml into the Pi root
+      ansible.builtin.template:
+        src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
+        dest: /etc/fpgas-online/tt-boards.yaml
+        mode: "0644"
+
+    - name: enable fpgas-tt.service
+      ansible.builtin.systemd:
+        name: fpgas-tt.service
+        enabled: true
