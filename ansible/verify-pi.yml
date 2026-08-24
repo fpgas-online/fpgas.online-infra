@@ -109,20 +109,22 @@
 
     # Tiny Tapeout: roles/onpi/tasks/tt.yml bakes the daemon (every Pi, when
     # the site has tt_boards) and the FPGA demo bitstreams into the NFS root.
-    # The demos check is fpga-specific (hw-fpga); the service check runs
-    # wherever tt_boards is defined (tag tt).
+    # The demos check is fpga-specific (hw-fpga). The daemon comes from the
+    # fpgas.online apt repo, so onpi includes tt.yml with tags [tt, fpgas-apt];
+    # the service checks carry fpgas-apt too, and are skipped alongside the
+    # install (the VM test runs with --skip-tags fpgas-apt).
     - name: Check fpgas-tt service enabled
       command: systemctl is-enabled fpgas-tt
       changed_when: false
       register: verify_pi_tt
       failed_when: false
-      tags: [verify, tt]
+      tags: [verify, tt, fpgas-apt]
 
     - name: Assert fpgas-tt service enabled
       assert:
         that: verify_pi_tt.stdout == "enabled"
         fail_msg: "fpgas-tt service not enabled"
-      tags: [verify, tt]
+      tags: [verify, tt, fpgas-apt]
 
     - name: Check FPGA demo bitstreams present
       stat:
