@@ -6,7 +6,7 @@
 # binary keyring.  The .asc copy is kept only as the change detector.
 - name: Fetch fpgas.online apt signing key (armoured)
   ansible.builtin.get_url:
-    url: https://fpgas-online.github.io/apt/pubkey.gpg
+    url: "{{ fpgas_apt_url }}/pubkey.gpg"
     dest: /usr/share/keyrings/fpgas-online.asc
     mode: '0644'
   register: fpgas_apt_key
@@ -16,9 +16,17 @@
     cmd: gpg --batch --yes --dearmor -o /usr/share/keyrings/fpgas-online.gpg /usr/share/keyrings/fpgas-online.asc
   when: fpgas_apt_key.changed
 
+# Hosts configured before the custom domain still carry the github.io line;
+# apt_repository only adds, so drop it explicitly.
+- name: Remove the old fpgas-online.github.io apt repository line
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas-online.github.io/apt {{ fpgas_apt_suite }} main"
+    state: absent
+    filename: fpgas-online
+
 - name: Add fpgas.online apt repository
   ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas-online.github.io/apt bookworm main"
+    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] {{ fpgas_apt_url }} {{ fpgas_apt_suite }} main"
     state: present
     filename: fpgas-online
 
