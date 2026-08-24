@@ -1,4 +1,15 @@
 ---
+# nginx itself: this role writes into /etc/nginx before wssh and
+# cam/stream-server (which used to be the only roles installing it) run later
+# in the same play. On a fresh host the port-80 vhost task below failed with
+# "Destination directory /etc/nginx/sites-enabled does not exist" (main CI,
+# 2026-08-24). nginx-extras is what cam/stream-server needs (rtmp/fancyindex
+# modules), so install that flavour here rather than plain nginx.
+- name: Install nginx
+  apt:
+    name:
+      - nginx-extras
+
 - name: remove unneeded nginx conf
   file:
     path: "/etc/nginx/{{item}}"
