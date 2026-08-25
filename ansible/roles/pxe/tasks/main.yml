@@ -29,7 +29,7 @@
 - name: allow the Pi LAN to query chrony
   copy:
     content: |
-      # {{ ansible_managed }}
+      # Managed by ansible (fpgas.online-infra, pxe role)
       allow {{ pib_network | default('10.21') }}.0.0/16
     dest: /etc/chrony/conf.d/fpgas-lan.conf
     mode: "0644"
