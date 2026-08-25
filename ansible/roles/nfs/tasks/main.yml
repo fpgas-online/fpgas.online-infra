@@ -35,3 +35,11 @@
     name: nfs-kernel-server
     enabled: true
     state: started
+
+# Apply exports (and any other notified reloads) NOW: a later-role failure
+# aborts the play and eats notified handlers — the tweed rebuild ran 11
+# converges with /etc/exports written but the kernel export table EMPTY
+# (rpc.mountd "unmatched host" on every Pi mount), because run 1 failed
+# after this role and no later run re-notified (C1-4, 2026-08-26; same
+# class as vlan-ports/C1-1).
+- meta: flush_handlers
