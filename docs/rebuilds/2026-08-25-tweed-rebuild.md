@@ -147,8 +147,25 @@ report unit, tweed listener/capture files); final production-true cycle next.
   for Tim: 29, 37-39, 41.
 - Backlog for Tim: gdoc2netcfg known-hosts scan blocked by its reachability
   daemon's DB lock; ngsw MCP inventory lacks write communities (session TOML
-  used); Pi NTP sync unverified; fpgas-cam "activating" at probes (verify
-  passed — likely settles).
+  used); **p43/p44 stayed dark after two PoE cycles each — physical check
+  needed (dead SD-less units, unplugged, or not Pis at all)**; Pi NTP unsynced
+  and fpgas-cam stuck "activating" — being diagnosed (C2).
+
+| C2-1 | fpgas-cam restart-loops with 203/EXEC: fpgas-cam.service ExecStart references `/usr/local/bin/gst-libcam.sh` but the deb installs the renamed `fpgas-gst-libcam.sh` — self-mismatch inside the cam repo's packaging (unit not updated when contents got the fpgas- prefix). CI gap: cam tag skipped AND no service-start smoke test of built debs. | systemctl status on pi-sw2-p33 | fix cam.service paths in fpgas.online-cam, republish, re-run pi play | build-workflow candidate: install the deb in a container and assert `systemd-analyze verify` / ExecStart paths exist |
+| C2-2 | Pi clocks stuck (May 2026, fake-hwclock era): timesyncd active but unsynced — Pis have no internet (forward policy drop, by design) and the new tweed offers no LAN NTP (old tweed ran chrony, configured out-of-band — never captured in the roles). TLS/anything time-sensitive on Pis will misbehave. | timedatectl on Pi | add chrony (LAN-allowed) to a server role + dnsmasq dhcp-option ntp-server | out-of-band config the rebuild surfaced — exactly the class this exercise hunts |
+
+**C2 CLOSED 2026-08-26 ~02:05 (clean-boot validation, cycle 15): fpgas-cam active
+(0.0.post36 with the fixed ExecStart), fpgas-tt active, NTP synced against tweed's
+chrony (clock real again), designs API 200. Lesson recorded en route: a running
+overlayroot Pi does NOT see lower-fs changes made server-side — package/config
+updates to the NFS root require a Pi reboot to take effect (relevant to fleet
+update procedures).**
+
+CI robustness note (PR #25): both VM runs flaked identically in
+`ansible-galaxy collection install` — a galaxy.ansible.com API cache bug
+(KeyError 'results') — before any playbook ran. The test harness re-downloads
+collections from Galaxy on every run; vendoring/caching them would remove an
+external SPOF from CI.
 
 | C1-1 | verify-server: zero v* per-port VLAN interfaces on tweed — the vlan-ports files were on disk all along, but `networkctl reload` is a HANDLER and run 1 failed later in the play (handlers eaten); runs 2-11 saw unchanged files and never re-notified. networkd never reloaded → eth-local unmanaged, no VLANs. CI gap: the VM converge succeeds first try, so the failed-play-eats-handlers path never occurs there; verify-server DID catch it. | networkctl status "Network File: n/a" | manual reload (88 v-ifaces up, verified); vlan-ports role now ends `meta: flush_handlers` | systemic: any notify-based reload can be eaten by a later failure — flush_handlers after config-writing roles; CI candidate = converge-fail-then-reconverge test |
 | C1-2 | verify-server: designs API 500 {"error":"internal error","detail":"PermissionError"} — NOT the server: the string lives in fpgas_tt/server.py (the PI daemon); a zombie pre-rebuild Pi at 10.21.2.33 still runs on tmpfs overlay with its NFS backend gone and errors on any disk access. www-data connects to :8765 fine; Django just relayed the half-dead daemon's error. Fix = PoE-cycle the Pi into the new NFS root (next phase anyway). WATCH: /srv/www/pib not g+w, db.sqlite3 videoteam:videoteam 644, .secret_key root:root 600 — perms landmines for later write traffic. | ssh probes; deployed-venv grep | PoE-cycle fpga-1 (s3300 port 33) | verify contract "200 or 502" can't express "daemon up, backend dead" |
