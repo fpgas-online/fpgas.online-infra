@@ -36,3 +36,9 @@ log-dhcp
 # Don't use /etc/resolv.conf - we are the DNS server
 no-resolv
 server=8.8.8.8
+
+# Advertise the server as the NTP source: Pis have no internet (forward
+# policy drop) and their clocks otherwise sit on the fake-hwclock date
+# forever (tweed rebuild C2-2 — the old server ran chrony configured
+# out-of-band; captured here so a fresh install serves time too).
+dhcp-option=option:ntp-server,{{ eth_local_address }}

@@ -13,3 +13,8 @@
   systemd:
     name: dnsmasq
     state: restarted
+
+- name: restart chrony
+  systemd:
+    name: chrony
+    state: restarted
