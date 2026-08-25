@@ -1,0 +1,36 @@
+# {{ ansible_managed }}
+[Match]
+Name={{ eth_uplink }}
+Type=ether
+
+[Link]
+RequiredForOnline=yes
+
+[Network]
+Description=Uplink / transit to the house network
+{% if eth_uplink_static | default(false) %}
+{% if eth_uplink_dns_server is defined %}
+DNS={{ eth_uplink_dns_server }}
+{% endif %}
+
+[Address]
+Address={{ eth_uplink_static_address }}/{{ eth_uplink_static_netmask }}
+{% if eth_uplink_static_address6 is defined %}
+
+[Address]
+Address={{ eth_uplink_static_address6 }}
+{% endif %}
+
+[Route]
+Gateway={{ eth_uplink_static_gateway }}
+{% if eth_uplink_static_gateway6 is defined %}
+
+[Route]
+Gateway={{ eth_uplink_static_gateway6 }}
+{% endif %}
+{% else %}
+DHCP=yes
+{% if eth_uplink_dns_server is defined %}
+DNS={{ eth_uplink_dns_server }}
+{% endif %}
+{% endif %}

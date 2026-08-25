@@ -6,12 +6,14 @@
 # Usage:
 #   uv run ansible-playbook ansible/verify-pi.yml -i tests/inventory/test-hosts --limit pi_live
 #   uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi
+#   # a live Pi by address (the static inventory has no per-Pi hosts):
+#   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
 # Hardware-dependent checks are tagged so they can be skipped:
 #   --skip-tags hw-camera,hw-fpga
 
 - name: Verify running Pi
-  hosts: pi_live:pi
+  hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
   become: true
   tasks:
     # Boot infrastructure
@@ -38,10 +40,10 @@
       changed_when: false
       register: verify_pi_addrs
 
-    - name: Assert 10.21.0.x address present
+    - name: Assert 10.21.1.1 address present (switch 1, port 1)
       assert:
-        that: "'10.21.0.' in verify_pi_addrs.stdout"
-        fail_msg: "No 10.21.0.x address found on any interface"
+        that: "'10.21.1.1' in verify_pi_addrs.stdout"
+        fail_msg: "No 10.21.1.1 address found on any interface"
       tags: [verify, network]
 
     - name: Check can reach server
@@ -72,10 +74,10 @@
       changed_when: false
       register: verify_pi_hostname
 
-    - name: Assert hostname is set
+    - name: Assert hostname is pi-sw1-p1 (switch 1, port 1)
       assert:
-        that: verify_pi_hostname.stdout | length > 0
-        fail_msg: "Pi hostname is empty"
+        that: verify_pi_hostname.stdout == "pi-sw1-p1"
+        fail_msg: "Pi hostname is '{{ verify_pi_hostname.stdout }}', expected 'pi-sw1-p1'"
       tags: [verify, system]
 
     # Packages
@@ -104,3 +106,34 @@
         that: verify_pi_cam.stdout == "enabled"
         fail_msg: "fpgas-cam service not enabled"
       tags: [verify, hw-camera]
+
+    # Tiny Tapeout: roles/onpi/tasks/tt.yml bakes the daemon (every Pi, when
+    # the site has tt_boards) and the FPGA demo bitstreams into the NFS root.
+    # The demos check is fpga-specific (hw-fpga). The daemon comes from the
+    # fpgas.online apt repo, so onpi includes tt.yml with tags [tt, fpgas-apt];
+    # the service checks carry fpgas-apt too, and are skipped alongside the
+    # install (the VM test runs with --skip-tags fpgas-apt).
+    - name: Check fpgas-tt service enabled
+      command: systemctl is-enabled fpgas-tt
+      changed_when: false
+      register: verify_pi_tt
+      failed_when: false
+      tags: [verify, tt, fpgas-apt]
+
+    - name: Assert fpgas-tt service enabled
+      assert:
+        that: verify_pi_tt.stdout == "enabled"
+        fail_msg: "fpgas-tt service not enabled"
+      tags: [verify, tt, fpgas-apt]
+
+    - name: Check FPGA demo bitstreams present
+      stat:
+        path: /usr/share/fpgas-tt/demos/index.json
+      register: verify_pi_tt_demos
+      tags: [verify, hw-fpga]
+
+    - name: Assert FPGA demo bitstreams present
+      assert:
+        that: verify_pi_tt_demos.stat.exists
+        fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
+      tags: [verify, hw-fpga]

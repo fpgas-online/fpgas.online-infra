@@ -1,0 +1,7 @@
+---
+# The fpgas-online apt repo is a GitHub Pages site. The org site carries the
+# custom domain fpgas.online, so every project page -- including
+# fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, which apt
+# refuses to follow (https -> http). Use the canonical https URL directly.
+fpgas_apt_url: https://fpgas.online/apt
+fpgas_apt_suite: bookworm

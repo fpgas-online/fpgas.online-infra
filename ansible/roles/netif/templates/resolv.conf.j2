@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Static: systemd-networkd owns the uplink and no systemd-resolved runs here,
+# so nothing else would write this file.
+nameserver {{ eth_uplink_dns_server }}
+{% if pib_domain is defined %}
+search {{ pib_domain }}
+{% endif %}

@@ -8,3 +8,12 @@
   systemd:
     name: nginx
     state: restarted
+
+- name: restart django services
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop:
+    - gunicorn
+    - daphne
+    - uvicorn

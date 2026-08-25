@@ -7,6 +7,10 @@
 # (kernel, DTB, cmdline.txt, config.txt, initramfs) come from the
 # production fixpi/netboot.yml setup — no test-specific overrides.
 
+# Legacy MAC-table scheme only: hosts with `switches:` defined get their
+# Pi's IP from the per-port dhcp-range in ports.conf.j2 (keyed by receiving
+# VLAN interface, no MAC involved -- see pxe/tasks/main.yml), and pibs.conf
+# is removed entirely in that case, so this task has nothing to append to.
 - name: Add DHCP host entries for test clients
   lineinfile:
     path: /etc/dnsmasq.d/pibs.conf
@@ -14,6 +18,27 @@
     create: false
   with_items: "{{ pxe_test_clients }}"
   notify: restart dnsmasq
+  when: switches is not defined
+  tags:
+    - pxe-test
+
+# The RPi4 bootloader prefixes its TFTP requests with the board serial
+# ('deadbeef/kernel8.img'). Real firmware clears the prefix and retries from
+# the TFTP root when <serial>/start4.elf is missing (see tftp_root in
+# group_vars/all/srv.yml) -- production Pis on the VLAN scheme therefore
+# need no registration. The rpi-qemu pxeboot firmware used by the VM test
+# implements no such fallback (CI run 32315276929: every request 404s and
+# U-Boot resets with "No kernel image found"), so give each test client its
+# <serial>/ -> boot-dir link. Under the VLAN scheme tftp_root IS the boot
+# dir, so this is a self-referential symlink inside it; legacy hosts get the
+# usual /srv/tftp/<serial> link.
+- name: Link test client serial to the netboot dir for TFTP
+  file:
+    src: "{{ nfs_root }}/boot"
+    dest: "{{ tftp_root }}/{{ item.sn }}"
+    state: link
+    force: true
+  with_items: "{{ pxe_test_clients }}"
   tags:
     - pxe-test
 

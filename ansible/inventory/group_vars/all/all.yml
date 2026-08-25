@@ -1,6 +1,10 @@
 ---
 ansible_python_interpreter: /usr/bin/python3
 
+# Name of the upstream NIC (netif role renames it by MAC; firewall/NAT
+# templates reference it). Per-host eth_local is the FPGA-side NIC.
+eth_uplink: eth-uplink
+
 domain: fpgas.online
 # user_name: videoteam
 

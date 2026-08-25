@@ -1,0 +1,59 @@
+---
+# Converges the Netgear switches' VLAN config to match host_vars `switches:`
+# via the fpgas-switch-setup CLI (fpgas.online-poe). The role runs on every
+# host with `switches:` defined: it installs the CLI into its own venv and
+# renders /etc/fpgas/switches.yml; only the converge step honours
+# switches_manage (default true) -- the VM test sets it false since it has
+# no real switch, but still exercises the install + render.
+#
+# The CLI gets its own venv (/opt/fpgas-switch/venv) because the `site`
+# role's venv is (a) created later, in the `pig` play, (b) behind the django
+# tag and (c) not on PATH -- the first converge on a fresh host died with
+# "fpgas-switch-setup: command not found".
+
+- name: install venv/git prerequisites for the switch CLI
+  apt:
+    name:
+      - python3-venv
+      - git
+  tags: [switch-vlans]
+
+- name: install fpgas-switch-setup (fpgas.online-poe[cli]) into its venv
+  ansible.builtin.pip:
+    name: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
+    virtualenv: "{{ switch_cli_venv }}"
+    virtualenv_command: "python3 -m venv"
+    state: latest
+  tags: [switch-vlans]
+
+- name: create /etc/fpgas directory
+  file:
+    path: /etc/fpgas
+    state: directory
+    mode: "0755"
+  tags: [switch-vlans]
+
+- name: install switches config
+  template:
+    src: switches.yml.j2
+    dest: /etc/fpgas/switches.yml
+    mode: "0644"
+  tags: [switch-vlans]
+
+# fpgas-switch-setup exits 0 whether or not it applied changes (with
+# --apply), 1 on error; check-mode-only rc 2 never happens here. The CLI
+# prints one line per pending/applied action, so non-empty stdout is the
+# reliable changed signal -- rc is not (see Task 6 CLI contract).
+- name: converge switch VLAN config
+  command: >-
+    {{ switch_cli_venv }}/bin/fpgas-switch-setup --config /etc/fpgas/switches.yml
+    --switch {{ item.index }} --apply
+  loop: "{{ switches }}"
+  loop_control:
+    label: "switch {{ item.index }} ({{ item.mgmt_host }})"
+  environment:
+    FPGAS_SWITCH_COMMUNITY: "{{ item.snmp_rw_community }}"
+  register: switch_vlans_converge_result
+  changed_when: switch_vlans_converge_result.stdout | length > 0
+  when: switches_manage | default(true)
+  tags: [switch-vlans]

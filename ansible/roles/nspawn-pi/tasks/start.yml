@@ -58,9 +58,23 @@
     mode: "0440"
     validate: "visudo -cf %s"
 
-- name: Set up SSH authorized_keys for piroot
+# Who may log in as piroot: the controller's key when the run names one
+# (the CI harness passes -e ansible_ssh_private_key_file=...), plus the
+# operators' keys from ssh_public_keys (group_vars). Without this a production
+# run left piroot with no authorized key at all, so the `pi` play could never
+# connect.
+- name: Set up SSH authorized_keys for piroot (controller key)
   ansible.posix.authorized_key:
     user: piroot
     state: present
     key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
   when: ansible_ssh_private_key_file is defined
+
+- name: Set up SSH authorized_keys for piroot (operator keys)
+  ansible.posix.authorized_key:
+    user: piroot
+    state: present
+    key: "{{ item }}"
+  loop: "{{ ssh_public_keys | default([]) | map(attribute='keys') | flatten }}"
+  loop_control:
+    label: "{{ item.split(' ')[-1] }}"

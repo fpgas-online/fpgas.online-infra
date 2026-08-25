@@ -1,0 +1,12 @@
+---
+# tinytapeout.fpgas.online (ttsite role).  Hosts that do not define tt_boards
+# skip the role entirely (see ansible/web.yml).
+ttsite_domain: tinytapeout.fpgas.online
+# Request a Let's Encrypt cert with certbot --nginx (needs the name to reach
+# this host on :80 for http-01); the VM test sets this false and serves the
+# vhost over plain HTTP.
+ttsite_certbot: true
+# Commander embed bundle from fpgas-online/tt-commander-app releases
+# (tag embed-v<ver>).  Empty version => not deployed; Django shows a notice.
+tt_commander_embed_version: ""
+tt_commander_embed_sha256: ""

@@ -1,0 +1,5 @@
+# {{ ansible_managed }} -- snmp_switch (PoE control pages)
+  location /snmp/ {
+    include proxy_params;
+    proxy_pass http://unix:/run/gunicorn.sock;
+  }

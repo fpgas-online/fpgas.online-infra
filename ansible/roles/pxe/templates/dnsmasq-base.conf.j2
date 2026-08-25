@@ -5,14 +5,30 @@
 {% if eth_local is defined %}
 interface={{ eth_local }}
 {% endif %}
-bind-interfaces
+# bind-dynamic (not bind-interfaces): the per-port VLAN interfaces (v2101...)
+# are created by the vlan-ports role and mostly have no carrier until a Pi is
+# plugged into that switch port. bind-interfaces makes dnsmasq abort at start
+# if any named interface is absent/down; bind-dynamic binds each interface as
+# it appears and lets dnsmasq start regardless -- essential with ~150 per-port
+# interfaces and to avoid a converge-time ordering race with networkd.
+bind-dynamic
 
-# DHCP range
+# Pin the lease database to an explicit, absolute, persistent path.
+# dnsmasq daemonizes and chdir()s to "/" before opening a relative
+# dhcp-leasefile/pid-file/log path, silently failing if one is given
+# relative (tests/lab/RESULTS.md, "Other gotchas").
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
+
+{% if dhcp_range is defined %}
+# DHCP range for legacy MAC-table hosts (no per-port switches config):
+# per-port hosts get their v4/v6 ranges from ports.conf instead, one
+# dhcp-range per switch port -- see tests/lab/RESULTS.md.
 dhcp-range={{ dhcp_range }}
+{% endif %}
 
-# Enable TFTP
+# Enable TFTP (see tftp_root in group_vars/all/srv.yml)
 enable-tftp
-tftp-root=/srv/tftp
+tftp-root={{ tftp_root }}
 
 # Log DHCP transactions for debugging
 log-dhcp

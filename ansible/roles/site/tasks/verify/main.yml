@@ -32,14 +32,33 @@
     fail_msg: "Django venv python not found at {{ django_dir }}/venv/bin/python"
   tags: [verify, django]
 
-- name: Check gunicorn.socket status
-  command: systemctl status gunicorn.socket
+- name: Check the Django app services are active
+  command: systemctl is-active {{ item }}
   changed_when: false
-  register: site_gunicorn_socket_status
+  register: site_app_services
+  loop: [gunicorn.socket, gunicorn.service, daphne.service, uvicorn.service, redis-server.service]
   failed_when: false
   tags: [verify, django]
 
-- name: Report gunicorn.socket status
-  debug:
-    msg: "gunicorn.socket status: {{ site_gunicorn_socket_status.stdout_lines | default([]) }}"
+- name: Assert the Django app services are active
+  assert:
+    that: item.stdout == "active"
+    fail_msg: "{{ item.item }} is not active (got: {{ item.stdout }})"
+  loop: "{{ site_app_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [verify, django]
+
+- name: Check the Django app answers through the gunicorn socket
+  command: >-
+    curl -s -o /dev/null -w '%{http_code}' --unix-socket /run/gunicorn.sock
+    -H 'Host: {{ domain_name }}' http://localhost/fpgas/
+  changed_when: false
+  register: site_http_probe
+  tags: [verify, django]
+
+- name: Assert the Django app answers (2xx/3xx)
+  assert:
+    that: site_http_probe.stdout is match('^[23]')
+    fail_msg: "GET /fpgas/ via /run/gunicorn.sock returned HTTP {{ site_http_probe.stdout }}"
   tags: [verify, django]

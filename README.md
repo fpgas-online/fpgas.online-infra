@@ -66,8 +66,18 @@ The roles install packages from other fpgas-online repos rather than embedding s
 
 ### Deploy
 
+Collections: `uv run ansible-galaxy collection install -r requirements.yml`.
+
+`ansible.cfg` supplies the inventory and `become`; the only thing to add is
+the vault password for hosts with vaulted vars (tweed's switch communities):
+
 ```bash
-# Full deployment (server + Pi NFS root provisioning)
+export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
+
+# Full deployment of tweed (server + its Pi NFS root via the piroot chroot host `pi`)
+uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi
+
+# Full deployment (every host)
 uv run ansible-playbook ansible/site.yml
 
 # Server roles only
@@ -76,6 +86,20 @@ uv run ansible-playbook ansible/site.yml --limit nbp,uhubctl,pig
 # Server setup + Pi NFS root provisioning
 uv run ansible-playbook ansible/site.yml --limit nbp,pi
 ```
+
+Web tier only (Django site, wssh, camera front end, tinytapeout.fpgas.online):
+
+```bash
+uv run ansible-playbook ansible/web.yml --limit fpgas.online
+```
+
+The Welland server (inventory host `fpgas.online`, hostname tweed) is reached
+over the private ten64 <-> tweed link (`ansible_host: 10.99.21.2`) as the
+dedicated `ansible` user with `become`; its web interface is published by the
+nginx reverse proxy / SNI router on ten64 as `welland.fpgas.online`,
+`tweed.welland.mithis.com` and `tinytapeout.fpgas.online` (CNAME), so run the
+playbooks from inside the Welland network. Vault-encrypted host vars need
+`--vault-password-file`.
 
 ### Verify
 
@@ -164,6 +188,7 @@ test coverage grows correspondingly.
 | `nspawn-pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
+| `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
 | `cam/stream-server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
 | `fpgas-apt` | NFS root (nspawn) | Add fpgas.online apt repository |

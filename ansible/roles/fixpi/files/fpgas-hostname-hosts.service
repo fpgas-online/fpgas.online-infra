@@ -1,0 +1,23 @@
+[Unit]
+Description=Map this host's own (DHCP-assigned) hostname to loopback in /etc/hosts
+# The per-port VLAN scheme gives each Pi a DHCP hostname (pi-sw<s>-p<p>) that
+# is NOT baked into the shared, read-only NFS root's /etc/hosts. Without a
+# local entry, every getaddrinfo() of the machine's own name -- notably the
+# one sudo does on each invocation -- falls through to DNS, which stalls sudo
+# for seconds. That is enough to trip ansible become's ~12s prompt timeout, so
+# verify-pi.yml reports the Pi UNREACHABLE. overlayroot=tmpfs makes / writable
+# at runtime, so we add the entry on boot. Not test-specific: real hardware on
+# this scheme hits the identical slowdown.
+After=systemd-hostnamed.service network.target
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Logic lives in a script, not inline here: systemd expands $ and % in
+# ExecStart (e.g. %s = the service user's shell), which corrupts shell one-
+# liners. See the script's own comment.
+ExecStart=/usr/local/sbin/fpgas-hostname-hosts.sh
+
+[Install]
+WantedBy=multi-user.target

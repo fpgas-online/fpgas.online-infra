@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# Per-port addressing: the dhcp-range tag is the receiving interface name
+# (dnsmasq implicitly tags a request with the name of the interface it
+# arrived on -- see tests/lab/RESULTS.md, "Summary for Tasks 8/9 templates").
+# No MAC addresses appear anywhere in this file by design.
+{% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
+interface={{ e.iface }}
+# v4: the range's netmask must be broader than /32 so its implied network
+# contains the gw's own {{ pib_network }}.0.1/32 address on this interface
+# (RESULTS.md, v4-single-range-by-tag -- a literal /32 here makes dnsmasq
+# refuse the request with "no address range available").
+dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,12h
+# v6: off-link MUST precede the prefix-length field (64), and 64 must match
+# the gw's own /64 address on this interface, not /128 (RESULTS.md,
+# v6-single-range-by-tag). off-link clears the RA on-link (L) bit so Pi
+# traffic routes via the gateway instead of assuming direct reachability.
+dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,12h
+host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.ip6 }}
+{% endfor %}
+
+# VLAN 1 quarantine on the untagged trunk: unconfigured ports land here,
+# visibly, instead of joining a per-port network. The trunk is the host's
+# own internal interface ({{ eth_local }}) -- literally "eth-local" on tweed
+# (renamed via a MAC-matched systemd .link), but e.g. "enp0s3" in the QEMU
+# VM test, so this must be the variable, not a hardcoded name.
+interface={{ eth_local }}
+dhcp-range=tag:{{ eth_local }},{{ pib_network }}.0.128,{{ pib_network }}.0.150,255.255.255.0,1h
+
+# RA is enabled once, globally, for all per-port interfaces above (each
+# range's off-link flag shapes what gets advertised per-interface).
+enable-ra

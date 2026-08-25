@@ -1,42 +1,128 @@
 # install_django.yml
 ---
-- name: create site dir
+# Directories are owned by the service user: gunicorn/daphne/uvicorn run as
+# {{ user_name }} and must be able to write db.sqlite3 and STATIC_ROOT.
+- name: site directories
   file:
-    path: "{{ django_dir }}/pib"
+    path: "{{ item }}"
     state: directory
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0755"
+  loop:
+    - "{{ django_dir }}"
+    - "{{ django_dir }}/pib"
+    - "{{ static_dir }}"
   tags:
     - django
 
-- name: copy the core pib site files
+# The Django project package (pib/settings.py, urls.py, asgi.py) ships inside
+# the fpgas-online-site wheel; {{ django_dir }}/pib shadows it on sys.path so
+# gunicorn/daphne/manage.py pick up THIS copy (plus local_settings.py, which
+# only the lineinfile tasks below ever touch).
+- name: locate the installed pib project package
+  command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
+  register: site_pib_pkg
+  changed_when: false
+  tags:
+    - django
+
+- name: install Django project files from the wheel
   copy:
-    src: "files/pib/pib/{{ item }}"
-    dest: "{{ django_dir }}/pib/"
+    src: "{{ site_pib_pkg.stdout }}/{{ item }}"
+    dest: "{{ django_dir }}/pib/{{ item }}"
+    remote_src: true
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0644"
   loop:
     - __init__.py
     - settings.py
     - urls.py
     - asgi.py
-    - local_settings.py
+  notify:
+    - restart django services
   tags:
     - django
 
-# Change allowed hosts to include the server IP address
-- name: add server IP address to allowed hosts
+- name: create local_settings.py if missing (never overwritten)
+  copy:
+    dest: "{{ django_dir }}/pib/local_settings.py"
+    content: "# site-local Django settings, lines managed by fpgas.online-infra (roles/site, roles/ttsite)\n"
+    force: false
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0640"
+  tags:
+    - django
+
+# The wheel ships Django's insecure dev SECRET_KEY and DEBUG=True; production
+# settings come from local_settings.py. The key is generated once per host
+# (kept out of the inventory) and never rotated by Ansible.
+- name: generate a SECRET_KEY once
+  shell: >-
+    umask 077 && {{ django_dir }}/venv/bin/python -c
+    "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
+  args:
+    creates: "{{ django_dir }}/.secret_key"
+  tags:
+    - django
+
+- name: read the SECRET_KEY
+  slurp:
+    src: "{{ django_dir }}/.secret_key"
+  register: site_secret_key
+  no_log: true
+  tags:
+    - django
+
+- name: SECRET_KEY and DEBUG
+  lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: "^{{ item.key }} = "
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - {key: DEBUG, value: "False"}
+    - {key: SECRET_KEY, value: "{{ (site_secret_key.content | b64decode | trim) | to_json }}"}
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: "{{ item.key == 'SECRET_KEY' }}"
+  notify:
+    - restart django services
+  tags:
+    - django
+
+# Every name the site answers on: the uplink address, the primary web name,
+# its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
+# tinytapeout.fpgas.online host when this server carries TT boards.
+- name: site_web_hosts
+  set_fact:
+    site_web_hosts: >-
+      {{ ([eth_uplink_static_address, domain_name] + (streaming_frontend_aliases | default([]))
+          + ([ttsite_domain] if tt_boards is defined else [])) | unique }}
+  tags:
+    - django
+
+- name: ALLOWED_HOSTS
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^ALLOWED_HOSTS = '
-    line: "ALLOWED_HOSTS = ['{{ eth_uplink_static_address }}','{{ domain_name }}']"
+    line: "ALLOWED_HOSTS = {{ site_web_hosts | to_json }}"
+  notify:
+    - restart django services
   tags:
     - django
 
-# set CSRF_TRUSTED_ORIGINS
-- name: add server IP address to allowed hosts
+- name: CSRF_TRUSTED_ORIGINS
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^CSRF_TRUSTED_ORIGINS = '
-    line: "CSRF_TRUSTED_ORIGINS = ['https://{{ domain_name }}']"
+    line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
+  notify:
+    - restart django services
   tags:
     - django
 
@@ -67,52 +153,73 @@
   tags:
     - django
 
-- name: copy manage.py into site dir
+- name: manage.py
   copy:
-    src: "files/pib/manage.py"
-    dest: "{{ django_dir }}"
+    dest: "{{ django_dir }}/manage.py"
+    owner: "{{ user_name }}"
+    group: www-data
+    mode: "0755"
+    content: |
+      #!{{ django_dir }}/venv/bin/python
+      import os
+      import sys
+
+      if __name__ == "__main__":
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "{{ django_project_name }}.settings")
+          from django.core.management import execute_from_command_line
+          execute_from_command_line(sys.argv)
   tags:
     - django
 
-- name: chmod u+x manage.py
-  file:
-    path: "{{ django_dir }}/manage.py"
-    mode: 'u+x'
-  tags:
-    - django
-
-# Run Django collectstatic
-- name: Run manage.py collectstatic
-  community.general.django_manage:
-    command: collectstatic
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
-  tags:
-    - django
-
-# Run Django manage.py migrate
+# Management commands run through the generated manage.py as the service
+# user (so db.sqlite3 and STATIC_ROOT end up owned by it), with plain
+# command: community.general.django_manage needs a collection nothing
+# installs by default (requirements.yml lists it, but keep the role
+# self-sufficient).
 - name: Run manage.py migrate
-  community.general.django_manage:
-    command: migrate
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
+  command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
+  register: site_migrate
+  changed_when: "'No migrations to apply' not in site_migrate.stdout"
+  tags:
+    - django
+
+- name: Run manage.py collectstatic
+  command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
+  register: site_collectstatic
+  changed_when: "'0 static files copied' not in site_collectstatic.stdout"
+  tags:
+    - django
+
+# Initial pibfpgas data. The fixture files left this repo with the pici
+# monorepo split; only load one that is actually present under
+# roles/site/files/pib/pibfpgas/fixtures/ (none are today).
+- name: look for the fixture file
+  set_fact:
+    site_fixture_file: "{{ lookup('ansible.builtin.first_found', {'files': ['files/pib/pibfpgas/fixtures/' ~ fixture_path], 'skip': true}) }}"
+  when: fixture_path is defined
   tags:
     - django
 
 - name: copy fixtures to remote box
   copy:
-    src: "files/pib/pibfpgas/fixtures/{{ fixture_path }}"
-    dest: "/tmp/"
-  when: fixture_path is defined
+    src: "{{ site_fixture_file }}"
+    dest: "{{ django_dir }}/{{ fixture_path }}"
+  when: fixture_path is defined and site_fixture_file | length > 0
   tags:
     - django
 
 - name: Load the initial_data fixture into the application
-  community.general.django_manage:
-    command: loaddata
-    project_path: "{{ django_dir }}"
-    virtualenv: "{{ django_dir }}/venv"
-    fixtures: "/tmp/{{ fixture_path }}"
-  when: fixture_path is defined
+  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ django_dir }}/{{ fixture_path }}"
+  args:
+    chdir: "{{ django_dir }}"
+  become_user: "{{ user_name }}"
+  when: fixture_path is defined and site_fixture_file | length > 0
+  changed_when: true
   tags:
     - django

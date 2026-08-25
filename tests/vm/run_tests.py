@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 from tests.vm.cloud_init import create_seed_iso
-from tests.vm.network import proxy_jump_string, wait_for_socket_listen
+from tests.vm.network import proxy_jump_string
+from tests.vm.vswitch import AccessPortSwitch
 from tests.vm.vm_manager import (
     DEBIAN_CLOUD_URL,
     IMAGES_DIR,
@@ -33,14 +34,16 @@ ANSIBLE_DIR = REPO_ROOT / "ansible"
 TEST_INVENTORY = REPO_ROOT / "tests" / "inventory" / "test-hosts"
 
 SSH_PORT = 2222
-VLAN_PORT = 12345
+# Switch 1, port 1: 2000 + 100*1 + 1 (see ansible/filter_plugins/port_vlans.py).
+# Must match tests/inventory/host_vars/test-vm.yml's `switches:` entry.
+VLAN = 2101
 
 
 def ensure_ansible_collections() -> None:
     """Install required Ansible collections if not already present."""
     subprocess.run(
         ["uv", "run", "ansible-galaxy", "collection", "install",
-         "community.crypto", "ansible.posix", "--upgrade"],
+         "-r", str(Path(__file__).resolve().parents[2] / "requirements.yml"), "--upgrade"],
         check=True,
         stdin=subprocess.DEVNULL,
     )
@@ -110,17 +113,32 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
             break
         time.sleep(5)
 
-    # Timeout or process died — print serial log tail for debugging
+    # Timeout or process died — print BOTH serial logs' tails for debugging.
+    # serial0 (pi.serial_log) is the kernel console; serial1 (.uboot) is the
+    # U-Boot/firmware console. On a stall after TFTP the kernel log is where
+    # the NFS-root/boot failure shows up, so dump both (the kernel one is
+    # frequently the empty/interesting one).
+    # NOTE: the "milestones seen" above are substring matches and can false-
+    # positive (e.g. "Loading" matches U-Boot's "Loading Environment from
+    # FAT", not a TFTP kernel load), so treat them as hints only -- the full
+    # dumps below are authoritative.
     print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
-    if pi.serial_log.exists():
-        lines = pi.serial_log.read_text(errors="replace").splitlines()
-        print(f"[pi] Last 30 lines of serial log:")
-        for line in lines[-30:]:
-            print(f"  {line}")
+    for label, path in (
+        ("kernel serial0", pi.serial_log),
+        ("u-boot serial1", Path(str(pi.serial_log) + ".uboot")),
+    ):
+        if path.exists():
+            text = path.read_text(errors="replace")
+            print(f"[pi] ===== FULL {label} ({path.name}), {len(text)} bytes =====")
+            for line in text.splitlines():
+                print(f"  {line}")
+            print(f"[pi] ===== end {label} =====")
+        else:
+            print(f"[pi] {label} log {path.name} does not exist")
     return False, pi_ip
 
 
-def phase_server(args, workdir: Path) -> VMManager | None:
+def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     """Run the server phase: boot VM, apply roles, verify."""
     dist = args.distro
     image_url = DEBIAN_CLOUD_URL.format(dist=dist)
@@ -137,7 +155,7 @@ def phase_server(args, workdir: Path) -> VMManager | None:
 
     # Boot server
     server = VMManager("server", workdir)
-    server.boot_server(overlay, seed_iso, ssh_port=SSH_PORT, vlan_port=VLAN_PORT)
+    server.boot_server(overlay, seed_iso, ssh_port=SSH_PORT, trunk_port=switch.trunk_port)
 
     if not server.wait_for_guest_agent(timeout=180):
         print("ERROR: Server VM guest agent did not respond.")
@@ -230,19 +248,19 @@ def ensure_qemu_rpi() -> tuple[str, str, str]:
     return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
-def phase_pi(args, workdir: Path, server: VMManager) -> bool:
+def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
     Uses qemu-rpi (patched QEMU with GENET ethernet) and qemu-rpi-pxeboot
     firmware (U-Boot with embedded VideoCore PXE sequence). The firmware
     autonomously does DHCP + TFTP from the server's dnsmasq, loads the
     RPi kernel and DTB, and boots into the NFS root.
-    """
-    # Verify server socket is listening
-    if not wait_for_socket_listen(VLAN_PORT):
-        print("ERROR: Server VLAN socket not listening.")
-        return False
 
+    The Pi's NIC connects to the vswitch's access port; the server VM is
+    already connected to the trunk port (see phase_server), so no separate
+    "is the socket listening" wait is needed here -- the vswitch itself
+    started listening on both ports before either VM booted (see main()).
+    """
     key_path = workdir / "test_key"
 
     # Ensure patched QEMU and PXE boot firmware are available
@@ -251,7 +269,7 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
     # Boot Pi VM — PXE firmware will boot from server (DHCP + TFTP + NFS)
     pi = VMManager("pi", workdir)
     pi.boot_pi(
-        vlan_port=VLAN_PORT,
+        access_port=switch.access_port,
         qemu_bin=qemu_bin,
         pxeboot_bin=pxeboot_bin,
         pxeboot_dtb=pxeboot_dtb,
@@ -279,7 +297,9 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
         # Continue to try SSH anyway
 
     # Use Pi IP from DHCP if available, fall back to expected IP
-    pi_host = pi_ip or "10.21.0.128"
+    # (switch 1, port 1 -- see tests/inventory/host_vars/test-vm.yml's
+    # `switches:` entry and ansible/filter_plugins/port_vlans.py)
+    pi_host = pi_ip or "10.21.1.1"
     print(f"[pi] Using Pi IP: {pi_host}")
 
     # Wait for SSH via ProxyJump through server
@@ -290,6 +310,27 @@ def phase_pi(args, workdir: Path, server: VMManager) -> bool:
             host=pi_host, port=22, username="pi",
             key_path=key_path, proxy_jump=proxy, timeout=900,
         )
+        # Diagnostic probe: verify-pi.yml runs `become: true` on every task, so
+        # slow/failing privilege escalation (e.g. sudo stalling on hostname
+        # resolution) shows up only as an opaque "UNREACHABLE" there. Capture
+        # the relevant state here, on a plain SSH channel, so a become failure
+        # is diagnosable without another multi-hour run.
+        print("[pi] ===== become/hostname diagnostic probe =====")
+        for label, cmd in [
+            ("hostname", "hostname"),
+            ("/etc/hosts", "cat /etc/hosts"),
+            ("/etc/resolv.conf", "cat /etc/resolv.conf"),
+            ("resolve self", "getent hosts $(hostname) || echo '(no result)'"),
+            ("sudo -n timing", "time sudo -n true 2>&1 || echo 'sudo rc='$?"),
+        ]:
+            try:
+                _in, _out, _err = ssh.exec_command(cmd, timeout=30)
+                out = _out.read().decode(errors="replace").strip()
+                err = _err.read().decode(errors="replace").strip()
+                print(f"[pi] [{label}] {out}{(' | stderr: ' + err) if err else ''}")
+            except Exception as exc:  # noqa: BLE001 - diagnostic must never fail the run
+                print(f"[pi] [{label}] probe error: {exc}")
+        print("[pi] ===== end diagnostic probe =====")
         ssh.close()
     except TimeoutError:
         print("ERROR: Pi VM SSH not reachable via ProxyJump.")
@@ -341,7 +382,7 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,django,fpgas-apt,hw-camera,hw-fpga",
+    parser.add_argument("--skip-tags", type=str, default="cam,fpgas-apt,hw-camera,hw-fpga",
                         help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
@@ -350,10 +391,17 @@ def main():
     workdir = Path(__file__).parent / "workdir"
     workdir.mkdir(exist_ok=True)
 
+    # The vswitch must be listening on both ports before either VM starts
+    # dialing out to it (QEMU socket netdevs with connect= dial once at
+    # boot), so it's started here, ahead of both phases, and stopped once
+    # both VMs are done with it.
+    switch = AccessPortSwitch(VLAN)
+    switch.start()
+
     server = None
     try:
         if args.phase in ("server", "all"):
-            server = phase_server(args, workdir)
+            server = phase_server(args, workdir, switch)
             if server is None:
                 print("\nSERVER PHASE FAILED")
                 sys.exit(1)
@@ -363,7 +411,7 @@ def main():
             if server is None:
                 print("ERROR: Pi phase requires a running server VM (use --phase all)")
                 sys.exit(1)
-            success = phase_pi(args, workdir, server)
+            success = phase_pi(args, workdir, server, switch)
             if not success:
                 print("\nPI PHASE FAILED")
                 sys.exit(1)
@@ -373,6 +421,7 @@ def main():
         if server and not args.keep_vm:
             server.shutdown()
             server.cleanup()
+        switch.stop()
 
     print("\nALL PHASES PASSED")
 

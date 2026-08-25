@@ -8,6 +8,11 @@ dependencies = [
     "paramiko",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

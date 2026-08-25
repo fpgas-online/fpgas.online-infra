@@ -6,3 +6,6 @@
       - python3-venv
       - python3-virtualenv
       - python3-pip
+      - git    # pip installs from git+https
+      - acl    # become_user to the site user needs setfacl on Ansible's tmp files
+      - curl   # verify probe through /run/gunicorn.sock
