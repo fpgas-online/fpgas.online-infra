@@ -31,10 +31,12 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        # Pinned to a specific tag because astral-sh/setup-uv only
+        # publishes floating major tags up to v7; v8 has no major ref.
+        uses: astral-sh/setup-uv@v8.1.0
 
       - name: Install system dependencies
         run: |
@@ -44,7 +46,6 @@ jobs:
             qemu-utils \
             cloud-image-utils \
             systemd-container \
-            ansible \
             openssh-client \
             ca-certificates
 
@@ -70,7 +71,7 @@ jobs:
         run: uv sync
 
       - name: Cache VM images
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: tests/vm/images
           key: vm-images-bookworm-v2
@@ -80,7 +81,7 @@ jobs:
 
       - name: Upload serial logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: serial-logs
           path: tests/vm/workdir/*-serial.log
