@@ -1,0 +1,6 @@
+---
+# Human operator accounts created on the server (see
+# inventory/group_vars/all/ssh_keys.yml for the actual list). Each entry:
+#   - name: <unix user>
+#     ssh_import_ids: [gh:<github-user>, ...]
+operator_accounts: []
