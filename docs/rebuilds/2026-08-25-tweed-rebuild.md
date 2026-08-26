@@ -283,3 +283,30 @@ verify-pi 35s ok=21/f0 (hw incl.); fleet recovery ~20m. Nine new findings
 P2-1..P2-9, all fixed or assigned. PR #25 carries every infra fix; /srv/pxe
 carries the preseed/boot-chain fixes (2c4d2ae ea5bc71 266d9e3 faa768e + menu
 files, still unversioned - adopt into git).
+
+---
+
+# Rebuild #3 — 2026-08-26 evening (ZERO-INTERVENTION CONFIRMATION, post-merge)
+
+Run from merged main (8fcf55b, PR #25). Result: **PASS — no manual
+interventions**. Every action was the scripted driver: pxe-set-boot,
+IPMI bootdev+cycle, preseed-fetch menu-restore guard, refresh-known-hosts,
+site.yml, verify-server, verify-pi, fleet PoE cycles. All P2 fixes worked
+first-try on a virgin install: disksig stamp (P2-5c lsblk -srno) fired and
+the unattended warm reboot chained straight into the new system twice
+(post-install + mid-converge netif reboot); hostname=tweed from install #1
+of the run (P2-6); single-key auth (P2-1).
+
+Timings: cycle 20:25:37 -> trixie login 20:33:18 (7m41s); converge 2:57:39
+(fpgas.online ok=221/f0, pi ok=36/f0; apt upgrade 5956s dominant);
+verify-server 104/0; verify-pi 21/0 (35s); fleet 14/15+/- recovered
+(sw1 p9/p13/p17/p38 + sw2 p3-6,p8,p33-36,p42; dark: p7,p43,p44 — physical).
+End-to-end: page 200, designs API 200, fpgas-tt/cam active, NTP synced.
+Known cosmetics: nbp pair unreachable (P2-9, out of scope).
+
+CI-vs-hardware parity goal MET: the same main-branch code passed the 2h34m
+CI VM run and three consecutive hardware validations (rebuild #2 converge,
+rebuild #2 verify, rebuild #3 full zero-intervention pass). Next: schedule
+regular rebuilds (cadence + downtime discussion with Tim), cached Pi rootfs
+to cut the 3h converge, boot-once support in pxe-set-boot to retire the
+menu-restore guard.
