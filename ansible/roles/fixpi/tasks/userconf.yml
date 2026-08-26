@@ -81,6 +81,23 @@
   tags:
     - keys
 
+# The controller's automation key (same mechanism as nspawn-pi/start.yml):
+# without it the control node can only reach real Pis through operator
+# keys, and verify-pi against hardware needed a hand-injected key every
+# rebuild (rebuild #2; "ephemeral" hack in rebuild #1's verify phase).
+- name: Authorize the controller key for pi and root (controller key)
+  ansible.posix.authorized_key:
+    user: root
+    state: present
+    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
+    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+  with_items:
+    - root
+    - home/pi
+  when: ansible_ssh_private_key_file is defined
+  tags:
+    - keys
+
 - name: set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
     path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh"
