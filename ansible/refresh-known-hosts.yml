@@ -1,0 +1,70 @@
+---
+# Manage the ansible tooling's PRIVATE known_hosts file around host
+# reinstalls, following the hetzner-ansible lifecycle pattern
+# (roles/vm/tasks/cleanup-ssh-artifacts.yml + wait-for-vm.yml there):
+# remove the stale entries, re-scan the new host key (plain ssh-keyscan,
+# NEVER -H - hashed names break the known_hosts module), and pin it.
+#
+# Run after any deliberate reinstall of a managed host, BEFORE the next
+# site.yml run:
+#   ansible-playbook -i ansible/inventory ansible/refresh-known-hosts.yml
+#   (defaults to the gateway, 10.99.21.2; override with
+#    -e rekey_hosts='["10.21.2.33", ...]')
+#
+# ssh.cfg's accept-new handles first-contact TOFU for brand-new addresses;
+# this playbook exists because accept-new can NOT replace an existing entry
+# (tweed rebuild A1-10), so a reinstalled host is unreachable until its old
+# key is removed.
+- name: Refresh pinned host keys in the private ansible known_hosts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  # ansible.cfg sets become=True globally; this playbook manages the
+  # CONTROL NODE user's own files - running it as root leaves the
+  # known_hosts owned by root, and ssh (as the user) can then no longer
+  # append accept-new entries (rebuild #2: ps1 "Failed to add the host").
+  become: false
+  vars:
+    ansible_known_hosts_file: "{{ lookup('env', 'HOME') }}/.config/fpgas-online/ansible_known_hosts"
+    rekey_hosts:
+      - 10.99.21.2
+  tasks:
+    - name: Ensure the known_hosts directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_known_hosts_file | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure the known_hosts file exists
+      ansible.builtin.file:
+        path: "{{ ansible_known_hosts_file }}"
+        state: touch
+        mode: "0644"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Remove stale host keys
+      ansible.builtin.known_hosts:
+        path: "{{ ansible_known_hosts_file }}"
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ rekey_hosts }}"
+
+    - name: Scan current host keys (retry while the host finishes booting)
+      ansible.builtin.command: ssh-keyscan {{ item }}
+      register: rekey_scans
+      retries: 30
+      delay: 10
+      until: rekey_scans.rc == 0 and rekey_scans.stdout | length > 0
+      changed_when: false
+      loop: "{{ rekey_hosts }}"
+
+    - name: Pin the new host keys
+      ansible.builtin.known_hosts:
+        path: "{{ ansible_known_hosts_file }}"
+        name: "{{ item.item }}"
+        key: "{{ item.stdout }}"
+        state: present
+      loop: "{{ rekey_scans.results }}"
+      loop_control:
+        label: "{{ item.item }}"

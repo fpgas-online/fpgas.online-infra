@@ -15,7 +15,16 @@
   apt:
     name:
       - python3-venv
+      # ansible's pip module imports `packaging` on the target's system
+      # python. The CI VM's genericcloud image ships it, but a fresh
+      # minimal d-i install does not (tweed rebuild B1-1, 2026-08-25).
+      - python3-packaging
       - git
+      # fpgas-switch-setup's SNMP transport shells out to net-snmp CLI tools
+      # (snmpbulkwalk et al). CI never notices it missing because the VM test
+      # sets switches_manage=false and the converge step is the only consumer
+      # (tweed rebuild B1-3, 2026-08-25).
+      - snmp
   tags: [switch-vlans]
 
 - name: install fpgas-switch-setup (fpgas.online-poe[cli]) into its venv
@@ -23,7 +32,13 @@
     name: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
     virtualenv: "{{ switch_cli_venv }}"
     virtualenv_command: "python3 -m venv"
-    state: latest
+    # NOT `latest`: with a direct git URL and an unbumped package version,
+    # pip considers the requirement satisfied and silently keeps stale code
+    # (tweed rebuild B1-7 — a pushed library fix never reached the host).
+    # forcereinstall re-resolves the branch head on every converge; if the
+    # ~15 s cost ever matters, switch to pinning an exact commit SHA in the
+    # URL instead.
+    state: forcereinstall
   tags: [switch-vlans]
 
 - name: create /etc/fpgas directory

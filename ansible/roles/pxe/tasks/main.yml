@@ -14,6 +14,29 @@
   tags:
     - pxe
 
+# Serve NTP to the Pi LAN: Pis have no internet (forward policy drop) and
+# systemd-timesyncd is client-only, so without a LAN time source every Pi
+# sits on its fake-hwclock date forever (tweed rebuild C2-2; the old server
+# ran chrony configured out-of-band). dnsmasq-base advertises this server
+# via dhcp-option ntp-server; fixpi additionally pins the NFS root's
+# timesyncd at the server.
+- name: install chrony (LAN NTP server)
+  apt:
+    name: chrony
+  tags:
+    - pxe
+
+- name: allow the Pi LAN to query chrony
+  copy:
+    content: |
+      # Managed by ansible (fpgas.online-infra, pxe role)
+      allow {{ pib_network | default('10.21') }}.0.0/16
+    dest: /etc/chrony/conf.d/fpgas-lan.conf
+    mode: "0644"
+  notify: restart chrony
+  tags:
+    - pxe
+
 - name: enable Raspberry Pi Boot
   copy:
     src: files/rpi.conf

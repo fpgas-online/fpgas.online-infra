@@ -5,6 +5,10 @@
       - unzip
       - parted
       - rsync
+      # img2files.sh extracts the raspios image with xz; a minimal d-i
+      # install has no xz-utils (CI's genericcloud image does — tweed
+      # rebuild B1-5, 2026-08-25).
+      - xz-utils
     install_recommends: true
   tags:
     - img

@@ -40,10 +40,25 @@
       changed_when: false
       register: verify_pi_addrs
 
-    - name: Assert 10.21.1.1 address present (switch 1, port 1)
+    # The per-port address is derived from the Pi's own hostname
+    # (pi-sw<S>-p<P> -> 10.21.S.P). The old check hardcoded 10.21.1.1 —
+    # correct only for the CI VM's sw1p1 test Pi; it failed on every real
+    # Pi on any other port (tweed rebuild D1-1, 2026-08-26).
+    - name: derive expected per-port address from hostname
+      set_fact:
+        verify_pi_expected_ip: >-
+          {{ ansible_hostname
+             | regex_replace('^pi-sw(\d+)-p(\d+)$', '10.21.\1.\2') }}
+      tags: [verify, network]
+
+    - name: Assert per-port address present
       assert:
-        that: "'10.21.1.1' in verify_pi_addrs.stdout"
-        fail_msg: "No 10.21.1.1 address found on any interface"
+        that:
+          - verify_pi_expected_ip != ansible_hostname
+          - verify_pi_expected_ip in verify_pi_addrs.stdout
+        fail_msg: >-
+          Expected {{ verify_pi_expected_ip }} (from hostname
+          {{ ansible_hostname }}) on an interface; not found
       tags: [verify, network]
 
     - name: Check can reach server
@@ -74,10 +89,16 @@
       changed_when: false
       register: verify_pi_hostname
 
-    - name: Assert hostname is pi-sw1-p1 (switch 1, port 1)
+    # Same D1-1 class as the address check: the old assertion hardcoded the
+    # CI fixture's pi-sw1-p1. Any per-port DHCP hostname of the pi-sw<S>-p<P>
+    # shape is correct; name<->port consistency is covered by the address
+    # assertion above (10.21.S.P derived from this hostname).
+    - name: Assert hostname matches the per-port naming scheme
       assert:
-        that: verify_pi_hostname.stdout == "pi-sw1-p1"
-        fail_msg: "Pi hostname is '{{ verify_pi_hostname.stdout }}', expected 'pi-sw1-p1'"
+        that: verify_pi_hostname.stdout is match('^pi-sw[0-9]+-p[0-9]+$')
+        fail_msg: >-
+          Pi hostname is '{{ verify_pi_hostname.stdout }}', expected the
+          per-port scheme pi-sw<switch>-p<port>
       tags: [verify, system]
 
     # Packages

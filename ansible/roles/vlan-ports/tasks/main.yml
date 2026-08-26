@@ -50,3 +50,10 @@
     not in (port_map | map(attribute='iface') | list)
   notify: reload networkd
   tags: [vlan-ports]
+
+# Apply the networkd config NOW rather than via end-of-play handlers: a
+# later-role failure aborts the play and eats notified handlers, leaving
+# the netdev/network files on disk but never loaded — 11 converge runs on
+# the tweed rebuild ran with zero v* interfaces because run 1 failed after
+# this role and no later run re-notified (C1-1, 2026-08-25).
+- meta: flush_handlers

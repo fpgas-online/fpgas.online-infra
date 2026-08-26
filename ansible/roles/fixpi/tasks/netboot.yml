@@ -138,6 +138,28 @@
   tags:
     - netboot
 
+# Pin the Pi's timesyncd at the server: Pis have no internet and timesyncd
+# does not reliably consume the DHCP ntp-server option under dhcpcd, so
+# without this every Pi's clock sits on the fake-hwclock date (C2-2). The
+# server side (chrony + dhcp-option) lives in the pxe role.
+- name: create timesyncd.conf.d in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
+    state: directory
+    mode: "0755"
+  tags:
+    - netboot
+
+- name: point Pi timesyncd at the server
+  copy:
+    content: |
+      [Time]
+      NTP={{ eth_local_address | default('10.21.0.1') }}
+    dest: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d/fpgas.conf"
+    mode: "0644"
+  tags:
+    - netboot
+
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
@@ -147,27 +169,22 @@
     - netboot
     - qemu
 
-# The chroot-regenerated initramfs (with overlayroot hooks) is written to
-# the rootfs /boot directory, but TFTP serves the FAT partition's initramfs8.
-# Copy the newest regenerated initramfs over the FAT one so the Pi boots with
-# overlayroot support. On real hardware this copy happens automatically via
-# the raspi-firmware hook, but that hook doesn't run correctly in our chroot.
-- name: find regenerated v8 initramfs (with overlayroot)
-  find:
-    paths: "{{ nfs_root }}/root/boot"
-    patterns: "initrd.img-*-v8"
-  register: fixpi_regenerated_initramfs
-  tags:
-    - netboot
-    - qemu
-
-- name: copy regenerated initramfs to FAT partition TFTP path
-  copy:
-    remote_src: true
-    src: "{{ fixpi_regenerated_initramfs.files[0].path }}"
-    dest: "{{ nfs_root }}/boot/initramfs8"
-    mode: "0755"
-  when: fixpi_regenerated_initramfs.files | length > 0
+# The chroot's raspi-firmware hook writes the FULL matched firmware payload
+# (kernel*.img, initramfs*, DTBs, overlays) into the rootfs /boot/firmware,
+# but TFTP serves the separate FAT-partition boot dir. Historically only
+# initramfs8 was copied across, which after a chroot kernel upgrade left a
+# MISMATCHED pair — old kernel8.img (6.6.31) + new initramfs (6.12.96
+# modules) — producing nondeterministic Pi boot failures: panic-hangs,
+# boot loops, half-booted systems with sshd never up (tweed rebuild C1-3,
+# 2026-08-25). Sync the whole payload; cmdline.txt/config.txt stay ours.
+- name: sync matched kernel+initramfs+DTB payload from root/boot/firmware
+  ansible.posix.synchronize:
+    src: "{{ nfs_root }}/root/boot/firmware/"
+    dest: "{{ nfs_root }}/boot/"
+    rsync_opts:
+      - "--exclude=cmdline.txt"
+      - "--exclude=config.txt"
+  delegate_to: "{{ inventory_hostname }}"
   tags:
     - netboot
     - qemu
