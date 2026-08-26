@@ -10,6 +10,12 @@
   hosts: nbp
   become: true
   tasks:
+    - name: verify operators
+      include_role:
+        name: operators
+        tasks_from: verify/main.yml
+      tags: [verify, operators]
+
     - name: verify firewall
       include_role:
         name: firewall

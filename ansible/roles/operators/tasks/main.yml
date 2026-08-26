@@ -1,0 +1,69 @@
+---
+# Human operator accounts with passwordless sudo. The server's ansible user
+# deliberately trusts ONLY the fpgas.online-ansible automation key (rebuild
+# #2 P2-1), so operators get their own accounts, keyed from their GitHub
+# accounts via ssh-import-id (same pattern onpi uses for the pi user).
+- name: install ssh-import-id
+  apt:
+    name: ssh-import-id
+  tags:
+    - operators
+
+- name: create operator accounts
+  user:
+    name: "{{ item.name }}"
+    shell: /bin/bash
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - operators
+
+- name: passwordless sudo for operators
+  copy:
+    content: "{{ item.name }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "/etc/sudoers.d/{{ item.name }}"
+    mode: "0440"
+    validate: "visudo -cf %s"
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - operators
+
+# Tolerate a transient GitHub outage (don't fail a rebuild over it) but
+# never SILENTLY leave an operator without keys - the assert below trips
+# if the account has no authorized_keys at all.
+- name: import operator ssh keys from GitHub
+  command: "ssh-import-id {{ item.ssh_import_ids | join(' ') }}"
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  failed_when: false
+  tags:
+    - operators
+
+- name: check operator authorized_keys exist
+  stat:
+    path: "/home/{{ item.name }}/.ssh/authorized_keys"
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: operators_authkeys
+  tags:
+    - operators
+
+- name: assert every operator has at least one key
+  assert:
+    that:
+      - item.stat.exists
+      - item.stat.size > 0
+    fail_msg: "operator {{ item.item.name }} has no authorized_keys (ssh-import-id failed?)"
+  loop: "{{ operators_authkeys.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  tags:
+    - operators

@@ -1,4 +1,13 @@
 ---
+# Human operator accounts on the servers (operators role): own unix user,
+# passwordless sudo, keys imported from GitHub each converge. The ansible
+# user itself trusts only the fpgas.online-ansible automation key.
+operator_accounts:
+    - name: tim
+      ssh_import_ids: [gh:mithro]
+    - name: carl
+      ssh_import_ids: [gh:CarlFK]
+
 ssh_imports:
     - carlfk
     - gh:mithro

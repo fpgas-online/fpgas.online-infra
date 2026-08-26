@@ -1,0 +1,33 @@
+---
+- name: "verify: operator accounts exist"
+  getent:
+    database: passwd
+    key: "{{ item.name }}"
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "verify: operator sudoers files are valid"
+  command: "visudo -cf /etc/sudoers.d/{{ item.name }}"
+  changed_when: false
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "verify: operator authorized_keys are non-empty"
+  stat:
+    path: "/home/{{ item.name }}/.ssh/authorized_keys"
+  register: operators_v_keys
+  loop: "{{ operator_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: "verify: assert operator keys present"
+  assert:
+    that:
+      - item.stat.exists
+      - item.stat.size > 0
+    fail_msg: "operator {{ item.item.name }} missing authorized_keys"
+  loop: "{{ operators_v_keys.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
