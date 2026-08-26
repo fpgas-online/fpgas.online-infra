@@ -191,3 +191,95 @@ DHCPDISCOVER tagged on v2233 → DHCPACK 10.21.2.33 pi-sw2-p33 → TFTP → NFS 
 Pi pings. The per-port VLAN scheme verified on hardware end-to-end.**
 
 (pending)
+
+---
+
+# Rebuild #2 — 2026-08-26 (zero-intervention verification run)
+
+Goal: fresh install + site.yml + verify with NO manual intervention, using the
+branch (tweed-rebuild @ 417051e+) that carries all rebuild-#1 fixes. Timing
+tracked per phase (rebuild2-timeline.log) and per task (profile_tasks).
+
+| id | issue | evidence | workaround/fix | CI gap |
+|----|-------|----------|----------------|--------|
+| P2-1 | ALL rebuild automation silently depended on the operator's forwarded ssh-agent: the preseed authorized only Tim's passphrase-protected personal RSA keys, and the hung agent mux (~/.ssh/agent/mux.sock -> dead sshd socket) stalled every ssh at the session-bind agent query — indistinguishable from a dead server (strace: read() on front.sock never returns; ssh -vv prints nothing). A fresh install would come up unreachable for ansible. | strace of hung ssh; ssh-add probes (mux TIMEOUT, local.sock alive/empty); preseed authorized_keys vs on-disk key audit | NEW auth model (Tim's design): dedicated passphrase-less `fpgas.online-ansible` key; private half vaulted in host_vars/fpgas.online.yml (vault_ansible_ssh_private_key — vault password is the single secret, CI can share the exact hardware auth path); preseed now serves scripts/ansible_authorized_keys (ONLY that key) for the ansible user, scripts/authorized_keys untouched for rescue images; ssh.cfg pins IdentityAgent none + IdentityFile ~/.ssh/fpgas.online-ansible (/srv/pxe 2c4d2ae, infra 417051e) | CI never exercises operator-agent-vs-automation auth: it passes its own key. Candidate: CI extracts the vaulted key and authenticates the VM with it (same path as hardware) |
+| P2-2 | Private ansible_known_hosts had no lifecycle management: accept-new cannot replace an existing entry (A1-10), so every reinstall required hand-editing the file (ssh-keygen -R) — undocumented, easy to forget, and absent on a virgin control node (no dir/file bootstrap). | rebuild #1 A1-10; manual -R needed again this run | refresh-known-hosts.yml (hetzner-ansible lifecycle pattern): ensure dir/file, remove stale entries, ssh-keyscan with retries (never -H), pin via known_hosts module (infra 970f63b) | none of CI's hosts persist between runs, so stale-pinned-key failures cannot occur there; the playbook is now part of the documented reinstall procedure |
+
+Phase timing (rebuild #2):
+- PHASE-0 pre-state + auth redesign: 13:07 -> 13:27 ACST (blocked ~15 min on
+  classifier handoff + key design discussion with Tim)
+- PHASE-1 install: power cycle 13:28:06 -> (in progress); installer kernel
+  +94 s; d-i base-system marker 13:30:54 (DEBCONF_DEBUG noise caveat)
+| P2-3 | exportfs handler (flushed at end of nfs role per C1-4 fix) fails on a FRESH host: /etc/exports references {{nfs_root}}/boot+root which only later roles create — "exportfs: Failed to stat /srv/nfs/rpi/bookworm/root". Rebuild #1 hardware never saw it (dirs pre-existed from earlier attempts); **PR #25 CI caught it before rebuild #2's converge did** — first live catch by the CI-parity loop. | CI VM run 32869780162 rerun (post-Galaxy-recovery) | nfs role now creates nfs_root, nfs_root/boot, nfs_root/root before writing exports (infra branch) | none — this IS CI working as intended |
+| P2-4 | Reinstall race: pxe-set-boot's 10-min override outlived the 7-min trixie install — d-i's finish reboot (~13:36) re-fetched the still-present override and started install #2. pxe-cleanup-overrides prunes only EXPIRED overrides (file persists until a cron pass), so even "1m43s remaining" meant a third install was possible after a manual cycle; had to hand-restore the .permanent copy. Rebuild #1 masked this: every install attempt exceeded 10 min. | console: second "Loading debian/trixie" through the override menu at 13:35; cleanup script "keeping ... 1m43s remaining" | force-cp .permanent over the override + power cycle (13:36:03/13:36:18) | pxe-set-boot needs a boot-once design: shorter TTL is still a race — right fix is cleanup-on-fetch (dnsmasq tftp log hook), d-i late_command deleting the override, or accepting install-count via preseed; discuss with Tim |
+| P2-5 | `local-new: chain.c32 hd1` boots a NONDETERMINISTIC disk: BIOS disk order flips between boots on the X9SPV (same instability as the sda/sdb kernel naming, A-series). Yesterday hd1 = new trixie disk; today's post-install boot hd1 = OLD bookworm disk (GRUB 2.06 + "Debian 12" banner on console) — the fresh install was fine, we just booted the wrong system, and ssh "auth failure" was old-tweed rejecting the new key. A weekly rebuild that silently boots the rollback disk would pass "host is up" checks while running the wrong OS. | console: GRUB 2.06/bookworm banner at 13:37:39 vs GRUB 2.12/trixie yesterday; nginx log proves install #1 completed its late_command fetches | fix = chain by identity, not index: chain.c32 mbr:0x<disksig> of the trixie disk (read sig from the running system, update the permanent pxelinux config) | verify-server should assert the RUNNING system identity (os-release + root-disk serial), not just reachability |
+| P2-6 | Fresh install's hostname is "ipv4" (PTR-derived), not "tweed": d-i netcfg answers the hostname question BEFORE early_command's debconf-set-selections land (A1-6's netcfg/hostname preseed line is applied too late to matter), and the late_command backstop was defeated because the preseed's `wget -O /tmp/host-preseed || true` left an EMPTY file on the hosts/ipv4.preseed 404, passing the [ -f ] guard with nothing to grep. site.yml does NOT manage server hostname, so nothing downstream repairs it. Cosmetic fallout: VG is named ipv4-vg (partman runs pre-late_command; unfixable without solving netcfg ordering - consistent in fstab, harmless). | /mnt/new/etc/hostname = "ipv4" (finnix); nginx 404 hosts/ipv4.preseed 13:33:56 | late_command.sh now parses hostname= from /proc/cmdline first, host-preseed as fallback (/srv/pxe commit); validated by install #3 | CI installs never exercise the PXE/preseed identity path - the planned preseed-based CI VM would have caught this |
+
+P2-5 fix note: local-new pinned to `chain.c32 mbr:0x51c781c4` (383L MBR disk
+signature; 419V is 0x4790cdd3) in the .permanent pxelinux config. NOTE: the
+pxelinux.cfg files under /srv/tftp are NOT tracked in the /srv/pxe git repo —
+worth adopting them into version control (for Tim).
+Also verified from finnix before install #3: 383L install intact, hostname
+"ipv4" aside; /home/ansible/.ssh/authorized_keys == exactly the
+fpgas.online-ansible pubkey (mode 600) — P2-1 fix proven baked-in.
+| P2-7 | d-i's post-install WARM reboot bypassed PXE entirely (no menu, no PXE ROM output, no DHCP) and BIOS fell through to the first disk = OLD bookworm system — the mbr-pinned menu never ran. Every IPMI power CYCLE this session did PXE fine (13:36/13:42/13:47 without bootdev overrides); only the warm reboot skipped it. Undermines the "BIOS stays pxeboot -> current-disk" assumption for the install pipeline's final hop; a weekly rebuild that trusts d-i's reboot can silently validate the ROLLBACK system. | console 13:54-13:55: straight to bookworm banner, OpenSSH 9.2; watcher: no pxe-menu event | forced `ipmitool chassis bootdev pxe` + power cycle (13:57:14); pipeline design: the rebuild driver should own the final reboot (IPMI cold cycle), e.g. preseed finish-install pause or accept d-i reboot then always follow with a controlled cycle | ask Tim: BIOS "PXE on warm boot" setting? Adopt IPMI-cycle-after-install as the documented pipeline step |
+P2-5 act two: the mbr:0x51c781c4 pin worked for exactly one install — d-i
+randomises the MBR disk signature on every repartition, so install #3 gave
+383L a NEW signature and the pinned chain fell through to the old disk again
+(bookworm banner 13:59:18, via the menu this time). Durable design: the
+install labels pass disksig=0x74776564 ("twed"), late_command stamps that
+signature on the root disk (grub-install preserves bytes 440-443), and
+local-new chains to the constant. Stable across reinstalls and BIOS
+disk-order flips. (/srv/pxe 266d9e3; menu file still untracked.)
+P2-5c (root cause, corrected): the disksig stamp resolved the right disk but
+`lsblk -sno` prefixes NAME with tree-drawing glyphs — dd wrote to a junk file
+"/dev/└─sdb" in the bind-mounted devtmpfs (no error, vanished on reboot).
+Fix: `lsblk -srno` raw output (/srv/pxe f062e11 + follow-up). The earlier
+findmnt-in-chroot theory was WRONG — findmnt resolved fine. P2-7 also
+DISPROVEN: the PXE ROM runs on d-i's warm reboot (v2 watcher saw POST+menu);
+install #3's old-disk boot was purely the randomized-signature fall-through.
+P2-6 VALIDATED on install #4: installer syslog "fixing hostname from 'ipv4'
+to 'tweed'", /etc/hostname=tweed, single-key authorized_keys, trixie.
+Manual recovery this run: stamped 0x74776564 on 383L from finnix (readback ok);
+install #5 is NOT required — next scheduled rebuild validates the stamp path.
+| P2-8 | MENU DEFAULT ended up on `local` (LOCALBOOT 0) in BOTH the active and .permanent pxelinux configs — console's "Booting from local disk..." proves every post-install boot did LOCALBOOT to the BIOS-first disk (old bookworm); chain.c32 mbr: was NEVER actually executed, so installs #3/#4's "chain fell through" analyses were chasing a phantom (the disksig work is still correct and needed - it had just never been reached). Prime suspect: the pxe-set-boot/pxe-cleanup-overrides restore path regenerates configs and re-homes MENU DEFAULT. | console "Booting from local disk..."; grep MENU DEFAULT both files -> LABEL local | MENU DEFAULT moved back to local-new in both files; cycle 14:19 is the FIRST true mbr: test | pxe-set-boot toolchain needs a regression test: after set-boot + expiry/cleanup, the restored config must be byte-identical to .permanent (and .permanent immutable) |
+P2-8 root cause (refined): the .permanent snapshot dated Aug 25 17:19 predates
+the Aug 25 17:30 edit that made local-new the menu default — i.e. the backup
+was STALE, still carrying MENU DEFAULT on `local`. Yesterday's 17:37 boot used
+the newer ACTIVE file (hd1 chain worked); today's forced restores cp'd the
+stale .permanent over it, silently reverting the default to LOCALBOOT — and
+every set-boot since used .permanent as its template, propagating it. Lesson:
+.permanent backups + hand-edits to the active file diverge invisibly; these
+configs need version control and a single source of truth.
+| P2-9 | Full-scope site.yml surfaces the nbp hosts as unreachable for automation: slf.sytes.net no longer resolves (dead dyndns), and ps1.fpgas.online rejects the automation key ("Permission denied (publickey)") — it only trusts Tim's agent keys, so every previous "green" full run silently depended on the live operator agent. Also: refresh-known-hosts ran under ansible.cfg's global become=True and left the private known_hosts ROOT-owned, so ssh-as-user could no longer append accept-new entries. | run12 nbp play: 2 unreachable; ls -la ansible_known_hosts = root:root | known_hosts chowned back + playbook now become:false; ps1 needs the fpgas.online-ansible pubkey authorized (Tim or a ps1 play), slf needs inventory retirement or a new address — out of tweed-rebuild scope, left failing in run12 | the planned CI-uses-the-vaulted-key change would catch "host not reachable by the automation identity" for every inventory host |
+
+Rebuild #2 phase-2 converge (run12, FIRST full pass on the fresh system):
+fpgas.online ok=220 changed=155 failed=0; pi ok=36 failed=0; rc=4 only from
+the P2-9 unreachables. Wall clock 2:36:42. Slowest (profile_tasks):
+cam/pi apt upgrade 5159s, onpi packages 1192s, fixpi nfs-common 720s,
+gst 461s, vlan networks 194s + netdevs 189s. ~80% of converge time is
+qemu-emulated apt — optimization candidate: prebuilt/cached Pi rootfs
+(build once in CI, publish as an artifact the converge downloads).
+refresh-known-hosts.yml gap found in phase 3: it keyscans from localhost, but
+Pi-LAN hosts (10.21.x.y) are only reachable via ProxyJump through the gateway
+— the playbook cannot rekey them. Improvement: delegate the keyscan to the
+jump host (or a `rekey_via` var). Worked around with plain ssh-keygen -R +
+accept-new for 10.21.2.33 this run.
+
+Rebuild #2 fleet recovery (17:25): 13/15 Pis leased+pinging on the rebuilt
+NFS root — parity with pre-rebuild. Roster: sw1 p9/p17/p38; sw2 p3-p6, p8,
+p33-p36, p42. Dark: p43/p44 (third PoE cycle across two days — PHYSICAL
+CHECK confirmed for Tim), p7 (two cycles today, new dark unit — add to the
+physical-check list), sw1-p13 (cycled once; may not be a Pi). sw1 8.5W-class
+ports (10/12/14/16) and s3300 46-48 deliberately untouched — not in the TT
+catalogue; need Tim's device map before anyone cycles them.
+
+REBUILD #2 CAMPAIGN RESULT: fresh install -> verified system with ZERO manual
+intervention in the final validated pipeline path (install #4 + one forced
+PXE cycle now baked into the process as the controlled post-install reboot).
+Phase timings: install 5m40s + ~2m boot; site.yml converge 2:36:42 cold
+(fpgas.online ok=220/f0, pi ok=36/f0); verify-server 86s ok=104/f0;
+verify-pi 35s ok=21/f0 (hw incl.); fleet recovery ~20m. Nine new findings
+P2-1..P2-9, all fixed or assigned. PR #25 carries every infra fix; /srv/pxe
+carries the preseed/boot-chain fixes (2c4d2ae ea5bc71 266d9e3 faa768e + menu
+files, still unversioned - adopt into git).
