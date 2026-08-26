@@ -19,6 +19,11 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  # ansible.cfg sets become=True globally; this playbook manages the
+  # CONTROL NODE user's own files - running it as root leaves the
+  # known_hosts owned by root, and ssh (as the user) can then no longer
+  # append accept-new entries (rebuild #2: ps1 "Failed to add the host").
+  become: false
   vars:
     ansible_known_hosts_file: "{{ lookup('env', 'HOME') }}/.config/fpgas-online/ansible_known_hosts"
     rekey_hosts:
