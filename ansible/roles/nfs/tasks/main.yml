@@ -7,10 +7,19 @@
   tags:
     - nfs
 
+# The role must create every path /etc/exports references: exportfs runs
+# via flush_handlers at the END OF THIS ROLE, and on a fresh host the
+# boot/root trees are only populated by later roles (fixpi/netboot) —
+# exportfs fails with "Failed to stat" on missing paths (rebuild #2 P2-3,
+# caught by CI before it hit hardware).
 - name: create some dirs
   file:
-    path: "{{ nfs_root }}"
+    path: "{{ item }}"
     state: directory
+  loop:
+    - "{{ nfs_root }}"
+    - "{{ nfs_root }}/boot"
+    - "{{ nfs_root }}/root"
 
 - name: nfs only on internal nic
   lineinfile:
