@@ -1,0 +1,26 @@
+---
+# LLDP on the server. lldpd advertises this host's identity on every
+# attached link and records what the switches advertise back, which makes
+# the physical topology discoverable instead of assumed:
+#   lldpcli show neighbors      # which switch/port each NIC really lands on
+#   (switch side) ngsw ... get-lldp / the netgear MCP get_lldp tool
+#
+# The per-port VLAN scheme already *derives* a Pi's port from its address
+# (10.21.<switch>.<port>), so LLDP is not needed for that mapping; what it
+# adds is confirming the assumed cabling against reality -- the gap behind
+# the undocumented powered switch ports and the dark Pi ports found during
+# the 2026-08 rebuilds. See fpgas.online-setup-pi#6 (the Pi half of this is
+# the lldpd entry in the onpi package list).
+- name: Install lldpd
+  apt:
+    name: lldpd
+  tags:
+    - lldp
+
+- name: Enable and start lldpd
+  systemd:
+    name: lldpd
+    enabled: true
+    state: started
+  tags:
+    - lldp
