@@ -114,6 +114,32 @@
         fail_msg: "overlayroot package not installed on Pi"
       tags: [verify, packages]
 
+    - name: Check lldpd package installed
+      command: dpkg -l lldpd
+      changed_when: false
+      register: verify_pi_lldpd
+      failed_when: false
+
+    - name: Assert lldpd installed
+      assert:
+        that: verify_pi_lldpd.rc == 0
+        fail_msg: >-
+          lldpd package not installed on Pi (a Pi booted before the NFS
+          root gained it needs a reboot to pick it up)
+      tags: [verify, packages]
+
+    - name: Check lldpd service active
+      command: systemctl is-active lldpd
+      changed_when: false
+      register: verify_pi_lldpd_active
+      failed_when: false
+
+    - name: Assert lldpd service is active
+      assert:
+        that: verify_pi_lldpd_active.stdout == "active"
+        fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
+      tags: [verify, services]
+
     # Hardware-dependent services (tag-based skip)
     - name: Check fpgas-cam service enabled
       command: systemctl is-enabled fpgas-cam

@@ -16,6 +16,12 @@
         tasks_from: verify/main.yml
       tags: [verify, operators]
 
+    - name: verify lldp
+      include_role:
+        name: lldp
+        tasks_from: verify/main.yml
+      tags: [verify, lldp]
+
     - name: verify firewall
       include_role:
         name: firewall

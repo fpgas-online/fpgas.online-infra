@@ -39,6 +39,12 @@
       - tree
       - ack
       - tcpdump
+      # Advertises this Pi's hostname on its link so the switch's LLDP
+      # neighbour table names which Pi is on which port -- confirms the
+      # assumed cabling instead of trusting it (fpgas.online-setup-pi#6;
+      # the server half is the lldp role). A running Pi only picks this up
+      # after a reboot: the NFS root is a read-only lower layer.
+      - lldpd
       - openocd
       - openfpgaloader
       - fxload
