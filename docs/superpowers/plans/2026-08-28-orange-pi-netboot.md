@@ -665,7 +665,9 @@ Expected: VM run green, verify-pi's per-port-address check still passes (network
     # nothing; the journal of this boot is the evidence that each board's
     # instance ran and sunxi-fel reported "U-Boot loaded".
     - name: Check FEL-boot journal on the hub host
-      command: journalctl -b -u 'fpgas-felboot@*' -o cat --no-pager
+      # not `-u 'fpgas-felboot@*'`: journalctl expands unit globs against
+      # loaded units only, and finished instances are unloaded.
+      shell: journalctl -b -o cat --no-pager | grep '^fpgas-felboot: ' || true
       changed_when: false
       register: verify_pi_felboot
       when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
