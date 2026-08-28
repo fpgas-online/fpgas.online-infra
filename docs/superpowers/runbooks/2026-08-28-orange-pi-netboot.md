@@ -82,3 +82,34 @@ for it in `sunxi_boards`.
   never reaches sshd (see the hardware doc). A second PoE cycle fixes it.
   Until that board has a serial console attached, treat "p21 not up after
   5 min" as "cycle it again", not as an infrastructure fault.
+
+## Hub host pi-sw2-p30 boots from SD (2026-08-28 evening)
+
+The hub host no longer runs the shared NFS root. Its 8 GB microSD carries the
+`welland-ansible-rpi` **fleet-bootstrap-arm64** image (Raspberry Pi OS trixie,
+cloud-init users `tim`/`ansible`, hostname `rpi5-new-13f59c`) and the Pi 5
+EEPROM is `BOOT_ORDER=0xf21` — **SD first, netboot only if the card fails**
+(verified: with the card the bootloader fetches nothing from tweed; with
+netboot deliberately broken the card booted and both users logged in).
+tweed still hands it `10.21.2.30` / `pi-sw2-p30` on the per-port VLAN.
+
+Hand-configured on that OS, to be captured by `welland-ansible-rpi` when the
+host is enrolled there (it is a fleet host now, not an NFS-root Pi):
+
+* apt source `https://fpgas.online/apt trixie main` (key in
+  `/usr/share/keyrings/fpgas-online.gpg`) and `fpgas-online-setup-pi` +
+  `sunxi-tools` installed — this is what FEL-boots the Orange Pis
+  (`fpgas-felboot@<usb>.service`; proven on this OS: a PoE-cycled board was
+  back in 72 s).
+* NM profile `netplan-eth0`: `ipv4.never-default yes`, `ipv6.never-default yes`
+  — eth0 (tweed's VLAN) has no internet; wlan0 (`ansells-iot`) carries the
+  default route.
+* Consequence for this runbook: `verify-pi.yml` no longer applies to p30 (no
+  `pi` user, not the NFS root); the `hw-sunxi` hub-host check must target it
+  as `tim`/`ansible` or move to the fleet repo.
+
+Changing the EEPROM on a *netbooted* Pi 5: the bootloader looks for
+`pieeprom.sig`/`pieeprom.upd` at the TFTP **root** (not in its serial dir), so
+use a per-interface `tftp-root=<dir>,v22NN` in dnsmasq to serve the update to
+one Pi only. The same trick with an empty dir forces one Pi's netboot to fail
+(SD-fallback test). On the SD OS `rpi-eeprom-config --apply` flashes directly.
