@@ -41,10 +41,10 @@ Both methods agreed for all four boards.
 
 * **1/g22** was resolved on 2026-08-28 evening: its OTG cable was plugged into hub
   port 1-1.3.2, felboot picked it up and it is `pi-sw2-p22` (5th board above).
-* **1/g16**: PoE `delivering` 1.1–1.4 W, link down, no USB device reacted when it
-  was powered off for 25 s. Same power signature as an idle H3 in FEL — but Tim
-  counts five Orange Pis, all now accounted for, so this is something else.
-  Physical check needed.
+* **1/g16**: nothing is connected (Tim, 2026-08-28). The switch nevertheless
+  reported `delivering` 1.1–1.4 W for days — a stale PoE-controller reading; a
+  PoE off/on cleared it to `searching`/0 mW. Lesson: cycle a port before
+  believing a small phantom load.
 * **1/g43, 1/g44, 1/g47**: resolved 2026-08-28 evening — cycling each one at a time
   with 12 s off brought all three back (they take >90 s; p43's PoE draw dipping to
   0 mW mid-way is the Pi 5's own power-on reset). They are `pi-sw2-p43/p44/p47`,
