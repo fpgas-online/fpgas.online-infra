@@ -45,9 +45,10 @@ Both methods agreed for all four boards.
   was powered off for 25 s. Same power signature as an idle H3 in FEL — but Tim
   counts five Orange Pis, all now accounted for, so this is something else.
   Physical check needed.
-* **1/g43, 1/g44, 1/g47**: 7–9 W, never link (cycled one at a time with 12 s off on
-  2026-08-28: p44/p47 come back to the same draw with no link in 90 s; p43 came
-  back at 7 W and then dropped to `searching`/0 mW after ~80 s). Physical check.
+* **1/g43, 1/g44, 1/g47**: resolved 2026-08-28 evening — cycling each one at a time
+  with 12 s off brought all three back (they take >90 s; p43's PoE draw dipping to
+  0 mW mid-way is the Pi 5's own power-on reset). They are `pi-sw2-p43/p44/p47`,
+  Raspberry Pi 5s (98:fe:54:13:e0:75 / 13:e0:f5 / 13:f5:75). Hung boots, like p7.
 
 ## Known issue: pi-sw2-p21 (USB 1-1.3.1) slow first boot
 

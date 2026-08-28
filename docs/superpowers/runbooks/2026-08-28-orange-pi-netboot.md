@@ -32,8 +32,10 @@ uv run ansible-playbook -i ansible/inventory ansible/site.yml \
 * Check afterwards on tweed:
   `ls /srv/nfs/rpi/bookworm/boot/sunxi /srv/nfs/rpi/bookworm/boot/pxelinux.cfg`
   and `chroot /srv/nfs/rpi/bookworm/root dpkg -l fpgas-online-setup-pi sunxi-tools`.
-* Running Pis do not see NFS-root changes until they reboot: PoE-cycle
-  pi-sw2-p30 (port 30) so it picks up the felboot package, then the boards.
+* Running Pis do not see NFS-root changes until they reboot — worse, files the
+  converge replaced become `Stale file handle` on a running host and udev drops
+  the felboot rule for hot-plugged boards. **Always PoE-cycle pi-sw2-p30 (port 30)
+  after a converge**, then the boards.
 
 ## Verify
 
