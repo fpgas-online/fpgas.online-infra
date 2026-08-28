@@ -184,3 +184,19 @@
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
+
+    # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
+    # neither fail nor stall the boot.
+    - name: Check no failed units
+      command: systemctl --failed --no-legend --plain
+      changed_when: false
+      register: verify_pi_failed
+      tags: [verify, services]
+
+    - name: Assert ifupdown is masked and not failed
+      assert:
+        that:
+          - "'networking.service' not in verify_pi_failed.stdout"
+          - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
+        fail_msg: "ifupdown units still failing on the Pi: {{ verify_pi_failed.stdout }}"
+      tags: [verify, services]
