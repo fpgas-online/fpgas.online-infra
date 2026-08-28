@@ -332,3 +332,4 @@ sunxi_boards:
   - {switch: 2, port: 21, host: pi-sw2-p30, usb: "1-1.3.1", model: orangepi-pc, mac: "02:81:31:f4:6e:48"}
   - {switch: 2, port: 23, host: pi-sw2-p30, usb: "1-1.2.3", model: orangepi-pc, mac: "02:81:1f:e1:45:1d"}
   - {switch: 2, port: 24, host: pi-sw2-p30, usb: "1-1.2.4", model: orangepi-pc, mac: "02:81:f5:c0:a6:10"}
+  - {switch: 2, port: 22, host: pi-sw2-p30, usb: "1-1.3.2", model: orangepi-pc, mac: "02:81:2e:b7:a3:4e"}

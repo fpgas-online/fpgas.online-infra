@@ -13,7 +13,7 @@ Both methods agreed for all four boards.
 * USB: one Realtek RTS5411 hub at `1-1` with four RTS5411 sub-hubs `1-1.1`…`1-1.4`
   (16 downstream ports). A USB-3 twin (`2-1`, 0bda:0411) has nothing attached.
 
-## Boards (all Allwinner H3, `sunxi-fel ver` soc=0x1680; U-Boot `orangepi_pc_plus` DRAM init OK)
+## Boards (five; all Allwinner H3, `sunxi-fel ver` soc=0x1680; U-Boot `orangepi_pc_plus` DRAM init OK)
 
 | Hub port (sysfs) | Switch port (s3300-1 = "sw2") | VLAN | IP / hostname (per-port scheme) | MAC (U-Boot, derived from SID) | SID (`sunxi-fel sid`) |
 |---|---|---|---|---|---|
@@ -21,6 +21,7 @@ Both methods agreed for all four boards.
 | 1-1.3.1 | 1/g21 | 2221 | 10.21.2.21 `pi-sw2-p21` | 02:81:31:f4:6e:48 | 02c00081:35b04620:79058814:502c0194 |
 | 1-1.2.3 | 1/g23 | 2223 | 10.21.2.23 `pi-sw2-p23` | 02:81:1f:e1:45:1d | 02c00181:34504620:79058814:40260714 |
 | 1-1.2.4 | 1/g24 | 2224 | 10.21.2.24 `pi-sw2-p24` | 02:81:f5:c0:a6:10 | 02c00081:35e04620:79058814:48230714 |
+| 1-1.3.2 | 1/g22 | 2222 | 10.21.2.22 `pi-sw2-p22` | 02:81:2e:b7:a3:4e | 02c00081:35d04620:79058814:401c0a94 |
 
 * Power: PoE from s3300-1 through a PoE splitter (1.1–1.2 W while idle in FEL,
   ~1.5 W with U-Boot running). The micro-USB OTG cable does **not** power them:
@@ -38,10 +39,15 @@ Both methods agreed for all four boards.
 
 ## Ports still unexplained on s3300-1
 
-* **1/g16** and **1/g22**: PoE `delivering` 1.1–1.2 W, link down, and no USB device
-  reacted when they were powered off for 25 s. Same power signature as the Orange
-  Pis — probably two more H3 boards whose OTG cable is not plugged into this hub
-  (or into anything). Physical check needed.
+* **1/g22** was resolved on 2026-08-28 evening: its OTG cable was plugged into hub
+  port 1-1.3.2, felboot picked it up and it is `pi-sw2-p22` (5th board above).
+* **1/g16**: PoE `delivering` 1.1–1.4 W, link down, no USB device reacted when it
+  was powered off for 25 s. Same power signature as an idle H3 in FEL — but Tim
+  counts five Orange Pis, all now accounted for, so this is something else.
+  Physical check needed.
+* **1/g43, 1/g44, 1/g47**: 7–9 W, never link (cycled one at a time with 12 s off on
+  2026-08-28: p44/p47 come back to the same draw with no link in 90 s; p43 came
+  back at 7 W and then dropped to `searching`/0 mW after ~80 s). Physical check.
 
 ## Known issue: pi-sw2-p21 (USB 1-1.3.1) slow first boot
 
