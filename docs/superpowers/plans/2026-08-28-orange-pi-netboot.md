@@ -519,7 +519,9 @@ StopWhenUnneeded=yes
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/fpgas-felboot.sh %I
+# %i (escaped), not %I: systemd unescapes %I and turns 1-1.2.2 into 1/1.2.2
+# (found on hardware 2026-08-28).
+ExecStart=/usr/local/bin/fpgas-felboot.sh %i
 ```
 
 - [ ] **Step 6: Package it**
