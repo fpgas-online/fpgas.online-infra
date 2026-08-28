@@ -83,6 +83,7 @@ git commit -m "inventory: declare the Orange Pi H3 boards (sunxi_boards) for twe
 
 **Files:**
 - Create: `ansible/roles/fixpi/tasks/sunxi.yml`
+- Create: `ansible/roles/fixpi/defaults/main.yml` (`sunxi_debian_keyring_deb`, `sunxi_debian_keyring_sha256` — Raspbian ships no `debian-archive-keyring`, found at the first hardware converge)
 - Create: `ansible/roles/fixpi/templates/apt/debian-armmp.sources.j2`
 - Create: `ansible/roles/fixpi/templates/apt/debian-armmp.pref.j2`
 - Create: `ansible/roles/fixpi/templates/boot/default-arm-sunxi.j2`
@@ -160,10 +161,21 @@ label sunxi
 # "Unsupported kernel version (6.1.0-50-armmp) - skipping setup" and leaves
 # /boot/firmware alone (verified 2026-08-28 in the spike).
 
-- name: debian keyring for the armmp kernel source
+# Raspbian does not carry debian-archive-keyring, so fetch Debian's own
+# bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
+# into the root; it provides the Signed-By keyring the source below names.
+- name: fetch debian-archive-keyring for the armmp kernel source
+  get_url:
+    url: "http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
+    dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
+    checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
+    mode: "0644"
+  tags: [sunxi, sunxi-kernel]
+
+- name: install debian-archive-keyring into the NFS root
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "apt-get install -y debian-archive-keyring"
+    "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
   args:
     creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
   tags: [sunxi, sunxi-kernel]
