@@ -42,3 +42,21 @@ Both methods agreed for all four boards.
   reacted when they were powered off for 25 s. Same power signature as the Orange
   Pis — probably two more H3 boards whose OTG cable is not plugged into this hub
   (or into anything). Physical check needed.
+
+## Known issue: pi-sw2-p21 (USB 1-1.3.1) slow first boot
+
+Observed 2026-08-28 in 2 of 3 first boots after a power cycle: U-Boot loads,
+the kernel boots and mounts the NFS root (kernel DHCP seen on tweed), but
+userspace crawls — ~40 MB read from NFS in 10 min versus ~170 MB in 2 min on
+its siblings — and sshd never starts. A second PoE cycle boots it normally in
+~87 s every time. p20/p23/p24 never showed this. Board-specific (marginal DRAM
+on a cold start is the leading guess); it needs a serial console on **that**
+board's UART0 to see what is happening. Recovery = PoE-cycle port 21.
+
+## Deployment result (2026-08-28)
+
+Hub-host reboot → `fpgas-felboot@` fired for all four boards within its 19 s
+boot; staggered PoE cycles → p20 49 s, p23 52 s, p24 35 s to `multi-user`
+(kernel 16 s + userspace 19–37 s) on the production root with kernel
+`6.1.0-50-armmp`; `verify-pi.yml` (`hw-sunxi` included) green on the four
+boards and the hub host (p21 after its second cycle).

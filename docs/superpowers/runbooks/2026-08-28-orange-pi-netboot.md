@@ -73,3 +73,10 @@ for it in `sunxi_boards`.
 4. A different sunxi board model needs its own U-Boot build (vendor it in
    `fpgas.online-setup-pi/felboot/u-boot/`) and possibly a per-MAC
    `pxelinux.cfg/01-<mac>` with its DTB — U-Boot looks for that file first.
+
+## Known issue
+
+* **pi-sw2-p21** sometimes crawls on its first boot after a power cycle and
+  never reaches sshd (see the hardware doc). A second PoE cycle fixes it.
+  Until that board has a serial console attached, treat "p21 not up after
+  5 min" as "cycle it again", not as an infrastructure fault.
