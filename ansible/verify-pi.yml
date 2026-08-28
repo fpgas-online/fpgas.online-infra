@@ -223,8 +223,11 @@
         verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
       tags: [verify, hw-sunxi]
 
-    - name: Check FEL-boot units on the hub host
-      command: systemctl list-units --all --no-legend --plain 'fpgas-felboot@*'
+    # Finished oneshot instances are unloaded, so `systemctl list-units` shows
+    # nothing; the journal of this boot is the evidence that each board's
+    # instance ran and sunxi-fel reported "U-Boot loaded".
+    - name: Check FEL-boot journal on the hub host
+      command: journalctl -b -u 'fpgas-felboot@*' -o cat --no-pager
       changed_when: false
       register: verify_pi_felboot
       when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
@@ -234,9 +237,8 @@
       assert:
         that: >-
           verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname)
-          | map(attribute='usb') | map('regex_replace', '^', 'fpgas-felboot@')
-          | map('regex_replace', '$', '.service') | list
-          | difference(verify_pi_felboot.stdout_lines | map('regex_search', 'fpgas-felboot@[^ ]+') | list) | length == 0
-        fail_msg: "Missing fpgas-felboot@ instances on {{ ansible_hostname }}: {{ verify_pi_felboot.stdout }}"
+          | map(attribute='usb') | map('regex_replace', '^(.*)$', 'fpgas-felboot: \\1 (') | list
+          | reject('in', verify_pi_felboot.stdout) | list | length == 0
+        fail_msg: "No 'U-Boot loaded' journal line for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.stdout }}"
       when: verify_pi_felboot is not skipped
       tags: [verify, hw-sunxi]
