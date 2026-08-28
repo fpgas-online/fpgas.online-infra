@@ -223,14 +223,12 @@
         verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
       tags: [verify, hw-sunxi]
 
-    # Finished oneshot instances are unloaded, so `systemctl list-units` shows
-    # nothing; the journal of this boot is the evidence that each board's
-    # instance ran and sunxi-fel reported "U-Boot loaded".
-    - name: Check FEL-boot journal on the hub host
-      # not `-u 'fpgas-felboot@*'`: journalctl expands unit globs against
-      # loaded units only, and finished instances are unloaded.
-      shell: "journalctl -b -o cat --no-pager | grep '^fpgas-felboot: ' || true"
-      changed_when: false
+    # fpgas-felboot.sh leaves /run/fpgas-felboot/<usb-device> on success; the
+    # journal is volatile and rotates within minutes under systemd debug
+    # logging, and finished oneshot instances are unloaded from systemctl.
+    - name: List FEL-boot success markers on the hub host
+      find:
+        paths: /run/fpgas-felboot
       register: verify_pi_felboot
       when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
       tags: [verify, hw-sunxi]
@@ -238,9 +236,8 @@
     - name: Assert every attached board was FEL-booted from this host
       assert:
         that: >-
-          verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname)
-          | map(attribute='usb') | map('regex_replace', '^(.*)$', 'fpgas-felboot: \\1 (') | list
-          | reject('in', verify_pi_felboot.stdout) | list | length == 0
-        fail_msg: "No 'U-Boot loaded' journal line for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.stdout }}"
+          verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | map(attribute='usb') | list
+          | difference(verify_pi_felboot.files | map(attribute='path') | map('basename') | list) | length == 0
+        fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
       when: verify_pi_felboot is not skipped
       tags: [verify, hw-sunxi]
