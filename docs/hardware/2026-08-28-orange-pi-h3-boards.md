@@ -67,3 +67,23 @@ boot; staggered PoE cycles → p20 49 s, p23 52 s, p24 35 s to `multi-user`
 (kernel 16 s + userspace 19–37 s) on the production root with kernel
 `6.1.0-50-armmp`; `verify-pi.yml` (`hw-sunxi` included) green on the four
 boards and the hub host (p21 after its second cycle).
+
+## udev symlinks on the hub host (2026-08-28)
+
+`/etc/udev/rules.d/70-fpgas-opi-ports.rules` on rpi5-new-13f59c (source of truth:
+`welland-ansible-rpi` `inventory/host_vars/rpi5-new-13f59c.yml`, `hw_udev_files`)
+names each FEL device by everything we know about it. The links exist while the
+board sits in FEL, i.e. from power-on until `fpgas-felboot@` loads U-Boot:
+
+| Hub port | `/dev/fpgas/opi/…` symlinks (all → `/dev/bus/usb/001/NNN`) |
+|---|---|
+| 1-1.2.2 | `sw2-p20`, `usb-1-1.2.2`, `sid-02c00181-34304620-79058814-541b0614`, `mac-02-81-bf-f6-b7-99` |
+| 1-1.3.1 | `sw2-p21`, `usb-1-1.3.1`, `sid-02c00081-35b04620-79058814-502c0194`, `mac-02-81-31-f4-6e-48` |
+| 1-1.3.2 | `sw2-p22`, `usb-1-1.3.2`, `sid-02c00081-35d04620-79058814-401c0a94`, `mac-02-81-2e-b7-a3-4e` |
+| 1-1.2.3 | `sw2-p23`, `usb-1-1.2.3`, `sid-02c00181-34504620-79058814-40260714`, `mac-02-81-1f-e1-45-1d` |
+| 1-1.2.4 | `sw2-p24`, `usb-1-1.2.4`, `sid-02c00081-35e04620-79058814-48230714`, `mac-02-81-f5-c0-a6-10` |
+| any other | `usb-<port>` (`FPGAS_SWITCH_PORT=unknown`) |
+| 1-1.1.4 (PL2303) | `/dev/fpgas/serial/hub-1-1.1.4` → `ttyUSB0` |
+
+`udevadm info` on the device also carries `FPGAS_SWITCH_PORT=sw2-pNN`. Verified by
+holding p24 in FEL (felboot instance masked) and reading the links.
