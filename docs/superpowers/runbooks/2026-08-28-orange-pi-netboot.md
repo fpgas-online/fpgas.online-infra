@@ -78,10 +78,10 @@ for it in `sunxi_boards`.
 
 ## Known issue
 
-* **pi-sw2-p21** sometimes crawls on its first boot after a power cycle and
-  never reaches sshd (see the hardware doc). A second PoE cycle fixes it.
-  Until that board has a serial console attached, treat "p21 not up after
-  5 min" as "cycle it again", not as an infrastructure fault.
+* Any Orange Pi may crawl on its first boot after a power cycle and never
+  reach sshd (~1 in 4 cold FEL boots; seen on p21 and p24 — see the hardware
+  doc). A second PoE cycle fixes it in ~90 s. Treat "board not up after 5 min"
+  as "cycle it again", not as an infrastructure fault.
 
 ## Hub host pi-sw2-p30 boots from SD (2026-08-28 evening)
 

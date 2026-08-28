@@ -50,15 +50,16 @@ Both methods agreed for all four boards.
   0 mW mid-way is the Pi 5's own power-on reset). They are `pi-sw2-p43/p44/p47`,
   Raspberry Pi 5s (98:fe:54:13:e0:75 / 13:e0:f5 / 13:f5:75). Hung boots, like p7.
 
-## Known issue: pi-sw2-p21 (USB 1-1.3.1) slow first boot
+## Known issue: slow first boot after a cold FEL boot (seen on p21 ×2, p24 ×1)
 
 Observed 2026-08-28 in 2 of 3 first boots after a power cycle: U-Boot loads,
 the kernel boots and mounts the NFS root (kernel DHCP seen on tweed), but
 userspace crawls — ~40 MB read from NFS in 10 min versus ~170 MB in 2 min on
 its siblings — and sshd never starts. A second PoE cycle boots it normally in
-~87 s every time. p20/p23/p24 never showed this. Board-specific (marginal DRAM
-on a cold start is the leading guess); it needs a serial console on **that**
-board's UART0 to see what is happening. Recovery = PoE-cycle port 21.
+~87 s every time. First thought board-specific to p21, but p24 did the same on
+2026-08-28 evening (after being held in FEL for ~20 s), so it is a general
+~1-in-4 cold-FEL-boot flake — a UART0 console on any board would show what
+stalls. Recovery = PoE-cycle the port (the runbook's normal path).
 
 ## Deployment result (2026-08-28)
 
