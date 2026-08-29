@@ -4,7 +4,10 @@
 # names, then default-arm-sunxi (this file), default-arm, default. Kernel,
 # initrd and DTBs live in sunxi/ (fixpi/sunxi.yml syncs them from the NFS root).
 # No netconsole=: dwmac-sun8i is an initramfs module, built-in netconsole
-# cannot bind on sunxi. ttyS0 = H3 UART0 (3-pin debug header).
+# cannot bind on sunxi. ttyS0 = H3 UART0 (3-pin debug header, unwired on the
+# rack). The usable console is the USB gadget on the OTG cable to the hub host:
+# fpgas-online-setup-pi's usb-console loads g_serial and streams the kernel log
+# on ttyGS0 (console=ttyGS0 would be inert: CONFIG_U_SERIAL_CONSOLE is unset).
 default sunxi
 timeout 10
 
