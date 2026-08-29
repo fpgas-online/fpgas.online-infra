@@ -52,6 +52,12 @@
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    - name: verify timesync
+      include_role:
+        name: timesync
+        tasks_from: verify/main.yml
+      tags: [verify, timesync]
+
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
     # (ps1.fpgas.online, slf.sytes.net, CI test-vm) don't have per-port

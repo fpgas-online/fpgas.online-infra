@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# Serve NTP to the Pi LAN: Pis have no internet (forward policy drop) and no
+# RTC, so without a LAN time source every Pi sits on its fake-hwclock date
+# forever (tweed rebuild C2-2). dnsmasq-base advertises this server via
+# dhcp-option ntp-server; the pi-clock role points the Pi's chrony here too.
+allow {{ pib_network | default('10.21') }}.0.0/16
+{% if pib_network6_base is defined %}
+# Per-port VLAN v6: every port's /64 lives under this /56 (2404:e80:a137:2100::
+# covers 2101.. through 21ff..), so one rule admits every port's Pi.
+allow {{ pib_network6_base }}00::/56
+{% endif %}
+{% for server in ntp_upstream_servers %}
+{% if loop.first %}
+
+# Site upstream, preferred over the distro pool in chrony.conf: it is one hop
+# away on the transit, so it stays reachable when the house uplink does not.
+{% endif %}
+server {{ server }} iburst prefer
+{% endfor %}
+
+# Keep serving the Pi LAN when every upstream is unreachable. Without this,
+# chronyd refuses to answer once it loses sync and the Pis -- which have no
+# other source -- drift apart from each other as well as from real time. A
+# high stratum keeps this server the last resort it is.
+local stratum 10

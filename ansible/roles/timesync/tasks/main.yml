@@ -1,0 +1,26 @@
+---
+# Server half of the netboot clock story: be the Pi LAN's NTP server. The Pi
+# half (chrony pointed here, fake-hwclock load-only) lives in roles/pi-clock.
+
+- name: install chrony (LAN NTP server)
+  apt:
+    name: chrony
+  tags:
+    - timesync
+
+- name: configure chrony to serve the Pi LAN
+  template:
+    src: templates/fpgas-lan.conf.j2
+    dest: /etc/chrony/conf.d/fpgas-lan.conf
+    mode: "0644"
+  notify: restart chrony
+  tags:
+    - timesync
+
+- name: enable and start chrony
+  systemd:
+    name: chrony
+    enabled: true
+    state: started
+  tags:
+    - timesync

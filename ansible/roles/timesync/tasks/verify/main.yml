@@ -1,0 +1,26 @@
+---
+- name: Check chrony is active
+  command: systemctl is-active chrony
+  changed_when: false
+  register: verify_timesync_chrony
+  failed_when: false
+  tags: [verify, timesync]
+
+- name: Assert chrony is active
+  assert:
+    that: verify_timesync_chrony.stdout == 'active'
+    fail_msg: "chrony is not active -- the Pi LAN has no time source"
+  tags: [verify, timesync]
+
+- name: Check chrony admits the Pi LAN
+  command: chronyc -n serverstats
+  changed_when: false
+  register: verify_timesync_serverstats
+  failed_when: false
+  tags: [verify, timesync]
+
+- name: Assert chrony answers as a server
+  assert:
+    that: verify_timesync_serverstats.rc == 0
+    fail_msg: "chronyc serverstats failed -- chronyd is not serving NTP"
+  tags: [verify, timesync]

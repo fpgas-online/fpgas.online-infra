@@ -24,6 +24,13 @@ eth_uplink_static_address6: 2404:e80:a137:9921::2/126
 eth_uplink_static_gateway6: 2404:e80:a137:9921::1
 eth_uplink_dns_server: 10.99.21.1
 
+# Upstream clock (roles/timesync): ten64 runs ntpsec and is one hop away on
+# the transit, so it stays reachable when the house uplink does not -- unlike
+# the public pool chrony.conf falls back to. tweed re-serves this to the Pis,
+# making ten64 the site's single source of truth for time.
+ntp_upstream_servers:
+  - 10.99.21.1
+
 # The internal NIC (MAC eth_local_mac_address) is renamed to "eth-local" by a
 # MAC-matched systemd .link file on tweed. The vlan-ports / pxe / firewall
 # templates reference this interface by the eth_local variable (not a hardcoded
