@@ -128,5 +128,7 @@ Design (`fpgas-online-setup-pi`, `usb-console/`, so every Pi has it):
    only USB, so those are excluded); `verify-pi` asserts the two units on any
    board with a UDC (`hw-usb-gadget`).
 
-No host attached never blocks boot: verified on p21 (units active, writer
-parked) and by the fleet boots before any host read the ports.
+No host attached never blocks boot — measured, not assumed: with p20's hub port
+disabled from before the kernel started until after multi-user, the board
+booted in 1 min 4 s with no failed units and both units active, and picked the
+host up when the port came back (evidence table in the hardware doc).

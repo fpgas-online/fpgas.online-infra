@@ -99,4 +99,41 @@ a login getty. The hub host's `fpgas-usb-console-log@ttyACM*.service` appends
 the log port to `/var/log/fpgas-usb-console/<hub port>.log` (e.g.
 `1-1.3.1.log` = pi-sw2-p21) from the moment the gadget enumerates.
 Verified 2026-08-29 on pi-sw2-p21: `ttyACM0/1` at `1.3.1`, 1.1 MB of log
-replayed in 4 s, `pi-sw2-p21 login:` on the second port.
+replayed in 4 s, `pi-sw2-p21 login:` on the second port. A cold PoE cycle of
+pi-sw2-p20 the same day was captured from `[    0.000000] Booting Linux` —
+the gadget enumerated 55 s after power-on and the hub host's logger wrote
+`1-1.2.2.log` from the first byte.
+
+### No USB host attached does not block or delay the boot (2026-08-29)
+
+Tested on pi-sw2-p20 by disabling its hub port in sysfs
+(`/sys/bus/usb/devices/1-1.2:1.0/1-1.2-port2/disable`) one second after
+`fpgas-felboot` loaded U-Boot, i.e. before Linux started, so the OTG link was
+dead for the whole boot:
+
+| | |
+|---|---|
+| `systemd-analyze` | `15.693s (kernel) + 48.248s (userspace) = 1min 3.941s`, `graphical.target` after 40.8 s |
+| `systemctl is-system-running` | `running`, `systemctl --failed` empty |
+| gadget | `/sys/class/udc/musb-hdrc.2.auto`, `/dev/ttyGS0`, `/dev/ttyGS1` present |
+| units | `fpgas-usb-console.service` and `serial-getty@ttyGS1.service` both `active` |
+| sshd | reachable 96 s after power-on |
+
+Re-enabling the port made the gadget enumerate immediately (`0525:a4a7`,
+`ttyACM2/3` at `1-1.2.2`) and the log resumed streaming. Note the board had by
+then been up for two minutes with `systemd.log_level=debug`, and the ring
+buffer had already wrapped past `Booting Linux` — which is exactly why the hub
+host captures from enumeration rather than reading on demand.
+
+## Raspberry Pi 4 / 5 (2026-08-29)
+
+`fixpi` adds `[pi4]`/`[pi5] dtoverlay=dwc2,dr_mode=peripheral` to the netboot
+`config.txt`, so a laptop on the USB-C port gets the same two ports. Verified on
+pi-sw2-p47 (Pi 5 Model B Rev 1.1, `6.12.96+rpt-rpi-v8`) after a PoE cycle:
+`dwc2 1000480000.usb: bound driver g_serial` / `Gadget Serial v2.4 ready`,
+`/sys/class/udc/1000480000.usb`, both units active, boot `14.0s kernel +
+6.8s userspace`, `graphical.target` after 6.7 s, no failed units — with nothing
+plugged into the USB-C port. All four USB host root hubs (`usb1`…`usb4`, the
+USB-A ports) are still present, confirming the peripheral mode costs no host
+port. Control: the SD-booted hub host, whose own `config.txt` says
+`dtoverlay=dwc2,dr_mode=host`, has an empty `/sys/class/udc` and no `ttyGS*`.
