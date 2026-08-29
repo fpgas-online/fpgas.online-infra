@@ -1,0 +1,103 @@
+---
+# Pi half of the netboot clock story. Runs inside the NFS root chroot, so
+# every path here is the Pi's own. The server half (chrony serving the LAN,
+# the fake-hwclock reference publisher) lives in roles/timesync.
+#
+# Two problems, two mechanisms:
+#
+#   * At boot, before any network, a Pi has no idea what time it is -- no RTC,
+#     and the kernel's ip=dhcp gets it an address but nothing else (klibc
+#     ipconfig records no NTP option). fake-hwclock load reads the timestamp
+#     the server publishes into the NFS root and moves the clock forward to it.
+#   * Once up, chrony keeps it honest, using the NTP server dnsmasq advertises
+#     via DHCP option 42 and falling back to a static entry if that never
+#     arrives.
+
+# chrony over systemd-timesyncd, which the image ships: timesyncd has no way
+# to consume the DHCP ntp-server option (NetworkManager exports it, but only
+# chrony ships the dispatcher that reads it -- 20-chrony-dhcp, writing
+# /run/chrony-dhcp/*.sources). chrony Conflicts: time-daemon, which timesyncd
+# Provides, so apt removes timesyncd here rather than leaving two daemons
+# fighting over the clock.
+- name: install chrony in the NFS root
+  apt:
+    name: chrony
+    state: present
+  tags:
+    - pi-clock
+
+- name: enable chrony
+  systemd:
+    name: chrony
+    enabled: true
+  tags:
+    - pi-clock
+
+# Fallback, not the primary path: chrony's NetworkManager dispatcher writes
+# the DHCP-supplied server into /run/chrony-dhcp/ at lease time and that is
+# what should normally carry the load. But NetworkManager may leave the
+# NFS-root interface alone (the kernel configured it, and taking it down
+# would take the rootfs with it), in which case no dispatcher event ever
+# fires. chrony reads both directories and picks the best source, so a Pi
+# still finds the server either way.
+- name: point chrony at the server as a fallback source
+  copy:
+    content: |
+      # Managed by ansible (fpgas.online-infra, pi-clock role)
+      # Fallback for when no DHCP ntp-server option reaches chrony.
+      server {{ pi_ntp_server }} iburst
+    dest: /etc/chrony/sources.d/fpgas-server.sources
+    mode: "0644"
+  tags:
+    - pi-clock
+
+- name: drop the timesyncd pin left by earlier deployments
+  file:
+    path: /etc/systemd/timesyncd.conf.d/fpgas.conf
+    state: absent
+  tags:
+    - pi-clock
+
+# The Pi must never write the reference: it is the server's to publish. On a
+# read-only NFS root with overlayroot=tmpfs a write would land in the tmpfs
+# overlay and vanish at reboot -- invisible rather than harmful -- but it
+# would also mean a Pi's own drifted clock was the thing being "saved", which
+# is exactly the confusion this arrangement exists to avoid.
+- name: ensure fake-hwclock loads the reference at boot
+  systemd:
+    name: fake-hwclock
+    enabled: true
+  tags:
+    - pi-clock
+
+# bookworm ships fake-hwclock 0.12, whose cron job -- unlike 0.15's -- has no
+# `[ -d /run/systemd/system ] && exit 0` guard, so it runs `save` every hour
+# on a systemd host.
+- name: remove the hourly fake-hwclock save
+  file:
+    path: /etc/cron.hourly/fake-hwclock
+    state: absent
+  tags:
+    - pi-clock
+
+- name: create the fake-hwclock drop-in directory
+  file:
+    path: /etc/systemd/system/fake-hwclock.service.d
+    state: directory
+    mode: "0755"
+  tags:
+    - pi-clock
+
+# The unit's ExecStop=/sbin/fake-hwclock save is the other writer; an empty
+# assignment clears the inherited list.
+- name: stop fake-hwclock saving at shutdown
+  copy:
+    content: |
+      # Managed by ansible (fpgas.online-infra, pi-clock role)
+      # The server publishes the reference; the Pi only ever reads it.
+      [Service]
+      ExecStop=
+    dest: /etc/systemd/system/fake-hwclock.service.d/no-save.conf
+    mode: "0644"
+  tags:
+    - pi-clock

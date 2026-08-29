@@ -9,3 +9,9 @@ domain: fpgas.online
 # user_name: videoteam
 
 ssh_password_auth: false
+
+# NTP server the Pi image falls back to when no DHCP ntp-server option
+# reaches it (roles/pi-clock). Not derived from eth_local_address: the `pi`
+# inventory host is the nspawn chroot on the server, so the server's own host
+# vars are out of scope there. Both sites put the server at this address.
+pi_ntp_server: "10.21.0.1"

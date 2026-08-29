@@ -8,3 +8,7 @@ eth_uplink: eth-uplink
 domain: test.fpgas.online
 
 ssh_password_auth: false
+
+# NTP server the Pi image falls back to when no DHCP ntp-server option
+# reaches it (roles/pi-clock). Mirrors ansible/inventory/group_vars/all.
+pi_ntp_server: "10.21.0.1"

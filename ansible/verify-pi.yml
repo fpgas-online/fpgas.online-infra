@@ -237,3 +237,71 @@
           getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
       when: "'Raspberry Pi 5' in verify_pi_model.stdout"
       tags: [verify, uart]
+
+    # Clock. A netbooted Pi has no RTC, so at kernel start it is at the epoch;
+    # everything below proves the two mechanisms that move it off there --
+    # fake-hwclock loading the server's published reference at boot, then
+    # chrony holding it (roles/pi-clock, roles/timesync).
+    - name: Check the system clock
+      command: date -u +%Y
+      changed_when: false
+      register: verify_pi_year
+      tags: [verify, clock]
+
+    # The strongest single assertion available: a Pi that failed to load the
+    # reference sits in 1970, and one that loaded a stale image file sits in
+    # 2024 (the bookworm image ships fake-hwclock.data from its build date).
+    - name: Assert the clock was set from the published reference
+      assert:
+        that: (verify_pi_year.stdout | int) >= 2026
+        fail_msg: >-
+          Pi clock reads year {{ verify_pi_year.stdout }} -- fake-hwclock did not
+          load the server's reference (1970 = no load at all, 2024 = the image's
+          own stale fake-hwclock.data)
+      tags: [verify, clock]
+
+    - name: Check chrony is active
+      command: systemctl is-active chrony
+      changed_when: false
+      register: verify_pi_chrony
+      failed_when: false
+      tags: [verify, clock]
+
+    - name: Assert chrony is active
+      assert:
+        that: verify_pi_chrony.stdout == 'active'
+        fail_msg: "chrony is not active on the Pi -- nothing corrects the boot-time reference"
+      tags: [verify, clock]
+
+    - name: Check the Pi cannot write the time reference
+      stat:
+        path: /etc/cron.hourly/fake-hwclock
+      register: verify_pi_hwclock_cron
+      tags: [verify, clock]
+
+    # bookworm's fake-hwclock 0.12 cron job has no systemd guard, so it would
+    # otherwise run `save` hourly against the reference the server owns.
+    - name: Assert the hourly fake-hwclock save is gone
+      assert:
+        that: not verify_pi_hwclock_cron.stat.exists
+        fail_msg: "/etc/cron.hourly/fake-hwclock still present -- the Pi would overwrite the server's reference"
+      tags: [verify, clock]
+
+    - name: Check chrony has a source for the server
+      command: chronyc -n sources
+      changed_when: false
+      register: verify_pi_chrony_sources
+      failed_when: false
+      become: true
+      tags: [verify, clock]
+
+    # Either path is a pass: the DHCP option 42 dispatcher (/run/chrony-dhcp)
+    # or the static fallback in /etc/chrony/sources.d.
+    - name: Assert chrony knows about the server
+      assert:
+        that: pi_ntp_server in verify_pi_chrony_sources.stdout
+        fail_msg: >-
+          chrony has no source for {{ pi_ntp_server }}; neither the DHCP
+          ntp-server option nor the static fallback reached it:
+          {{ verify_pi_chrony_sources.stdout }}
+      tags: [verify, clock]
