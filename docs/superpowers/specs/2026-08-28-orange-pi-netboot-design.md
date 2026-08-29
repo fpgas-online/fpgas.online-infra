@@ -93,3 +93,40 @@ pi-sw2-p30), `tweed_spike_setup.py` / `tweed_spike_teardown.py` (nfsroot copy + 
 TFTP files, export line — all removed again), `boot_test.py`. Everything on tweed was restored;
 pi-sw2-p30's additions (`sunxi-tools`, `~/opi/`) are listed in `pi-sw2-p30-changes.md` and
 vanish on its next power cycle.
+
+## 5. USB gadget console (added 2026-08-29)
+
+The H3's UART0 is not wired on the rack, but every board's **OTG cable already
+goes to the hub host** (it is how FEL works), so the same cable carries a USB
+serial gadget once Linux runs. Facts that fixed the design:
+
+* `# CONFIG_U_SERIAL_CONSOLE is not set` in Debian's `6.1.0-50-armmp` **and** in
+  every Raspbian kernel of the root, so `console=ttyGS0` on the cmdline would be
+  inert (`gs_console_init` is a stub without it). The console is therefore fed
+  from userspace: `dmesg --follow` replays the ring buffer and follows `/dev/kmsg`.
+* `g_serial`, `musb_sunxi`, `phy-sun4i-usb`, `dwc2` are modules everywhere;
+  `musb_sunxi` autoloads from the DT (`allwinner,sun8i-h3-musb`).
+* `gs_open()` never waits for a host; a write fills the gadget's 8 KiB buffer and
+  then blocks **only that writer**; a host detach hangs the port up
+  (`gserial_disconnect` → `tty_hangup`).
+
+Design (`fpgas-online-setup-pi`, `usb-console/`, so every Pi has it):
+
+1. udev `SUBSYSTEM=="udc"` add → `kmod load g_serial` (`n_ports=2`). Boards
+   without a USB device controller (Pi 3, the CI VM) never load the gadget.
+2. `ttyGS0` → `fpgas-usb-console.service` (`dmesg --follow`, `BindsTo` the
+   device, `Restart=always`: every host attach gets the log replayed from the
+   start of the ring buffer); `ttyGS1` → `serial-getty@ttyGS1`. Two ports
+   because agetty's start-up `tcflush` resets the gadget's write buffer.
+3. Host side (same package, `fpgas-usb-console-log@.service`): a `0525:a4a7`
+   `usb-console` gadget's first ACM port is captured to
+   `/var/log/fpgas-usb-console/<usb-port>.log` from the first byte, because
+   with `systemd.log_level=debug` on the cmdline the 1 MB ring buffer wraps
+   within minutes and a late reader cannot recover the early boot.
+4. Infra: `config.txt` `[pi4]`/`[pi5]` `dtoverlay=dwc2,dr_mode=peripheral`
+   (their USB-A ports are on other controllers; a Pi 3/Zero would lose its
+   only USB, so those are excluded); `verify-pi` asserts the two units on any
+   board with a UDC (`hw-usb-gadget`).
+
+No host attached never blocks boot: verified on p21 (units active, writer
+parked) and by the fleet boots before any host read the ports.

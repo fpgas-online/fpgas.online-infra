@@ -37,6 +37,26 @@ uv run ansible-playbook -i ansible/inventory ansible/site.yml \
   the felboot rule for hot-plugged boards. **Always PoE-cycle pi-sw2-p30 (port 30)
   after a converge**, then the boards.
 
+## Reading a board's console (kernel log) on the hub host
+
+Each running board is a USB serial gadget on its OTG cable (design doc §5):
+
+```bash
+ssh tim@10.21.2.30                                   # hub host
+ls -l /dev/serial/by-path/ | grep ':2.0'             # <hub port>:2.0 = kernel log, :2.2 = getty
+tail -f /var/log/fpgas-usb-console/1-1.3.1.log       # captured from the first byte (p21)
+picocom /dev/serial/by-path/platform-xhci-hcd.0-usb-0:1.3.1:2.2   # login getty
+```
+
+* The board replays its whole ring buffer to every *USB attach*; a second
+  reader on an already-attached port only sees new lines. To replay again:
+  `systemctl restart fpgas-usb-console` on the board.
+* Open the port once, in raw mode (`picocom`, `tio`, the logger). A
+  `stty -F` before `cat` opens and closes it in cooked mode and drops the
+  start of the stream.
+* A crawling first boot (see the mapping doc) now leaves its kernel log in
+  `/var/log/fpgas-usb-console/<hub port>.log` on the hub host.
+
 ## Verify
 
 ```bash

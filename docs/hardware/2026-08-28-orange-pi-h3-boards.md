@@ -88,3 +88,15 @@ board sits in FEL, i.e. from power-on until `fpgas-felboot@` loads U-Boot:
 
 `udevadm info` on the device also carries `FPGAS_SWITCH_PORT=sw2-pNN`. Verified by
 holding p24 in FEL (felboot instance masked) and reading the links.
+
+## USB gadget console (2026-08-29)
+
+Once Linux runs, each board's OTG cable presents a `0525:a4a7 Linux-USB Serial
+Gadget` (`fpgas.online usb-console`) to the hub host with two CDC-ACM ports;
+`/dev/serial/by-path/platform-xhci-hcd.0-usb-0:<hub port>:2.0` is the kernel
+log (`fpgas-usb-console.service` on the board, `dmesg --follow`) and `…:2.2`
+a login getty. The hub host's `fpgas-usb-console-log@ttyACM*.service` appends
+the log port to `/var/log/fpgas-usb-console/<hub port>.log` (e.g.
+`1-1.3.1.log` = pi-sw2-p21) from the moment the gadget enumerates.
+Verified 2026-08-29 on pi-sw2-p21: `ttyACM0/1` at `1.3.1`, 1.1 MB of log
+replayed in 4 s, `pi-sw2-p21 login:` on the second port.
