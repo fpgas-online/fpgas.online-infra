@@ -3,5 +3,12 @@
   location /live {
     alias {{ streaming.data_root }}/hls/source;
     autoindex on;
+    # A cached live playlist is stale by definition (1 s fragments now).
+    # Applied to the segments too: they have unique names and are fetched
+    # once, so revalidation costs nothing, and nginx's alias does not
+    # combine reliably with a nested regex location for .m3u8 only.
+    add_header Cache-Control no-cache;
+    # add_header in a location replaces the server-level set, so repeat HSTS.
+    add_header Strict-Transport-Security "max-age=15552000";
   }
 
