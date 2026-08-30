@@ -91,7 +91,7 @@ pxe_test_clients:
     sn: "deadbeef"
     mac: "52:54:00:12:34:56"
     ip: "10.21.0.128"
-    nfs_root: "/srv/nfs/rpi/bookworm/root"
+    nfs_root: "/srv/nfs/rpi/{{ dist }}/root"
     console: "ttyAMA0,115200"
 
 # tinytapeout.fpgas.online in the VM test: one live slot on the virtual Pi

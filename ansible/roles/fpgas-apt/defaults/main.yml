@@ -4,4 +4,5 @@
 # fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, which apt
 # refuses to follow (https -> http). Use the canonical https URL directly.
 fpgas_apt_url: https://fpgas.online/apt
-fpgas_apt_suite: bookworm
+# Track the Pi NFS root's Debian release (bookworm/trixie both published).
+fpgas_apt_suite: "{{ dist }}"
