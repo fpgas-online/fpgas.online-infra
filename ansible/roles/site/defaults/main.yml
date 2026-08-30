@@ -1,0 +1,6 @@
+---
+# Request a Let's Encrypt certificate for domain_name with
+# `certbot certonly --webroot`.  Needs the name to resolve publicly and port 80
+# to be reachable from the ACME server, so the VM test turns it off (as it does
+# for ttsite_certbot) and relies on cloud-init's self-signed stub instead.
+site_certbot: true

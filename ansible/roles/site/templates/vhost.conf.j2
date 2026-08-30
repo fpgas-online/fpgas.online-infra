@@ -1,0 +1,65 @@
+# {{ ansible_managed }} -- {{ domain_name }}
+# Published via ten64's reverse proxy (http) / SNI passthrough (https) on IPv4,
+# and reached DIRECTLY over IPv6 (the AAAA is this host's eth-local address, so
+# v6 clients never touch the proxy).  TLS terminates here.
+#
+# Ansible owns this file end to end.  The certificate comes from
+# `certbot certonly --webroot` (tasks/certbot.yml), never `certbot --nginx`,
+# so certbot does not rewrite these server blocks -- see the header comment in
+# tasks/certbot.yml for what that rewrite used to do to the listen directives.
+#
+# EVERY TLS server block MUST carry BOTH `listen 443 ssl` AND
+# `listen [::]:443 ssl`.  A block missing the v6 line is not a candidate server
+# for connections arriving on [::]:443 at all, so nginx falls back to whichever
+# other vhost does listen there and serves THAT vhost's certificate, whatever
+# SNI the client sent.  That is exactly how welland.fpgas.online came to hand
+# out the tinytapeout.fpgas.online certificate to every IPv6 client.
+# roles/site/tasks/verify/main.yml asserts this for all vhosts.
+{% macro app_locations() %}
+    root {{ static_dir }};
+
+    access_log /var/log/nginx/{{ conference_name }}-access.log;
+    error_log /var/log/nginx/{{ conference_name }}-error.log;
+
+    # The Django app location blocks (gunicorn socket + the daphne websocket),
+    # plus cam/stream-server's live-hls include.  That include also carries the
+    # Strict-Transport-Security header, so do NOT add another one here or it is
+    # emitted twice.  Glob, not a fixed list: cam/stream-server runs after this
+    # role, so the live-hls include may not exist yet on a first converge.
+    include includes/{{ conference_name }}-*.conf;
+{% endmacro %}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain_name }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+{%- if site_cert_exists | bool %}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {{ domain_name }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+{# Both files are certbot artefacts: present on a host certbot has run on,
+   absent on the CI VM (whose cert is a cloud-init self-signed stub).  Emitting
+   the includes unconditionally would make `nginx -t` fail there. #}
+{%- if site_ssl_options_exists | bool %}
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+{%- endif %}
+{%- if site_ssl_dhparams_exists | bool %}
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+{%- endif %}
+{{ app_locations() }}}
+{% else %}
+{{ app_locations() }}}
+{% endif %}
