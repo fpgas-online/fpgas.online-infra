@@ -3,3 +3,9 @@ static_dir: /srv/www/static
 django_project_name: pib
 
 letsencrypt_account_email: test@test.fpgas.online
+
+# No public DNS and no inbound port 80 in the VM, so no ACME.  cloud_init.py
+# pre-seeds a self-signed /etc/letsencrypt/live/test.fpgas.online instead, which
+# is what makes the site role render its https vhost here -- that is the code
+# path the IPv6 listen assertions in roles/site/tasks/verify exercise.
+site_certbot: false
