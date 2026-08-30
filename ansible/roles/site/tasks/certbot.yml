@@ -183,11 +183,14 @@
 
 # certbot reports an unparseable renewal config as a warning on stdout and still
 # exits 0, so assert on the content rather than trusting the return code.
+# Both tasks sit out a --check run: the command would not execute (leaving the
+# assert nothing to read) and the migration it is meant to confirm has not been
+# applied to the file anyway.
 - name: Check the migrated renewal config parses
   command: "certbot certificates --cert-name {{ domain_name }}"
   changed_when: false
   register: site_renewal_check
-  when: site_renewal_uses_nginx
+  when: site_renewal_uses_nginx and not ansible_check_mode
   tags: le
 
 - name: Assert the migrated renewal config is still valid
@@ -198,5 +201,5 @@
     fail_msg: >-
       certbot no longer reads the renewal config for {{ domain_name }} after the
       webroot migration: {{ site_renewal_check.stdout }}
-  when: site_renewal_uses_nginx
+  when: site_renewal_uses_nginx and not ansible_check_mode
   tags: le

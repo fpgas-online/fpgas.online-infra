@@ -36,7 +36,7 @@ server {
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
-{%- if site_cert_exists | bool %}
+{% if site_cert_exists | bool %}
 
     location / {
         return 301 https://$host$request_uri;
@@ -53,12 +53,12 @@ server {
 {# Both files are certbot artefacts: present on a host certbot has run on,
    absent on the CI VM (whose cert is a cloud-init self-signed stub).  Emitting
    the includes unconditionally would make `nginx -t` fail there. #}
-{%- if site_ssl_options_exists | bool %}
+{% if site_ssl_options_exists | bool %}
     include /etc/letsencrypt/options-ssl-nginx.conf;
-{%- endif %}
-{%- if site_ssl_dhparams_exists | bool %}
+{% endif %}
+{% if site_ssl_dhparams_exists | bool %}
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-{%- endif %}
+{% endif %}
 {{ app_locations() }}}
 {% else %}
 {{ app_locations() }}}
