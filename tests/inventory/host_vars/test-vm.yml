@@ -44,7 +44,11 @@ streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-fixture_path: test.json
+# The real welland fixture, shipped inside the installed fpgas-online-site
+# package -- so the VM test exercises the production seeding path end to end.
+# (Was `test.json`, a fixture that never existed: the old role silently
+# skipped missing fixtures, which is the outage this PR fixes.)
+fixture_path: fpgas.online.json
 
 switch_base: base
 
