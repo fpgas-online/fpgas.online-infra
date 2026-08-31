@@ -132,8 +132,11 @@ streaming_frontend_aliases:
 streaming_frontend_hostname: welland.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-# fixture_path intentionally absent: the pibfpgas.pi fixture is the legacy
-# MAC-table board list (ps1 still loads its own).
+# Seeds the /fpgas/ board list from the fixture shipped inside the installed
+# fpgas-online-site package (rebuilt 2026-08-31 from a live probe of the
+# s3300: 4x Arty A7, 6x Acorn CLE-215+, 4x TT FPGA emulation, all switch=2
+# VLAN-per-port rows).
+fixture_path: fpgas.online.json
 
 # Tim's
 # Netgear S3300-52X-PoE+
