@@ -67,11 +67,20 @@
     - bashrc
     - fixpi
 
-- name: config.txt disable bluetooth, ensable uart
+# Disable the onboard radios in the read-only netboot image. Because config.txt
+# is served from the (read-only) TFTP root, these lines are re-applied on every
+# boot: a user with root can bring a radio up for the life of a session, but the
+# change never survives a reboot. On Pi 5 (BCM2712) the firmware auto-remaps
+# disable-wifi -> disable-wifi-pi5 and disable-bt -> disable-bt-pi5 via
+# overlay_map.dtb, so the same two lines disable both radios on Pi 4 and Pi 5.
+#   disable-wifi:  Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
+#   disable-bt:    Pi 4 disables &bt, Pi 5 disables &bluetooth
+- name: config.txt disable onboard Wi-Fi and Bluetooth, enable uart
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: "{{ item }}"
   with_items:
+    - dtoverlay=disable-wifi
     - dtoverlay=disable-bt
     - enable_uart=1
     - uart_2ndstage=1
