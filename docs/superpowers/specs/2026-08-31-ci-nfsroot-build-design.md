@@ -40,7 +40,7 @@ mirroring the apt repo's rolling-deb model.
 ## Non-goals
 
 - Changing what ends up in the NFS root. The image must contain exactly what
-  today's build produces (minus the secret layer, below).
+  today's build produces (minus the site-specific layer, below).
 - Replacing the on-server build path. It remains for development and as
   fallback; CI-pull becomes the default.
 - Running the root as an actual container. GHCR is used as a content-addressed,
@@ -49,11 +49,22 @@ mirroring the apt repo's rolling-deb model.
 
 ## Design
 
-### The public/secret seam
+### The CI/site seam
 
-The build splits at a security boundary, not just a speed boundary:
+**Threat model:** the Pi credentials are intentionally public — the pi/root
+passwords are published on the fpgas.online page so anyone in the world can
+log in, and the devices are ephemeral by design (read-only NFS root +
+overlayroot tmpfs; a reboot resets them to the default state). Nothing in
+today's Pi root is a secret: the password hash in `boot/userconf.txt`, the
+generated pi/root keypairs under `.ssh/`, and the sshd host keys are all
+readable by any member of the public who logs in. Publishing the root as a
+public image therefore leaks nothing that isn't already deliberately exposed.
 
-**CI builds (public image):**
+The seam is instead about what is **generic fleet content** (identical for
+every site, buildable from public inputs) vs **site-specific** (derived from
+each site's inventory):
+
+**CI builds (public image, generic):**
 - RasPiOS lite armhf base (img role's download + extract, reimplemented on the
   runner without loop devices — see below)
 - `fpgas-apt` role (adds the public fpgas.online apt repo)
@@ -61,23 +72,27 @@ The build splits at a security boundary, not just a speed boundary:
 - `onpi` role (`apt install fpgas-online-setup-pi`)
 - Orange Pi armmp kernel + DTBs (`fixpi` `sunxi.yml`, once PR #28's
   implementation lands) — a chroot-apt step, so it belongs in CI
-- Generic, secret-free `fixpi` file tweaks (e.g. `nogrow`, `ispi`)
+- Generic `fixpi` file tweaks (e.g. `nogrow`, `ispi`, the `issue.d` banner,
+  sshd password config)
+- Potentially the published pi password and the pi/root keypair generation
+  (see D-7): these are public and fleet-wide already, so they *could* be
+  baked, at the cost of coupling a password change to an image rebuild.
 
-**Tweed applies after extraction (never published):**
-- `fixpi/userconf.yml` (tags `pipw`, `keys`) — three kinds of credential
-  material, two of them secret: the pi password crypt hash written to
-  `boot/userconf.txt` (offline-crackable if published); **generated
-  *private* keypairs** for the pi and root users at
-  `root/.ssh/id_ssh_rsa` and `home/pi/.ssh/id_ssh_rsa` (publishing these
-  would give every image consumer identical, world-readable private
-  keys); and the `authorized_keys` files (public halves only, harmless
-  to publish but site-specific anyway). The whole layer stays
-  server-side.
-- Anything derived from inventory host_vars/secrets (switch config etc.)
+**Tweed applies after extraction (site-specific):**
+- Controller/operator `authorized_keys` entries — each site authorizes its
+  own controller key (`ansible_ssh_private_key_file`), so these come from
+  the site's inventory at deploy time.
+- The pi password hash, if sites want to differ or rotate without a
+  rebuild (D-7).
+- Anything else derived from inventory host_vars (switch config etc.)
 - Server-side roles are unchanged: `nfs`, `pxe`, TFTP per-board boot files
 
-This seam is exactly "slow emulated apt work" vs "fast local file edits", so
-the split costs nothing operationally.
+**Guard rail:** should a genuine secret ever need to land in the Pi root
+(e.g. a per-site API token), it must go in the tweed-side layer — the image
+is public and content-addressed, so a published secret is unrevokable.
+
+This seam still puts all the slow emulated apt work in CI and only fast local
+file edits on tweed, so the split costs nothing operationally.
 
 ### Build pipeline (new workflow in fpgas.online-infra)
 
@@ -163,6 +178,13 @@ not part of the initial implementation.
 - **D-6 Trixie:** todo#4 wants the fleet on trixie; tag scheme already encodes
   dist (`bookworm-armhf`) so a trixie image is additive, and arm64 runners
   would build a future arm64 root natively.
+- **D-7 Credential layer placement:** the pi password and pi/root keypairs
+  are deliberately public (published on fpgas.online; devices ephemeral), so
+  they *may* be baked into the CI image. Recommended: keep them tweed-side
+  anyway — it keeps password rotation a fast local edit instead of an image
+  rebuild, keeps the image byte-identical for any future site regardless of
+  its password, and costs nothing (they're already fast file edits). Baking
+  them is acceptable if one org-wide password is the norm.
 
 ## Implementation phases (one PR each, CI green at every stage)
 
