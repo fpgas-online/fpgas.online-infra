@@ -218,8 +218,13 @@ not part of the initial implementation.
 
 - **D-1 Workflow home:** fpgas.online-infra (recommended — roles live here) vs
   a new repo. New repo would need role vendoring; not worth it.
-- **D-2 armhf on arm64 runners:** native AArch32 EL0 or qemu-user-static
-  fallback. Settled by the Phase 1 spike; both paths are acceptable.
+- **D-2 armhf on arm64 runners:** **SETTLED (native)** — the Phase 1 spike
+  (PR #40, run 33348567635) executed the RasPiOS armhf userland directly on
+  `ubuntu-24.04-arm`; chroot `apt-get install lldpd` took 9.3 s, the whole
+  spike (download, extract, chroot-apt, import, GHCR push) 2m10s. No
+  qemu-user-static on the runner — and none must be installed there, since
+  its binfmt handlers could shadow native execution
+  (`fixpi_install_qemu: false`).
 - **D-3 Transport:** GHCR OCI image (recommended, per above) vs rolling
   release asset tarball (fallback if podman-on-tweed is unwanted).
 - **D-4 Image contents:** single image holding `boot/` + `root/` (recommended,
@@ -238,14 +243,16 @@ not part of the initial implementation.
 
 ## Implementation phases (one PR each, CI green at every stage)
 
-1. **Spike** (`workflow_dispatch`-only workflow): on `ubuntu-24.04-arm`,
-   check AArch32 execution, loop-mount the RasPiOS image, chroot-apt one
-   package, push a throwaway image to GHCR, record timings in the PR.
-   Settles D-2 and validates the runner assumptions before any refactor.
-2. **Build + publish:** `ansible/ci-nfsroot.yml` + CI inventory
-   (chroot connection), reusing `fpgas-apt`/`cam/pi`/`onpi` unchanged;
-   in-CI verification; tagging as above; weekly cron. Image is complete and
-   public but nothing consumes it yet.
+1. **Spike** — **DONE** (PR #40, run 33348567635, 2m10s): AArch32 is native
+   (D-2 settled), sudo losetup/chroot work, chroot apt 9.3 s, GHCR push
+   60 s for the 1.67 GB base image.
+2. **Build + publish** — in review (PR #41): `ansible/ci-nfsroot.yml` + CI
+   inventory (chroot connection; `srv.yml` group_vars symlinked to the
+   production copy), reusing `fpgas-apt`/`cam/pi`/`onpi` unchanged;
+   hardware-coverage assertions; final kernel-payload re-sync (site.yml
+   syncs before the Pi roles, which is a latent C1-3 in one-shot builds);
+   tagging as above; weekly cron. Image is complete and public but nothing
+   consumes it yet.
 3. **Pull path on tweed:** `nfsroot_source` switch in the `img` role +
    `site.yml`, staging+rsync extraction, production host_vars pin;
    deploy to tweed during a maintenance window and verify with
