@@ -64,8 +64,15 @@ The build splits at a security boundary, not just a speed boundary:
 - Generic, secret-free `fixpi` file tweaks (e.g. `nogrow`, `ispi`)
 
 **Tweed applies after extraction (never published):**
-- `fixpi/userconf.yml` — pi password hash and SSH authorized keys (tags
-  `pipw`, `keys`). **These must never be baked into a public image.**
+- `fixpi/userconf.yml` (tags `pipw`, `keys`) — three kinds of credential
+  material, two of them secret: the pi password crypt hash written to
+  `boot/userconf.txt` (offline-crackable if published); **generated
+  *private* keypairs** for the pi and root users at
+  `root/.ssh/id_ssh_rsa` and `home/pi/.ssh/id_ssh_rsa` (publishing these
+  would give every image consumer identical, world-readable private
+  keys); and the `authorized_keys` files (public halves only, harmless
+  to publish but site-specific anyway). The whole layer stays
+  server-side.
 - Anything derived from inventory host_vars/secrets (switch config etc.)
 - Server-side roles are unchanged: `nfs`, `pxe`, TFTP per-board boot files
 
