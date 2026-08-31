@@ -54,5 +54,15 @@ jobs:
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
 
+      - name: Write nfsroot manifest (packages, boot hashes, configs)
+        run: |
+          sudo .venv/bin/python tests/ci/nfsroot_manifest.py \
+            /srv/nfs/rpi/bookworm manifest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfsroot-manifest
+          path: manifest/
+
       - name: Publish to GHCR
         run: uv run tests/ci/nfsroot_publish.py
