@@ -196,30 +196,20 @@
   tags:
     - django
 
-# Initial pibfpgas data. The fixture files left this repo with the pici
-# monorepo split; only load one that is actually present under
-# roles/site/files/pib/pibfpgas/fixtures/ (none are today).
-- name: look for the fixture file
-  set_fact:
-    site_fixture_file: "{{ lookup('ansible.builtin.first_found', {'files': ['files/pib/pibfpgas/fixtures/' ~ fixture_path], 'skip': true}) }}"
-  when: fixture_path is defined
-  tags:
-    - django
-
-- name: copy fixtures to remote box
-  copy:
-    src: "{{ site_fixture_file }}"
-    dest: "{{ django_dir }}/{{ fixture_path }}"
-  when: fixture_path is defined and site_fixture_file | length > 0
-  tags:
-    - django
-
-- name: Load the initial_data fixture into the application
-  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ django_dir }}/{{ fixture_path }}"
+# Initial pibfpgas data. The fixture ships INSIDE the installed
+# fpgas-online-site package (pibfpgas/fixtures/, since site PR #20), so
+# loaddata resolves it by bare name from the app -- nothing is copied from
+# this repo. The old copy-from-this-repo dance broke silently when the
+# fixtures moved to the site repo with the monorepo split: the 2026-08-26
+# tweed reinstall then seeded zero boards and welland.fpgas.online showed
+# an empty board list. loaddata upserts by primary key, so re-running a
+# converge refreshes the seeded rows rather than duplicating them.
+- name: Load the board fixture into the application
+  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ fixture_path }}"
   args:
     chdir: "{{ django_dir }}"
   become_user: "{{ user_name }}"
-  when: fixture_path is defined and site_fixture_file | length > 0
+  when: fixture_path is defined
   changed_when: true
   tags:
     - django
