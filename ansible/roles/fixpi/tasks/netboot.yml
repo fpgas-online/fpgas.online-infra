@@ -76,6 +76,36 @@
     - netboot
     - qemu
 
+# Trixie enables systemd's hardware runtime watchdog
+# (usr/lib/systemd/system.conf.d/40-rpi-enable-watchdog.conf,
+# RuntimeWatchdogSec=1m).  The BCM2835 watchdog can only count ~16 s, so
+# the kernel must pat it continuously -- and on an NFS-root fleet any
+# server or network stall longer than that would reboot EVERY Pi at once
+# (observed as mid-run resets in CI rounds 6/7).  Netboot Pis rely on PoE
+# power-cycling for recovery, so keep the runtime watchdog off.
+- name: create systemd system.conf.d in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/systemd/system.conf.d"
+    state: directory
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
+- name: disable the systemd runtime hardware watchdog in NFS root
+  copy:
+    content: |
+      # NFS-root netboot: a >16 s NFS/network stall must not reset the
+      # fleet; recovery is PoE power-cycling. Overrides trixie's
+      # usr/lib/systemd/system.conf.d/40-rpi-enable-watchdog.conf.
+      [Manager]
+      RuntimeWatchdogSec=off
+    dest: "{{ nfs_root }}/root/etc/systemd/system.conf.d/50-fpgas-no-runtime-watchdog.conf"
+    mode: "0644"
+  tags:
+    - netboot
+    - qemu
+
 # Trixie lite ships cloud-init, which pulls in the noauto /boot/firmware
 # NFS mount (looking for its NoCloud seed) and stalls boot ~60 s waiting
 # for it before failing (CI round 6).  Netboot Pis are fully provisioned
