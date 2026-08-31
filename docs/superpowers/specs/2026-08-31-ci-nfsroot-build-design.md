@@ -137,11 +137,14 @@ change that:
    touches the image.
 
 **CI enforcement:** the in-CI verification (before tagging) must assert the
-per-model kernel/initramfs files exist in `boot/` — at minimum `kernel7.img`,
-`kernel7l.img`, `kernel8.img`, `kernel_2712.img` + matching initramfs, and
-from phase 4 `vmlinuz-*-armmp` + `sun8i-h3-*.dtb` — so an upstream image or
-kernel-packaging change that drops a board family fails the build instead of
-bricking part of the fleet on the next pull.
+per-model boot files exist in `boot/` — `kernel.img`, `kernel7.img`,
+`kernel7l.img`, `kernel8.img` and the Pi 3/3+/4/5 DTBs (note: the armhf
+image ships no `kernel_2712.img`, that is arm64-only; Pi 5/CM5 boot
+`kernel8.img` + `bcm2712-rpi-5-b.dtb`, as the ps1 CM5 blades do today —
+phase 2's gate caught exactly this), and from phase 4 `vmlinuz-*-armmp` +
+`sun8i-h3-*.dtb` — so an upstream image or kernel-packaging change that
+drops a board family fails the build instead of bricking part of the fleet
+on the next pull.
 
 ### Build pipeline (new workflow in fpgas.online-infra)
 
