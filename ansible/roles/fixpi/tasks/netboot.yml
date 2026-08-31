@@ -199,11 +199,18 @@
     - netboot
     - qemu
 
+# libnss-myhostname resolves the machine's OWN hostname instantly via NSS
+# (its postinst registers 'myhostname' after 'files' in nsswitch.conf), so
+# sudo's per-invocation getaddrinfo never falls through to DNS.  The
+# fpgas-hostname-hosts.service /etc/hosts approach below still helps other
+# tools, but on trixie it raced hostname assignment (the boot-time hostname
+# was still 'raspberrypi', already present in the stock /etc/hosts, so the
+# service skipped its append and sudo stalled ~22 s -- CI round 5).
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
     - "apt update"
-    - "apt install -y nfs-common overlayroot"
+    - "apt install -y nfs-common overlayroot libnss-myhostname"
   tags:
     - netboot
     - qemu
