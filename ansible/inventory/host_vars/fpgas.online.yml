@@ -193,13 +193,15 @@ tt_boards:
   # pi-sw2-p3 carries a Tiny Tapeout 3.5 chip. Reflashed 2026-08-24 to demo-board
   # firmware v1.2.2 (the newest release supporting tt03p5 -- SDK 2.x dropped it);
   # boots into tt_um_test with the full 27-project mux working over serial.
-  # Stays disabled until the Commander fork supports SDK 1.2.x (it currently
-  # requires >= 2.0.0RC2 and would offer a firmware "update" that breaks the board).
-  - {slug: tt03p5, switch: 2, port: 3, kind: asic, shuttle: tt03p5, title: "Tiny Tapeout 3.5", enabled: false,
+  # Enabled 2026-08-31 (camera-first, Tim): the page is live for the video feed
+  # while the Commander still lacks SDK 1.2.x support (it requires >= 2.0.0RC2
+  # and must never offer this board its 2.x firmware "update") -- see
+  # fpgas-online/tt-commander-app#9 for the legacy-branch port that fixes this.
+  - {slug: tt03p5, switch: 2, port: 3, kind: asic, shuttle: tt03p5, title: "Tiny Tapeout 3.5",
      blurb: "TT03p5 (sky130) on a demo board", pcb: "TT demo board (RP2040)",
      description: "TT 3.5 chip on demo-board firmware v1.2.2 (the last release supporting this shuttle).
-       The 27-project mux works over the serial REPL; the web Commander needs a compatibility
-       update before this board goes live."}
+       The 27-project mux works over the serial REPL; the web Commander does not support this
+       firmware generation yet, so for now this page is camera-only."}
   - {slug: tt04, switch: 2, port: 4, kind: asic, shuttle: tt04, title: "Tiny Tapeout 4",
      blurb: "TT04 (sky130) on a demo board", pcb: "TT demo board (RP2040)"}
   - {slug: tt05, switch: 2, port: 5, kind: asic, shuttle: tt05, title: "Tiny Tapeout 5",
