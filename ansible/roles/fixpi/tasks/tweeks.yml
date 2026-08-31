@@ -180,3 +180,19 @@
     # creates: "/home/{{ user_name }}/pici"
 
 # ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts
+
+# ifupdown is unused on the netbooted root (kernel ip=dhcp + NetworkManager):
+# networking.service fails on every Pi and ifupdown-pre.service (udevadm
+# settle) waits its full 2 min on the Orange Pi H3 before anything else starts
+# (spike 2026-08-28: userspace 2 m 16 s, of which ifupdown-pre 2 m 02 s).
+- name: mask ifupdown units in NFS root
+  file:
+    src: /dev/null
+    dest: "{{ nfs_root }}/root/etc/systemd/system/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - networking.service
+    - ifupdown-pre.service
+  tags:
+    - fixpi

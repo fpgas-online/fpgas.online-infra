@@ -1,0 +1,6 @@
+---
+# Debian bookworm's own keyring package (Raspbian has none) for the sunxi
+# kernel apt source -- see tasks/sunxi.yml. Version + sha256 from
+# https://deb.debian.org/debian/dists/bookworm/main/binary-all/Packages.gz
+sunxi_debian_keyring_deb: debian-archive-keyring_2023.3+deb12u2_all.deb
+sunxi_debian_keyring_sha256: f699e2f88dca05212f2a452b58475f2993cb6993dfbafb1d0205a3291eb8b4b8

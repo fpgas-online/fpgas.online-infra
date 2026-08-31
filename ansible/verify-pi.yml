@@ -185,6 +185,62 @@
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
 
+    # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
+    # neither fail nor stall the boot.
+    - name: Check no failed units
+      command: systemctl --failed --no-legend --plain
+      changed_when: false
+      register: verify_pi_failed
+      tags: [verify, services]
+
+    - name: Assert ifupdown is masked and not failed
+      assert:
+        that:
+          - "'networking.service' not in verify_pi_failed.stdout"
+          - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
+        fail_msg: "ifupdown units still failing on the Pi: {{ verify_pi_failed.stdout }}"
+      tags: [verify, services]
+
+    # --- Orange Pi H3 boards + their FEL-boot host (tag hw-sunxi; hardware only) ---
+    - name: read the device-tree model
+      slurp:
+        src: /proc/device-tree/model
+      register: verify_pi_dt_model
+      failed_when: false
+      tags: [verify, hw-sunxi]
+
+    - name: Assert a sunxi board runs the armmp kernel from the shared root
+      assert:
+        that:
+          - ansible_kernel is search('armmp')
+          - ansible_architecture == 'armv7l'
+        fail_msg: "Orange Pi {{ ansible_hostname }} runs {{ ansible_kernel }} on {{ ansible_architecture }}, expected an armmp kernel"
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: sunxi boards declared for this site
+      set_fact:
+        verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
+      tags: [verify, hw-sunxi]
+
+    # fpgas-felboot.sh leaves /run/fpgas-felboot/<usb-device> on success; the
+    # journal is volatile and rotates within minutes under systemd debug
+    # logging, and finished oneshot instances are unloaded from systemctl.
+    - name: List FEL-boot success markers on the hub host
+      find:
+        paths: /run/fpgas-felboot
+      register: verify_pi_felboot
+      when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
+      tags: [verify, hw-sunxi]
+
+    - name: Assert every attached board was FEL-booted from this host
+      assert:
+        that: >-
+          verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | map(attribute='usb') | list
+          | difference(verify_pi_felboot.files | map(attribute='path') | map('basename') | list) | length == 0
+        fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
+      when: verify_pi_felboot is not skipped
+      tags: [verify, hw-sunxi]
     # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
     # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
     # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"
