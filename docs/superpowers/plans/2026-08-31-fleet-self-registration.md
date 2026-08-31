@@ -1,138 +1,122 @@
-# Fleet Self-Registration Implementation Plan
+# Fleet Self-Registration Implementation Plan (MQTT revision)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fleet Pis register a complete hardware/software/connection document
-with every configured web app on boot, keep a content-addressed hardware
-history server-side, and heartbeat every 60 s.
+**Goal:** Fleet Pis publish a complete registration document, 60 s status
+beats with LWT, and boot-stage events to their site's MQTT broker; the web
+app consumes them into a content-addressed hardware history.
 
-**Architecture:** New Django app `fleet` in fpgas.online-site (Machine +
-append-only HardwareSnapshot, HTTPS register/heartbeat API, list/detail
-pages); new stdlib-only collector + registrar in fpgas.online-setup-pi run
-by systemd units; fpgas.online-infra bakes `/etc/fpgas-online/fleet.toml`
-into the nfsroot and wires nginx/local_settings. Heartbeat `known:false`
-triggers re-registration, so a reset DB self-heals fleet-wide in ~1 minute.
+**Architecture:** mosquitto on each site's gateway/web host (bridge-ready
+for all.fpgas.online, commented). Pi runs a small `fleet-agent` daemon
+(collect → publish retained registration → 60 s retained status, LWT
+offline) plus a `fleet-event` CLI hooked into boot units. Django app
+`fleet` (Machine / HardwareSnapshot / BootEvent + transport-agnostic
+services) ingests via a paho management-command consumer; pages under
+`/fleet/`. Retained messages + idempotent ingest = DB resets self-heal
+with zero Pi traffic.
 
-**Tech Stack:** Django 4.2+/JSONField, pytest-django, Python 3.11+ stdlib
-(tomllib/urllib) on the Pi, systemd timers, Ansible, nfpm debs.
+**Tech Stack:** mosquitto 2.x, paho-mqtt (Debian-packaged on both ends),
+Django 4.2+/JSONField, pytest-django, systemd, Ansible, nfpm debs.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-fleet-self-registration-design.md`
-(same commit). Read it first — schema, canonicalisation and transport
-decisions are argued there, and every task below implements a section of it.
+(same commit — the revised MQTT edition; topic scheme, payloads, ACLs and
+resolved decisions D-1..D-3 live there and are normative).
 
 ## Global Constraints
 
-- Dev process: each repo gets a feature branch in a worktree; land via PR
-  with CI green; never push main; infra repo: no `gh pr merge --auto`.
-- Pi-side code is **stdlib-only** Python ≥ 3.11 (nfsroot has no pip venv).
-- Site repo conventions: `uv run pytest`, `uv run ruff check .`, apps use
-  `<app>/src/<app>/` layout WITH the explicit-`AppConfig.path` fix (see
-  `ttsite/src/ttsite/apps.py`), wheel packaging must be extended for every
-  new app (`pyproject.toml` find/include lists + `tests/test_packaging.py`).
-- setup-pi repo: files ship via `nfpm.yaml` contents entries; ruff lints
-  `pistat-scripts/` siblings — match its style.
-- Fingerprints: SHA-256 hex of
-  `json.dumps(doc, sort_keys=True, separators=(",", ":"))`, computed
-  server-side; the client's value is advisory only.
-- API auth: `Authorization: Bearer <token>`, tokens from
-  `settings.FLEET_TOKENS` (list). 403 on mismatch, 400 on bad JSON,
-  256 KB body cap.
-- Dates in docs/UI: ISO 8601.
+- Dev process: feature branch per repo in a worktree; land via PR, CI
+  green; never push main; infra: no `gh pr merge --auto`. **Develop only —
+  nothing deploys without Tim's explicit go (Task 11 is gated).**
+- Pi-side Python: stdlib + `python3-paho-mqtt` (apt, baked into the
+  nfsroot) only. Server-side adds `paho-mqtt` to the site package deps.
+- Site repo: `uv run pytest` / `uv run ruff check .`; apps use
+  `<app>/src/<app>/` layout WITH explicit `AppConfig.path` (ttsite
+  pattern); extend `pyproject.toml` find/include and
+  `tests/test_packaging.py` for every new app.
+- Topics/payloads exactly as the spec: `fpgas/<site>/pi/<serial>/`
+  `registration|status|event`; canonical JSON
+  `json.dumps(doc, sort_keys=True, separators=(",", ":"))`; fingerprint =
+  SHA-256 hex, recomputed server-side.
+- Standard boot stages: `network-online`, `time-synced`, `ssh-up`,
+  `cam-streaming`, `tt-daemon-up`, `fpga-detected`, `registered`,
+  `shutdown`.
+- Multi-host guard rule: every new infra task is guarded (`when:
+  fleet_broker is defined` etc.) so ps1/CI hosts without the vars skip
+  cleanly until enabled.
+- Dates ISO 8601.
 
 ## Repo/branch map
 
 | Repo | Branch | Tasks |
 |---|---|---|
 | fpgas.online-site | `fleet-app` | 1–5 |
-| fpgas.online-setup-pi | `fleet-scripts` | 6–9 |
-| fpgas.online-infra | `fleet-deploy` | 10–12 |
-| fpgas.online-site | `fleet-drives-boards` (after 1–12 proven) | 13 |
+| fpgas.online-setup-pi | `fleet-scripts` | 6–8 |
+| fpgas.online-infra | `fleet-deploy` | 9–10 |
+| (gated) deploy + legacy-unit retirement + board-list sync | — | 11–12 |
 
 ---
 
-### Task 1: `fleet` app — models + migration
+### Task 1: `fleet` app — models
 
 **Files:**
 - Create: `fleet/src/fleet/__init__.py`, `fleet/src/fleet/apps.py`,
   `fleet/src/fleet/models.py`, `fleet/src/fleet/migrations/__init__.py`
 - Modify: `pib/settings.py` (INSTALLED_APPS), `pyproject.toml`
-  (packages.find where/include)
 - Test: `tests/test_fleet_models.py`
 
 **Interfaces:**
-- Produces: `fleet.models.Machine(serial, site, hostname, first_seen,
-  last_seen, last_boot_id, last_uptime_s, latest_snapshot)` and
-  `fleet.models.HardwareSnapshot(machine, fingerprint, document,
-  first_seen, last_confirmed)` with
-  `unique_together (machine, fingerprint)`; `Machine.live` property
-  (last_seen within 90 s).
+- Produces: `Machine(serial unique, site, hostname, first_seen, last_seen,
+  online: bool, last_boot_id, last_uptime_s, latest_snapshot FK)`;
+  `HardwareSnapshot(machine, fingerprint, document, first_seen,
+  last_confirmed)` unique on (machine, fingerprint);
+  `BootEvent(machine, boot_id, stage, detail JSON, ts db_index)`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Failing test**
 
 ```python
 # tests/test_fleet_models.py
-from datetime import timedelta
-
 import pytest
 from django.utils import timezone
-from fleet.models import HardwareSnapshot, Machine
+from fleet.models import BootEvent, HardwareSnapshot, Machine
 
 
 @pytest.mark.django_db
-def test_machine_live_within_90s():
+def test_machine_online_flag_and_snapshot_uniqueness():
     m = Machine.objects.create(serial="c36b093f773d46b8", site="welland",
-                               hostname="pi-sw2-p47", last_seen=timezone.now())
-    assert m.live is True
-    m.last_seen = timezone.now() - timedelta(seconds=120)
-    assert m.live is False
-
-
-@pytest.mark.django_db
-def test_snapshot_unique_per_machine_and_fingerprint():
-    m = Machine.objects.create(serial="s1", site="welland", hostname="pi-sw2-p1",
-                               last_seen=timezone.now())
+                               hostname="pi-sw2-p47", last_seen=timezone.now(),
+                               online=True)
+    assert m.online is True
     HardwareSnapshot.objects.create(machine=m, fingerprint="ab" * 32,
                                     document={"schema": 1})
     with pytest.raises(Exception):
         HardwareSnapshot.objects.create(machine=m, fingerprint="ab" * 32,
                                         document={"schema": 1})
+
+
+@pytest.mark.django_db
+def test_boot_events_order_by_ts():
+    m = Machine.objects.create(serial="s", site="welland",
+                               last_seen=timezone.now())
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up",
+                             detail={}, ts=timezone.now())
+    assert m.events.count() == 1
 ```
 
-- [ ] **Step 2: Run it** — `uv run pytest tests/test_fleet_models.py -q`;
-  expect `ModuleNotFoundError: fleet`.
-
-- [ ] **Step 3: Implement**
-
-```python
-# fleet/src/fleet/apps.py  (same namespace-package fix as ttsite/pibfpgas)
-import os
-
-from django.apps import AppConfig
-
-
-class FleetConfig(AppConfig):
-    default_auto_field = "django.db.models.BigAutoField"
-    name = "fleet"
-    verbose_name = "fleet registration"
-    path = os.path.dirname(os.path.abspath(__file__))
-```
+- [ ] **Step 2: Run** `uv run pytest tests/test_fleet_models.py -q` — fails
+  (`ModuleNotFoundError: fleet`).
+- [ ] **Step 3: Implement** — `apps.py` copies the ttsite
+  `AppConfig.path = os.path.dirname(os.path.abspath(__file__))` pattern
+  (name `fleet`). Models:
 
 ```python
 # fleet/src/fleet/models.py
-"""Self-registered fleet machines.
+"""Self-registered fleet machines (see the fleet self-registration design).
 
-Machine = identity + presence (mutable, heartbeat churn). HardwareSnapshot =
-append-only content-addressed history: a new row appears ONLY when the
-registered document's fingerprint changes. See the 2026-08-31 fleet
-self-registration design doc.
-"""
-
-from datetime import timedelta
+Machine = identity + presence (mutable; status/LWT churn). HardwareSnapshot
+= append-only content-addressed history: a new row ONLY when the document
+fingerprint changes. BootEvent = the boot-stage timeline, pruned by age."""
 
 from django.db import models
-from django.utils import timezone
-
-LIVE_WINDOW = timedelta(seconds=90)  # one missed 60s beat + slack
 
 
 class Machine(models.Model):
@@ -141,6 +125,7 @@ class Machine(models.Model):
     hostname = models.CharField(max_length=64, blank=True)
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField()
+    online = models.BooleanField(default=False)
     last_boot_id = models.CharField(max_length=40, blank=True)
     last_uptime_s = models.PositiveIntegerField(default=0)
     latest_snapshot = models.ForeignKey(
@@ -152,10 +137,6 @@ class Machine(models.Model):
 
     def __str__(self):
         return f"{self.hostname or self.serial} @ {self.site}"
-
-    @property
-    def live(self):
-        return timezone.now() - self.last_seen <= LIVE_WINDOW
 
 
 class HardwareSnapshot(models.Model):
@@ -170,32 +151,42 @@ class HardwareSnapshot(models.Model):
         ordering = ["first_seen"]
         constraints = [models.UniqueConstraint(
             fields=["machine", "fingerprint"], name="uniq_machine_fingerprint")]
+
+
+class BootEvent(models.Model):
+    machine = models.ForeignKey(Machine, on_delete=models.CASCADE,
+                                related_name="events")
+    boot_id = models.CharField(max_length=40)
+    stage = models.CharField(max_length=64)
+    detail = models.JSONField(default=dict, blank=True)
+    ts = models.DateTimeField(db_index=True)
+
+    class Meta:
+        ordering = ["ts"]
 ```
 
-Wire up: add `'fleet',` to `INSTALLED_APPS` in `pib/settings.py` (after
-`'ttsite'`); in `pyproject.toml` add `"fleet/src"` to
-`tool.setuptools.packages.find.where` and `"fleet*"` to `include`. Then
-`uv run python manage.py makemigrations fleet`.
+Wire `'fleet',` into `INSTALLED_APPS`; add `"fleet/src"` / `"fleet*"` to
+`pyproject.toml` packages.find; `uv run python manage.py makemigrations fleet`.
+- [ ] **Step 4: Run** — PASS; `makemigrations --check` clean.
+- [ ] **Step 5: Commit** — `feat(fleet): Machine/HardwareSnapshot/BootEvent models`
 
-- [ ] **Step 4: Run** `uv run pytest tests/test_fleet_models.py -q` — PASS;
-  `uv run python manage.py makemigrations --check --dry-run` — clean.
-
-- [ ] **Step 5: Commit** — `feat(fleet): Machine + HardwareSnapshot models`
-
-### Task 2: fingerprint + registration service
+### Task 2: transport-agnostic services
 
 **Files:**
 - Create: `fleet/src/fleet/services.py`
 - Test: `tests/test_fleet_services.py`
 
 **Interfaces:**
-- Produces: `fleet.services.fingerprint(doc: dict) -> str` (sha256 hex);
-  `fleet.services.register_document(doc: dict) -> tuple[Machine, bool]`
-  (bool = a new snapshot row was created); `fleet.services.beat(serial,
-  boot_id, uptime_s, fingerprint) -> bool` (known?). Consumed by Task 3/4
-  views and Task 13.
-- Consumes: Task 1 models. Doc shape: `doc["machine"]["serial"]`,
-  `doc["connection"]["site"]`, `doc["connection"]["hostname"]` (see spec).
+- Produces (consumed by Task 3 consumer and Task 12 sync):
+  `fingerprint(doc) -> str`;
+  `register_document(doc) -> tuple[Machine, bool]` (bool = latest snapshot
+  moved);
+  `status(serial, payload: dict) -> Machine | None` — payload is the
+  status-topic JSON; sets `online`, `last_seen=now`, `last_boot_id`,
+  `last_uptime_s`; returns None for unknown serial (logged, dropped);
+  `boot_event(serial, payload: dict) -> BootEvent | None` — payload
+  `{"stage","boot_id","ts","detail"}`, ts ISO 8601 (fallback: now);
+  `prune_events(days=90) -> int`.
 
 - [ ] **Step 1: Failing tests**
 
@@ -203,300 +194,151 @@ Wire up: add `'fleet',` to `INSTALLED_APPS` in `pib/settings.py` (after
 # tests/test_fleet_services.py
 import pytest
 from fleet.models import Machine
-from fleet.services import beat, fingerprint, register_document
+from fleet.services import (boot_event, fingerprint, register_document,
+                            status)
 
-DOC = {"schema": 1,
-       "machine": {"serial": "c36b093f773d46b8"},
+DOC = {"schema": 1, "machine": {"serial": "c36b093f773d46b8"},
        "connection": {"site": "welland", "hostname": "pi-sw2-p47"},
        "peripherals": {"usb": []}}
 
 
-def test_fingerprint_is_stable_and_order_insensitive():
-    a = fingerprint({"x": 1, "y": [2, 3]})
-    b = fingerprint({"y": [2, 3], "x": 1})
-    assert a == b and len(a) == 64
+def test_fingerprint_stable_and_order_insensitive():
+    assert fingerprint({"x": 1, "y": [2]}) == fingerprint({"y": [2], "x": 1})
+    assert len(fingerprint(DOC)) == 64
 
 
 @pytest.mark.django_db
-def test_register_creates_then_dedupes_then_snapshots_change():
+def test_register_dedupes_and_appends_only_on_change():
     m, changed = register_document(DOC)
-    assert changed is True and m.snapshots.count() == 1
-    m2, changed = register_document(DOC)          # identical → no new row
-    assert changed is False and m2.pk == m.pk and m2.snapshots.count() == 1
-    first_confirmed = m2.latest_snapshot.last_confirmed
+    assert changed and m.snapshots.count() == 1
+    _, changed = register_document(DOC)
+    assert not changed and m.snapshots.count() == 1
     doc2 = {**DOC, "peripherals": {"usb": [{"vid": "0403", "pid": "6010"}]}}
-    m3, changed = register_document(doc2)         # hardware changed → new row
-    assert changed is True and m3.snapshots.count() == 2
-    assert m3.latest_snapshot.fingerprint == fingerprint(doc2)
-    register_document(DOC)                        # flap back → reuse old row
-    assert Machine.objects.get(pk=m.pk).snapshots.count() == 2
-    assert m.snapshots.get(fingerprint=fingerprint(DOC))
-    assert (m.snapshots.get(fingerprint=fingerprint(DOC)).last_confirmed
-            > first_confirmed)
+    m, changed = register_document(doc2)
+    assert changed and m.snapshots.count() == 2
+    register_document(DOC)                       # flap back reuses the row
+    assert Machine.objects.get().snapshots.count() == 2
 
 
 @pytest.mark.django_db
-def test_beat_updates_presence_and_reports_known():
+def test_status_drives_online_flag_and_ignores_unknown():
     register_document(DOC)
-    assert beat("c36b093f773d46b8", "boot-1", 120, fingerprint(DOC)) is True
-    m = Machine.objects.get(serial="c36b093f773d46b8")
-    assert m.last_boot_id == "boot-1" and m.last_uptime_s == 120
-    assert beat("c36b093f773d46b8", "boot-1", 180, "0" * 64) is False  # doc drift
-    assert beat("ffffffffffffffff", "boot-9", 5, "0" * 64) is False    # unknown pi
+    m = status("c36b093f773d46b8", {"online": True, "boot_id": "b1",
+                                    "uptime_s": 61})
+    assert m.online and m.last_boot_id == "b1"
+    m = status("c36b093f773d46b8", {"online": False, "reason": "connection-lost"})
+    assert m.online is False
+    assert status("nope", {"online": True}) is None
+
+
+@pytest.mark.django_db
+def test_boot_event_recorded_with_stage_and_boot_id():
+    register_document(DOC)
+    ev = boot_event("c36b093f773d46b8",
+                    {"stage": "ssh-up", "boot_id": "b1",
+                     "ts": "2026-08-31T07:00:00Z", "detail": {}})
+    assert ev.stage == "ssh-up"
+    assert boot_event("nope", {"stage": "x", "boot_id": "b"}) is None
 ```
 
-- [ ] **Step 2: Run** — fails with `ModuleNotFoundError: fleet.services`.
+- [ ] **Step 2: Run** — fails.
+- [ ] **Step 3: Implement** — `fingerprint`/`register_document` exactly as
+  the canonical-JSON + `update_or_create`/`get_or_create` +
+  re-point-latest_snapshot logic the tests force (hash server-side; bump
+  `last_confirmed` always; machine `last_seen`/`site`/`hostname` refresh
+  on every registration). `status()`/`boot_event()` look up by serial,
+  return None if absent; `status` writes the four presence fields;
+  `boot_event` parses `ts` with
+  `django.utils.dateparse.parse_datetime` (fallback `timezone.now()`).
+  `prune_events` deletes `ts < now - days`.
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit** —
+  `feat(fleet): idempotent ingest services`
 
-- [ ] **Step 3: Implement**
-
-```python
-# fleet/src/fleet/services.py
-"""Registration/heartbeat logic, transport-agnostic (views call these; a
-future MQTT consumer would too)."""
-
-import hashlib
-import json
-
-from django.utils import timezone
-
-from .models import HardwareSnapshot, Machine
-
-
-def fingerprint(doc):
-    canon = json.dumps(doc, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canon.encode()).hexdigest()
-
-
-def register_document(doc):
-    serial = doc["machine"]["serial"]
-    conn = doc.get("connection", {})
-    now = timezone.now()
-    fp = fingerprint(doc)
-
-    machine, _ = Machine.objects.update_or_create(
-        serial=serial,
-        defaults={"site": conn.get("site", ""),
-                  "hostname": conn.get("hostname", ""),
-                  "last_seen": now})
-    snap, created = HardwareSnapshot.objects.get_or_create(
-        machine=machine, fingerprint=fp, defaults={"document": doc})
-    changed = machine.latest_snapshot_id != snap.pk
-    snap.last_confirmed = now
-    snap.save(update_fields=["last_confirmed"])
-    if changed:
-        machine.latest_snapshot = snap
-        machine.save(update_fields=["latest_snapshot"])
-    return machine, created or changed
-
-
-def beat(serial, boot_id, uptime_s, fp):
-    now = timezone.now()
-    machine = Machine.objects.filter(serial=serial).first()
-    if machine is None:
-        return False
-    machine.last_seen = now
-    machine.last_boot_id = boot_id
-    machine.last_uptime_s = uptime_s
-    machine.save(update_fields=["last_seen", "last_boot_id", "last_uptime_s"])
-    return bool(machine.latest_snapshot
-                and machine.latest_snapshot.fingerprint == fp)
-```
-
-(Nuance the test pins down: `changed` is true when the *latest* snapshot
-moved — including a flap back to an older stored row, which reuses that row
-via `get_or_create` and merely re-points `latest_snapshot`.)
-
-- [ ] **Step 4: Run** `uv run pytest tests/test_fleet_services.py -q` — PASS.
-- [ ] **Step 5: Commit** — `feat(fleet): content-addressed registration service`
-
-### Task 3: register API endpoint
+### Task 3: MQTT consumer
 
 **Files:**
-- Create: `fleet/src/fleet/views.py`, `fleet/src/fleet/urls.py`
-- Modify: `pib/urls.py` (add `path('fleet/', include('fleet.urls'))`)
-- Test: `tests/test_fleet_api.py`
+- Create: `fleet/src/fleet/management/__init__.py`,
+  `fleet/src/fleet/management/commands/__init__.py`,
+  `fleet/src/fleet/management/commands/fleet_consumer.py`,
+  `fleet/src/fleet/consumer.py`
+- Modify: `pyproject.toml` (add `paho-mqtt>=2` dependency)
+- Test: `tests/test_fleet_consumer.py`
 
 **Interfaces:**
-- Produces: `POST /fleet/api/register/` per the spec (`{"ok", "changed",
-  "fingerprint"}`); `fleet.views._authorized(request) -> bool` reused by
-  Task 4. URL names: `fleet-register`, `fleet-heartbeat`, `fleet-list`,
-  `fleet-detail` (Tasks 4–5 fill the rest of `urls.py`).
-- Consumes: Task 2 services; `settings.FLEET_TOKENS` (tests set it; prod
-  comes from local_settings via Task 10).
+- Produces: `consumer.dispatch(topic: str, payload: bytes) -> str` — pure
+  routing testable without a broker; returns which handler ran
+  (`"registration" | "status" | "event" | "ignored"`). Topic parse:
+  `fpgas/<site>/pi/<serial>/<kind>`; anything else (e.g. sensors2mqtt
+  topics) → `"ignored"`. Malformed JSON → `"ignored"` + log, never raise.
+  `Command` (fleet_consumer) connects with paho as `fleet-web`, subscribes
+  `fpgas/+/pi/+/+`, calls `dispatch` per message, reconnects forever.
+  Settings: `FLEET_MQTT = {"host": "127.0.0.1", "port": 1883,
+  "username": ..., "password": ...}` from local_settings.
 
 - [ ] **Step 1: Failing tests**
 
 ```python
-# tests/test_fleet_api.py
+# tests/test_fleet_consumer.py
 import json
 
 import pytest
-from django.test import Client
+from fleet import consumer
 from fleet.models import Machine
 
-DOC = {"schema": 1, "machine": {"serial": "c36b093f773d46b8"},
-       "connection": {"site": "welland", "hostname": "pi-sw2-p47"}}
-
-
-@pytest.fixture
-def api(settings):
-    settings.FLEET_TOKENS = ["sekrit"]
-    return Client(HTTP_HOST="welland.fpgas.online",
-                  HTTP_AUTHORIZATION="Bearer sekrit")
+DOC = {"schema": 1, "machine": {"serial": "abc"},
+       "connection": {"site": "welland", "hostname": "pi-sw2-p9"}}
 
 
 @pytest.mark.django_db
-def test_register_roundtrip(api):
-    r = api.post("/fleet/api/register/", json.dumps(DOC),
-                 content_type="application/json")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is True and body["changed"] is True
-    assert Machine.objects.get(serial="c36b093f773d46b8").hostname == "pi-sw2-p47"
-    assert api.post("/fleet/api/register/", json.dumps(DOC),
-                    content_type="application/json").json()["changed"] is False
+def test_dispatch_routes_registration_status_event():
+    t = "fpgas/welland/pi/abc/"
+    assert consumer.dispatch(t + "registration", json.dumps(DOC).encode()) \
+        == "registration"
+    assert Machine.objects.get(serial="abc").hostname == "pi-sw2-p9"
+    assert consumer.dispatch(t + "status",
+                             b'{"online": true, "boot_id": "b", "uptime_s": 5}') \
+        == "status"
+    assert Machine.objects.get(serial="abc").online is True
+    assert consumer.dispatch(t + "event",
+                             b'{"stage": "ssh-up", "boot_id": "b"}') == "event"
 
 
 @pytest.mark.django_db
-def test_register_rejects_bad_token_and_bad_json(api, settings):
-    bad = Client(HTTP_AUTHORIZATION="Bearer wrong")
-    assert bad.post("/fleet/api/register/", json.dumps(DOC),
-                    content_type="application/json").status_code == 403
-    assert api.post("/fleet/api/register/", "{nope",
-                    content_type="application/json").status_code == 400
+def test_dispatch_ignores_foreign_topics_and_garbage():
+    assert consumer.dispatch("sensors/tweed/cpu_temp", b"41.2") == "ignored"
+    assert consumer.dispatch("fpgas/welland/pi/abc/registration", b"{nope") \
+        == "ignored"
 ```
 
-- [ ] **Step 2: Run** — 404s/import errors expected.
+- [ ] **Step 2: Run** — fails.
+- [ ] **Step 3: Implement** — `consumer.dispatch` splits the topic,
+  requires exactly `["fpgas", site, "pi", serial, kind]` with kind in
+  the three known suffixes, `json.loads` under try/except, then calls the
+  Task 2 service (for `registration` it also cross-checks
+  `doc["machine"]["serial"] == serial` from the topic and ignores
+  mismatches). The management command is a thin paho v2 client:
+  `mqtt.Client(...)`, `username_pw_set`, `on_message` → `dispatch`,
+  `subscribe("fpgas/+/pi/+/+", qos=1)`, `loop_forever(retry_first_connection=True)`.
+- [ ] **Step 4: Run full suite + ruff** — green.
+- [ ] **Step 5: Commit** — `feat(fleet): mqtt consumer`
 
-- [ ] **Step 3: Implement**
-
-```python
-# fleet/src/fleet/urls.py
-from django.urls import path
-
-from . import views
-
-urlpatterns = [
-    path("api/register/", views.register, name="fleet-register"),
-]
-```
-
-```python
-# fleet/src/fleet/views.py
-import json
-
-from django.conf import settings
-from django.http import HttpResponseBadRequest, HttpResponseForbidden, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
-
-from . import services
-
-MAX_BODY = 256 * 1024
-
-
-def _authorized(request):
-    header = request.headers.get("Authorization", "")
-    token = header.removeprefix("Bearer ").strip()
-    return token and token in getattr(settings, "FLEET_TOKENS", [])
-
-
-def _payload(request):
-    if len(request.body) > MAX_BODY:
-        raise ValueError("body too large")
-    return json.loads(request.body)
-
-
-@csrf_exempt
-@require_POST
-def register(request):
-    if not _authorized(request):
-        return HttpResponseForbidden()
-    try:
-        doc = _payload(request)
-        machine, changed = services.register_document(doc)
-    except (ValueError, KeyError, TypeError) as exc:
-        return HttpResponseBadRequest(str(exc))
-    return JsonResponse({"ok": True, "changed": changed,
-                         "fingerprint": machine.latest_snapshot.fingerprint})
-```
-
-And in `pib/urls.py` add `path('fleet/', include('fleet.urls')),` to
-`urlpatterns`.
-
-- [ ] **Step 4: Run** `uv run pytest tests/test_fleet_api.py -q` — PASS.
-- [ ] **Step 5: Commit** — `feat(fleet): register endpoint`
-
-### Task 4: heartbeat API endpoint
+### Task 4: fleet pages
 
 **Files:**
-- Modify: `fleet/src/fleet/views.py`, `fleet/src/fleet/urls.py`
-- Test: `tests/test_fleet_api.py` (append)
-
-**Interfaces:**
-- Produces: `POST /fleet/api/heartbeat/` body `{"serial","boot_id",
-  "uptime_s","fingerprint"}` → `{"ok": true, "known": bool}`. The Pi
-  registrar (Task 8) re-registers on `known:false`.
-
-- [ ] **Step 1: Failing tests** (append to `tests/test_fleet_api.py`)
-
-```python
-@pytest.mark.django_db
-def test_heartbeat_known_and_unknown(api):
-    api.post("/fleet/api/register/", json.dumps(DOC),
-             content_type="application/json")
-    fp = Machine.objects.get().latest_snapshot.fingerprint
-    r = api.post("/fleet/api/heartbeat/",
-                 json.dumps({"serial": "c36b093f773d46b8", "boot_id": "b1",
-                             "uptime_s": 61, "fingerprint": fp}),
-                 content_type="application/json")
-    assert r.json() == {"ok": True, "known": True}
-    r = api.post("/fleet/api/heartbeat/",
-                 json.dumps({"serial": "unknown", "boot_id": "b1",
-                             "uptime_s": 1, "fingerprint": "0" * 64}),
-                 content_type="application/json")
-    assert r.json() == {"ok": True, "known": False}
-```
-
-- [ ] **Step 2: Run** — 404 on the new path.
-
-- [ ] **Step 3: Implement** — add to `urls.py`:
-`path("api/heartbeat/", views.heartbeat, name="fleet-heartbeat"),` and to
-`views.py`:
-
-```python
-@csrf_exempt
-@require_POST
-def heartbeat(request):
-    if not _authorized(request):
-        return HttpResponseForbidden()
-    try:
-        b = _payload(request)
-        known = services.beat(b["serial"], b.get("boot_id", ""),
-                              int(b.get("uptime_s", 0)),
-                              b.get("fingerprint", ""))
-    except (ValueError, KeyError, TypeError) as exc:
-        return HttpResponseBadRequest(str(exc))
-    return JsonResponse({"ok": True, "known": known})
-```
-
-- [ ] **Step 4: Run tests** — PASS. **Step 5: Commit** —
-  `feat(fleet): heartbeat endpoint`
-
-### Task 5: fleet pages (list + machine history)
-
-**Files:**
-- Create: `fleet/src/fleet/templates/fleet/list.html`,
+- Create: `fleet/src/fleet/views.py`, `fleet/src/fleet/urls.py`,
+  `fleet/src/fleet/templates/fleet/list.html`,
   `fleet/src/fleet/templates/fleet/detail.html`
-- Modify: `fleet/src/fleet/views.py`, `fleet/src/fleet/urls.py`,
-  `tests/test_packaging.py` (fleet templates ship in the wheel)
+- Modify: `pib/urls.py` (`path('fleet/', include('fleet.urls'))`),
+  `tests/test_packaging.py` (add `fleet` to APP_PACKAGES)
 - Test: `tests/test_fleet_pages.py`
 
 **Interfaces:**
-- Produces: `GET /fleet/` (table: hostname, site, serial, model, FPGA
-  boards, live badge, last_seen ISO) and `GET /fleet/<serial>/` (presence +
-  snapshot history, newest first, each with first_seen/last_confirmed and a
-  `<pre>` of the document; consecutive-snapshot key diff optional).
+- Produces: `GET /fleet/` — one row per machine: hostname, site, serial,
+  model (from `latest_snapshot.document.machine.model`), FPGA kinds,
+  online/offline badge (the `Machine.online` flag — LWT-driven, no
+  staleness math), last_seen ISO. `GET /fleet/<serial>/` — presence block,
+  snapshot history (newest first: fingerprint, first_seen, last_confirmed,
+  `<details><pre>` document), boot-event timeline for the latest boot_id.
 
 - [ ] **Step 1: Failing tests**
 
@@ -504,6 +346,8 @@ def heartbeat(request):
 # tests/test_fleet_pages.py
 import pytest
 from django.test import Client
+from django.utils import timezone
+from fleet.models import BootEvent, Machine
 from fleet.services import register_document
 
 DOC = {"schema": 1, "machine": {"serial": "abc123", "model": "Raspberry Pi 5"},
@@ -517,80 +361,54 @@ def c():
 
 
 @pytest.mark.django_db
-def test_list_shows_machine_and_liveness(c):
+def test_list_shows_machine_model_board_and_badge(c):
     register_document(DOC)
     html = c.get("/fleet/").content.decode()
-    assert "pi-sw2-p47" in html and "acorn-cle-215+" in html and "live" in html
+    assert "pi-sw2-p47" in html and "acorn-cle-215+" in html
+    assert "Raspberry Pi 5" in html and "offline" in html  # no status yet
 
 
 @pytest.mark.django_db
-def test_detail_shows_snapshot_history(c):
+def test_detail_shows_history_and_events(c):
     register_document(DOC)
     register_document({**DOC, "fpga": {"boards": []}})
+    m = Machine.objects.get()
+    BootEvent.objects.create(machine=m, boot_id="b1", stage="ssh-up",
+                             detail={}, ts=timezone.now())
     html = c.get("/fleet/abc123/").content.decode()
-    assert html.count("snapshot") >= 2 and "pi-sw2-p47" in html
+    assert html.count("<details") >= 2 and "ssh-up" in html
 ```
 
-- [ ] **Step 2: Run** — 404.
+- [ ] **Step 2: Run** — 404. **Step 3: Implement** — two plain views
+  (`machine_list`, `machine_detail`) + templates in the ttsite visual
+  style; urls `""` and `"<str:serial>/"`.
+- [ ] **Step 4: Full suite + ruff** — green.
+- [ ] **Step 5: Commit**, push branch `fleet-app`, open PR "Fleet
+  self-registration: server side", CI green. **STOP — no deploy.**
 
-- [ ] **Step 3: Implement** — views:
-
-```python
-from django.shortcuts import get_object_or_404, render
-
-from .models import Machine
-
-
-def machine_list(request):
-    return render(request, "fleet/list.html",
-                  {"machines": Machine.objects.select_related("latest_snapshot")})
-
-
-def machine_detail(request, serial):
-    machine = get_object_or_404(Machine, serial=serial)
-    return render(request, "fleet/detail.html",
-                  {"machine": machine,
-                   "snapshots": machine.snapshots.order_by("-first_seen")})
-```
-
-urls: `path("", views.machine_list, name="fleet-list")` and
-`path("<str:serial>/", views.machine_detail, name="fleet-detail")` (keep
-the `api/` paths ABOVE the catch-all serial pattern). Templates: plain
-tables in the ttsite visual style; list row =
-`hostname | site | serial | machine.latest_snapshot.document.machine.model |
-fpga kinds | live/stale badge | last_seen ISO`; detail = presence block +
-one `<details class="snapshot">` per snapshot with the pretty-printed
-document. Extend `tests/test_packaging.py` `APP_PACKAGES` with `"fleet"`.
-
-- [ ] **Step 4: Run full suite** `uv run pytest -q` + `uv run ruff check .`
-  — all green.
-- [ ] **Step 5: Commit** — `feat(fleet): fleet list and history pages`, push
-  branch, open PR "Fleet self-registration: server side", wait for CI.
-
-### Task 6: collector — machine/software/connection sections
+### Task 5: collector — full document
 
 **Files (fpgas.online-setup-pi, branch `fleet-scripts`):**
-- Create: `fleet-scripts/collect.py`
-- Test: `tests/test_collect.py` (create `tests/` mirroring how
-  `pistat-scripts` are linted; wire ruff/pytest if the repo lacks them —
-  `uv run pytest` from repo root)
+- Create: `fleet-scripts/collect.py`, `tests/test_collect.py`,
+  fixture tree `tests/data/pi5-acorn/`
 
 **Interfaces:**
-- Produces: `collect.document(root="/", tt_url="http://127.0.0.1:8765") ->
-  dict` returning the spec's document; every reader takes `root` so tests
-  point it at a fixture tree. Section helpers `machine_section(root)`,
-  `software_section(root)`, `connection_section(root, site)`,
-  `peripherals_section(root)`, `fpga_section(peripherals, tt_health)`.
-- Consumes: fixture tree `tests/data/pi5-acorn/` with files:
-  `proc/device-tree/model`, `sys/firmware/devicetree/base/serial-number`,
-  `proc/cpuinfo`, `proc/meminfo`, `etc/os-release`,
-  `sys/class/net/eth0/address`, `etc/ssh/password.txt`,
-  `etc/ssh/ssh_host_ed25519_key.pub`.
+- Produces: `collect.document(root="/", site="", hostname="",
+  tt_url="http://127.0.0.1:8765") -> dict` per the spec's schema; section
+  helpers `machine_section(root)`, `software_section(root)`,
+  `connection_section(root, site, hostname)`, `peripherals_section(root)`,
+  `fpga_section(peripherals, tt_health)`. All readers take `root` for
+  fixture-tree tests; all lists sorted (fingerprint stability).
+- Fixture tree carries pi-sw2-p47's real values (2026-08-31 probe):
+  model `Raspberry Pi 5 Model B Rev 1.1`, serial `c36b093f773d46b8`,
+  cpuinfo `Revision : a04171`, eth0 MAC `98:fe:54:13:f5:75`, os-release
+  trixie, dummy `etc/ssh/password.txt` + ed25519 pubkey, USB FTDI
+  `0403/6010/210319B3E5C5`, PCIe `0x1cf0/0x0007`, hat files, v4l name
+  `ov5647`.
 
-- [ ] **Step 1: Failing test**
+- [ ] **Step 1: Failing tests** — machine/software/connection assertions:
 
 ```python
-# tests/test_collect.py
 import pathlib
 import sys
 
@@ -600,423 +418,219 @@ import collect  # noqa: E402
 ROOT = pathlib.Path(__file__).parent / "data" / "pi5-acorn"
 
 
-def test_machine_section_reads_devicetree_and_cpuinfo():
+def test_machine_section():
     m = collect.machine_section(ROOT)
     assert m["serial"] == "c36b093f773d46b8"
     assert m["model"].startswith("Raspberry Pi 5")
     assert m["revision_code"] == "a04171"
-    assert m["memory_mb"] > 256
     assert m["macs"]["eth0"] == "98:fe:54:13:f5:75"
 
 
-def test_software_and_connection_sections():
+def test_software_and_connection():
     s = collect.software_section(ROOT)
     assert s["os_release"].startswith("Debian") and s["kernel"]
-    c = collect.connection_section(ROOT, site="welland")
+    c = collect.connection_section(ROOT, site="welland", hostname="pi-sw2-p47")
     assert c["site"] == "welland" and c["login_user"] == "pi"
     assert c["ssh_host_keys"][0].startswith("ssh-ed25519")
-    assert c["login_password"]
-```
-
-Populate `tests/data/pi5-acorn/` with the exact values probed from
-pi-sw2-p47 on 2026-08-31 (model `Raspberry Pi 5 Model B Rev 1.1`, serial
-`c36b093f773d46b8`, mac `98:fe:54:13:f5:75`; cpuinfo `Revision : a04171`;
-os-release PRETTY_NAME `Debian GNU/Linux 13 (trixie)`; a dummy
-password.txt and host key).
-
-- [ ] **Step 2: Run** `uv run pytest tests/test_collect.py -q` — fails.
-
-- [ ] **Step 3: Implement** (representative core — the rest follows the
-  same read-and-strip pattern):
-
-```python
-# fleet-scripts/collect.py
-"""Collect this Pi's registration document. Stdlib only; every reader takes
-a root path so tests run against a canned fixture tree."""
-
-import json
-import os
-import pathlib
-import platform
-import re
-import subprocess
 
 
-def _read(root, rel, default=""):
-    try:
-        return (pathlib.Path(root) / rel).read_text().replace("\0", "").strip()
-    except OSError:
-        return default
-
-
-def machine_section(root="/"):
-    cpuinfo = _read(root, "proc/cpuinfo")
-    rev = re.search(r"^Revision\s*:\s*(\S+)", cpuinfo, re.M)
-    mem = re.search(r"^MemTotal:\s*(\d+) kB", _read(root, "proc/meminfo"), re.M)
-    macs = {}
-    for iface in sorted(pathlib.Path(root, "sys/class/net").glob("*")):
-        if iface.name.startswith(("eth", "wlan", "end", "enx")):
-            addr = _read(root, f"sys/class/net/{iface.name}/address")
-            if addr and addr != "00:00:00:00:00:00":
-                macs[iface.name] = addr
-    return {"serial": _read(root, "sys/firmware/devicetree/base/serial-number"),
-            "model": _read(root, "proc/device-tree/model"),
-            "revision_code": rev.group(1) if rev else "",
-            "memory_mb": int(mem.group(1)) // 1024 if mem else 0,
-            "macs": macs}
-
-
-def software_section(root="/"):
-    osr = dict(line.split("=", 1) for line in
-               _read(root, "etc/os-release").splitlines() if "=" in line)
-    stamp = _read(root, "etc/fpgas-online/nfsroot-build.json")
-    if stamp:
-        updated = json.loads(stamp).get("built", "")
-    else:
-        try:
-            mtime = os.stat(pathlib.Path(root, "var/lib/dpkg/status")).st_mtime
-            import datetime
-            updated = datetime.datetime.fromtimestamp(
-                mtime, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        except OSError:
-            updated = ""
-    return {"kernel": platform.release(),
-            "os_release": osr.get("PRETTY_NAME", "").strip('"'),
-            "nfsroot_updated": updated,
-            "packages": _fpgas_packages()}
-
-
-def _fpgas_packages():
-    try:
-        out = subprocess.run(
-            ["dpkg-query", "-W", "-f", "${Package} ${Version}\n",
-             "fpgas-online-*"], capture_output=True, text=True, timeout=10)
-        return dict(line.split(" ", 1) for line in out.stdout.splitlines())
-    except (OSError, ValueError):
-        return {}
-```
-
-`connection_section(root, site)`: hostname via `platform.node()` (fixture
-override param), `ip -json addr` (subprocess, filtered to global scope,
-sorted) with a `root`-based fallback for tests, host keys =
-`sorted(glob etc/ssh/ssh_host_*.pub)` contents, `login_user="pi"`,
-`login_password=_read(root, "etc/ssh/password.txt")` last non-empty line.
-`document()` assembles all sections plus
-`{"schema": 1}` and sorts every list for fingerprint stability.
-
-- [ ] **Step 4: Run** — PASS. **Step 5: Commit** —
-  `feat(fleet): collector machine/software/connection sections`
-
-### Task 7: collector — peripherals + FPGA detection
-
-**Files:**
-- Modify: `fleet-scripts/collect.py`
-- Test: `tests/test_collect.py` (append) + extend the fixture tree with
-  `sys/bus/usb/devices/1-1.2/{idVendor,idProduct,product,serial}`
-  (0403/6010/`FT2232C/D/H Dual UART/FIFO IC`/`210319B3E5C5`) and
-  `sys/bus/pci/devices/0001:01:00.0/{vendor,device}` (`0x1cf0`/`0x0007`),
-  `proc/device-tree/hat/{vendor,product,product_id,uuid}`,
-  `sys/class/video4linux/v4l-subdev0/name` (`ov5647`).
-
-**Interfaces:**
-- Produces: `peripherals_section(root) -> {"hats": [...], "usb": [...],
-  "pcie": [...], "cameras": [...]}` and
-  `fpga_section(peripherals, tt_health: dict | None) -> {"boards": [...]}`
-  with kinds `arty-a7` (FTDI 0403:6010 + serial startswith "210"),
-  `acorn-cle-215+` (pci vendor 1cf0), `xilinx-pcie` (pci vendor 10ee —
-  an Acorn re-enumerated under a user bitstream), `tt-demo-board`
-  (tt_health board present; carries `slug`, `kind`, `firmware`).
-  **No DNA read here** — passive sources only (spec: JTAG on a
-  PCIe-attached Acorn wedges the link).
-
-- [ ] **Step 1: Failing test**
-
-```python
-def test_peripherals_and_fpga_classification():
+def test_peripherals_and_fpga():
     p = collect.peripherals_section(ROOT)
     assert {"vid": "0403", "pid": "6010",
             "product": "FT2232C/D/H Dual UART/FIFO IC",
             "serial": "210319B3E5C5"} in p["usb"]
-    assert {"vendor": "1cf0", "device": "0007"} in [
-        {"vendor": d["vendor"], "device": d["device"]} for d in p["pcie"]]
     assert "ov5647" in p["cameras"]
-
     f = collect.fpga_section(p, tt_health=None)
-    kinds = sorted(b["kind"] for b in f["boards"])
-    assert kinds == ["acorn-cle-215+", "arty-a7"]
-    assert [b for b in f["boards"] if b["kind"] == "arty-a7"
-            ][0]["ids"]["digilent_serial"] == "210319B3E5C5"
-
+    assert sorted(b["kind"] for b in f["boards"]) == ["acorn-cle-215+", "arty-a7"]
     f = collect.fpga_section({"usb": [], "pcie": [], "hats": [], "cameras": []},
                              tt_health={"board": {"present": True},
                                         "kind": "fpga", "slug": "fpga-1",
                                         "version": "1.2.2"})
-    assert f["boards"] == [{"kind": "tt-demo-board", "via": "tt-daemon",
-                            "ids": {"slug": "fpga-1", "board_kind": "fpga",
-                                    "firmware": "1.2.2"}}]
+    assert f["boards"][0]["kind"] == "tt-demo-board"
 ```
 
-- [ ] **Step 2: Run** — fails. **Step 3: Implement** the sysfs walks
-  (usb: every `sys/bus/usb/devices/*` dir with an `idVendor` file, skip
-  `1d6b` root hubs and hubs `0424`/`2109`; pci: every
-  `sys/bus/pci/devices/*` reading `vendor`/`device`, strip `0x`, skip
-  bridge class `0x0604` and the RP1 `1de4`), the hat/camera reads, and the
-  classification table exactly as the test pins it. `document()` gains
-  `tt_url` handling: `urllib.request.urlopen(tt_url + "/health", timeout=2)`
-  → `fpga_section(peripherals, tt_health)`; any exception → `tt_health=None`.
-- [ ] **Step 4: Run** — PASS. **Step 5: Commit** —
-  `feat(fleet): peripherals + FPGA board detection`
+- [ ] **Step 2: Run** — fails. **Step 3: Implement** — `_read(root, rel)`
+  (strip NULs), cpuinfo/meminfo regexes, `/sys/class/net/*/address` walk
+  (eth/wlan/en*, skip zero MACs), os-release parse,
+  `etc/fpgas-online/nfsroot-build.json` else dpkg-status mtime,
+  `dpkg-query -W fpgas-online-*`, ssh host-key glob, password.txt last
+  non-empty line, sysfs USB walk (skip root hubs `1d6b` and hubs
+  `0424`/`2109`), sysfs PCI walk (strip `0x`, skip class `0x0604` bridges
+  and RP1 `1de4`), device-tree hat, v4l names. Classification:
+  FTDI 0403:6010 + serial `210…` → `arty-a7` (`ids.digilent_serial`);
+  pci `1cf0` → `acorn-cle-215+`; pci `10ee` → `xilinx-pcie` (Acorn under a
+  user bitstream — record both ids); tt_health present → `tt-demo-board`
+  with `ids` slug/board_kind/firmware. `document()` = sections +
+  `{"schema": 1}`; tt fetch via urllib, 2 s timeout, `None` on any error.
+  **No DNA read** (JTAG-vs-PCIe hazard; `--read-dna` reserved for the
+  operator CLI only).
+- [ ] **Step 4: Run + ruff** — green. **Step 5: Commit** —
+  `feat(fleet): registration document collector`
 
-### Task 8: registrar CLI
-
-**Files:**
-- Create: `fleet-scripts/register.py`
-- Test: `tests/test_register.py`
-
-**Interfaces:**
-- Produces: `register.py register|heartbeat --config /etc/fpgas-online/fleet.toml`
-  (default). `load_config(path) -> dict` (tomllib); `post(url, token,
-  payload) -> dict | None` (urllib, 5 s timeout, None on any failure —
-  logged to stderr, never raises); `run_register(cfg, doc)` posts the doc
-  to `<endpoint>/api/register/` for every endpoint; `run_heartbeat(cfg,
-  beat_fn, register_fn)` posts `{"serial","boot_id","uptime_s",
-  "fingerprint"}` to every endpoint and calls `register_fn` once if ANY
-  endpoint answered `known: false`. Exit code 0 unless the config is
-  unreadable (exit 2) — a down web app must not fail the systemd unit.
-- Consumes: Task 6/7 `collect.document()`; fingerprint must equal the
-  server's: same `json.dumps(doc, sort_keys=True, separators=(",", ":"))`
-  + sha256.
-
-- [ ] **Step 1: Failing test**
-
-```python
-# tests/test_register.py
-import json
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "fleet-scripts"))
-import register  # noqa: E402
-
-
-def test_load_config(tmp_path):
-    cfg = tmp_path / "fleet.toml"
-    cfg.write_text('site = "welland"\ntoken = "t"\n'
-                   'endpoints = ["https://welland.fpgas.online/fleet"]\n')
-    c = register.load_config(cfg)
-    assert c["endpoints"] == ["https://welland.fpgas.online/fleet"]
-
-
-def test_heartbeat_reregisters_on_unknown(monkeypatch):
-    calls = []
-    cfg = {"site": "w", "token": "t", "endpoints": ["http://a", "http://b"]}
-    monkeypatch.setattr(register, "post",
-                        lambda url, token, payload:
-                        {"ok": True, "known": url.startswith("http://a")})
-    register.run_heartbeat(cfg, beat_payload={"serial": "s", "boot_id": "b",
-                                              "uptime_s": 1,
-                                              "fingerprint": "f"},
-                           register_fn=lambda: calls.append("reg"))
-    assert calls == ["reg"]     # b said unknown → one full re-register
-
-
-def test_post_failure_returns_none(monkeypatch):
-    assert register.post("http://127.0.0.1:1/fleet", "t", {}) is None
-```
-
-- [ ] **Step 2: Run** — fails. **Step 3: Implement** with `argparse`
-  (subcommands `register`, `heartbeat`; `--config`, `--tt-url`,
-  `--read-dna` reserved/no-op for now), `tomllib.load`, urllib POST with
-  `Authorization: Bearer` header, boot_id from
-  `/proc/sys/kernel/random/boot_id`, uptime from `/proc/uptime`.
-- [ ] **Step 4: Run + ruff** — PASS. **Step 5: Commit** —
-  `feat(fleet): registrar CLI`
-
-### Task 9: systemd units + deb packaging
+### Task 6: fleet-agent daemon + fleet-event CLI
 
 **Files:**
-- Create: `onpi/fleet/fleet-register.service`,
-  `onpi/fleet/fleet-heartbeat.service`, `onpi/fleet/fleet-heartbeat.timer`
-- Modify: `nfpm.yaml` (ship `fleet-scripts/*.py` to
-  `/usr/local/lib/fpgas-online/fleet/`, units to `/etc/systemd/system/`,
-  enable via the package's existing postinstall pattern)
+- Create: `fleet-scripts/fleet_agent.py`, `fleet-scripts/fleet_event.py`
+- Test: `tests/test_fleet_agent.py`
 
 **Interfaces:**
-- Produces: on-boot registration + 60 s beats on every nfsroot Pi. Config
-  file `/etc/fpgas-online/fleet.toml` is NOT in this deb — infra bakes it
-  (Task 10); the units are inert without it (`ConditionPathExists`).
+- Produces: `fleet_agent.load_config(path) -> dict` (tomllib: site,
+  broker, port, username, password); `fleet_agent.topics(site, serial) ->
+  dict(registration=..., status=..., event=...)`;
+  `fleet_agent.status_payload(boot_id, uptime_s, fingerprint) -> dict`
+  (`online: True`, ISO `ts`); `fleet_agent.run(cfg, client, collect_fn,
+  now_fn)` — the loop, injectable client for tests: on connect set LWT
+  (`{"online": false, "reason": "connection-lost"}` retained) BEFORE
+  connect, publish registration retained iff fingerprint differs from the
+  last published, publish status every 60 s, re-collect every 6 h or on
+  SIGHUP, publish `{"online": false, "reason": "shutdown"}` + event
+  `shutdown` on SIGTERM. `fleet_event.py` CLI:
+  `fleet-event <stage> [--detail k=v ...]` publishes one event QoS 1 and
+  exits.
+- Consumes: Task 5 `collect.document()`; fingerprint identical to the
+  server (canonical JSON + sha256 — import the same two-liner, do not
+  drift).
 
-- [ ] **Step 1: Write the units**
+- [ ] **Step 1: Failing tests** — with a `FakeClient` recording
+  `will_set`/`publish` calls: (a) LWT set on the status topic retained
+  before connect; (b) registration published retained once, and again only
+  after `collect_fn` returns a changed doc; (c) status published with
+  `online: true` and the current fingerprint; (d) SIGTERM path publishes
+  shutdown status + event. `fleet_event` test: topic + payload for
+  `fleet-event ssh-up`.
+- [ ] **Step 2–4**: red → implement → green (+ ruff).
+- [ ] **Step 5: Commit** — `feat(fleet): agent daemon + event CLI`
+
+### Task 7: systemd units + deb packaging
+
+**Files:**
+- Create: `onpi/fleet/fleet-agent.service`, event hook units
+  `onpi/fleet/fleet-event@.service` (`ExecStart=/usr/bin/python3
+  /usr/local/lib/fpgas-online/fleet/fleet_event.py %i`) and drop-ins
+  hooking the standard stages: `network-online` (After=network-online),
+  `time-synced` (After=time-sync), `ssh-up` (WantedBy/After ssh.service),
+  `cam-streaming` (After the cam service), `tt-daemon-up` (After
+  fpgas-tt.service)
+- Modify: `nfpm.yaml` (scripts →
+  `/usr/local/lib/fpgas-online/fleet/`, units, enables via the existing
+  postinstall pattern)
+
+`fleet-agent.service`:
 
 ```ini
-# onpi/fleet/fleet-register.service
 [Unit]
-Description=Register this Pi with the fpgas.online fleet
+Description=fpgas.online fleet agent (registration + status + LWT)
 Wants=network-online.target
 After=network-online.target fpgas-tt.service
 ConditionPathExists=/etc/fpgas-online/fleet.toml
 
 [Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /usr/local/lib/fpgas-online/fleet/register.py register
+ExecStart=/usr/bin/python3 /usr/local/lib/fpgas-online/fleet/fleet_agent.py
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-```ini
-# onpi/fleet/fleet-heartbeat.service
-[Unit]
-Description=fpgas.online fleet heartbeat
-ConditionPathExists=/etc/fpgas-online/fleet.toml
+- [ ] Build the deb via the repo's CI mechanism; `dpkg-deb -c` shows the
+  new paths; `python3-paho-mqtt` added to the deb's Depends. Commit, push
+  `fleet-scripts`, PR "Fleet self-registration: Pi side", CI green.
+  **STOP — no deploy.**
 
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /usr/local/lib/fpgas-online/fleet/register.py heartbeat
-```
-
-```ini
-# onpi/fleet/fleet-heartbeat.timer
-[Unit]
-Description=fpgas.online fleet heartbeat every 60s
-
-[Timer]
-OnBootSec=90
-OnUnitActiveSec=60
-RandomizedDelaySec=10
-
-[Install]
-WantedBy=timers.target
-```
-
-- [ ] **Step 2: nfpm entries** — add the three units and both scripts to
-  `nfpm.yaml` `contents:` following the existing `pistat-scripts` entries;
-  enable `fleet-register.service` + `fleet-heartbeat.timer` wherever the
-  package's postinstall enables its other units (match the repo's existing
-  mechanism exactly).
-- [ ] **Step 3: Build check** — `nfpm package -f nfpm.yaml -p deb -t /tmp`
-  equivalent used by the repo's CI (or `uv run pytest` if the repo tests
-  packaging) succeeds; `dpkg-deb -c` shows the six new paths.
-- [ ] **Step 4: Commit** — `feat(fleet): systemd units + packaging`, push,
-  PR "Fleet self-registration: Pi side", CI green.
-
-### Task 10: infra — bake config, tokens, nginx
+### Task 8: infra — mosquitto role
 
 **Files (fpgas.online-infra, branch `fleet-deploy`):**
-- Create: `ansible/roles/onpi/templates/fleet.toml.j2`,
-  `ansible/roles/site/templates/pib-fleet.conf.j2`
-- Modify: `ansible/roles/onpi/tasks/main.yml` (bake config into nfsroot),
-  `ansible/roles/site/tasks/nginx.yml` (install the include),
-  `ansible/roles/site/tasks/django.yml` (FLEET_TOKENS lineinfile),
-  `ansible/inventory/host_vars/fpgas.online.yml` +
-  `ansible/inventory/host_vars/ps1.fpgas.online.yml` (`fleet_endpoints`,
-  vaulted `vault_fleet_token`), `ansible/verify-server.yml` (fleet page
-  answers), `ansible/verify-pi.yml` (timer active)
+- Create: `ansible/roles/mqtt/tasks/main.yml`,
+  `ansible/roles/mqtt/templates/fpgas-fleet.conf.j2` (mosquitto conf.d),
+  `ansible/roles/mqtt/templates/fleet-acl.j2`
+- Modify: `ansible/web.yml` (add the role to the pig play, guarded),
+  host_vars for `fpgas.online` + `ps1.fpgas.online`
+  (`fleet_broker: true`, vaulted `vault_fleet_pi_password`,
+  `vault_fleet_web_password`, `vault_sensors_password`)
 
-**Interfaces:**
-- Consumes: the deb from Task 9 (installed by the existing `onpi` role via
-  the fpgas apt repo) and the site wheel from Tasks 1–5 (existing pip
-  install task).
-- Produces: welland Pis get
-  `endpoints = ["https://welland.fpgas.online/fleet"]`, ps1 Pis
-  `["https://ps1.fpgas.online/fleet"]` (append `https://all.fpgas.online/fleet`
-  to both lists when D-1 lands — that is the entire multi-site change).
-
-- [ ] **Step 1: fleet.toml template**
+Template essentials:
 
 ```jinja
-# Ansible managed -- fleet self-registration (see fleet-self-registration design)
-site = "{{ fleet_site }}"
-token = "{{ vault_fleet_token }}"
-endpoints = [
-{% for url in fleet_endpoints %}
-  "{{ url }}",
-{% endfor %}
-]
+# Ansible managed -- fpgas.online fleet broker
+listener 1883 {{ eth_local_address | default('10.21.0.1') }}
+persistence true
+allow_anonymous false
+password_file /etc/mosquitto/fpgas-passwd
+acl_file /etc/mosquitto/fpgas-acl
+
+# all.fpgas.online fan-out (decision D-1: config-ready only; enable when
+# the aggregator exists)
+#connection all-fpgas-online
+#address all.fpgas.online:8883
+#topic fpgas/# out 1
 ```
 
-Baked at `/etc/fpgas-online/fleet.toml` inside the NFS root during the `pi`
-play (guard `when: fleet_endpoints is defined` — the multi-host guard rule:
-CI VM and hosts without the var must skip cleanly).
+ACL: `fleet-pi` write-only `fpgas/{{ fleet_site }}/pi/#`; `fleet-web`
+read `fpgas/#`; `sensors` write `sensors/#`. Users created with
+`mosquitto_passwd` tasks (changed_when guarded). Everything behind
+`when: fleet_broker | default(false)`.
 
-- [ ] **Step 2: nginx include** `includes/pib-fleet.conf` (welland vhost
-  already globs `includes/pib-*.conf`):
+- [ ] yamllint + syntax-check green; commit
+  `feat(fleet): per-site mosquitto broker (bridge-ready)`.
 
-```
-# Ansible managed -- fleet registration API + pages
-  location /fleet/ {
-    include proxy_params;
-    proxy_pass http://unix:/run/gunicorn.sock;
-  }
-```
-
-- [ ] **Step 3: FLEET_TOKENS** — lineinfile into
-  `{{ django_dir }}/pib/local_settings.py`:
-  `FLEET_TOKENS = ['{{ vault_fleet_token }}']`, tagged `django`, guarded
-  `when: vault_fleet_token is defined`. Generate the welland/ps1 tokens
-  (`openssl rand -hex 24`) into the vault.
-- [ ] **Step 4: verifies** — `verify-server.yml`: `uri` GET
-  `https://{{ domain_name }}/fleet/` expect 200; `verify-pi.yml`: assert
-  `systemctl is-active fleet-heartbeat.timer` = active (guarded like the
-  other fleet-var checks so the CI VM without a fleet config skips or —
-  better — the CI inventory gains `fleet_*` vars pointing at the VM's own
-  app so the VM test covers the whole loop).
-- [ ] **Step 5: Lint** `uv run yamllint ansible/` + syntax-check both
-  playbooks; commit `feat(fleet): bake registration config + tokens +
-  nginx`, push, PR "Fleet self-registration: deploy", wait for the VM CI.
-
-### Task 11: deploy to welland + prove the loop
-
-- [ ] **Step 1**: merge order — site PR, setup-pi PR (deb reaches the apt
-  repo via its publish flow), then infra PR.
-- [ ] **Step 2**: `uv run ansible-playbook ansible/web.yml --limit
-  fpgas.online --vault-password-file <file>` (site wheel + nginx + tokens),
-  then `uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi
-  --tags pi,fpgas-apt,onpi --vault-password-file <file>` (bake deb +
-  config into the NFS root; recap MUST show a `pi` play line — the known
-  `--limit` gotcha).
-- [ ] **Step 3**: immediate fleet-wide test without reboots: install into
-  the running overlay on two probe Pis
-  (`ssh root@10.21.2.47 'apt-get update && apt-get install -y
-  fpgas-online-setup-pi && systemctl start fleet-register.service
-  fleet-heartbeat.timer'`), then confirm `https://welland.fpgas.online/fleet/`
-  lists them live with correct Acorn/Arty classification.
-- [ ] **Step 4**: staged PoE-cycle reboots for the rest (≥30 s spacing —
-  the thundering-herd rule), then check every expected machine on /fleet/.
-- [ ] **Step 5**: prove self-healing: `heartbeat` after deleting one
-  Machine row in the admin → row reappears within 60 s. Update the
-  tinytapeout/welland status memory notes.
-
-### Task 12: (site, follow-on branch) fleet drives the /fpgas/ board list
+### Task 9: infra — config bake, consumer service, pages, CI coverage
 
 **Files:**
-- Create: `fleet/src/fleet/sync.py`, `tests/test_fleet_sync.py`
-- Modify: `fleet/src/fleet/services.py` (call sync after registration)
+- Create: `ansible/roles/onpi/templates/fleet.toml.j2` (spec's TOML,
+  values from host_vars; baked at `/etc/fpgas-online/fleet.toml` in the
+  nfsroot `pi` play, guarded `when: fleet_broker | default(false)`),
+  `ansible/roles/site/templates/fleet-consumer.service.j2`
+  (`ExecStart={{ django_dir }}/venv/bin/python manage.py fleet_consumer`,
+  `WorkingDirectory={{ django_dir }}`, `User={{ user_name }}`,
+  `Restart=always`), `ansible/roles/site/templates/pib-fleet.conf.j2`
+  (nginx `location /fleet/ { include proxy_params; proxy_pass
+  http://unix:/run/gunicorn.sock; }` — pages only; no write API exists)
+- Modify: `ansible/roles/site/tasks/django.yml` (FLEET_MQTT dict into
+  local_settings via lineinfile, guarded), `verify-server.yml`
+  (mosquitto active; `GET /fleet/` returns 200; fleet-consumer active),
+  `verify-pi.yml` (fleet-agent.service active), CI test inventory gains
+  `fleet_broker: true` + throwaway passwords so the VM test covers
+  broker + consumer + (once the deb is in the apt repo) the agent
+- [ ] yamllint + both playbook syntax-checks green; push `fleet-deploy`,
+  PR "Fleet self-registration: deploy wiring", VM CI green.
+  **STOP — no deploy.**
 
-**Interfaces:**
-- Consumes: `pibfpgas.models.Pi` (Task "part 1" restored it: `switch`,
-  `port`, `mac`, `serial_no`, `model`, `fpga_board`).
-- Produces: `sync.upsert_pi(machine) -> Pi | None` — parse
-  `pi-sw(?P<switch>\d+)-p(?P<port>\d+)` from the registered hostname; if
-  the doc's `fpga.boards` is non-empty, upsert the `Pi` row (switch, port,
-  mac=eth0, serial_no, model, fpga_board=human name of the first board
-  kind); if empty, delete any existing row for that (switch, port). Called
-  from `register_document` when the snapshot changed. The fixture then
-  remains only as bootstrap; the 2026-08-26 incident class is closed.
+### Task 10 (GATED — only on Tim's explicit go): deploy welland
 
-- [ ] Test-first as in Tasks 1–5 (register a doc with an Arty → `/fpgas/`
-  lists `pi-sw2-p38`; re-register without the board → row gone; legacy
-  hostname `pi9` → no crash, no row). Retire the `pistat_info`/
-  `pistat_ssh`/`pistat_cam`/`arty_here` one-shot units in a matching
-  setup-pi PR (decision D-3).
+- [ ] Merge order: site → setup-pi (deb reaches the apt repo) → infra.
+- [ ] `web.yml --limit fpgas.online` (broker, consumer, wheel, nginx),
+  then `site.yml --limit fpgas.online,pi --tags pi,fpgas-apt,onpi`
+  (recap MUST show a `pi` play line).
+- [ ] Overlay-install on two probe Pis first; watch
+  `mosquitto_sub -t 'fpgas/#' -v`, confirm /fleet/ rows + boot events;
+  staged PoE-cycle reboots (≥30 s spacing) for the rest.
+- [ ] Self-heal proof: restart fleet-consumer with an emptied table →
+  retained registrations rebuild it in seconds with zero Pi traffic.
 
-## Self-review checklist (done at authoring time)
+### Task 11 (site follow-on, after Task 10 has run for a while): fleet drives /fpgas/
 
-- Spec coverage: goals 1–6 map to Tasks 6–9 (collect+register), 10
-  (multi-site config), 1–2 (history/content-addressing), 6–7 (doc
-  contents), 8–9 (60 s beats), 2+4+8 (self-healing known:false).
-  MQTT/sensors2mqtt question answered in the spec's Transport section
-  (decision: HTTPS v1).
-- No placeholder steps; each code task carries its test and code.
-- Interfaces consistent: `fingerprint`/`register_document`/`beat` names
-  match across Tasks 2–4 and 8; document section names match the spec JSON.
+- `fleet/src/fleet/sync.py`: `upsert_pi(machine)` — parse
+  `pi-sw(?P<switch>\d+)-p(?P<port>\d+)` from hostname; doc has FPGA
+  boards → upsert `pibfpgas.Pi` (switch, port, mac, serial_no, model,
+  fpga_board); none → delete that (switch, port) row; called from
+  `register_document` when the snapshot changed. Test-first as Tasks 1–4.
+  The fixture becomes bootstrap-only; the 2026-08-26 incident class closes.
+
+### Task 12 (setup-pi follow-on, same gate): retire the legacy one-shots
+
+- Remove `pistat_info`, `pistat_ssh`, `pistat_cam`, `arty_here` units +
+  scripts from the deb (resolved D-3: subsumed by `fleet-event` stages);
+  the daphne `/pistat/` WebSocket page flow is untouched (open D-5).
+
+## Self-review (authoring time)
+
+- Spec goals 1–7 ↔ tasks: 1 (5,6), 2 (8 bridge stanza + broker-side
+  fan-out; Pi unaffected), 3 (1,2), 4 (5), 5 (6 status/LWT), 6 (6,7 events
+  + hooks), 7 (2 idempotent ingest + 3 retained replay + Task 10 proof).
+- Resolved D-1..D-3 honoured: bridge commented; no HA anywhere; legacy
+  units subsumed (Task 12) not merely deleted.
+- Names consistent across tasks: `fingerprint`/`register_document`/
+  `status`/`boot_event`/`dispatch`/`document()`/`fleet_agent.run`; topic
+  scheme identical in Tasks 3, 6, 8.
+- Nothing deploys without the Task 10 gate.

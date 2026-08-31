@@ -1,7 +1,11 @@
 # Fleet self-registration: design
 
-Date: 2026-08-31. Companion plan:
-`docs/superpowers/plans/2026-08-31-fleet-self-registration.md`.
+Date: 2026-08-31. Revised same day after Tim's review: MQTT broker on tweed
+is first-class site infrastructure (sensors2mqtt publishes to it, NOT to
+Home Assistant — any HA forwarding happens downstream of the broker and the
+Pis/web apps neither know nor care), and the legacy boot-event one-shots are
+SUBSUMED: Pis report boot stages as they happen through this same pipeline.
+Companion plan: `docs/superpowers/plans/2026-08-31-fleet-self-registration.md`.
 
 ## Problem
 
@@ -9,295 +13,280 @@ Board information is loaded at **install time** (the `pibfpgas.pi` fixture,
 the `tt_boards` catalogue) and decays immediately:
 
 - The 2026-08-26 tweed reinstall seeded a fresh DB with **zero** boards and
-  welland.fpgas.online showed an empty board list for five days before anyone
-  debugged it. The fixture-load path had broken silently when the fixtures
-  moved between repos.
-- The fixture that was eventually restored (site PR #20) had to be rebuilt by
-  hand-probing the fleet, and was already out of step with the hardware
-  inventory sheet generated one day earlier (three Arty boards and two Acorns
-  had moved).
-- Nothing on the site knows whether a Pi is actually **up**. The old
-  `pistat_*` units fire one-shot curl events at boot; there is no liveness
-  signal, no record of what hardware was ever attached, and no way to see
-  hardware drift over time.
+  welland.fpgas.online showed an empty board list for five days. The
+  fixture-load path had broken silently when the fixtures moved between
+  repos.
+- The restored fixture (site PR #20) had to be rebuilt by hand-probing the
+  fleet, and was already out of step with the day-old inventory sheet.
+- Nothing on the site knows whether a Pi is actually **up**, what stage of
+  boot it reached, or what hardware was ever attached over time. The old
+  `pistat_*` units fire disconnected one-shot curls at boot.
 
 ## Goals
 
-1. Every fleet Pi **registers itself** with the web app(s) on boot with a
-   complete, structured description of itself and everything attached to it.
-2. A Pi registers with **multiple web apps**: its site-local instance plus a
-   future global aggregator (`all.fpgas.online`); welland Pis →
-   `welland.fpgas.online` + `all.fpgas.online`, PS1 Pis →
-   `ps1.fpgas.online` + `all.fpgas.online`.
-3. The web app keeps **history**: hardware descriptions are stored in their
-   own content-addressed table and a **new row is created only when the
-   hardware actually changes**. Presence ("last seen") lives separately and
-   is updated in place, so history stays clean.
+1. Every fleet Pi **registers itself** on boot with a complete, structured
+   description of itself and everything attached to it.
+2. Registration reaches **multiple web apps**: the site-local instance plus
+   a future global aggregator (`all.fpgas.online`); welland →
+   welland.fpgas.online + all, PS1 → ps1.fpgas.online + all.
+3. The web app keeps **history**: hardware documents live in their own
+   content-addressed table; a **new row appears only when the hardware
+   actually changes**. Presence ("last seen") is separate and updated in
+   place.
 4. Registration covers: RPi hardware (model, revision code, memory, serial,
-   MAC addresses), running software (kernel, Debian release, nfsroot build /
-   last-update time, fpgas-online package versions), connection info (site,
-   IPv4/IPv6 addresses, ssh host keys, login user + password — the fleet's
-   credentials are public by design), and connected hardware (HATs with
-   serials, USB devices with serials, PCIe devices, detected FPGA boards with
-   type / Digilent serial / DNA where safely readable, Tiny Tapeout board
-   info incl. demo-board firmware version and mounted chip).
-5. Pis send an **"I'm alive"** message at least every 60 seconds.
-6. The system **self-heals** the exact failure mode that motivated it: after
-   a web-app DB reset, the fleet re-registers itself with no operator action.
+   MACs), software (kernel, Debian release, nfsroot build/update time,
+   fpgas-online package versions), connection info (site, IPv4/IPv6, ssh
+   host keys, login user + password — fleet credentials are public by
+   design), connected hardware (HATs w/ serials, USB w/ serials, PCIe,
+   FPGA boards with type / Digilent serial / DNA where safe, TT demo-board
+   firmware + chip).
+5. Pis publish an **"I'm alive"** signal at least every 60 seconds, and the
+   broker flips them to offline the moment their TCP session dies (LWT).
+6. Pis report **boot stages as they happen** (network up, time synced, ssh
+   up, camera streaming, TT daemon up, registered, shutting down) through
+   this same infrastructure — replacing `pistat_info`, `pistat_ssh`,
+   `pistat_cam` and `arty_here` outright.
+7. The system **self-heals** the motivating failure: after a web-app DB
+   reset, the fleet's state rebuilds with no operator action and no Pi
+   cooperation (retained messages re-ingest on consumer restart).
 
 ### Non-goals (this iteration)
 
-- Replacing the ttsite `tt_boards` catalogue (curated editorial content —
-  titles, blurbs, links — stays hand-written; registration data can later
-  *corroborate* it).
-- Environmental telemetry (temperatures, PoE wattage). That is
-  [sensors2mqtt](https://github.com/mithro/sensors2mqtt)'s job — see
-  "Transport" below.
-- Building the `all.fpgas.online` aggregator host itself (that is the
-  `tweed-split-design` study's aggregator role; DNS for the name does not
-  exist yet). This design only has to make adding it be *pure configuration*.
+- Replacing the ttsite `tt_boards` catalogue (curated editorial content
+  stays hand-written; registration data corroborates it later).
+- Environmental telemetry values (temps, PoE wattage): **sensors2mqtt**
+  publishes those to the *same broker* under its own topics; the fleet
+  consumer ignores them (a later fleet-page temperature column would be a
+  small additive consumer change).
+- Standing up the `all.fpgas.online` host (tweed-split aggregator study;
+  DNS doesn't exist yet). Resolved decision D-1: this design is
+  **config-ready only** — enabling `all` later is one bridge stanza per
+  site broker, nothing on any Pi changes.
+
+## Architecture
+
+```
+Pi (fleet-agent)                    tweed (per site)                 later
+  |                                   |                               |
+  | mqtt publish               +-- mosquitto broker --+   [bridge] -> all.fpgas.online
+  |  fpgas/<site>/pi/<serial>/ |   (LWT, retained)    |               broker + same stack
+  |    registration (retained) |                      |
+  |    status       (retained) |     fleet-consumer (Django mgmt cmd,
+  |    event                   |     systemd) --> Machine/HardwareSnapshot/
+  |                            |     BootEvent --> /fleet/ pages
+  sensors2mqtt-local ----------+     (sensors2mqtt topics: ignored here;
+   (its own topics)                   optionally forwarded to HA downstream)
+```
+
+One broker per site, on the gateway/web host. Pis talk **only** to their
+site broker (10.21.0.1 — every per-port VLAN already routes to the
+gateway); multi-app fan-out is the broker's job via a bridge, so goal 2
+costs the Pis nothing. The web app consumes from its local broker.
 
 ## Identity
 
-The **CPU serial** (`/sys/firmware/devicetree/base/serial-number`, 16 hex
-chars on Pi 4/5, 8 significant on Pi 3) identifies a physical Pi across
-reinstalls, network moves and hostname changes. `hostname` (`pi-sw2-p34`)
-identifies where it is *plugged in* — that is claim data inside the
-registration document, not identity. Each boot also carries the kernel's
+CPU serial (`/sys/firmware/devicetree/base/serial-number`) identifies the
+physical Pi across reinstalls and moves; hostname (`pi-sw2-p34`) is claim
+data saying where it is plugged in. Each boot carries
 `/proc/sys/kernel/random/boot_id` so reboots are distinguishable.
+
+## Topics and payloads
+
+```
+fpgas/<site>/pi/<serial>/registration   retained, QoS 1
+fpgas/<site>/pi/<serial>/status         retained, QoS 1, LWT
+fpgas/<site>/pi/<serial>/event          QoS 1, not retained
+```
+
+- **registration**: the full document (below). Published on boot after
+  collection, and re-published whenever a re-collection produces a
+  different fingerprint (a 6-hourly re-collect timer catches hot-plugs).
+  Retained ⇒ the broker always holds every Pi's latest document, which is
+  what makes goal 7 free: a fresh consumer receives the whole fleet's
+  registrations on subscribe.
+- **status**: `{"online": true, "boot_id": "...", "uptime_s": 1234,
+  "fingerprint": "...", "ts": "..."}` republished every 60 s
+  (RandomizedDelaySec 10). The connection's **Last Will** is
+  `{"online": false, "reason": "connection-lost"}` on the same topic,
+  retained — so a yanked cable shows offline in seconds, not after a
+  staleness window. Clean shutdown publishes `{"online": false,
+  "reason": "shutdown"}` itself.
+- **event**: `{"stage": "ssh-up", "boot_id": "...", "ts": "...",
+  "detail": {}}`. Standard stages emitted by shipped units:
+  `network-online`, `time-synced`, `ssh-up`, `cam-streaming`,
+  `tt-daemon-up`, `fpga-detected`, `registered`, `shutdown`. Arbitrary
+  stages are allowed (`fleet-event <stage> [--detail k=v]` CLI), so
+  anything that today curls `/pistat/stat/<host>/<thing>/` becomes one
+  line. This subsumes `pistat_info`/`pistat_ssh`/`pistat_cam`/`arty_here`
+  (resolved decision D-3: all four retired when this deploys).
 
 ## The registration document
 
-A single JSON object, collected on the Pi. Section layout (values
-illustrative, from pi-sw2-p47):
+Identical to the pre-revision design (sections `machine`, `software`,
+`connection`, `peripherals`, `fpga`; canonical JSON =
+`json.dumps(doc, sort_keys=True, separators=(",", ":"))`, fingerprint =
+SHA-256 hex of that, lists sorted for stability). Illustrative:
 
 ```json
 {
   "schema": 1,
-  "machine": {
-    "serial": "c36b093f773d46b8",
-    "model": "Raspberry Pi 5 Model B Rev 1.1",
-    "revision_code": "a04171",
-    "memory_mb": 1024,
-    "macs": {"eth0": "98:fe:54:13:f5:75", "wlan0": "98:fe:54:13:f5:76"}
-  },
-  "software": {
-    "kernel": "6.12.20+rpt-rpi-2712",
-    "os_release": "Debian GNU/Linux 13 (trixie)",
-    "nfsroot_updated": "2026-08-29T02:11:04Z",
-    "packages": {"fpgas-online-setup-pi": "1.4.2", "fpgas-online-cam": "0.9.1"}
-  },
-  "connection": {
-    "site": "welland",
-    "hostname": "pi-sw2-p47",
-    "ipv4": ["10.21.2.47"],
-    "ipv6": ["2404:e80:a137:2102::47"],
-    "ssh_host_keys": ["ssh-ed25519 AAAA... root@buildhost"],
-    "login_user": "pi",
-    "login_password": "printed-in-banner"
-  },
-  "peripherals": {
-    "hats": [{"product": "PoE+ HAT", "vendor": "Raspberry Pi",
-              "product_id": "0x0502", "uuid": "..." }],
-    "usb": [{"vid": "0403", "pid": "6010",
-             "product": "FT2232C/D/H Dual UART/FIFO IC",
-             "serial": "210319B3E5C5"}],
-    "pcie": [{"vendor": "1cf0", "device": "0007",
-              "name": "Squirrels Research Labs Acorn CLE-215+"}],
-    "cameras": ["ov5647"]
-  },
-  "fpga": {
-    "boards": [{"kind": "acorn-cle-215+", "via": "pcie",
-                "ids": {"pci": "1cf0:0007"}}]
-  }
+  "machine": {"serial": "c36b093f773d46b8",
+              "model": "Raspberry Pi 5 Model B Rev 1.1",
+              "revision_code": "a04171", "memory_mb": 1024,
+              "macs": {"eth0": "98:fe:54:13:f5:75"}},
+  "software": {"kernel": "6.12.20+rpt-rpi-2712",
+               "os_release": "Debian GNU/Linux 13 (trixie)",
+               "nfsroot_updated": "2026-08-29T02:11:04Z",
+               "packages": {"fpgas-online-setup-pi": "1.4.2"}},
+  "connection": {"site": "welland", "hostname": "pi-sw2-p47",
+                 "ipv4": ["10.21.2.47"], "ipv6": ["2404:e80:a137:2102::47"],
+                 "ssh_host_keys": ["ssh-ed25519 AAAA..."],
+                 "login_user": "pi", "login_password": "from-banner"},
+  "peripherals": {"hats": [], "usb": [], "pcie": [
+                   {"vendor": "1cf0", "device": "0007"}], "cameras": ["ov5647"]},
+  "fpga": {"boards": [{"kind": "acorn-cle-215+", "via": "pcie",
+                       "ids": {"pci": "1cf0:0007"}}]}
 }
 ```
 
-Notes on specific fields:
-
-- `login_password` comes from `/etc/ssh/password.txt` (the sshd banner —
-  already world-published by design; see the standing rule that fleet Pi
-  credentials are public and the VLAN scheme provides isolation).
-- `nfsroot_updated`: the build stamp `/etc/fpgas-online/nfsroot-build.json`
-  when present (the CI nfsroot build will write one), otherwise the mtime of
-  `/var/lib/dpkg/status` (last package operation in the image).
-- **FPGA detection is passive.** Arty = FTDI `0403:6010` with a Digilent
-  `2103...` serial (the serial *is* the Digilent programmer identity);
-  Acorn = PCIe vendor `1cf0` (or the Xilinx `10ee` AXI/debug id when a user
-  bitstream has re-enumerated the endpoint — record both); TT boards =
-  the local `fpgas-tt` daemon's `GET http://127.0.0.1:8765/health` (kind,
-  slug, firmware `version`, board-present). **Xilinx DNA is NOT read by
-  default**: reading it needs JTAG, and on the Acorns JTAG touching a
-  PCIe-attached FPGA wedges the link (established the hard way — see the
-  Acorn bitstream-loading notes). A `--read-dna` flag exists for operator
-  use on boards where it is safe; the scheduled collector never passes it.
-- Canonicalisation: `json.dumps(doc, sort_keys=True, separators=(",", ":"))`
-  of everything EXCEPT volatile keys. Uptime, timestamps and ordering are
-  either excluded or normalised (lists sorted) so that a doc's SHA-256
-  **fingerprint** is stable across boots when nothing real changed.
+Field notes (unchanged from v1): `login_password` from
+`/etc/ssh/password.txt` (published by design); `nfsroot_updated` from
+`/etc/fpgas-online/nfsroot-build.json` else `/var/lib/dpkg/status` mtime;
+Arty = FTDI `0403:6010` with Digilent `210…` serial; Acorn = PCIe `1cf0`
+(or Xilinx `10ee` AXI/debug when a user bitstream re-enumerated it —
+record both); TT via the local fpgas-tt daemon `GET :8765/health` (kind,
+slug, firmware version). **Xilinx DNA is never read by the scheduled
+collector** — JTAG against a PCIe-attached Acorn wedges the link; a manual
+`--read-dna` flag exists for operators.
 
 ## Server data model (Django app `fleet` in fpgas.online-site)
 
-Two kinds of truth, two lifetimes, three tables:
-
 ```
 Machine            -- one row per physical Pi (identity + presence)
-  serial          unique
-  site            e.g. "welland"
-  hostname        latest claimed
-  first_seen      set once
-  last_seen       touched by every heartbeat/registration  <- churn lives here
-  last_boot_id
-  last_uptime_s
-  latest_snapshot FK -> HardwareSnapshot (nullable)
+  serial unique · site · hostname · first_seen
+  last_seen · online (bool, driven by status/LWT) · last_boot_id
+  last_uptime_s · latest_snapshot FK
 
-HardwareSnapshot   -- append-only hardware history (content-addressed)
-  machine         FK -> Machine
-  fingerprint     sha256 hex of the canonical document, indexed
-  document        JSONField (the full registration doc)
-  first_seen      when this exact hardware state first appeared
-  last_confirmed  most recent registration that matched it unchanged
-  unique_together (machine, fingerprint)
+HardwareSnapshot   -- append-only, content-addressed hardware history
+  machine FK · fingerprint (sha256, indexed) · document JSON
+  first_seen · last_confirmed · unique (machine, fingerprint)
+
+BootEvent          -- the boot-stage timeline (goal 6)
+  machine FK · boot_id · stage · detail JSON · ts (indexed)
+  (pruned by age — keep 90 days — so it cannot grow unbounded)
 ```
 
-Registration flow: canonicalise + hash **server-side** (the client's hash is
-advisory), then:
+Ingest is **idempotent**: same-fingerprint registration bumps
+`last_confirmed`; changed fingerprint appends a snapshot (a flap back to a
+prior state re-points `latest_snapshot` at the existing row). Fingerprints
+are recomputed server-side. Because ingest is idempotent, replaying every
+retained message (consumer restart, DB reset) is harmless and is exactly
+the self-healing mechanism.
 
-- fingerprint == `machine.latest_snapshot.fingerprint` → bump that
-  snapshot's `last_confirmed` and the machine's presence. **No new row.**
-- different fingerprint → insert a new snapshot (or re-point to an existing
-  older row with the same hash if hardware flapped back), update
-  `latest_snapshot`. **This is the only time history grows.**
+The **fleet-consumer** is a Django management command
+(`manage.py fleet_consumer`, paho-mqtt — a server-side-only dependency)
+run as a systemd service next to gunicorn. It subscribes to
+`fpgas/+/pi/+/#`, dispatches by topic suffix to
+`services.register_document()` / `services.status()` /
+`services.boot_event()`, and marks machines offline on LWT payloads. The
+services layer stays transport-agnostic and unit-testable without a broker.
 
-Heartbeat flow: update `Machine.last_seen/last_boot_id/last_uptime_s` only.
-A machine is **live** when `last_seen` is within 90 s (one missed beat +
-slack). "What changed over time" is `machine.snapshots.order_by(first_seen)`
-with a JSON diff rendered between consecutive documents.
+Pages: `/fleet/` (hostname, site, board, online badge — real LWT-driven
+state, not staleness guessing — last_seen) and `/fleet/<serial>/`
+(presence, snapshot history with diffs, boot-event timeline for recent
+boot_ids). No public write API: nginx exposes only the pages; writes enter
+via the broker.
 
-## HTTP API (same app on every instance: welland, ps1, all)
+## Pi side (fpgas.online-setup-pi)
 
-```
-POST /fleet/api/register/   body: the registration document
-                            auth: Authorization: Bearer <site token>
-                            resp: {"ok": true, "changed": bool,
-                                   "fingerprint": "..."}
+`fleet-scripts/` shipped by the existing deb. Python with
+`python3-paho-mqtt` from Debian (the one non-stdlib dependency, installed
+into the nfsroot by apt — no pip).
 
-POST /fleet/api/heartbeat/  body: {"serial", "boot_id", "uptime_s",
-                                   "fingerprint"}
-                            resp: {"ok": true, "known": bool}
-```
-
-`known: false` (fingerprint or serial unknown — e.g. the DB was reset, or
-the collector's doc changed) tells the Pi to follow up with a full
-registration. That closes the self-healing loop: a re-seeded/fresh DB
-repopulates itself within one heartbeat interval, fleet-wide.
-
-Pages: `/fleet/` (machine table: hostname, site, board, live badge, last
-seen) and `/fleet/<serial>/` (presence + snapshot history with diffs).
-
-Auth: a per-site bearer token, in `local_settings.py`
-(`FLEET_TOKENS = ["..."]`, list so rotation can overlap) and baked into the
-Pi config by Ansible from vault. The token stops drive-by junk, not a
-determined LAN attacker — the nfsroot is world-readable by design and the
-threat model accepts that (same standing rule as the published credentials).
-Payload cap 256 KB; malformed JSON → 400; unknown bearer → 403.
-
-## Pi side (fpgas-online-setup-pi)
-
-A new `fleet-scripts/` collector + registrar, stdlib-only Python (no
-third-party deps in the nfsroot), shipped by the existing deb:
-
-- `collect.py` — pure functions over `/sys`, `/proc`, `/etc/os-release`,
-  `dpkg-query`, sysfs USB/PCI walks and the fpgas-tt `/health` endpoint.
-  Testable with canned fixture trees.
-- `register.py` — CLI: `register` (collect, POST to every endpoint),
-  `heartbeat` (POST beat; on `known: false` run a full register). Config
-  from `/etc/fpgas-online/fleet.toml`:
+- `collect.py` — pure collectors over /sys, /proc, dpkg, sysfs USB/PCI,
+  fpgas-tt `/health`; fixture-tree testable (unchanged from v1).
+- `fleet_agent.py` — a small long-running daemon (systemd service, not a
+  timer): connects to the site broker with the LWT set, publishes
+  registration (retained) once collected, then status every 60 s, and
+  re-collects every 6 h (or on `SIGHUP`) republishing registration iff the
+  fingerprint changed. A daemon rather than oneshots because LWT only
+  works over a held connection.
+- `fleet-event` — tiny CLI publishing one event; shipped drop-in units
+  hook the standard stages (`ExecStartPost=` on ssh/cam/tt units or
+  dedicated `After=` oneshots).
+- Config `/etc/fpgas-online/fleet.toml` baked by infra per site:
 
   ```toml
   site = "welland"
-  endpoints = [
-    "https://welland.fpgas.online/fleet",
-    # "https://all.fpgas.online/fleet",   # uncomment when it exists
-  ]
-  token = "..."
+  broker = "10.21.0.1"      # the gateway; per-port VLANs all route here
+  port = 1883
+  username = "fleet-pi"
+  password = "..."           # public-by-design caveat applies
   ```
 
-- systemd: `fleet-register.service` (oneshot, after network-online +
-  fpgas-tt), `fleet-heartbeat.service` + `fleet-heartbeat.timer`
-  (`OnUnitActiveSec=60`, `RandomizedDelaySec=10` so 25 Pis don't beat in
-  phase). Endpoint failures are logged and retried at the next tick — a Pi
-  never blocks boot on the web app being up, and each endpoint is
-  independent (welland down must not stop the `all` registration or vice
-  versa).
+## Broker (fpgas.online-infra)
 
-Multi-site is therefore **configuration**: the per-site Ansible vars list
-the endpoints, and adding `all.fpgas.online` later means appending one URL
-to two site configs and re-baking nfsroots.
+mosquitto on each site's gateway/web host, listening on eth-local (LAN
+only; not exposed through ten64). Auth: a `fleet-pi` account for the fleet
+(publish-only to `fpgas/<site>/pi/#`), a `fleet-web` account for the
+consumer (read `fpgas/#`), a `sensors` account for sensors2mqtt's topics.
+ACLs keep the namespaces apart. The `all.fpgas.online` fan-out is a
+commented bridge stanza in the mosquitto config template
+(`connection all-fpgas-online`, `topic fpgas/# out 1`), enabled when D-1's
+host exists; PS1 gets the identical role. Any HA forwarding hangs off the
+broker downstream and is invisible to this design.
 
-## Transport: why HTTPS, and where MQTT/sensors2mqtt fits
+## Why MQTT now (revised decision)
 
-The "MQTT broker next to the web app + sensors2mqtt" option was considered
-seriously — it is the right architecture for *telemetry*, and the wrong
-first tool for *registration*:
+v1 chose HTTPS because a broker looked like four new services bought only
+for liveness granularity. Tim's review changed the premise: **the broker
+is site infrastructure regardless** (sensors2mqtt at fpgas.online sites
+publishes to tweed's broker, not to HA), and boot-stage events (goal 6)
+want pub/sub fan-out. With the broker in the baseline, MQTT also wins on
+merits HTTPS can't match:
 
-| | HTTPS POST (chosen) | MQTT + broker |
-|---|---|---|
-| New moving parts | none (nginx + Django exist) | mosquitto per site, bridge to `all`, auth config, a broker→DB consumer daemon |
-| Multi-site fan-out | loop over endpoint URLs | broker bridges (elegant, but each is config + a failure mode) |
-| Delivery semantics for a 100 KB doc + server-side dedupe/ack | request/response, `changed`/`known` in the reply | needs a reply topic or blind fire-and-forget |
-| Liveness granularity | 60 s beat, 90 s staleness | **better**: LWT flips a retained status the moment TCP drops |
-| Debuggability | `curl` | `mosquitto_sub` (fine, but one more credential set) |
-| CI | Django test client + VM test as-is | broker in CI VM too |
+- **LWT**: offline detection in seconds, authoritative, no staleness math.
+- **Retained registrations**: the broker is a free, always-current fleet
+  cache; consumer restart/DB reset rebuilds state with zero Pi traffic
+  (goal 7 without the `known:false` round-trip protocol v1 needed).
+- **Bridging**: multi-app registration (goal 2) is broker config; Pis
+  never talk off-site.
+- One shared substrate for fleet state *and* sensors2mqtt telemetry.
 
-At 25 Pis × 1 beat/min the HTTP load is ~0.4 req/s — nothing. The one real
-MQTT advantage (sub-second offline detection via LWT) is not worth four new
-services across three sites for v1; 90-second staleness is fine for a
-status page. **Decision: HTTPS for registration + heartbeat now.** The
-server model is transport-agnostic (a future MQTT consumer would call the
-same `register_document()` service function), so a later
-`heartbeat-over-MQTT` upgrade is additive, not a rewrite.
-
-**sensors2mqtt verdict:** keep it aimed at Home Assistant telemetry (CPU
-temps, PoE per-port power via its snmp collector — both already useful for
-the fleet) rather than bending its HA-discovery topic model into carrying
-registration documents. If/when a broker lands next to the web app for
-LWT-liveness, sensors2mqtt plugs into the same broker unchanged.
-
-## Relationship to the existing board pages
-
-Phase 1 (this design) runs alongside the fixture-seeded `pibfpgas.pi` table
-that PR #20 restored. Phase 2 (final task group) derives the `/fpgas/`
-board list from `fleet` data — a registered machine whose document contains
-an FPGA board upserts the matching `Pi` row (switch/port parsed from the
-`pi-sw<s>-p<p>` hostname) — at which point the fixture becomes a bootstrap
-fallback only, and the "board list is wrong after a reinstall" class of
-incident is closed for good. The legacy one-shot `pistat_info` /
-`pistat_ssh` / `arty_here` curl units are retired in the same phase.
+Debugging: `mosquitto_sub -t 'fpgas/#' -v`. CI: mosquitto installs fine in
+the VM test; paho is packaged in Debian for both Pi and server ends.
 
 ## Failure modes
 
-- **Web app down at Pi boot**: register unit logs and exits 0; the 60 s
-  heartbeat keeps attempting; first success triggers `known:false` → full
-  register. No cron-storm, no boot dependency.
-- **DB reset / fresh converge**: every heartbeat gets `known: false`; the
-  whole fleet re-registers within ~1 minute, unprompted.
-- **Pi swapped on a port**: new serial registers claiming the same
-  hostname; old machine's `last_seen` goes stale. The fleet page shows
-  both; no automatic deletion (operator archives via admin).
-- **Hardware flap** (board unplugged/replugged): snapshots A→B→A resolve to
-  the two existing rows via (machine, fingerprint) uniqueness;
-  `last_confirmed` shows the full story without row spam.
-- **Endpoint list divergence**: each endpoint is tried independently every
-  time; one site being down never starves another.
+- **Broker down at Pi boot**: paho auto-reconnects with backoff; retained
+  publish lands on reconnect. Boot never blocks.
+- **Consumer down / DB reset**: on restart it receives every retained
+  registration + status; idempotent ingest rebuilds everything (~25 msgs).
+- **Pi swapped on a port**: new serial's registration claims the hostname;
+  the old machine's LWT already marked it offline. Both visible; operator
+  archives via admin.
+- **Hardware flap**: content-addressing reuses existing snapshot rows.
+- **Broker restart**: retained store persists (`persistence true`); LWTs
+  for still-connected Pis are re-established on their reconnect.
+- **Event storms**: events are QoS 1 fire-and-forget, pruned at 90 days.
 
-## Open decisions for Tim
+## Resolved decisions (Tim, 2026-08-31)
 
-- **D-1**: `all.fpgas.online` hosting (ties into tweed-split aggregator
-  role) — this design only requires that the same Django app deploy there.
-- **D-2**: should heartbeats also carry cheap health stats (CPU temp,
-  throttle bits)? Deliberately excluded for v1 (that's sensors2mqtt's lane);
-  cheap to add to the beat payload later if wanted on the fleet page.
-- **D-3**: retire which of the legacy pistat one-shot units in phase 2 —
-  proposed: all of `pistat_info`, `pistat_ssh`, `pistat_cam`, `arty_here`
-  (the live pages' WebSocket status flow via daphne is untouched).
+- **D-1 — all.fpgas.online: config-ready only.** Bridge stanza shipped
+  commented; the aggregator host is the tweed-split study's problem.
+- **D-2 — reframed**: no HA coupling anywhere in this design; sensors2mqtt
+  publishes to the site broker like everything else. Fleet heartbeats stay
+  minimal; telemetry rides sensors2mqtt topics on the shared broker.
+- **D-3 — subsume, don't just retire**: boot stages become first-class
+  `event` messages (goal 6); all four legacy one-shot curl units are
+  removed when this ships.
+
+## Remaining open decisions
+
+- **D-4**: broker credentials — one shared `fleet-pi` account (simplest,
+  matches the public-by-design posture) vs per-Pi accounts (revocable, but
+  25× provisioning). Spec assumes shared.
+- **D-5**: should the existing board pages' live-status widgets (daphne
+  WebSocket) eventually source from BootEvent/status instead of the
+  `/pistat/` path — proposed as a later phase, not in this plan.
+- **D-6**: BootEvent retention window (spec says 90 days).
