@@ -63,6 +63,30 @@
     - netboot
     - qemu
 
+# The trixie image ships a placeholder pi account with /usr/sbin/nologin as
+# its shell (userconf-pi's first-boot wizard would normally fix it, but we
+# mask that wizard below).  Bookworm images shipped no pi user at all, so
+# the useradd above handled the shell.  Without this every SSH command as
+# pi fails with "This account is currently not available."
+- name: give the pi user a login shell (trixie placeholder is nologin)
+  command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "usermod --shell /bin/bash {{ user }}"
+  tags:
+    - netboot
+    - qemu
+
+# userconf-pi adds an sshd banner ("SSH may not work until a valid user has
+# been set up") that only the masked first-boot wizard would remove; it
+# pollutes stderr of every SSH session, so drop it.
+- name: drop the userconf-pi ssh rename banner (first-boot wizard is masked)
+  file:
+    path: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/rename_user.conf"
+    state: absent
+  tags:
+    - netboot
+    - qemu
+
 # On stock RPi OS the pi user gets passwordless sudo from the first-boot
 # userconf mechanism -- but we create the user directly (above) and mask that
 # wizard (userconfig.service is noauto-blind, see below), so nothing grants it
