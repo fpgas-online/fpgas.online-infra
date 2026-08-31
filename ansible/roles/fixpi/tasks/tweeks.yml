@@ -78,6 +78,31 @@
   tags:
     - fixpi
 
+# Write-protect the bootloader EEPROM. The EEPROM (SPI flash) is the one piece
+# of per-board state that a netbooted Pi does NOT revert on reboot, so it is the
+# only place a root user could leave a persistent change (reflash the bootloader,
+# change BOOT_ORDER, etc). eeprom_write_protect=1 tells the bootloader to set the
+# SPI flash Write Status Register to protect the whole device, which blocks
+# rpi-eeprom-update / rpi-eeprom-config from writing it.
+#
+#   Pi 5 (BCM2712): /WP is pulled low by default, so configuring the Write Status
+#     Register makes the protection hardware-enforced immediately -- even root
+#     cannot clear it without physically bridging TP14<->TP1. This is a real,
+#     tamper-resistant lock.
+#   Pi 4 (BCM2711): /WP (TP5) is NOT asserted by default, so this blocks the
+#     standard tooling but a determined root user could still clear the Write
+#     Status Register. Pull TP5 low to make it hardware-enforced.
+#
+# To legitimately update an EEPROM later: set eeprom_write_protect=0 in the
+# served config.txt, reboot the board, flash, then restore =1. See
+# docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md
+- name: config.txt write-protect the bootloader EEPROM
+  ansible.builtin.lineinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    line: eeprom_write_protect=1
+  tags:
+    - fixpi
+
 # the rest of these tasks config the server to monitor client boot spew
 
 - name: is server pi
