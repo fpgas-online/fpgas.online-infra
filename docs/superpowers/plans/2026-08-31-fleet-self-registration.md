@@ -19,8 +19,8 @@ with zero Pi traffic.
 Django 4.2+/JSONField, pytest-django, systemd, Ansible, nfpm debs.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-fleet-self-registration-design.md`
-(same commit — the revised MQTT edition; topic scheme, payloads, ACLs and
-resolved decisions D-1..D-3 live there and are normative).
+(same commit — the revised MQTT edition; topic scheme, payloads, broker
+config and resolved decisions D-1..D-4 + D-6 live there and are normative).
 
 ## Global Constraints
 
@@ -114,7 +114,7 @@ def test_boot_events_order_by_ts():
 
 Machine = identity + presence (mutable; status/LWT churn). HardwareSnapshot
 = append-only content-addressed history: a new row ONLY when the document
-fingerprint changes. BootEvent = the boot-stage timeline, pruned by age."""
+fingerprint changes. BootEvent = the boot-stage timeline, kept forever (D-6)."""
 
 from django.db import models
 
@@ -186,7 +186,7 @@ Wire `'fleet',` into `INSTALLED_APPS`; add `"fleet/src"` / `"fleet*"` to
   `last_uptime_s`; returns None for unknown serial (logged, dropped);
   `boot_event(serial, payload: dict) -> BootEvent | None` — payload
   `{"stage","boot_id","ts","detail"}`, ts ISO 8601 (fallback: now);
-  `prune_events(days=90) -> int`.
+  (No prune helper: boot events are kept forever -- resolved D-6.)
 
 - [ ] **Step 1: Failing tests**
 
@@ -270,10 +270,10 @@ def test_boot_event_recorded_with_stage_and_boot_id():
   (`"registration" | "status" | "event" | "ignored"`). Topic parse:
   `fpgas/<site>/pi/<serial>/<kind>`; anything else (e.g. sensors2mqtt
   topics) → `"ignored"`. Malformed JSON → `"ignored"` + log, never raise.
-  `Command` (fleet_consumer) connects with paho as `fleet-web`, subscribes
+  `Command` (fleet_consumer) connects with paho (anonymous -- D-4), subscribes
   `fpgas/+/pi/+/+`, calls `dispatch` per message, reconnects forever.
-  Settings: `FLEET_MQTT = {"host": "127.0.0.1", "port": 1883,
-  "username": ..., "password": ...}` from local_settings.
+  Settings: `FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}` from
+  local_settings (no credentials -- the LAN listener is anonymous, D-4).
 
 - [ ] **Step 1: Failing tests**
 
@@ -475,7 +475,7 @@ def test_peripherals_and_fpga():
 
 **Interfaces:**
 - Produces: `fleet_agent.load_config(path) -> dict` (tomllib: site,
-  broker, port, username, password); `fleet_agent.topics(site, serial) ->
+  broker, port -- no credentials, D-4); `fleet_agent.topics(site, serial) ->
   dict(registration=..., status=..., event=...)`;
   `fleet_agent.status_payload(boot_id, uptime_s, fingerprint) -> dict`
   (`online: True`, ISO `ts`); `fleet_agent.run(cfg, client, collect_fn,
@@ -545,9 +545,8 @@ WantedBy=multi-user.target
   `ansible/roles/mqtt/templates/fpgas-fleet.conf.j2` (mosquitto conf.d),
   `ansible/roles/mqtt/templates/fleet-acl.j2`
 - Modify: `ansible/web.yml` (add the role to the pig play, guarded),
-  host_vars for `fpgas.online` + `ps1.fpgas.online`
-  (`fleet_broker: true`, vaulted `vault_fleet_pi_password`,
-  `vault_fleet_web_password`, `vault_sensors_password`)
+  host_vars for `fpgas.online` + `ps1.fpgas.online` (`fleet_broker:
+  true`; no vaulted broker credentials -- anonymous LAN listener, D-4)
 
 Template essentials:
 
@@ -555,21 +554,19 @@ Template essentials:
 # Ansible managed -- fpgas.online fleet broker
 listener 1883 {{ eth_local_address | default('10.21.0.1') }}
 persistence true
-allow_anonymous false
-password_file /etc/mosquitto/fpgas-passwd
-acl_file /etc/mosquitto/fpgas-acl
+# Anonymous on the LAN listener (resolved D-4): per-port VLAN isolation +
+# the firewall are the trust boundary; sensors2mqtt shares this listener.
+allow_anonymous true
 
-# all.fpgas.online fan-out (decision D-1: config-ready only; enable when
-# the aggregator exists)
+# all.fpgas.online fan-out (D-1: config-ready only; enable when the
+# aggregator exists -- the bridge authenticates OUTBOUND over TLS, so
+# anonymity never extends off-site)
 #connection all-fpgas-online
 #address all.fpgas.online:8883
 #topic fpgas/# out 1
 ```
 
-ACL: `fleet-pi` write-only `fpgas/{{ fleet_site }}/pi/#`; `fleet-web`
-read `fpgas/#`; `sensors` write `sensors/#`. Users created with
-`mosquitto_passwd` tasks (changed_when guarded). Everything behind
-`when: fleet_broker | default(false)`.
+Everything behind `when: fleet_broker | default(false)`.
 
 - [ ] yamllint + syntax-check green; commit
   `feat(fleet): per-site mosquitto broker (bridge-ready)`.
@@ -590,7 +587,7 @@ read `fpgas/#`; `sensors` write `sensors/#`. Users created with
   local_settings via lineinfile, guarded), `verify-server.yml`
   (mosquitto active; `GET /fleet/` returns 200; fleet-consumer active),
   `verify-pi.yml` (fleet-agent.service active), CI test inventory gains
-  `fleet_broker: true` + throwaway passwords so the VM test covers
+  `fleet_broker: true` so the VM test covers
   broker + consumer + (once the deb is in the apt repo) the agent
 - [ ] yamllint + both playbook syntax-checks green; push `fleet-deploy`,
   PR "Fleet self-registration: deploy wiring", VM CI green.

@@ -173,7 +173,7 @@ HardwareSnapshot   -- append-only, content-addressed hardware history
 
 BootEvent          -- the boot-stage timeline (goal 6)
   machine FK · boot_id · stage · detail JSON · ts (indexed)
-  (pruned by age — keep 90 days — so it cannot grow unbounded)
+  (kept forever -- resolved D-6; ~25 Pis x a dozen events/boot stays tiny)
 ```
 
 Ingest is **idempotent**: same-fingerprint registration bumps
@@ -220,21 +220,22 @@ into the nfsroot by apt — no pip).
   site = "welland"
   broker = "10.21.0.1"      # the gateway; per-port VLANs all route here
   port = 1883
-  username = "fleet-pi"
-  password = "..."           # public-by-design caveat applies
+  # no credentials: the LAN listener is anonymous (resolved D-4)
   ```
 
 ## Broker (fpgas.online-infra)
 
 mosquitto on each site's gateway/web host, listening on eth-local (LAN
-only; not exposed through ten64). Auth: a `fleet-pi` account for the fleet
-(publish-only to `fpgas/<site>/pi/#`), a `fleet-web` account for the
-consumer (read `fpgas/#`), a `sensors` account for sensors2mqtt's topics.
-ACLs keep the namespaces apart. The `all.fpgas.online` fan-out is a
-commented bridge stanza in the mosquitto config template
-(`connection all-fpgas-online`, `topic fpgas/# out 1`), enabled when D-1's
-host exists; PS1 gets the identical role. Any HA forwarding hangs off the
-broker downstream and is invisible to this design.
+only; not exposed through ten64). Auth (resolved D-4): **anonymous on the
+LAN listener** -- the per-port VLAN isolation and firewall are the trust
+boundary, matching the public-by-design posture; no credentials to
+provision, and sensors2mqtt uses the same open listener. The
+`all.fpgas.online` fan-out is a commented bridge stanza in the mosquitto
+config template (`connection all-fpgas-online`, `topic fpgas/# out 1`);
+when enabled it authenticates OUTBOUND over TLS to the aggregator's
+broker -- anonymity never extends off-site. PS1 gets the identical role.
+Any HA forwarding hangs off the broker downstream and is invisible to
+this design.
 
 ## Why MQTT now (revised decision)
 
@@ -268,7 +269,8 @@ the VM test; paho is packaged in Debian for both Pi and server ends.
 - **Hardware flap**: content-addressing reuses existing snapshot rows.
 - **Broker restart**: retained store persists (`persistence true`); LWTs
   for still-connected Pis are re-established on their reconnect.
-- **Event storms**: events are QoS 1 fire-and-forget, pruned at 90 days.
+- **Event storms**: events are QoS 1 fire-and-forget; volume is tiny
+  (a dozen per boot) and history is kept forever (D-6).
 
 ## Resolved decisions (Tim, 2026-08-31)
 
@@ -281,12 +283,13 @@ the VM test; paho is packaged in Debian for both Pi and server ends.
   `event` messages (goal 6); all four legacy one-shot curl units are
   removed when this ships.
 
+- **D-4 — anonymous on LAN** (Tim, 2026-08-31): the eth-local listener
+  allows anonymous clients; VLAN isolation + firewall are the trust
+  boundary. The (future) bridge to `all` authenticates outbound over TLS.
+- **D-6 — keep boot events forever** (Tim, 2026-08-31): no pruning.
+
 ## Remaining open decisions
 
-- **D-4**: broker credentials — one shared `fleet-pi` account (simplest,
-  matches the public-by-design posture) vs per-Pi accounts (revocable, but
-  25× provisioning). Spec assumes shared.
 - **D-5**: should the existing board pages' live-status widgets (daphne
   WebSocket) eventually source from BootEvent/status instead of the
   `/pistat/` path — proposed as a later phase, not in this plan.
-- **D-6**: BootEvent retention window (spec says 90 days).
