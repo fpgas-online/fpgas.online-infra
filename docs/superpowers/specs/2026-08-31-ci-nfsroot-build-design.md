@@ -72,8 +72,17 @@ each site's inventory):
 - `onpi` role (`apt install fpgas-online-setup-pi`)
 - Orange Pi armmp kernel + DTBs (`fixpi` `sunxi.yml`, once PR #28's
   implementation lands) — a chroot-apt step, so it belongs in CI
-- Generic `fixpi` file tweaks (e.g. `nogrow`, `ispi`, the `issue.d` banner,
-  sshd password config)
+- The generic `fixpi/netboot.yml` steps: netboot cmdline/fstab (both sites
+  use 10.21.0.1, so these are generic), pi user creation + sudoers,
+  self-hostname service, timesyncd pin, `apt install nfs-common overlayroot`
+  (chroot-apt — this is what makes the initramfs NFS/overlay-capable), ssh
+  enablement, and — **last, after every chroot-apt step including the armmp
+  kernel** — the matched kernel+initramfs+DTB payload sync from
+  `root/boot/firmware/` into `boot/`. Ordering is load-bearing: a stale
+  `boot/` paired with upgraded root kernels reproduces the C1-3
+  nondeterministic boot loops (see netboot.yml's own comment).
+- Other generic `fixpi` file tweaks (e.g. `nogrow`, `ispi`, the `issue.d`
+  banner, sshd password config)
 - Potentially the published pi password and the pi/root keypair generation
   (see D-7): these are public and fleet-wide already, so they *could* be
   baked, at the cost of coupling a password change to an image rebuild.
@@ -94,6 +103,46 @@ is public and content-addressed, so a published secret is unrevokable.
 This seam still puts all the slow emulated apt work in CI and only fast local
 file edits on tweed, so the split costs nothing operationally.
 
+### Hardware coverage (requirement: every board at both sites keeps booting)
+
+The deployed fleet the image must serve (inventory census, 2026-08-31):
+
+- **welland** (per-port scheme): RPi 4 / RPi 5 fleet boards, Compute Blade
+  CM4/CM5 boards, the TT boxes on sw2 p1–10, and 5× Orange Pi PC (H3,
+  ARMv7) on sw2 p20–24 (FEL-booted, PR #28).
+- **ps1** (legacy MAC-table scheme, `switch.nos`): 4× Pi 3B, 2× Pi 3B+,
+  2× Pi 4, and Compute Blades with 2× CM4 and 2× CM5 Lite.
+
+Why one image covers all of them, and why moving the build to CI cannot
+change that:
+
+1. **One armhf userland already serves every board.** RasPiOS armhf is built
+   ARMv6-compatible, runs on every RPi generation (BCM2712 boards run it
+   under a 64-bit kernel), and the H3 spike proved it byte-identical on the
+   Orange Pis. The image reproduces today's tree exactly — CI changes *where*
+   the tree is built, not *what is in it* — so the fleet itself is the
+   existence proof.
+2. **All board-specific boot material lives inside the image.** Per-model
+   kernel selection is the firmware's own filename convention
+   (`kernel7l.img`, `kernel8.img`, `kernel_2712.img`, …) against the `boot/`
+   tree, which on per-port hosts *is* the TFTP root
+   (`tftp_root: nfs_root/boot`, see `group_vars/all/srv.yml`) — the RPi 4/5
+   bootloader falls back from `<serial>/` to the root, so new/swapped boards
+   need no registration. The payload-sync step above keeps every model's
+   kernel matched to the root's modules. The OPi armmp kernel + sun8i DTBs
+   join the same tree in phase 4.
+3. **Site scheme differences are entirely server-side.** ps1's per-serial
+   `/srv/tftp` symlinks (from `switch.nos`) and welland's direct-serve TFTP
+   both point into the same `boot/` tree; dnsmasq/DHCP/VLAN wiring never
+   touches the image.
+
+**CI enforcement:** the in-CI verification (before tagging) must assert the
+per-model kernel/initramfs files exist in `boot/` — at minimum `kernel7.img`,
+`kernel7l.img`, `kernel8.img`, `kernel_2712.img` + matching initramfs, and
+from phase 4 `vmlinuz-*-armmp` + `sun8i-h3-*.dtb` — so an upstream image or
+kernel-packaging change that drops a board family fails the build instead of
+bricking part of the fleet on the next pull.
+
 ### Build pipeline (new workflow in fpgas.online-infra)
 
 The roles live in this repo, so the workflow does too:
@@ -113,8 +162,9 @@ The roles live in this repo, so the workflow does too:
   list as `site.yml`'s `pi` play plus the generic fixpi tasks. This honours
   the repo convention that only inventory differs between environments.
 - **Verify in CI:** run the NFS-root package/config assertions from
-  `verify-server.yml` against the chroot before publishing, so a broken root
-  never gets a tag.
+  `verify-server.yml` against the chroot, plus the per-model kernel
+  assertions from "Hardware coverage" above, before publishing — a broken
+  root never gets a tag.
 - **Package + push:** tar the `/srv/nfs/rpi/bookworm`-shaped tree (top-level
   `boot/` and `root/` directories) with numeric owners, xattrs and hardlinks
   preserved (`tar --numeric-owner --xattrs --acls`), import as a single-layer
