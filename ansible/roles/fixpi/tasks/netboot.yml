@@ -160,6 +160,21 @@
   tags:
     - netboot
 
+# pi-gen bakes MODULES=dep into the image's initramfs.conf (trixie onward,
+# export-image/05-finalise/01-run.sh), so mkinitramfs wants to resolve the
+# block device behind / -- impossible in the server's bind-mounted chroot,
+# which fails the initramfs-tools trigger of the apt install below
+# ("mkinitramfs: failed to determine device for /"). A dep-built initramfs
+# also lacks the NFS/overlay modules netboot needs; most builds a generic one.
+- name: build generic initramfs (MODULES=most) in NFS root
+  lineinfile:
+    path: "{{ nfs_root }}/root/etc/initramfs-tools/initramfs.conf"
+    regexp: '^MODULES='
+    line: MODULES=most
+  tags:
+    - netboot
+    - qemu
+
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
