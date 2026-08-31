@@ -63,16 +63,31 @@
 # overlay and vanish at reboot -- invisible rather than harmful -- but it
 # would also mean a Pi's own drifted clock was the thing being "saved", which
 # is exactly the confusion this arrangement exists to avoid.
+#
+# Two package layouts to satisfy, because the image is mid-migration:
+#   0.12 (bookworm): one fake-hwclock.service, load on start and save on stop,
+#                    plus a cron job with no systemd guard.
+#   0.15 (trixie):   fake-hwclock-load.service, and saving split out into
+#                    fake-hwclock-save.service + .timer.
+# Detect rather than assume, so this role survives the trixie upgrade (#37)
+# whichever way round the two land.
+- name: detect the fake-hwclock unit layout
+  stat:
+    path: /usr/lib/systemd/system/fake-hwclock-save.timer
+  register: pi_clock_save_timer
+  tags:
+    - pi-clock
+
 - name: ensure fake-hwclock loads the reference at boot
   systemd:
-    name: fake-hwclock
+    name: "{{ 'fake-hwclock-load' if pi_clock_save_timer.stat.exists else 'fake-hwclock' }}"
     enabled: true
   tags:
     - pi-clock
 
-# bookworm ships fake-hwclock 0.12, whose cron job -- unlike 0.15's -- has no
-# `[ -d /run/systemd/system ] && exit 0` guard, so it runs `save` every hour
-# on a systemd host.
+# 0.12's cron job -- unlike 0.15's -- has no `[ -d /run/systemd/system ] &&
+# exit 0` guard, so it runs `save` every hour on a systemd host. Removing it
+# is a no-op on 0.15 and a fix on 0.12.
 - name: remove the hourly fake-hwclock save
   file:
     path: /etc/cron.hourly/fake-hwclock
@@ -85,12 +100,13 @@
     path: /etc/systemd/system/fake-hwclock.service.d
     state: directory
     mode: "0755"
+  when: not pi_clock_save_timer.stat.exists
   tags:
     - pi-clock
 
-# The unit's ExecStop=/sbin/fake-hwclock save is the other writer; an empty
-# assignment clears the inherited list.
-- name: stop fake-hwclock saving at shutdown
+# 0.12: the unit's ExecStop=/sbin/fake-hwclock save is the other writer, and
+# an empty assignment clears the inherited list.
+- name: stop fake-hwclock saving at shutdown (0.12 layout)
   copy:
     content: |
       # Managed by ansible (fpgas.online-infra, pi-clock role)
@@ -99,5 +115,20 @@
       ExecStop=
     dest: /etc/systemd/system/fake-hwclock.service.d/no-save.conf
     mode: "0644"
+  when: not pi_clock_save_timer.stat.exists
+  tags:
+    - pi-clock
+
+# 0.15: saving is its own timer and shutdown unit. Mask rather than disable --
+# the package's presets re-enable them on upgrade.
+- name: mask the fake-hwclock save units (0.15 layout)
+  systemd:
+    name: "{{ item }}"
+    enabled: false
+    masked: true
+  loop:
+    - fake-hwclock-save.timer
+    - fake-hwclock-save.service
+  when: pi_clock_save_timer.stat.exists
   tags:
     - pi-clock

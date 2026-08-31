@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Publish this server's clock as the netboot time reference for the Pis.
+
+Netbooted Pis have no RTC and mount their root read-only over NFS, so they
+cannot keep a fake-hwclock timestamp of their own: anything they write lands
+in a tmpfs overlay and dies with the boot. This publishes *our* clock into the
+NFS root instead, in the exact format fake-hwclock(8) parses, so a Pi coming
+up runs `fake-hwclock load` against a timestamp at most one refresh old
+rather than the image build date. NTP corrects the remaining drift seconds
+later; this only has to get the Pi close enough to be sane.
+
+The write is atomic (temp file + rename in the same directory) because a Pi
+may read the file over NFS at any instant, including mid-write.
+
+Run by fpgas-hwclock-ref.timer; see roles/timesync.
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Exactly what fake-hwclock writes and `fake-hwclock load` parses back
+# (`date -u '+%Y-%m-%d %H:%M:%S'`). Anything else silently fails to load.
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def chrony_tracking():
+    """Return `chronyc tracking` as a field->value dict, empty if unavailable.
+
+    Useful keys: "Leap status" ("Normal" when synchronised, "Not synchronised"
+    when not), "Stratum", "Reference ID", "System time", "Root dispersion".
+    """
+    try:
+        completed = subprocess.run(
+            ["chronyc", "-n", "tracking"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+    fields = {}
+    for line in completed.stdout.splitlines():
+        key, _, value = line.partition(":")
+        if value:
+            fields[key.strip()] = value.strip()
+    return fields
+
+
+def read_published(path):
+    """Return the currently published timestamp, or None if absent/unparsable."""
+    try:
+        text = path.read_text().strip()
+    except OSError:
+        return None
+    try:
+        return datetime.strptime(text, TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def clock_is_publishable(now, published, tracking):
+    """Decide whether `now` is trustworthy enough to publish to the Pis.
+
+    Fail closed: publish only while chronyd says this clock is disciplined by
+    a real upstream. `fake-hwclock load` only ever moves a Pi's clock FORWARD,
+    so a timestamp published from a wrong-and-fast clock is sticky -- every Pi
+    that boots afterwards inherits it and chrony has to drag them back. A
+    reference that is merely stale costs a booting Pi nothing it was not
+    already going to pay.
+
+    Deliberately NOT a monotonicity rule ("never publish earlier than what is
+    there"): that deadlocks. One bogus future timestamp would refuse every
+    later, correct reading forever. Refusing to publish while unsynchronised
+    is what actually prevents the bogus value; a backwards correction from a
+    synchronised clock is harmless, since Pis only load forward anyway.
+
+    `published` is unused for that reason -- kept in the signature because it
+    is the natural place for a future rate/sanity rule to look.
+    """
+    if not tracking:
+        return False  # chronyd not running or not answering: no opinion to trust
+
+    if tracking.get("Leap status") != "Normal":
+        return False  # still settling on a source, or lost sync
+
+    # `local stratum 10` in fpgas-lan.conf keeps this server answering the Pi
+    # LAN when every upstream is gone -- which also makes it report itself
+    # synchronised at that stratum. Serving our own drifting clock to Pis that
+    # have nothing better is the point; carving it into their boot-time
+    # reference is not.
+    try:
+        return int(tracking.get("Stratum", "")) < 10
+    except ValueError:
+        return False
+
+
+def publish(path, now):
+    """Atomically replace `path` with the timestamp `now`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".fpgas-hwclock-ref.")
+    try:
+        with os.fdopen(handle, "w") as stream:
+            stream.write(now.strftime(TIMESTAMP_FORMAT) + "\n")
+        # The Pis mount the NFS root read-only, but keep the mode the
+        # fake-hwclock package uses so a rescue boot behaves normally.
+        os.chmod(temp_name, 0o644)
+        os.replace(temp_name, path)
+    except BaseException:
+        os.unlink(temp_name)
+        raise
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("path", type=Path, help="fake-hwclock.data inside the NFS root")
+    args = parser.parse_args()
+
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    published = read_published(args.path)
+
+    if not clock_is_publishable(now, published, chrony_tracking()):
+        print(f"not publishing {now:{TIMESTAMP_FORMAT}}: clock not trustworthy")
+        return 0
+
+    publish(args.path, now)
+    print(f"published {now:{TIMESTAMP_FORMAT}} to {args.path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

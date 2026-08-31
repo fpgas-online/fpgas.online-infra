@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Publish the netboot time reference for the Pi NFS root
+Documentation=man:fake-hwclock(8)
+# The reference is only worth publishing once our own clock has a source to
+# be judged against; the script re-checks chronyd itself on every run.
+After=chrony.service
+Wants=chrony.service
+# Nothing to publish into until the NFS root exists (img role).
+ConditionPathIsDirectory={{ nfs_root }}/root/etc
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fpgas-hwclock-ref {{ nfs_root }}/root/etc/fake-hwclock.data

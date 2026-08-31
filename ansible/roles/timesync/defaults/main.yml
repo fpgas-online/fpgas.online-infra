@@ -4,3 +4,8 @@
 # site has a nearer, more authoritative clock than the public pool -- at
 # welland that is ten64 (the uplink gateway), which runs ntpsec.
 ntp_upstream_servers: []
+
+# How often the netboot time reference (fake-hwclock.data in the NFS root) is
+# refreshed. A Pi that boots picks up a clock at most this stale, which NTP
+# then corrects within seconds, so there is nothing to gain from going lower.
+hwclock_ref_interval: 1min
