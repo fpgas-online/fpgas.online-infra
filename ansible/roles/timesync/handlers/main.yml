@@ -1,0 +1,11 @@
+---
+- name: restart chrony
+  systemd:
+    name: chrony
+    state: restarted
+
+- name: restart hwclock ref timer
+  systemd:
+    name: fpgas-hwclock-ref.timer
+    state: restarted
+    daemon_reload: true

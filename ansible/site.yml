@@ -10,6 +10,7 @@
     - nfs
     - img
     - fixpi
+    - timesync
     - pxe
 
 - hosts: uhubctl
@@ -40,6 +41,8 @@
       tags: [cam]
     - role: onpi
       tags: [onpi]
+    - role: pi-clock
+      tags: [pi-clock]
 
 - hosts: nbp
   tasks:

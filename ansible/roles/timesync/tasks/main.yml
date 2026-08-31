@@ -1,0 +1,57 @@
+---
+# Server half of the netboot clock story: be the Pi LAN's NTP server, and
+# publish a fake-hwclock reference into the NFS root so a Pi has a sane clock
+# from the moment it boots, before NTP has answered. The Pi half (chrony
+# pointed here, fake-hwclock load-only) lives in roles/pi-clock.
+
+- name: install chrony (LAN NTP server)
+  apt:
+    name: chrony
+  tags:
+    - timesync
+
+- name: configure chrony to serve the Pi LAN
+  template:
+    src: templates/fpgas-lan.conf.j2
+    dest: /etc/chrony/conf.d/fpgas-lan.conf
+    mode: "0644"
+  notify: restart chrony
+  tags:
+    - timesync
+
+- name: enable and start chrony
+  systemd:
+    name: chrony
+    enabled: true
+    state: started
+  tags:
+    - timesync
+
+- name: install the netboot time reference publisher
+  copy:
+    src: files/fpgas-hwclock-ref
+    dest: /usr/local/sbin/fpgas-hwclock-ref
+    mode: "0755"
+  tags:
+    - timesync
+
+- name: install the time reference units
+  template:
+    src: "templates/{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - fpgas-hwclock-ref.service
+    - fpgas-hwclock-ref.timer
+  notify: restart hwclock ref timer
+  tags:
+    - timesync
+
+- name: enable and start the time reference timer
+  systemd:
+    name: fpgas-hwclock-ref.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  tags:
+    - timesync

@@ -143,27 +143,8 @@
   tags:
     - netboot
 
-# Pin the Pi's timesyncd at the server: Pis have no internet and timesyncd
-# does not reliably consume the DHCP ntp-server option under dhcpcd, so
-# without this every Pi's clock sits on the fake-hwclock date (C2-2). The
-# server side (chrony + dhcp-option) lives in the pxe role.
-- name: create timesyncd.conf.d in NFS root
-  file:
-    path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
-    state: directory
-    mode: "0755"
-  tags:
-    - netboot
-
-- name: point Pi timesyncd at the server
-  copy:
-    content: |
-      [Time]
-      NTP={{ eth_local_address | default('10.21.0.1') }}
-    dest: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d/fpgas.conf"
-    mode: "0644"
-  tags:
-    - netboot
+# The Pi's clock (chrony pointed at the server, fake-hwclock reading the
+# published reference) is configured by roles/pi-clock, inside the chroot.
 
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"

@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Refresh the netboot time reference every {{ hwclock_ref_interval }}
+
+[Timer]
+# Publish soon after boot -- a power cut takes the Pis down with the server,
+# so the reference is stalest exactly when they are all about to netboot.
+OnBootSec=30s
+OnUnitActiveSec={{ hwclock_ref_interval }}
+# The reference only has to be good to the minute; letting systemd coalesce
+# these wakeups keeps a 1-minute timer from being a wakeup source of its own.
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

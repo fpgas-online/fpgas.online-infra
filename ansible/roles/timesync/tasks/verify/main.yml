@@ -1,0 +1,79 @@
+---
+- name: Check chrony is active
+  command: systemctl is-active chrony
+  changed_when: false
+  register: verify_timesync_chrony
+  failed_when: false
+  tags: [verify, timesync]
+
+- name: Assert chrony is active
+  assert:
+    that: verify_timesync_chrony.stdout == 'active'
+    fail_msg: "chrony is not active -- the Pi LAN has no time source"
+  tags: [verify, timesync]
+
+- name: Check chrony admits the Pi LAN
+  command: chronyc -n serverstats
+  changed_when: false
+  register: verify_timesync_serverstats
+  failed_when: false
+  tags: [verify, timesync]
+
+- name: Assert chrony answers as a server
+  assert:
+    that: verify_timesync_serverstats.rc == 0
+    fail_msg: "chronyc serverstats failed -- chronyd is not serving NTP"
+  tags: [verify, timesync]
+
+- name: Check the time reference timer is active
+  command: systemctl is-active fpgas-hwclock-ref.timer
+  changed_when: false
+  register: verify_timesync_timer
+  failed_when: false
+  tags: [verify, timesync]
+
+- name: Assert the time reference timer is active
+  assert:
+    that: verify_timesync_timer.stdout == 'active'
+    fail_msg: "fpgas-hwclock-ref.timer is not active -- Pis will boot on the image's build date"
+  tags: [verify, timesync]
+
+- name: Stat the published time reference
+  stat:
+    path: "{{ nfs_root }}/root/etc/fake-hwclock.data"
+  register: verify_timesync_ref
+  tags: [verify, timesync]
+
+- name: Assert the time reference exists
+  assert:
+    that: verify_timesync_ref.stat.exists
+    fail_msg: "{{ nfs_root }}/root/etc/fake-hwclock.data is missing -- nothing for a booting Pi to load"
+  tags: [verify, timesync]
+
+# Freshness, not just existence: the image ships a fake-hwclock.data of its
+# own (2024-07-04 on the bookworm image), so a stale file looks identical to a
+# published one until you read the clock off it.
+- name: Assert the time reference is fresh
+  assert:
+    that: (ansible_date_time.epoch | int) - (verify_timesync_ref.stat.mtime | int) < 600
+    fail_msg: >-
+      fake-hwclock.data is {{ ((ansible_date_time.epoch | int) - (verify_timesync_ref.stat.mtime | int)) // 60 }}
+      minutes stale -- the publisher timer is not running or is refusing to publish
+  tags: [verify, timesync]
+
+- name: Read the published time reference
+  slurp:
+    src: "{{ nfs_root }}/root/etc/fake-hwclock.data"
+  register: verify_timesync_ref_content
+  tags: [verify, timesync]
+
+# fake-hwclock parses this with `date -u -d`, which is unforgiving: a file in
+# any other shape loads as nothing and the Pi silently keeps its epoch clock.
+- name: Assert the reference is in fake-hwclock's format
+  assert:
+    that:
+      - (verify_timesync_ref_content.content | b64decode | trim) is match('^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')
+    fail_msg: >-
+      fake-hwclock.data is not in 'YYYY-MM-DD HH:MM:SS' form:
+      {{ verify_timesync_ref_content.content | b64decode | trim }}
+  tags: [verify, timesync]
