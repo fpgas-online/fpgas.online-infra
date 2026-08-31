@@ -1,0 +1,17 @@
+---
+# CI nfsroot build vars (issue #34). srv.yml (image URL, dist, nfs_root,
+# user) is a symlink to the production inventory's copy so the CI build can
+# never drift from what site.yml builds. Only genuinely CI-specific values
+# live here.
+
+ansible_python_interpreter: /usr/bin/python3
+
+# fixpi/tweeks.yml bakes pistat_host={{ domain_name }} into /etc/environment
+# in the root. The value is site-specific (welland./ps1.fpgas.online), so the
+# generic image carries the apex domain; the consuming server's own fixpi run
+# rewrites it after extraction (phase 3).
+domain_name: fpgas.online
+
+# The arm64 runners execute the armhf root natively (spike, PR #40); see
+# the comment in roles/fixpi/tasks/manage.yml.
+fixpi_install_qemu: false

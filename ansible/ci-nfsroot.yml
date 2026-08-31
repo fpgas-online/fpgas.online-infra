@@ -1,0 +1,80 @@
+---
+# Build the provisioned Pi NFS root on a CI runner (issue #34; design in
+# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+#
+# Mirrors site.yml's build path with the same roles in the same order --
+# img + fixpi on the build host, then the Pi roles against the root -- but
+# the "Pi" is reached via the chroot connection plugin (see
+# inventory-ci-nfsroot/hosts; only the inventory differs).
+#
+# Run with --skip-tags pipw,keys: the site-specific userconf layer (pi
+# password, per-site authorized_keys/keypairs) is applied by the consuming
+# server after extraction, not baked into the published image.
+
+- hosts: nbp
+  become: true
+  roles:
+    - img
+    - fixpi
+
+- hosts: pi
+  roles:
+    - role: fpgas-apt
+      tags: [fpgas-apt]
+    - role: cam/pi
+      tags: [cam]
+    - role: onpi
+      tags: [onpi]
+
+- hosts: nbp
+  become: true
+  tasks:
+    # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
+    # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
+    # -- leaving boot/ stale in a one-shot build: the exact mismatched
+    # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
+    # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
+    # design doc's "ordering is load-bearing" requirement.
+    - name: re-sync kernel+initramfs+DTB payload after chroot apt upgrades
+      command: >-
+        rsync -a --exclude=cmdline.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+      tags: [netboot]
+
+    # Design doc "Hardware coverage": fail the build before anything is
+    # tagged if a board family's boot material is missing, so an upstream
+    # image or kernel-packaging change cannot brick part of the fleet on
+    # the next pull.
+    - name: assert per-model kernel payload present in boot/
+      stat:
+        path: "{{ nfs_root }}/boot/{{ item }}"
+      register: ci_nfsroot_boot_file
+      failed_when: not ci_nfsroot_boot_file.stat.exists
+      loop:
+        - kernel.img            # Pi 1 / Zero
+        - kernel7.img           # Pi 2 / Pi 3
+        - kernel7l.img          # Pi 4 / CM4
+        - kernel8.img           # arm64-capable boards
+        - kernel_2712.img       # Pi 5 / CM5
+        - bcm2710-rpi-3-b.dtb
+        - bcm2710-rpi-3-b-plus.dtb
+        - bcm2711-rpi-4-b.dtb
+        - bcm2712-rpi-5-b.dtb
+        - overlays
+      tags: [verify]
+
+    - name: assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
+      command: dpkg --root={{ nfs_root }}/root -l {{ item }}
+      changed_when: false
+      loop:
+        - overlayroot
+        - nfs-common
+        - fpgas-online-setup-pi
+        - fpgas-online-cam
+      tags: [verify]
+
+    - name: assert pi user exists in the root
+      command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
+      changed_when: false
+      tags: [verify]
