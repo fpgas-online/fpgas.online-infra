@@ -241,10 +241,15 @@
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
 # on the server (native amd64 ssh-keygen), which is both faster and produces
 # valid keys that the Pi's sshd accepts directly.
+# fixpi_generate_host_keys: false skips this on the CI nfsroot build (issue
+# #34): keys baked into the published image would be shared by every
+# consuming site, so each server generates its own after extraction (this
+# same task, which fires whenever the keys are absent).
 - name: check if SSH host keys already exist in NFS root
   stat:
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
+  when: fixpi_generate_host_keys | default(true)
   tags:
     - netboot
     - qemu
@@ -257,7 +262,9 @@
     - {type: rsa}
     - {type: ecdsa}
     - {type: ed25519}
-  when: not fixpi_ssh_host_key_stat.stat.exists
+  when: >-
+    fixpi_generate_host_keys | default(true)
+    and not fixpi_ssh_host_key_stat.stat.exists
   tags:
     - netboot
     - qemu

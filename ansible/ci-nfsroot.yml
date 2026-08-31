@@ -59,6 +59,35 @@
       include_role:
         name: nspawn-pi
         tasks_from: stop.yml
+
+    # The chroot apt runs resolved names through the build host's
+    # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's
+    # DNS into the image: point the root at the gateway address both sites
+    # use (issue #11 tracks proper resolv handling on the Pis).
+    - name: neutralize build-host resolv.conf in the image
+      copy:
+        content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        mode: "0644"
+
+    # fixpi_generate_host_keys: false skips pre-generation, but an
+    # openssh-server upgrade's postinst can still create host keys during
+    # the Pi roles' apt runs. Keys in the public image would be shared by
+    # every consuming site, so strip them; the consuming server's fixpi run
+    # generates fresh ones after extraction.
+    - name: find build-generated ssh host keys in the image
+      find:
+        paths: "{{ nfs_root }}/root/etc/ssh"
+        patterns: "ssh_host_*"
+      register: ci_nfsroot_host_keys
+
+    - name: remove build-generated ssh host keys from the image
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ ci_nfsroot_host_keys.files }}"
+      loop_control:
+        label: "{{ item.path }}"
     # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
     # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
     # -- leaving boot/ stale in a one-shot build: the exact mismatched

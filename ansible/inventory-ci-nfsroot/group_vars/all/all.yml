@@ -25,3 +25,9 @@ fixpi_server_monitor: false
 # has no tt_boards catalogue (see roles/onpi/tasks/tt.yml); the site
 # catalogue + service enablement are applied by the consuming server.
 tt_install: true
+
+# Don't pre-generate ssh host keys into the published image — they would be
+# shared by every consuming site. Each server generates its own after
+# extraction (fixpi/netboot.yml fires when the keys are absent), and
+# ci-nfsroot.yml strips any that an openssh postinst creates mid-build.
+fixpi_generate_host_keys: false
