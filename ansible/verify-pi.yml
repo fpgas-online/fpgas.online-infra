@@ -293,3 +293,32 @@
           getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
       when: "'Raspberry Pi 5' in verify_pi_model.stdout"
       tags: [verify, uart]
+
+    # --- USB gadget console (tag hw-usb-gadget; boards with a UDC only) ---
+    # fpgas-online-setup-pi's udev rule loads g_serial when a USB device
+    # controller appears: ttyGS0 streams the kernel log, ttyGS1 runs a getty.
+    - name: USB device controllers
+      find:
+        paths: /sys/class/udc
+        file_type: any
+      register: verify_pi_udc
+      tags: [verify, hw-usb-gadget]
+
+    - name: Check the gadget console units
+      command: systemctl is-active fpgas-usb-console.service serial-getty@ttyGS1.service
+      changed_when: false
+      failed_when: false
+      register: verify_pi_usb_console
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]
+
+    - name: Assert the gadget console runs on every board with a UDC
+      assert:
+        that:
+          - verify_pi_usb_console.stdout_lines == ['active', 'active']
+        fail_msg: >-
+          {{ ansible_hostname }} has a USB device controller
+          ({{ verify_pi_udc.files | map(attribute='path') | map('basename') | join(', ') }})
+          but fpgas-usb-console / serial-getty@ttyGS1 are {{ verify_pi_usb_console.stdout_lines }}
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]

@@ -142,6 +142,25 @@
   tags:
     - fixpi
     - cmdline
+# USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
+# USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
+# in peripheral mode a laptop on that port gets the kernel log + a getty.
+# Only these models: their USB-A ports hang off separate controllers (VL805 /
+# RP1), so nothing is lost, whereas on a Pi 3 or Zero dwc2 IS the only USB
+# (Ethernet on the 3B+ included). Fleet nodes are PoE-powered, so the USB-C
+# port is free. Orange Pi H3 boards need nothing here (musb autoloads).
+- name: config.txt dwc2 peripheral mode on Pi 4 / Pi 5 (USB gadget console)
+  ansible.builtin.blockinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: usb gadget console"
+    block: |
+      [pi4]
+      dtoverlay=dwc2,dr_mode=peripheral
+      [pi5]
+      dtoverlay=dwc2,dr_mode=peripheral
+      [all]
+  tags:
+    - fixpi
 
 # the rest of these tasks config the server to monitor client boot spew
 
