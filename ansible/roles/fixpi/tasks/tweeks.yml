@@ -112,6 +112,37 @@
   tags:
     - fixpi
 
+# The block above frees the 40-pin header UART on Pi 0-4 only, and does so as a
+# side effect: disable-bt.dtbo is compatible="brcm,bcm2835" and its fragment@1
+# targets `uart0` with status="okay" + uart0_pins.  On a Pi 5 the firmware
+# resolves the same `dtoverlay=disable-bt` to disable-bt-pi5.dtbo
+# (compatible="brcm,bcm2712"), whose only fragment targets `bluetooth` -- it
+# never touches uart0.  bcm2712-rpi-5-b.dtb ships the RP1 header UART
+# (/axi/pcie@1000120000/rp1/serial@30000, alias serial0) as status="disabled",
+# so on every Pi 5 it stays off and /dev/ttyAMA0 never appears.  That is the
+# whole reason the Acorn CLE-215+ hosts have no serial link to their FPGA
+# (fpgas.online-test-designs docs/hardware/acorn-pinmap.md wires the Acorn's P2
+# connector to GPIO14/15 and expects /dev/ttyAMA0 at 115200).
+#
+# `cmdline=` is not cosmetic.  Enabling uart0 makes the firmware resolve
+# `console=serial0` to ttyAMA0 -- putting the kernel console, and the getty
+# systemd's generator derives from it, directly onto the FPGA's UART.  A design
+# driving K2 then feeds the console garbage that SysRq reads as reboot/crash
+# (see the acorn-pinmap.md warning).  Pinning the Pi 5s to their dedicated
+# debug UART keeps the console off the FPGA AND leaves ttyAMA0 unclaimed.
+- name: config.txt enable the 40-pin header UART on Pi 5
+  ansible.builtin.blockinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: pi5 header uart"
+    block: |
+      [pi5]
+      dtoverlay=uart0-pi5
+      cmdline=cmdline-pi5.txt
+      [all]
+  tags:
+    - fixpi
+    - cmdline
+
 # the rest of these tasks config the server to monitor client boot spew
 
 - name: is server pi
