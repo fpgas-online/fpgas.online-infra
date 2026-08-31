@@ -81,6 +81,7 @@
   tags:
     - img
     - openfpgaloader
+    - fpgas-apt
 
 - name: Install openFPGALoader with RP1 PIO acceleration
   ansible.builtin.apt:
@@ -89,6 +90,7 @@
   tags:
     - img
     - openfpgaloader
+    - fpgas-apt
 
 #      - raspberrypi-kernel-headers
 
