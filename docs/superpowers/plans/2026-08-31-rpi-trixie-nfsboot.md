@@ -83,5 +83,39 @@ hard-coded or where trixie renamed/removed packages.
 - [ ] **Step 1:** `git push -u origin rpi-trixie`
 - [ ] **Step 2:** `gh pr create` — title `Upgrade RPi nfsboot from bookworm to trixie`, body summarising the dist bump, the two package fixes, the de-hardcoding, and the pre-verified facts above.
 - [ ] **Step 3:** Watch the `Lint` and `VM Integration Tests` runs (`gh run list/watch`, poll in background; full VM run takes up to ~2 h under TCG). Report status periodically.
-- [ ] **Step 4:** On failure: pull serial-log artifacts (`gh run download`), apply superpowers:systematic-debugging, fix in this worktree, commit, push, re-watch. Likely failure classes: apt package resolution in the nspawn chroot, trixie systemd unit name drift in `fixpi`/`verify-pi.yml`, boot-partition file layout differences.
+- [x] **Step 4:** On failure: pull serial-log artifacts (`gh run download`), apply superpowers:systematic-debugging, fix in this worktree, commit, push, re-watch. Likely failure classes: apt package resolution in the nspawn chroot, trixie systemd unit name drift in `fixpi`/`verify-pi.yml`, boot-partition file layout differences.
 - [ ] **Step 5:** When both workflows are green, report PR URL + CI links. Do NOT merge — leave the PR for review (production deploy builds a new `/srv/nfs/rpi/trixie` tree on next site.yml run; that rollout is a separate decision).
+
+### Findings from CI rounds (2026-08-31)
+
+- **Round 1** failed at the first chroot apt install: pi-gen bakes
+  `MODULES=dep` into trixie images; `mkinitramfs` cannot resolve the
+  device behind `/` in the bind-mounted chroot. Fixed by forcing
+  `MODULES=most` in `fixpi/netboot.yml` (commit 3a9861b) — also required
+  for a netboot-capable initramfs.
+- **Round 2** failed in the Pi PXE phase: infinite boot loop. Kernel and
+  initramfs boot fine; the reset fires at trixie's new
+  `raspberrypi-sys-mods` initramfs script `scripts/init-top/rpi_wd`,
+  which opens `/dev/watchdog0` (arming the BCM2835 watchdog via a
+  `PM_RSTC` write with `WRCFG_FULL_RESET` = 0x20). QEMU's
+  `bcm2835_powermgt` treats any RSTC write containing 0x20 as an
+  immediate `qemu_system_reset_request` — it ignores the `PM_WDOG`
+  countdown. Reproduced locally on stock QEMU 11.1 with a minimal
+  initramfs replicating rpi_wd.
+
+### Task 5: rpi-qemu — model the PM watchdog countdown (blocker for Task 4)
+
+Per this repo's rule ("fix it in rpi-qemu, not in Ansible roles"), the fix
+is a QEMU patch in fpgas-online/rpi-qemu (branch `wdt-countdown`, patch
+`0023`): arm a `QEMU_CLOCK_VIRTUAL` timer from the `PM_WDOG` tick value
+(1/65536 s) on `RSTC` writes carrying 0x20; cancel on writes without it
+(the driver's `stop()`); keepalive re-arms on `WDOG` writes. Linux's
+reboot path (10 ticks ≈ 150 µs) still resets promptly. Plus a regression
+check in the rpi-qemu boot test (`WDT disarm: SUCCESS`).
+
+- [ ] Validate patched QEMU locally (A/B: watchdog disarm survives; reboot
+  and poweroff still work), PR + merge in rpi-qemu, wait for the apt repo
+  publish, then re-run this PR's VM test.
+
+Note: `rpi_wd` supports `watchdog_disarm=0` on the cmdline to skip the
+disarm — rejected as a QEMU-motivated production behavior change.
