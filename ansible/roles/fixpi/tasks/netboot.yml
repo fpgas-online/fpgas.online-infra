@@ -76,6 +76,29 @@
     - netboot
     - qemu
 
+# Trixie lite ships cloud-init, which pulls in the noauto /boot/firmware
+# NFS mount (looking for its NoCloud seed) and stalls boot ~60 s waiting
+# for it before failing (CI round 6).  Netboot Pis are fully provisioned
+# in the NFS root; cloud-init has no job here on any release.
+- name: ensure /etc/cloud exists in NFS root (absent on bookworm images)
+  file:
+    path: "{{ nfs_root }}/root/etc/cloud"
+    state: directory
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
+- name: disable cloud-init in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/cloud/cloud-init.disabled"
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+  tags:
+    - netboot
+    - qemu
+
 # userconf-pi adds an sshd banner ("SSH may not work until a valid user has
 # been set up") that only the masked first-boot wizard would remove; it
 # pollutes stderr of every SSH session, so drop it.
