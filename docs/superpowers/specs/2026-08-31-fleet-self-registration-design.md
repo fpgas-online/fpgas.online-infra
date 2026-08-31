@@ -191,6 +191,20 @@ run as a systemd service next to gunicorn. It subscribes to
 `services.boot_event()`, and marks machines offline on LWT payloads. The
 services layer stays transport-agnostic and unit-testable without a broker.
 
+**Board-page widget bridge (resolved D-5 — the live-status widgets must
+continue to work properly):** after ingesting an event or status change,
+the consumer also `group_send`s it into the existing Django Channels group
+the board pages subscribe to — `pistat_pi<port>` (port parsed from the
+registered `pi-sw<s>-p<p>` hostname), payload
+`{"type": "stat.message", "status": <stage>, "message": "piview: ..."}` —
+exactly what `pistat.views.status` emits today, so `dcws.js` needs no
+change. This is a repair, not just preservation: since the hostname
+migration the legacy boot curls publish to `pistat_pi-sw2-p<p>` while the
+pages listen on `pistat_pi<p>`, so boot messages already miss the welland
+widgets; the bridge reconnects them. The same constraint covers the
+widgets' ping button, whose view still hardcodes legacy `10.21.0.1xx`
+addresses — fixed alongside (it looks up the `Pi` row's derived ip).
+
 Pages: `/fleet/` (hostname, site, board, online badge — real LWT-driven
 state, not staleness guessing — last_seen) and `/fleet/<serial>/`
 (presence, snapshot history with diffs, boot-event timeline for recent
@@ -288,8 +302,11 @@ the VM test; paho is packaged in Debian for both Pi and server ends.
   boundary. The (future) bridge to `all` authenticates outbound over TLS.
 - **D-6 — keep boot events forever** (Tim, 2026-08-31): no pruning.
 
-## Remaining open decisions
+- **D-5 — widgets must continue to work properly** (Tim, 2026-08-31):
+  the board pages' live-status widgets are a hard compatibility
+  constraint. The fleet-consumer bridges events/status into the existing
+  `pistat_pi<port>` channel groups (see the consumer section), the ping
+  button is fixed to derived addressing, and the legacy one-shot units are
+  retired only after the bridge is verified feeding the pages.
 
-- **D-5**: should the existing board pages' live-status widgets (daphne
-  WebSocket) eventually source from BootEvent/status instead of the
-  `/pistat/` path — proposed as a later phase, not in this plan.
+No decisions remain open.

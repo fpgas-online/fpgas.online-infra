@@ -20,7 +20,7 @@ Django 4.2+/JSONField, pytest-django, systemd, Ansible, nfpm debs.
 
 **Spec:** `docs/superpowers/specs/2026-08-31-fleet-self-registration-design.md`
 (same commit — the revised MQTT edition; topic scheme, payloads, broker
-config and resolved decisions D-1..D-4 + D-6 live there and are normative).
+config and the resolved decisions D-1..D-6 live there and are normative).
 
 ## Global Constraints
 
@@ -319,8 +319,42 @@ def test_dispatch_ignores_foreign_topics_and_garbage():
   mismatches). The management command is a thin paho v2 client:
   `mqtt.Client(...)`, `username_pw_set`, `on_message` → `dispatch`,
   `subscribe("fpgas/+/pi/+/+", qos=1)`, `loop_forever(retry_first_connection=True)`.
-- [ ] **Step 4: Run full suite + ruff** — green.
-- [ ] **Step 5: Commit** — `feat(fleet): mqtt consumer`
+- [ ] **Step 4: Add the widget bridge (resolved D-5)** — failing test
+  first, in `tests/test_fleet_consumer.py`:
+
+```python
+@pytest.mark.django_db
+def test_events_bridge_into_the_board_page_channel_group():
+    # the board pages (dcws.js) subscribe to pistat_pi<port>; the bridge
+    # keeps their status log working after the legacy curls are retired
+    import asyncio
+
+    from channels.layers import get_channel_layer
+
+    t = "fpgas/welland/pi/abc/"
+    consumer.dispatch(t + "registration", json.dumps(DOC).encode())
+
+    async def listen_and_fire():
+        layer = get_channel_layer()
+        ch = await layer.new_channel()
+        await layer.group_add("pistat_pi9", ch)   # DOC hostname pi-sw2-p9
+        consumer.dispatch(t + "event", b'{"stage": "ssh-up", "boot_id": "b"}')
+        return await asyncio.wait_for(layer.receive(ch), timeout=1)
+
+    msg = asyncio.run(listen_and_fire())
+    assert msg["type"] == "stat.message" and msg["status"] == "ssh-up"
+    assert msg["message"].startswith("piview: ")
+```
+
+  Implement in `consumer.py`: `_widget_group(hostname)` parses
+  `pi-sw<s>-p<p>` (also accepts legacy `pi<p>`) → `f"pistat_pi{port}"`,
+  returns None otherwise; after `boot_event`/`status` ingest succeeds,
+  `async_to_sync(get_channel_layer().group_send)(group,
+  {"type": "stat.message", "status": stage, "message": f"piview: {stage}"})`
+  (status bridge sends `online`/`offline (<reason>)` as the stage). The
+  bridge failing (no channel layer) must never break ingest — wrap and log.
+- [ ] **Step 5: Run full suite + ruff** — green.
+- [ ] **Step 6: Commit** — `feat(fleet): mqtt consumer + board-page widget bridge`
 
 ### Task 4: fleet pages
 
@@ -385,6 +419,24 @@ def test_detail_shows_history_and_events(c):
 - [ ] **Step 4: Full suite + ruff** — green.
 - [ ] **Step 5: Commit**, push branch `fleet-app`, open PR "Fleet
   self-registration: server side", CI green. **STOP — no deploy.**
+
+### Task 4b: pistat widget repairs (same `fleet-app` branch)
+
+**Files:**
+- Modify: `pistat/src/pistat/views.py`
+- Test: `tests/test_pistat_widgets.py`
+
+**Interfaces:**
+- Consumes: `pibfpgas.models.Pi` derived properties (site PR #20).
+- Produces: the board-page ping button works on VLAN-per-port sites.
+
+The widgets' ping view still computes `10.21.0.(100+port)` — dead on
+welland since the VLAN migration (D-5 says widgets must work properly, so
+this rides along). Test-first: create `Pi(port=34, switch=2)`, POST
+`/pistat/ping/pi34`, monkeypatch `subprocess.run` capturing argv, assert
+the target is `10.21.2.34`; a legacy row (switch NULL) still yields
+`10.21.0.134`. Implement: `pi = Pi.objects.filter(port=int(pi_name[2:]))
+.first()`; `pi_ip = pi.ip if pi else f"10.21.0.{100 + int(pi_name[2:])}"`.
 
 ### Task 5: collector — full document
 
@@ -616,9 +668,14 @@ Everything behind `when: fleet_broker | default(false)`.
 
 ### Task 12 (setup-pi follow-on, same gate): retire the legacy one-shots
 
-- Remove `pistat_info`, `pistat_ssh`, `pistat_cam`, `arty_here` units +
-  scripts from the deb (resolved D-3: subsumed by `fleet-event` stages);
-  the daphne `/pistat/` WebSocket page flow is untouched (open D-5).
+- **Precondition (resolved D-5)**: the Task 3 widget bridge is deployed
+  and verified on a live board page — boot a probe Pi and watch its
+  stages appear in the page's status log — BEFORE anything is removed.
+- Then remove `pistat_info`, `pistat_ssh`, `pistat_cam`, `arty_here`
+  units + scripts from the deb (resolved D-3: subsumed by `fleet-event`
+  stages). The daphne `/ws/pistat/` consumer, `dcws.js`, and the
+  `/pistat/stat/` HTTP endpoint all stay — external callers may still use
+  the endpoint, and the pages keep their existing subscribe path.
 
 ## Self-review (authoring time)
 
