@@ -85,8 +85,10 @@
         - kernel.img            # Pi 1 / Zero
         - kernel7.img           # Pi 2 / Pi 3
         - kernel7l.img          # Pi 4 / CM4
-        - kernel8.img           # arm64-capable boards
-        - kernel_2712.img       # Pi 5 / CM5
+        # Pi 5 / CM5 boot kernel8.img on the armhf image (64-bit kernel,
+        # 32-bit userland) -- kernel_2712.img ships only in arm64 images,
+        # which is how the ps1 CM5 blades boot today.
+        - kernel8.img
         - bcm2710-rpi-3-b.dtb
         - bcm2710-rpi-3-b-plus.dtb
         - bcm2711-rpi-4-b.dtb
