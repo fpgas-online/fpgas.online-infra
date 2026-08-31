@@ -241,3 +241,55 @@
         fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
       when: verify_pi_felboot is not skipped
       tags: [verify, hw-sunxi]
+    # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
+    # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
+    # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"
+    # in bcm2712-rpi-5-b.dtb, and `dtoverlay=disable-bt` -- which frees this UART
+    # on Pi 0-4 -- resolves to disable-bt-pi5.dtbo here, whose only fragment
+    # targets `bluetooth`. So /dev/ttyAMA0 exists only if roles/fixpi's
+    # `[pi5] dtoverlay=uart0-pi5` block is present. It silently was not, and
+    # every Acorn host went without a serial link. Model-gated, so the VM test's
+    # virtual Pi 4B skips both assertions.
+    - name: Read the board model
+      command: cat /proc/device-tree/model
+      changed_when: false
+      register: verify_pi_model
+      tags: [verify, uart]
+
+    - name: Read the kernel command line
+      command: cat /proc/cmdline
+      changed_when: false
+      register: verify_pi_cmdline
+      tags: [verify, uart]
+
+    - name: Check the 40-pin header UART device
+      stat:
+        path: /dev/ttyAMA0
+      register: verify_pi_ttyama0
+      tags: [verify, uart]
+
+    - name: Assert the header UART is enabled on Pi 5
+      assert:
+        that: verify_pi_ttyama0.stat.exists
+        fail_msg: >-
+          /dev/ttyAMA0 missing on a Pi 5 -- the RP1 header UART (GPIO14/15) is
+          disabled, so nothing can talk to a PCIe FPGA card's UART. config.txt
+          needs `[pi5] dtoverlay=uart0-pi5`; `dtoverlay=disable-bt` does NOT
+          enable it on this model.
+      when: "'Raspberry Pi 5' in verify_pi_model.stdout"
+      tags: [verify, uart]
+
+    # Enabling uart0 makes the firmware resolve `console=serial0` to ttyAMA0,
+    # which would put the kernel console -- and the getty systemd derives from
+    # it -- on the FPGA's serial pins. A design driving K2 then feeds the console
+    # bytes that SysRq reads as reboot/crash. The Pi 5s must stay on their
+    # dedicated debug UART (ttyAMA10) via `[pi5] cmdline=cmdline-pi5.txt`.
+    - name: Assert the kernel console is off the header UART on Pi 5
+      assert:
+        that: "'console=ttyAMA0' not in verify_pi_cmdline.stdout"
+        fail_msg: >-
+          Pi 5 kernel console is on ttyAMA0, the FPGA's UART. An FPGA design
+          driving serial TX can trigger SysRq (reboot/crash) and will fight the
+          getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
+      when: "'Raspberry Pi 5' in verify_pi_model.stdout"
+      tags: [verify, uart]

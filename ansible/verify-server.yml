@@ -186,6 +186,22 @@
         fail_msg: "Pi authorized_keys not found at {{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
       tags: [verify, nfs-root]
 
+    # The onboard radios must be disabled in the read-only netboot image so the
+    # setting is re-applied on every boot (see fixpi/tasks/tweeks.yml). On Pi 5
+    # the firmware auto-remaps disable-wifi -> disable-wifi-pi5.
+    - name: Check config.txt disables onboard Wi-Fi in NFS root
+      command: grep -Fxq 'dtoverlay=disable-wifi' {{ nfs_root }}/boot/config.txt
+      changed_when: false
+      register: verify_disable_wifi
+      failed_when: false
+      tags: [verify, nfs-root]
+
+    - name: Assert config.txt disables onboard Wi-Fi in NFS root
+      assert:
+        that: verify_disable_wifi.rc == 0
+        fail_msg: "dtoverlay=disable-wifi missing from {{ nfs_root }}/boot/config.txt — onboard Wi-Fi would not be disabled"
+      tags: [verify, nfs-root]
+
 - name: Verify uhubctl
   hosts: uhubctl
   become: true

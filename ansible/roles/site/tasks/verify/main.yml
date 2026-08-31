@@ -62,3 +62,57 @@
     that: site_http_probe.stdout is match('^[23]')
     fail_msg: "GET /fpgas/ via /run/gunicorn.sock returned HTTP {{ site_http_probe.stdout }}"
   tags: [verify, django]
+
+# --- TLS reachability on BOTH address families ------------------------------
+# welland.fpgas.online spent a week serving the tinytapeout certificate to every
+# IPv6 client because its vhost had `listen 443 ssl` but no `listen [::]:443
+# ssl`: nginx then treats the only vhost that DOES listen there as the default
+# server for that socket and hands out its certificate regardless of SNI.
+# Nothing in CI noticed, so assert it here rather than in a comment.
+
+- name: nginx vhosts that terminate TLS on IPv4
+  shell: "grep -lE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
+  changed_when: false
+  failed_when: false
+  register: site_v_tls4
+
+- name: nginx vhosts that terminate TLS on IPv6
+  shell: "grep -lE '^[[:space:]]*listen[[:space:]]+\\[::\\]:443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
+  changed_when: false
+  failed_when: false
+  register: site_v_tls6
+
+- name: Assert every TLS vhost listens on IPv6 as well as IPv4
+  assert:
+    that: (site_v_tls4.stdout_lines | difference(site_v_tls6.stdout_lines)) | length == 0
+    fail_msg: >-
+      IPv4-only TLS vhost(s)
+      {{ site_v_tls4.stdout_lines | difference(site_v_tls6.stdout_lines) | join(', ') }}
+      -- clients reaching this host over IPv6 will be served some other vhost's
+      certificate. Add `listen [::]:443 ssl;` beside `listen 443 ssl;`.
+
+- name: listening sockets
+  command: ss -H -ltn
+  changed_when: false
+  register: site_v_listeners
+
+- name: Assert nginx accepts TLS over IPv6
+  assert:
+    that: site_v_listeners.stdout is search('\[::\]:443')
+    fail_msg: "nothing is listening on [::]:443; IPv6 clients cannot reach the site over TLS"
+
+# End to end: shake hands over IPv6 with this host's own SNI and check which
+# certificate comes back. s_client prints "subject=CN=..." on stdout, so no
+# second openssl process and no discarded stderr.
+- name: certificate served over IPv6 for {{ domain_name }}
+  shell: "openssl s_client -6 -connect [::1]:443 -servername {{ domain_name }} < /dev/null"
+  changed_when: false
+  failed_when: false
+  register: site_v_v6cert
+
+- name: Assert the IPv6 handshake serves this host's own certificate
+  assert:
+    that: site_v_v6cert.stdout is search('subject=.*CN[ ]*=[ ]*' ~ (domain_name | regex_escape))
+    fail_msg: >-
+      TLS over IPv6 for {{ domain_name }} did not serve its own certificate.
+      s_client said: {{ site_v_v6cert.stdout_lines | select('search', '^(subject|issuer)=') | join('; ') | default('no certificate', true) }}

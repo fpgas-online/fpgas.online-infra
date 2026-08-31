@@ -67,16 +67,56 @@
     - bashrc
     - fixpi
 
-- name: config.txt disable bluetooth, ensable uart
+# Disable the onboard radios in the read-only netboot image. Because config.txt
+# is served from the (read-only) TFTP root, these lines are re-applied on every
+# boot: a user with root can bring a radio up for the life of a session, but the
+# change never survives a reboot. On Pi 5 (BCM2712) the firmware auto-remaps
+# disable-wifi -> disable-wifi-pi5 and disable-bt -> disable-bt-pi5 via
+# overlay_map.dtb, so the same two lines disable both radios on Pi 4 and Pi 5.
+#   disable-wifi:  Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
+#   disable-bt:    Pi 4 disables &bt, Pi 5 disables &bluetooth
+- name: config.txt disable onboard Wi-Fi and Bluetooth, enable uart
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: "{{ item }}"
   with_items:
+    - dtoverlay=disable-wifi
     - dtoverlay=disable-bt
     - enable_uart=1
     - uart_2ndstage=1
   tags:
     - fixpi
+
+# The block above frees the 40-pin header UART on Pi 0-4 only, and does so as a
+# side effect: disable-bt.dtbo is compatible="brcm,bcm2835" and its fragment@1
+# targets `uart0` with status="okay" + uart0_pins.  On a Pi 5 the firmware
+# resolves the same `dtoverlay=disable-bt` to disable-bt-pi5.dtbo
+# (compatible="brcm,bcm2712"), whose only fragment targets `bluetooth` -- it
+# never touches uart0.  bcm2712-rpi-5-b.dtb ships the RP1 header UART
+# (/axi/pcie@1000120000/rp1/serial@30000, alias serial0) as status="disabled",
+# so on every Pi 5 it stays off and /dev/ttyAMA0 never appears.  That is the
+# whole reason the Acorn CLE-215+ hosts have no serial link to their FPGA
+# (fpgas.online-test-designs docs/hardware/acorn-pinmap.md wires the Acorn's P2
+# connector to GPIO14/15 and expects /dev/ttyAMA0 at 115200).
+#
+# `cmdline=` is not cosmetic.  Enabling uart0 makes the firmware resolve
+# `console=serial0` to ttyAMA0 -- putting the kernel console, and the getty
+# systemd's generator derives from it, directly onto the FPGA's UART.  A design
+# driving K2 then feeds the console garbage that SysRq reads as reboot/crash
+# (see the acorn-pinmap.md warning).  Pinning the Pi 5s to their dedicated
+# debug UART keeps the console off the FPGA AND leaves ttyAMA0 unclaimed.
+- name: config.txt enable the 40-pin header UART on Pi 5
+  ansible.builtin.blockinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: pi5 header uart"
+    block: |
+      [pi5]
+      dtoverlay=uart0-pi5
+      cmdline=cmdline-pi5.txt
+      [all]
+  tags:
+    - fixpi
+    - cmdline
 
 # the rest of these tasks config the server to monitor client boot spew
 

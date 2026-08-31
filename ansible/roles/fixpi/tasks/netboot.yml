@@ -35,12 +35,17 @@
   tags:
     - netboot
 
+# cmdline-pi5.txt is selected only by the `[pi5] cmdline=` line that
+# roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
+# cmdline.txt. It exists so enabling the Pi 5 header UART does not drag the
+# kernel console onto the FPGA's serial pins -- see the comment on that task.
 - name: replace cmdline with netbootie versions
   template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
   with_items:
     - cmdline.txt
+    - cmdline-pi5.txt
   tags:
     - cmdline
     - netboot
@@ -183,6 +188,7 @@
     dest: "{{ nfs_root }}/boot/"
     rsync_opts:
       - "--exclude=cmdline.txt"
+      - "--exclude=cmdline-pi5.txt"
       - "--exclude=config.txt"
   delegate_to: "{{ inventory_hostname }}"
   tags:

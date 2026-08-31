@@ -17,4 +17,17 @@ application pib {
     hls_path {{ streaming.data_root }}/hls/source;
     hls_fragment_naming system;
 
+    # Latency: nginx-rtmp closes a fragment at the first keyframe after
+    # hls_fragment, and video.js starts 3 x TARGETDURATION behind the newest
+    # listed fragment. The Pis (fpgas-online-cam) send a keyframe every second;
+    # 900ms rather than 1s so ms-rounding jitter in the RTMP timestamps
+    # (fragments came out 5.000/5.999 s with the 5 s default) never skips a
+    # keyframe and doubles the fragment. Measured 2026-08-30: 10 s fragments
+    # gave ~40 s glass-to-glass; 1 s fragments are expected to give ~5 s
+    # (fpgas.online-cam tests/ measure it). The window
+    # (playlist length / fragment) is 8 fragments; hls_cleanup (default on)
+    # removes older files from the tmpfs.
+    hls_fragment 900ms;
+    hls_playlist_length 8s;
+
 }
