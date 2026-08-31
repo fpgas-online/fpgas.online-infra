@@ -148,11 +148,10 @@ bricking part of the fleet on the next pull.
 The roles live in this repo, so the workflow does too:
 `.github/workflows/nfsroot-build.yml`.
 
-- **Runner:** `ubuntu-24.04-arm` (free for public repos). armhf binaries may
-  execute natively (AArch32 EL0 support depends on the runner's CPU —
-  spike required); if not, install `qemu-user-static` + binfmt exactly as
-  `nspawn-pi` does. Even emulated, runner CPUs beat tweed, and the build no
-  longer occupies tweed at all.
+- **Runner:** `ubuntu-24.04-arm` (free for public repos). armhf executes
+  natively (AArch32 EL0 — confirmed by the Phase 1 spike, see D-2); do not
+  install qemu-user-static on the runner, its binfmt handlers could shadow
+  native execution (`fixpi_install_qemu: false`).
 - **Base extraction:** loop-mounting an image needs privileged access; runners
   allow `sudo losetup`, so `img2files.sh` can run as-is. (If that proves
   flaky, extract partitions with `guestfish`/`fdisk`+`dd` offsets instead.)
