@@ -15,3 +15,13 @@ domain_name: fpgas.online
 # The arm64 runners execute the armhf root natively (spike, PR #40); see
 # the comment in roles/fixpi/tasks/manage.yml.
 fixpi_install_qemu: false
+
+# fixpi/tweeks.yml's trailing tasks (tio, dialout, pici checkout, getty
+# mask) configure the build HOST for boot-spew monitoring, not the root —
+# meaningless on a throwaway runner.
+fixpi_server_monitor: false
+
+# Bake the generic Tiny Tapeout daemon/demo debs even though the CI build
+# has no tt_boards catalogue (see roles/onpi/tasks/tt.yml); the site
+# catalogue + service enablement are applied by the consuming server.
+tt_install: true

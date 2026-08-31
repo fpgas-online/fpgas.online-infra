@@ -1,1 +1,1 @@
-nameserver {{ eth_local_address }}
+nameserver {{ eth_local_address | default('10.21.0.1') }}
