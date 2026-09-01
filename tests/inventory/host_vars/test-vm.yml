@@ -50,6 +50,12 @@ domain_name: "{{ streaming_frontend_hostname }}"
 # skipped missing fixtures, which is the outage this PR fixes.)
 fixture_path: fpgas.online.json
 
+# Fleet self-registration (fpgas.online-infra#47): the VM test covers the
+# broker + consumer wiring (and the Pi agent, once the fleet-enabled
+# fpgas-online-setup-pi deb reaches the apt repo).
+fleet_broker: true
+fleet_site: test
+
 switch_base: base
 
 # `nos`/`mpi_port`/`mpi_ip` removed: those are the legacy MAC-table scheme's
