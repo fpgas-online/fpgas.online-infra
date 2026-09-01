@@ -1,0 +1,6 @@
+# {{ ansible_managed }} -- fleet self-registration pages (read-only; the
+# Pis talk MQTT to the broker, never HTTP -- no write API exists)
+  location /fleet/ {
+    include proxy_params;
+    proxy_pass http://unix:/run/gunicorn.sock;
+  }

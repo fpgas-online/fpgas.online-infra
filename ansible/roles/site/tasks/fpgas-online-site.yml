@@ -10,9 +10,11 @@
     virtualenv: "{{ django_dir }}/venv"
     state: forcereinstall
   # a new wheel means new templates/code: the running gunicorn/daphne keep
-  # serving the old ones until restarted
+  # serving the old ones until restarted (fleet-consumer runs from the same
+  # venv; its handler no-ops on hosts without fleet_broker)
   notify:
     - restart django services
+    - restart fleet-consumer
   tags:
     - django
 

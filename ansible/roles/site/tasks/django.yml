@@ -144,6 +144,20 @@
   tags:
     - django
 
+# The mosquitto listener binds eth-local only (roles/mqtt), so the
+# consumer must dial that address -- 127.0.0.1 is not listening.
+- name: FLEET_MQTT broker address for the fleet consumer
+  lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^FLEET_MQTT = '
+    line: "FLEET_MQTT = {'host': '{{ eth_local_address }}', 'port': 1883}"
+  when: fleet_broker | default(false)
+  notify:
+    - restart fleet-consumer
+  tags:
+    - django
+
 - name: set static dir
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
