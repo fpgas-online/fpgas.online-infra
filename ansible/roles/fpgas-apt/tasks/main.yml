@@ -18,6 +18,15 @@
 
 # Hosts configured before the custom domain still carry the github.io line;
 # apt_repository only adds, so drop it explicitly.
+# Hosts configured before apt.fpgas.online existed carry one of two older
+# lines. apt_repository only adds, so drop both explicitly or a host ends up
+# with the same packages offered from three sources.
+- name: Remove the old fpgas.online/apt repository line
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas.online/apt {{ fpgas_apt_suite }} main"
+    state: absent
+    filename: fpgas-online
+
 - name: Remove the old fpgas-online.github.io apt repository line
   ansible.builtin.apt_repository:
     repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas-online.github.io/apt {{ fpgas_apt_suite }} main"
