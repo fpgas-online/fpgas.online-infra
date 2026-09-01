@@ -1,6 +1,6 @@
 # Fleet Self-Registration Implementation Plan (MQTT revision)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fleet Pis publish a complete registration document, 60 s status
 beats with LWT, and boot-stage events to their site's MQTT broker; the web
@@ -47,12 +47,23 @@ config and the resolved decisions D-1..D-6 live there and are normative).
 
 ## Repo/branch map
 
-| Repo | Branch | Tasks |
-|---|---|---|
-| fpgas.online-site | `fleet-app` | 1–5 |
-| fpgas.online-setup-pi | `fleet-scripts` | 6–8 |
-| fpgas.online-infra | `fleet-deploy` | 9–10 |
-| (gated) deploy + legacy-unit retirement + board-list sync | — | 11–12 |
+| Repo | Branch | Tasks | PR |
+|---|---|---|---|
+| fpgas.online-site | `fleet-app` | 1–4b | [site#21](https://github.com/fpgas-online/fpgas.online-site/pull/21) |
+| fpgas.online-setup-pi | `fleet-scripts` | 5–7 | [setup-pi#13](https://github.com/fpgas-online/fpgas.online-setup-pi/pull/13) |
+| fpgas.online-infra | `fleet-deploy` | 8–9 | [infra#50](https://github.com/fpgas-online/fpgas.online-infra/pull/50) |
+| (gated) deploy + board-list sync + legacy-unit retirement | — | 10–12 | Tim's go |
+
+Implemented 2026-09-01. Merge order (Task 10): site#21 -> setup-pi#13 ->
+infra#50 -- infra's VM CI installs the site from git main, so it only goes
+green after site#21 merges. Notable deviations from the letter of the plan,
+none from the spec: units use the repo's fpgas- prefix
+(fpgas-fleet-agent.service); no fleet-acl.j2 (the anonymous listener has no
+ACL -- leftover from the pre-D-4 draft); the setup-pi lint workflow gained a
+pytest job (the repo had no Python test runner); the widget-bridge test
+drives dispatch via sync_to_async + django_db(transaction=True) (sync ORM
+inside a running loop trips Django's async guard, and the worker thread
+needs committed rows).
 
 ---
 
@@ -71,7 +82,7 @@ config and the resolved decisions D-1..D-6 live there and are normative).
   last_confirmed)` unique on (machine, fingerprint);
   `BootEvent(machine, boot_id, stage, detail JSON, ts db_index)`.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 # tests/test_fleet_models.py
@@ -102,9 +113,9 @@ def test_boot_events_order_by_ts():
     assert m.events.count() == 1
 ```
 
-- [ ] **Step 2: Run** `uv run pytest tests/test_fleet_models.py -q` — fails
+- [x] **Step 2: Run** `uv run pytest tests/test_fleet_models.py -q` — fails
   (`ModuleNotFoundError: fleet`).
-- [ ] **Step 3: Implement** — `apps.py` copies the ttsite
+- [x] **Step 3: Implement** — `apps.py` copies the ttsite
   `AppConfig.path = os.path.dirname(os.path.abspath(__file__))` pattern
   (name `fleet`). Models:
 
@@ -167,8 +178,8 @@ class BootEvent(models.Model):
 
 Wire `'fleet',` into `INSTALLED_APPS`; add `"fleet/src"` / `"fleet*"` to
 `pyproject.toml` packages.find; `uv run python manage.py makemigrations fleet`.
-- [ ] **Step 4: Run** — PASS; `makemigrations --check` clean.
-- [ ] **Step 5: Commit** — `feat(fleet): Machine/HardwareSnapshot/BootEvent models`
+- [x] **Step 4: Run** — PASS; `makemigrations --check` clean.
+- [x] **Step 5: Commit** — `feat(fleet): Machine/HardwareSnapshot/BootEvent models`
 
 ### Task 2: transport-agnostic services
 
@@ -188,7 +199,7 @@ Wire `'fleet',` into `INSTALLED_APPS`; add `"fleet/src"` / `"fleet*"` to
   `{"stage","boot_id","ts","detail"}`, ts ISO 8601 (fallback: now);
   (No prune helper: boot events are kept forever -- resolved D-6.)
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 # tests/test_fleet_services.py
@@ -241,8 +252,8 @@ def test_boot_event_recorded_with_stage_and_boot_id():
     assert boot_event("nope", {"stage": "x", "boot_id": "b"}) is None
 ```
 
-- [ ] **Step 2: Run** — fails.
-- [ ] **Step 3: Implement** — `fingerprint`/`register_document` exactly as
+- [x] **Step 2: Run** — fails.
+- [x] **Step 3: Implement** — `fingerprint`/`register_document` exactly as
   the canonical-JSON + `update_or_create`/`get_or_create` +
   re-point-latest_snapshot logic the tests force (hash server-side; bump
   `last_confirmed` always; machine `last_seen`/`site`/`hostname` refresh
@@ -251,7 +262,7 @@ def test_boot_event_recorded_with_stage_and_boot_id():
   `boot_event` parses `ts` with
   `django.utils.dateparse.parse_datetime` (fallback `timezone.now()`).
   `prune_events` deletes `ts < now - days`.
-- [ ] **Step 4: Run** — PASS. **Step 5: Commit** —
+- [x] **Step 4: Run** — PASS. **Step 5: Commit** —
   `feat(fleet): idempotent ingest services`
 
 ### Task 3: MQTT consumer
@@ -275,7 +286,7 @@ def test_boot_event_recorded_with_stage_and_boot_id():
   Settings: `FLEET_MQTT = {"host": "127.0.0.1", "port": 1883}` from
   local_settings (no credentials -- the LAN listener is anonymous, D-4).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 # tests/test_fleet_consumer.py
@@ -310,8 +321,8 @@ def test_dispatch_ignores_foreign_topics_and_garbage():
         == "ignored"
 ```
 
-- [ ] **Step 2: Run** — fails.
-- [ ] **Step 3: Implement** — `consumer.dispatch` splits the topic,
+- [x] **Step 2: Run** — fails.
+- [x] **Step 3: Implement** — `consumer.dispatch` splits the topic,
   requires exactly `["fpgas", site, "pi", serial, kind]` with kind in
   the three known suffixes, `json.loads` under try/except, then calls the
   Task 2 service (for `registration` it also cross-checks
@@ -319,7 +330,7 @@ def test_dispatch_ignores_foreign_topics_and_garbage():
   mismatches). The management command is a thin paho v2 client:
   `mqtt.Client(...)`, `username_pw_set`, `on_message` → `dispatch`,
   `subscribe("fpgas/+/pi/+/+", qos=1)`, `loop_forever(retry_first_connection=True)`.
-- [ ] **Step 4: Add the widget bridge (resolved D-5)** — failing test
+- [x] **Step 4: Add the widget bridge (resolved D-5)** — failing test
   first, in `tests/test_fleet_consumer.py`:
 
 ```python
@@ -353,8 +364,8 @@ def test_events_bridge_into_the_board_page_channel_group():
   {"type": "stat.message", "status": stage, "message": f"piview: {stage}"})`
   (status bridge sends `online`/`offline (<reason>)` as the stage). The
   bridge failing (no channel layer) must never break ingest — wrap and log.
-- [ ] **Step 5: Run full suite + ruff** — green.
-- [ ] **Step 6: Commit** — `feat(fleet): mqtt consumer + board-page widget bridge`
+- [x] **Step 5: Run full suite + ruff** — green.
+- [x] **Step 6: Commit** — `feat(fleet): mqtt consumer + board-page widget bridge`
 
 ### Task 4: fleet pages
 
@@ -374,7 +385,7 @@ def test_events_bridge_into_the_board_page_channel_group():
   snapshot history (newest first: fingerprint, first_seen, last_confirmed,
   `<details><pre>` document), boot-event timeline for the latest boot_id.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 # tests/test_fleet_pages.py
@@ -413,11 +424,11 @@ def test_detail_shows_history_and_events(c):
     assert html.count("<details") >= 2 and "ssh-up" in html
 ```
 
-- [ ] **Step 2: Run** — 404. **Step 3: Implement** — two plain views
+- [x] **Step 2: Run** — 404. **Step 3: Implement** — two plain views
   (`machine_list`, `machine_detail`) + templates in the ttsite visual
   style; urls `""` and `"<str:serial>/"`.
-- [ ] **Step 4: Full suite + ruff** — green.
-- [ ] **Step 5: Commit**, push branch `fleet-app`, open PR "Fleet
+- [x] **Step 4: Full suite + ruff** — green.
+- [x] **Step 5: Commit**, push branch `fleet-app`, open PR "Fleet
   self-registration: server side", CI green. **STOP — no deploy.**
 
 ### Task 4b: pistat widget repairs (same `fleet-app` branch)
@@ -458,7 +469,7 @@ the target is `10.21.2.34`; a legacy row (switch NULL) still yields
   `0403/6010/210319B3E5C5`, PCIe `0x1cf0/0x0007`, hat files, v4l name
   `ov5647`.
 
-- [ ] **Step 1: Failing tests** — machine/software/connection assertions:
+- [x] **Step 1: Failing tests** — machine/software/connection assertions:
 
 ```python
 import pathlib
@@ -501,7 +512,7 @@ def test_peripherals_and_fpga():
     assert f["boards"][0]["kind"] == "tt-demo-board"
 ```
 
-- [ ] **Step 2: Run** — fails. **Step 3: Implement** — `_read(root, rel)`
+- [x] **Step 2: Run** — fails. **Step 3: Implement** — `_read(root, rel)`
   (strip NULs), cpuinfo/meminfo regexes, `/sys/class/net/*/address` walk
   (eth/wlan/en*, skip zero MACs), os-release parse,
   `etc/fpgas-online/nfsroot-build.json` else dpkg-status mtime,
@@ -516,7 +527,7 @@ def test_peripherals_and_fpga():
   `{"schema": 1}`; tt fetch via urllib, 2 s timeout, `None` on any error.
   **No DNA read** (JTAG-vs-PCIe hazard; `--read-dna` reserved for the
   operator CLI only).
-- [ ] **Step 4: Run + ruff** — green. **Step 5: Commit** —
+- [x] **Step 4: Run + ruff** — green. **Step 5: Commit** —
   `feat(fleet): registration document collector`
 
 ### Task 6: fleet-agent daemon + fleet-event CLI
@@ -543,15 +554,15 @@ def test_peripherals_and_fpga():
   server (canonical JSON + sha256 — import the same two-liner, do not
   drift).
 
-- [ ] **Step 1: Failing tests** — with a `FakeClient` recording
+- [x] **Step 1: Failing tests** — with a `FakeClient` recording
   `will_set`/`publish` calls: (a) LWT set on the status topic retained
   before connect; (b) registration published retained once, and again only
   after `collect_fn` returns a changed doc; (c) status published with
   `online: true` and the current fingerprint; (d) SIGTERM path publishes
   shutdown status + event. `fleet_event` test: topic + payload for
   `fleet-event ssh-up`.
-- [ ] **Step 2–4**: red → implement → green (+ ruff).
-- [ ] **Step 5: Commit** — `feat(fleet): agent daemon + event CLI`
+- [x] **Step 2–4**: red → implement → green (+ ruff).
+- [x] **Step 5: Commit** — `feat(fleet): agent daemon + event CLI`
 
 ### Task 7: systemd units + deb packaging
 
@@ -585,7 +596,7 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-- [ ] Build the deb via the repo's CI mechanism; `dpkg-deb -c` shows the
+- [x] Build the deb via the repo's CI mechanism; `dpkg-deb -c` shows the
   new paths; `python3-paho-mqtt` added to the deb's Depends. Commit, push
   `fleet-scripts`, PR "Fleet self-registration: Pi side", CI green.
   **STOP — no deploy.**
@@ -620,7 +631,7 @@ allow_anonymous true
 
 Everything behind `when: fleet_broker | default(false)`.
 
-- [ ] yamllint + syntax-check green; commit
+- [x] yamllint + syntax-check green; commit
   `feat(fleet): per-site mosquitto broker (bridge-ready)`.
 
 ### Task 9: infra — config bake, consumer service, pages, CI coverage
@@ -641,7 +652,7 @@ Everything behind `when: fleet_broker | default(false)`.
   `verify-pi.yml` (fleet-agent.service active), CI test inventory gains
   `fleet_broker: true` so the VM test covers
   broker + consumer + (once the deb is in the apt repo) the agent
-- [ ] yamllint + both playbook syntax-checks green; push `fleet-deploy`,
+- [x] yamllint + both playbook syntax-checks green; push `fleet-deploy`,
   PR "Fleet self-registration: deploy wiring", VM CI green.
   **STOP — no deploy.**
 
