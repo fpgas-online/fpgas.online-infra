@@ -322,3 +322,31 @@
           but fpgas-usb-console / serial-getty@ttyGS1 are {{ verify_pi_usb_console.stdout_lines }}
       when: verify_pi_udc.matched > 0
       tags: [verify, hw-usb-gadget]
+
+    # Fleet agent (fpgas.online-infra#47). Two gates: the unit ships in the
+    # fleet-enabled fpgas-online-setup-pi deb (the rolling apt repo may
+    # still carry a pre-fleet build) and only runs where the server baked
+    # /etc/fpgas-online/fleet.toml into the NFS root (ConditionPathExists).
+    - name: Check the fleet agent unit and config are present
+      stat:
+        path: "{{ item }}"
+      register: verify_pi_fleet_files
+      loop:
+        - /usr/lib/systemd/system/fpgas-fleet-agent.service
+        - /etc/fpgas-online/fleet.toml
+      tags: [verify, fleet]
+
+    - name: Check the fleet agent is active
+      command: systemctl is-active fpgas-fleet-agent.service
+      changed_when: false
+      register: verify_pi_fleet_agent
+      failed_when: false
+      when: verify_pi_fleet_files.results | map(attribute='stat.exists') | list == [true, true]
+      tags: [verify, fleet]
+
+    - name: Assert the fleet agent is active
+      assert:
+        that: verify_pi_fleet_agent.stdout == "active"
+        fail_msg: "fpgas-fleet-agent.service is not active (got: {{ verify_pi_fleet_agent.stdout }})"
+      when: verify_pi_fleet_files.results | map(attribute='stat.exists') | list == [true, true]
+      tags: [verify, fleet]
