@@ -17,6 +17,7 @@
 
 - include_tasks: nonfs.yml
 - {include_tasks: tt.yml, tags: [tt, fpgas-apt]}
+- {include_tasks: fleet.yml, tags: [fleet, fpgas-apt]}
 - {include_tasks: tftpd.yml, tags: tftpd}
 - {include_tasks: sshkeys.yml, tags: sshkeys}
 - {include_tasks: tweeks.yml, tags: pitweeks}
