@@ -1,5 +1,5 @@
 # {{ ansible_managed }}
-# Source: fpgas.online-infra host_vars tt_boards. Consumed by Django
+# Source: fpgas.online-infra inventory tt_boards (group_vars/site_<id> or host_vars). Consumed by Django
 # (manage.py ttsite_loadboards) on the gateway and by fpgas-tt on every Pi.
 tt_boards:
 {% for b in tt_boards %}
