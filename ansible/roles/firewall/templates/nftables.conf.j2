@@ -19,6 +19,14 @@ table inet filter {
           tcp dport http counter accept;
           tcp dport https counter accept;
           tcp dport ssh counter accept;
+{% if webrtc_media_port is defined %}
+          # WebRTC (WHEP) media: the single muxed ICE port, UDP with TCP
+          # fallback (roles/cam/webrtc). IPv6 viewers arrive directly; IPv4
+          # arrives via the upstream router's DNAT (see
+          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+          udp dport {{ webrtc_media_port }} counter accept;
+          tcp dport {{ webrtc_media_port }} counter accept;
+{% endif %}
               meta l4proto {icmp, icmpv6} counter accept;
               udp dport { 67, 68, 546, 547 } counter accept;
           # tcp dport 4433 counter accept;
@@ -84,6 +92,14 @@ table inet filter {
           tcp dport http counter accept;
           tcp dport https counter accept;
           tcp dport ssh counter accept;
+{% if webrtc_media_port is defined %}
+          # WebRTC (WHEP) media: the single muxed ICE port, UDP with TCP
+          # fallback (roles/cam/webrtc). IPv6 viewers arrive directly; IPv4
+          # arrives via the upstream router's DNAT (see
+          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+          udp dport {{ webrtc_media_port }} counter accept;
+          tcp dport {{ webrtc_media_port }} counter accept;
+{% endif %}
               meta l4proto {icmp, icmpv6} counter accept;
               udp dport { 67, 68, 546, 547 } counter accept;
           # tcp dport 4433 counter accept;
