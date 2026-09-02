@@ -24,7 +24,7 @@
   failed_when: false
 
 - name: tear down the old definition (vm_recreate)
-  when: vm_dominfo.rc == 0 and vm_recreate
+  when: vm_dominfo.rc == 0 and vm_recreate | bool
   block:
     - name: stop the old domain
       command: virsh destroy {{ vm_domain }}
@@ -37,15 +37,15 @@
 
 - name: decide whether to (re)create
   set_fact:
-    vm_do_create: "{{ vm_dominfo.rc != 0 or vm_recreate }}"
+    vm_do_create: "{{ vm_dominfo.rc != 0 or vm_recreate | bool }}"
 
 - name: "skip: domain {{ vm_domain }} already defined (set vm_recreate to rebuild)"
   debug:
     msg: "{{ vm_domain }} is already defined; nothing to do."
-  when: not vm_do_create
+  when: not vm_do_create | bool
 
 - name: create / seed / define
-  when: vm_do_create
+  when: vm_do_create | bool
   block:
     # Backing-file copy: instant, thin, and the pristine base image stays
     # shared read-only in the cache. vm_recreate replaces the disk; a plain
@@ -54,7 +54,7 @@
       file:
         path: "{{ vm_disk_path_eff }}"
         state: absent
-      when: vm_recreate
+      when: vm_recreate | bool
 
     - name: create the root disk (qcow2 backing-file copy)
       command: >-
@@ -106,5 +106,5 @@
 
 - name: autostart
   command: virsh autostart {{ vm_domain }}
-  when: vm_autostart
+  when: vm_autostart | bool
   changed_when: false
