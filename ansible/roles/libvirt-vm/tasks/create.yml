@@ -1,0 +1,110 @@
+---
+# Create (define) a VM: cached cloud image -> qcow2 backing-file copy ->
+# cloud-init NoCloud seed ISO -> virsh define. Idempotent: an already-defined
+# domain is left alone unless vm_recreate.
+
+- name: image cache directory
+  file:
+    path: "{{ vm_image_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: download the pinned Debian cloud image (sha512-verified, cached)
+  get_url:
+    url: "{{ vm_image_url }}"
+    dest: "{{ vm_image_cache_dir }}/{{ vm_image_url | basename }}"
+    checksum: "sha512:{{ vm_image_sha512 }}"
+    mode: "0644"
+  register: vm_image
+
+- name: is the domain already defined?
+  command: virsh dominfo {{ vm_domain }}
+  register: vm_dominfo
+  changed_when: false
+  failed_when: false
+
+- name: tear down the old definition (vm_recreate)
+  when: vm_dominfo.rc == 0 and vm_recreate
+  block:
+    - name: stop the old domain
+      command: virsh destroy {{ vm_domain }}
+      register: vm_predestroy
+      changed_when: vm_predestroy.rc == 0
+      failed_when: vm_predestroy.rc != 0 and 'not running' not in vm_predestroy.stderr
+
+    - name: undefine the old domain (with its nvram)
+      command: virsh undefine --nvram {{ vm_domain }}
+
+- name: decide whether to (re)create
+  set_fact:
+    vm_do_create: "{{ vm_dominfo.rc != 0 or vm_recreate }}"
+
+- name: "skip: domain {{ vm_domain }} already defined (set vm_recreate to rebuild)"
+  debug:
+    msg: "{{ vm_domain }} is already defined; nothing to do."
+  when: not vm_do_create
+
+- name: create / seed / define
+  when: vm_do_create
+  block:
+    # Backing-file copy: instant, thin, and the pristine base image stays
+    # shared read-only in the cache. vm_recreate replaces the disk; a plain
+    # create leaves an existing disk alone (crash-recovery re-define).
+    - name: remove the old root disk (vm_recreate)
+      file:
+        path: "{{ vm_disk_path_eff }}"
+        state: absent
+      when: vm_recreate
+
+    - name: create the root disk (qcow2 backing-file copy)
+      command: >-
+        qemu-img create -f qcow2
+        -b {{ vm_image_cache_dir }}/{{ vm_image_url | basename }} -F qcow2
+        {{ vm_disk_path_eff }} {{ vm_disk_gb }}G
+      args:
+        creates: "{{ vm_disk_path_eff }}"
+
+    # Extra volumes (the gw's nfsroot) are pre-seeded out of band — the
+    # cut-over runbook rsyncs the live NFS root into the image BEFORE this
+    # play. Create an empty one only if nothing is there at all.
+    - name: create missing extra volumes (empty; normally pre-seeded)
+      command: qemu-img create -f qcow2 {{ item.path }} {{ item.size_gb | default(20) }}G
+      args:
+        creates: "{{ item.path }}"
+      loop: "{{ vm_extra_volumes }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: cloud-init seed staging directory
+      file:
+        path: "/var/lib/libvirt/images/{{ vm_domain }}-seed"
+        state: directory
+        mode: "0700"
+
+    - name: cloud-init NoCloud files
+      template:
+        src: "templates/{{ item }}.j2"
+        dest: "/var/lib/libvirt/images/{{ vm_domain }}-seed/{{ item }}"
+        mode: "0600"
+      loop: [user-data, meta-data, network-config]
+
+    - name: build the seed ISO
+      command: >-
+        genisoimage -output {{ vm_seed_iso }} -volid cidata -joliet -rock
+        user-data meta-data network-config
+      args:
+        chdir: "/var/lib/libvirt/images/{{ vm_domain }}-seed"
+
+    - name: domain XML
+      template:
+        src: templates/domain.xml.j2
+        dest: "/var/lib/libvirt/images/{{ vm_domain }}.xml"
+        mode: "0644"
+
+    - name: define the domain
+      command: virsh define /var/lib/libvirt/images/{{ vm_domain }}.xml
+
+- name: autostart
+  command: virsh autostart {{ vm_domain }}
+  when: vm_autostart
+  changed_when: false

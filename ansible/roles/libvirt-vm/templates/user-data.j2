@@ -1,0 +1,16 @@
+#cloud-config
+# {{ ansible_managed }}
+# NoCloud seed for {{ vm_domain }}. Mirrors the bare-metal preseed contract:
+# one `ansible` automation user keyed with the fpgas.online-ansible key,
+# NOPASSWD sudo, no password auth anywhere. Everything else (operators,
+# services) arrives via ansible converge over ssh.
+hostname: {{ vm_hostname | default(vm_domain) }}
+manage_etc_hosts: true
+ssh_pwauth: false
+users:
+  - name: ansible
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - {{ vm_ansible_ssh_pubkey }}

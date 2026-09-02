@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Cloud-init network-config v2 for {{ vm_domain }}: dhcp4 on the uplink NIC
+# ({{ vm_uplink_bridge }}) only. The FPGA-side NIC is declared but left
+# unconfigured — the guest's own ansible converge (netif/vlan-ports, exactly
+# as on bare-metal tweed) owns it; cloud-init must not touch it.
+version: 2
+ethernets:
+{% for nic in vm_nics %}
+  nic{{ loop.index0 }}:
+    match:
+      macaddress: "{{ nic.mac | lower }}"
+{% if nic.bridge == vm_uplink_bridge %}
+    dhcp4: true
+    dhcp6: false
+{% else %}
+    dhcp4: false
+    dhcp6: false
+{% endif %}
+{% endfor %}
