@@ -1,0 +1,39 @@
+---
+# VM lifecycle on a hypervisor host. NOT imported by site.yml — inert until
+# invoked explicitly with a VM name and an action:
+#   uv run ansible-playbook ansible/vms.yml --limit tweed-hv \
+#       -e vm_name=gw-welland -e vm_action=create -e vm_colour=blue
+#   uv run ansible-playbook ansible/vms.yml --limit tweed-hv \
+#       -e vm_name=gw-welland -e vm_action=switch \
+#       -e vm_switch_from=gw-welland-blue -e vm_switch_to=gw-welland-green
+#   uv run ansible-playbook ansible/vms.yml --limit tweed-hv \
+#       -e vm_name=gw-welland -e vm_colour=blue -e vm_action=destroy \
+#       -e vm_allow_destroy=true
+# Per-VM shape (memory, vcpus, fixed-MAC NICs, extra volumes) comes from the
+# host's `hypervisor_vms` dict in host_vars — vm_name selects the entry.
+- hosts: hypervisors
+  pre_tasks:
+    - name: validate invocation
+      assert:
+        that:
+          - vm_action is defined
+          - vm_name is defined
+          - hypervisor_vms is defined
+          - vm_name in hypervisor_vms
+        fail_msg: >-
+          vms.yml needs -e vm_name=<name> -e vm_action=create|destroy|switch,
+          with vm_name defined in this host's hypervisor_vms
+          (known: {{ hypervisor_vms | default({}) | list | join(', ') }}).
+      tags: [libvirt-vm]
+  roles:
+    - role: libvirt-vm
+      vars:
+        vm_def: "{{ hypervisor_vms[vm_name] }}"
+        vm_memory_mb: "{{ vm_def.memory_mb }}"
+        vm_vcpus: "{{ vm_def.vcpus }}"
+        vm_nics: "{{ vm_def.nics }}"
+        vm_extra_volumes: "{{ vm_def.extra_volumes | default([]) }}"
+        # 20 mirrors the role default (defaults are shadowed once vars are
+        # passed explicitly, so the fallback is repeated here).
+        vm_disk_gb: "{{ vm_def.disk_gb | default(20) }}"
+        vm_ssh_probe_host: "{{ vm_def.ssh_probe_host | default('') }}"
