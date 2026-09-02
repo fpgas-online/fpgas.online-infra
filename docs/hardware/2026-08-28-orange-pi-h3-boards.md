@@ -137,3 +137,35 @@ plugged into the USB-C port. All four USB host root hubs (`usb1`…`usb4`, the
 USB-A ports) are still present, confirming the peripheral mode costs no host
 port. Control: the SD-booted hub host, whose own `config.txt` says
 `dtoverlay=dwc2,dr_mode=host`, has an empty `/sys/class/udc` and no `ttyGS*`.
+
+## Boot-time kernel Oops in the sunxi audio codec probe (found 2026-09-02)
+
+The USB gadget console captures show the same crash on three boards
+(pi-sw2-p20, pi-sw2-p21 and the 1-1.3.3 board), ~25 s into boot:
+
+```
+Internal error: Oops: 80000005 [#1] SMP ARM
+Workqueue: events_unbound deferred_probe_work_func
+PC is at 0x15669654                     <- garbage pointer (== r3)
+LR is at snd_soc_dai_set_fmt+0x34/0x94 [snd_soc_core]
+Modules linked in: sun8i_codec_analog sun4i_codec sun8i_adda_pr_regmap ...
+```
+
+A call through an uninitialised DAI `set_fmt` pointer while the sun4i-codec
+sound card retries its deferred probe. It kills the `events_unbound` kworker
+running `deferred_probe_work_func` -- the strongest lead yet for the ~1-in-4
+"crawling first boot" flake this file documents (kernel and NFS up, userspace
+stalls, sshd never starts), which predates the gadget console and was
+undiagnosable without it. The boards have no audio use, so
+`fixpi/tasks/sunxi.yml` now blacklists `sun4i_codec`, `sun8i_codec_analog`
+and `sun8i_adda_pr_regmap` in the root (`verify-pi` asserts they stay
+unloaded on Orange Pi hardware; none of them are in the sunxi initramfs, so
+the root blacklist covers every load path).
+
+Separately, on 2026-09-02 four of five boards (p20-p23) were found dead
+19-36 min into uptime -- gadget still enumerated, PoE still drawing
+1.5-2.5 W, no ping/ssh, each console log ending mid-normal-operation with
+`fpgas-cam.service` crash-looping (`status=255/EXCEPTION`). Possibly a
+separate problem from the boot-time Oops; their next hang will be on the
+captured consoles.
+

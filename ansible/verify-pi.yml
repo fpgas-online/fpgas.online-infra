@@ -241,6 +241,28 @@
         fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
       when: verify_pi_felboot is not skipped
       tags: [verify, hw-sunxi]
+
+    # The sunxi audio codec is blacklisted (fixpi/sunxi.yml): its deferred
+    # probe has Oopsed the kernel at boot on three boards. Assert the modules
+    # stayed out on Orange Pi hardware.
+    - name: List loaded modules
+      command: lsmod
+      changed_when: false
+      register: verify_pi_lsmod
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the blacklisted sunxi audio modules are not loaded
+      assert:
+        that:
+          - "'sun4i_codec' not in verify_pi_lsmod.stdout"
+          - "'sun8i_codec_analog' not in verify_pi_lsmod.stdout"
+        fail_msg: >-
+          sunxi audio codec modules are loaded on {{ ansible_hostname }} --
+          /etc/modprobe.d/fpgas-sunxi-no-audio.conf missing from the root, or
+          the board booted before it was added
+      when: verify_pi_lsmod is not skipped
+      tags: [verify, hw-sunxi]
     # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
     # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
     # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"
