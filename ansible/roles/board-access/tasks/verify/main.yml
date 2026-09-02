@@ -1,0 +1,65 @@
+---
+# Board-access gateway verification.  Runs on every host with the role (CI
+# included): the gateway must answer with no switches/Pis reachable.
+- name: fpgas-gw.service is active
+  command: systemctl is-active fpgas-gw
+  changed_when: false
+  register: ba_v_active
+
+- name: /api/site answers
+  uri:
+    url: "http://127.0.0.1:{{ gw_port }}/api/site"
+    return_content: true
+  register: ba_v_site
+
+- name: Assert /api/site reports the configured site id
+  assert:
+    that: ba_v_site.json.site.id == gw_site_id
+    fail_msg: "/api/site returned site id {{ ba_v_site.json.site.id | default('<none>') }}, expected {{ gw_site_id }}"
+
+- name: /api/boards answers
+  uri:
+    url: "http://127.0.0.1:{{ gw_port }}/api/boards"
+    return_content: true
+  register: ba_v_boards
+
+# Same live-board expression as roles/ttsite/tasks/verify/main.yml.
+- name: Live boards from the catalogue
+  set_fact:
+    ba_v_live: "{{ tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | rejectattr('enabled', 'defined') | list
+                   + tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | selectattr('enabled', 'defined') | selectattr('enabled') | list }}"
+  when: tt_boards is defined
+
+- name: Assert live board count matches the catalogue
+  assert:
+    that: (ba_v_boards.json.boards | selectattr('live', 'defined') | selectattr('live') | list | length) == (ba_v_live | length)
+    fail_msg: "/api/boards live count {{ ba_v_boards.json.boards | selectattr('live', 'defined') | selectattr('live') | list | length }} != tt_boards live count {{ ba_v_live | length }}"
+  when: tt_boards is defined
+
+- name: First live board slug
+  set_fact:
+    ba_v_first: "{{ ba_v_live[0].slug }}"
+  when: tt_boards is defined and ba_v_live | length > 0
+
+- name: POST power without a token is rejected (401)
+  uri:
+    url: "http://127.0.0.1:{{ gw_port }}/api/board/{{ ba_v_first }}/power"
+    method: POST
+    body_format: json
+    body: {action: "on"}
+    status_code: [401]
+  when: ba_v_first is defined
+
+# reachable: false is the expected answer in CI (no Pi daemon behind the slug).
+- name: /api/board/<slug>/status answers
+  uri:
+    url: "http://127.0.0.1:{{ gw_port }}/api/board/{{ ba_v_first }}/status"
+    return_content: true
+  register: ba_v_status
+  when: ba_v_first is defined
+
+- name: Assert board status JSON reports reachability
+  assert:
+    that: "'reachable' in ba_v_status.json"
+    fail_msg: "/api/board/{{ ba_v_first }}/status returned no `reachable` key"
+  when: ba_v_first is defined
