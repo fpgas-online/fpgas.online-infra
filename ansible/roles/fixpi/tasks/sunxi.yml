@@ -107,3 +107,25 @@
     dest: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
     mode: "0644"
   tags: [sunxi]
+
+# The H3 boards have no audio use, and the sun4i-codec probe has crashed three
+# different boards: a jump through an uninitialised DAI set_fmt pointer during
+# deferred probe ("Internal error: Oops: 80000005", PC = garbage, LR =
+# snd_soc_dai_set_fmt+0x34 [snd_soc_core], Workqueue deferred_probe_work_func,
+# ~25 s into boot -- captured 2026-09-02 on the USB gadget consoles of
+# pi-sw2-p20/p21 and the 1-1.3.3 board). The modules load only by udev's
+# DT-alias coldplug from the real root (none of them are in the sunxi
+# initramfs), so a root modprobe.d blacklist removes the whole probe path.
+- name: blacklist the sunxi audio codec modules in the NFS root
+  copy:
+    dest: "{{ nfs_root }}/root/etc/modprobe.d/fpgas-sunxi-no-audio.conf"
+    mode: "0644"
+    content: |
+      # fpgas.online (fixpi/sunxi.yml): the Orange Pi H3 boards are headless
+      # rack nodes; the sun4i-codec deferred probe has caused boot-time kernel
+      # Oopses (docs/hardware/2026-08-28-orange-pi-h3-boards.md). No board
+      # uses audio, so keep the whole codec stack unloadable-by-alias.
+      blacklist sun4i_codec
+      blacklist sun8i_codec_analog
+      blacklist sun8i_adda_pr_regmap
+  tags: [sunxi]
