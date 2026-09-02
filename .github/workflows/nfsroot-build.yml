@@ -1,0 +1,68 @@
+# Build the provisioned Pi NFS root and publish it to GHCR (issue #34;
+# design in docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+# Runs the same Ansible roles as site.yml's build path against a chroot on
+# an arm64 runner (native AArch32, spike PR #40), verifies per-model boot
+# material, and pushes ghcr.io/fpgas-online/nfsroot (rolling tag only from
+# main; dated pinnable tag always). Weekly cron picks up new debs from the
+# rolling apt repo.
+name: nfsroot build
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * 1"
+  push:
+    branches: [main, ci-nfsroot-phase2]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: nfsroot-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible and collections
+        run: |
+          uv sync
+          uv run ansible-galaxy collection install -r requirements.yml --upgrade
+
+      - name: Build the NFS root (same roles as site.yml, chroot connection)
+        working-directory: ansible
+        run: >-
+          sudo env "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections"
+          "ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks"
+          "$(pwd)/../.venv/bin/ansible-playbook"
+          -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
+          --skip-tags pipw,keys
+
+      - name: Write nfsroot manifest (packages, boot hashes, configs)
+        run: |
+          sudo .venv/bin/python tests/ci/nfsroot_manifest.py \
+            /srv/nfs/rpi/bookworm manifest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nfsroot-manifest
+          path: manifest/
+
+      - name: Publish to GHCR
+        run: uv run tests/ci/nfsroot_publish.py

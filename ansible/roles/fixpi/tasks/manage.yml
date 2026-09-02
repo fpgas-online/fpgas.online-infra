@@ -1,8 +1,13 @@
 ---
+# fixpi_install_qemu: false skips this on hosts that execute the armhf root
+# natively (the CI arm64 runners, issue #34 spike) -- installing
+# qemu-user-static there registers binfmt handlers that can shadow the
+# faster native AArch32 execution.
 - name: install packages on server
   apt:
     name:
       - qemu-user-static
+  when: fixpi_install_qemu | default(true)
   tags:
     - qemu
 

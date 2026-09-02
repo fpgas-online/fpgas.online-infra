@@ -1,0 +1,141 @@
+---
+# Build the provisioned Pi NFS root on a CI runner (issue #34; design in
+# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+#
+# Mirrors site.yml's build path with the same roles in the same order --
+# img + fixpi on the build host, then the Pi roles against the root -- but
+# the "Pi" is reached via the chroot connection plugin (see
+# inventory-ci-nfsroot/hosts; only the inventory differs).
+#
+# Run with --skip-tags pipw,keys: the site-specific userconf layer (pi
+# password, per-site authorized_keys/keypairs) is applied by the consuming
+# server after extraction, not baked into the published image.
+
+- hosts: nbp
+  become: true
+  roles:
+    - img
+    - fixpi
+
+# The chroot connection plugin does not provide the API filesystems the Pi
+# roles' apt runs need (posix_openpt wants /dev/pts). Give the chroot the
+# same mounts + policy-rc.d that nspawn-pi/start.yml gives the production
+# one; the qemu/piroot/sshd parts of start.yml are not needed here.
+- hosts: nbp
+  become: true
+  tasks:
+    - name: Mount filesystems for chroot
+      shell: |
+        mountpoint -q "{{ nfs_root }}/root/proc" || mount --bind /proc "{{ nfs_root }}/root/proc"
+        mountpoint -q "{{ nfs_root }}/root/sys" || mount --bind /sys "{{ nfs_root }}/root/sys"
+        mountpoint -q "{{ nfs_root }}/root/dev" || mount --bind /dev "{{ nfs_root }}/root/dev"
+        mountpoint -q "{{ nfs_root }}/root/dev/pts" || mount --bind /dev/pts "{{ nfs_root }}/root/dev/pts"
+      changed_when: false
+
+    - name: Install policy-rc.d to suppress service starts during apt
+      copy:
+        dest: "{{ nfs_root }}/root/usr/sbin/policy-rc.d"
+        content: |
+          #!/bin/sh
+          exit 101
+        mode: "0755"
+
+- hosts: pi
+  roles:
+    - role: fpgas-apt
+      tags: [fpgas-apt]
+    - role: cam/pi
+      tags: [cam]
+    - role: onpi
+      tags: [onpi]
+
+- hosts: nbp
+  become: true
+  tasks:
+    # Unmount the API filesystems and drop policy-rc.d BEFORE the payload
+    # sync and packaging: a still-mounted /dev must never be tarred into
+    # the image. Same cleanup as production's nspawn-pi stop.
+    - name: clean up chroot mounts and policy-rc.d
+      include_role:
+        name: nspawn-pi
+        tasks_from: stop.yml
+
+    # The chroot apt runs resolved names through the build host's
+    # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's
+    # DNS into the image: point the root at the gateway address both sites
+    # use (issue #11 tracks proper resolv handling on the Pis).
+    - name: neutralize build-host resolv.conf in the image
+      copy:
+        content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        mode: "0644"
+
+    # fixpi_generate_host_keys: false skips pre-generation, but an
+    # openssh-server upgrade's postinst can still create host keys during
+    # the Pi roles' apt runs. Keys in the public image would be shared by
+    # every consuming site, so strip them; the consuming server's fixpi run
+    # generates fresh ones after extraction.
+    - name: find build-generated ssh host keys in the image
+      find:
+        paths: "{{ nfs_root }}/root/etc/ssh"
+        patterns: "ssh_host_*"
+      register: ci_nfsroot_host_keys
+
+    - name: remove build-generated ssh host keys from the image
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ ci_nfsroot_host_keys.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+    # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
+    # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
+    # -- leaving boot/ stale in a one-shot build: the exact mismatched
+    # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
+    # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
+    # design doc's "ordering is load-bearing" requirement.
+    - name: re-sync kernel+initramfs+DTB payload after chroot apt upgrades
+      command: >-
+        rsync -a --exclude=cmdline.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+      tags: [netboot]
+
+    # Design doc "Hardware coverage": fail the build before anything is
+    # tagged if a board family's boot material is missing, so an upstream
+    # image or kernel-packaging change cannot brick part of the fleet on
+    # the next pull.
+    - name: assert per-model kernel payload present in boot/
+      stat:
+        path: "{{ nfs_root }}/boot/{{ item }}"
+      register: ci_nfsroot_boot_file
+      failed_when: not ci_nfsroot_boot_file.stat.exists
+      loop:
+        - kernel.img            # Pi 1 / Zero
+        - kernel7.img           # Pi 2 / Pi 3
+        - kernel7l.img          # Pi 4 / CM4
+        # Pi 5 / CM5 boot kernel8.img on the armhf image (64-bit kernel,
+        # 32-bit userland) -- kernel_2712.img ships only in arm64 images,
+        # which is how the ps1 CM5 blades boot today.
+        - kernel8.img
+        - bcm2710-rpi-3-b.dtb
+        - bcm2710-rpi-3-b-plus.dtb
+        - bcm2711-rpi-4-b.dtb
+        - bcm2712-rpi-5-b.dtb
+        - overlays
+      tags: [verify]
+
+    - name: assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
+      command: dpkg --root={{ nfs_root }}/root -l {{ item }}
+      changed_when: false
+      loop:
+        - overlayroot
+        - nfs-common
+        - fpgas-online-setup-pi
+        - fpgas-online-cam
+      tags: [verify]
+
+    - name: assert pi user exists in the root
+      command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
+      changed_when: false
+      tags: [verify]
