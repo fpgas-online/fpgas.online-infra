@@ -186,36 +186,47 @@
         fail_msg: "Pi authorized_keys not found at {{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
       tags: [verify, nfs-root]
 
-    # The onboard radios must be disabled in the read-only netboot image so the
-    # setting is re-applied on every boot (see fixpi/tasks/tweeks.yml). On Pi 5
-    # the firmware auto-remaps disable-wifi -> disable-wifi-pi5.
-    - name: Check config.txt disables onboard Wi-Fi in NFS root
-      command: grep -Fxq 'dtoverlay=disable-wifi' {{ nfs_root }}/boot/config.txt
-      changed_when: false
-      register: verify_disable_wifi
-      failed_when: false
+    # The netboot config.txt is a single owned template (fixpi config.txt.j2):
+    # the stock RpiOS snapshot plus the fpgas.online managed settings. Verify the
+    # rendered file both preserves stock and carries every managed setting.
+    - name: Read rendered netboot config.txt from NFS root
+      slurp:
+        src: "{{ nfs_root }}/boot/config.txt"
+      register: verify_configtxt
       tags: [verify, nfs-root]
 
-    - name: Assert config.txt disables onboard Wi-Fi in NFS root
+    - name: Assert netboot config.txt is the single-owner render (stock + managed)
       assert:
-        that: verify_disable_wifi.rc == 0
-        fail_msg: "dtoverlay=disable-wifi missing from {{ nfs_root }}/boot/config.txt — onboard Wi-Fi would not be disabled"
+        that:
+          # stock preserved (sentinel lines from the RpiOS snapshot)
+          - "'camera_auto_detect=1' in _cfg"
+          - "'arm_boost=1' in _cfg"
+          # fpgas.online managed settings (radios, uart, eeprom, otg, pi5 uart)
+          - "'dtoverlay=disable-wifi' in _cfg"
+          - "'dtoverlay=disable-bt' in _cfg"
+          - "'enable_uart=1' in _cfg"
+          - "'uart_2ndstage=1' in _cfg"
+          - "'eeprom_write_protect=1' in _cfg"
+          - "'dtoverlay=dwc2,dr_mode=peripheral' in _cfg"
+          - "'dtoverlay=uart0-pi5' in _cfg"
+          - "'cmdline=cmdline-pi5.txt' in _cfg"
+        fail_msg: >-
+          netboot config.txt missing stock or managed settings — it is rendered
+          from fixpi/templates/boot/config.txt.j2 (single owner)
+      vars:
+        _cfg: "{{ verify_configtxt.content | b64decode }}"
       tags: [verify, nfs-root]
 
-    # The bootloader EEPROM must be write-protected in the read-only netboot
-    # image so the setting is re-applied on every boot (see fixpi/tasks/tweeks.yml
-    # and docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md).
-    - name: Check config.txt write-protects the EEPROM in NFS root
-      command: grep -Fxq 'eeprom_write_protect=1' {{ nfs_root }}/boot/config.txt
-      changed_when: false
-      register: verify_eeprom_wp
-      failed_when: false
+    - name: Stat pristine stock config.txt.org in NFS root
+      stat:
+        path: "{{ nfs_root }}/boot/config.txt.org"
+      register: verify_configtxt_org
       tags: [verify, nfs-root]
 
-    - name: Assert config.txt write-protects the EEPROM in NFS root
+    - name: Assert pristine stock config.txt.org was preserved for the drift gate
       assert:
-        that: verify_eeprom_wp.rc == 0
-        fail_msg: "eeprom_write_protect=1 missing from {{ nfs_root }}/boot/config.txt — bootloader EEPROM would be writable"
+        that: verify_configtxt_org.stat.exists
+        fail_msg: "config.txt.org (pristine RpiOS stock) missing — the stock-drift gate cannot run"
       tags: [verify, nfs-root]
 
 - name: Verify uhubctl

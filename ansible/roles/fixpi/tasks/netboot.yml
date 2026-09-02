@@ -28,22 +28,58 @@
     removes: "{{ nfs_root }}/{{ item }}"
     creates: "{{ nfs_root }}/{{ item }}.org"
   with_items:
-    # - "boot/config.txt"
+    # config.txt is preserved as config.txt.org (the pristine RpiOS stock file)
+    # so the "stock config.txt drift" gate below can compare it against our
+    # tracked snapshot on every build. The netboot config.txt itself is then
+    # rendered from templates/boot/config.txt.j2 (single owner).
+    - "boot/config.txt"
     - "boot/cmdline.txt"
     - "boot/user-data"
     - "root/fstab"
   tags:
     - netboot
 
-# cmdline-pi5.txt is selected only by the `[pi5] cmdline=` line that
-# roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
-# cmdline.txt. It exists so enabling the Pi 5 header UART does not drag the
-# kernel console onto the FPGA's serial pins -- see the comment on that task.
-- name: replace cmdline with netbootie versions
+# Hard gate: fail the build if the pinned RpiOS image's stock config.txt differs
+# from the snapshot we last reconciled into config.txt.j2. Because we OWN the
+# rendered config.txt we no longer inherit upstream stock changes automatically,
+# so this forces a deliberate reconcile whenever the RpiOS pin is bumped or a new
+# model image is used. config.txt.org is read from the built nfs_root (remote);
+# the snapshot is read from the role on the controller via lookup().
+# See docs/superpowers/runbooks/2026-09-02-config-txt-single-owner.md
+- name: read pristine stock config.txt.org from the built nfs_root
+  ansible.builtin.slurp:
+    src: "{{ nfs_root }}/boot/config.txt.org"
+  register: fixpi_stock_org
+  tags:
+    - cmdline
+    - netboot
+
+- name: assert RpiOS stock config.txt has not drifted from the tracked snapshot
+  ansible.builtin.assert:
+    that:
+      - (fixpi_stock_org.content | b64decode | trim) == (lookup('file', 'boot/config.txt.stock') | trim)
+    fail_msg: >-
+      RpiOS stock config.txt differs from fixpi/files/boot/config.txt.stock.
+      The pinned image's config.txt changed. Reconcile: diff the built
+      {{ nfs_root }}/boot/config.txt.org against the snapshot, port any new stock
+      lines into fixpi/templates/boot/config.txt.j2, and refresh config.txt.stock.
+      See docs/superpowers/runbooks/2026-09-02-config-txt-single-owner.md
+    success_msg: "RpiOS stock config.txt matches the tracked snapshot"
+  tags:
+    - cmdline
+    - netboot
+
+# config.txt is the single-owner template (stock snapshot + fpgas.online managed
+# settings); it is the ONLY thing that writes the netboot config.txt. cmdline-pi5.txt
+# is selected only by the `[pi5] cmdline=` line inside config.txt.j2; every other
+# model keeps cmdline.txt. It exists so enabling the Pi 5 header UART does not drag
+# the kernel console onto the FPGA's serial pins -- see config.txt.j2.
+- name: render config.txt and cmdline netbootie versions
   template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
   with_items:
+    - config.txt
     - cmdline.txt
     - cmdline-pi5.txt
   tags:
