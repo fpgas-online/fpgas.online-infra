@@ -1,0 +1,109 @@
+---
+# Orange Pi H3 (sunxi) support for the SHARED Pi NFS root: a Debian armmp
+# kernel baked into the root + its boot payload published under
+# <tftp_root>/sunxi/ for U-Boot's distro-boot PXE. Only runs on hosts that
+# declare sunxi_boards (multi-host guard rule). Spec:
+# docs/superpowers/specs/2026-08-28-orange-pi-netboot-design.md
+#
+# Safe for the Pi fleet: Raspbian's z50-raspi-firmware kernel hook prints
+# "Unsupported kernel version (6.1.0-50-armmp) - skipping setup" and leaves
+# /boot/firmware alone (verified 2026-08-28 in the spike).
+
+# Raspbian does not carry debian-archive-keyring, so fetch Debian's own
+# bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
+# into the root; it provides the Signed-By keyring the source below names.
+- name: fetch debian-archive-keyring for the armmp kernel source
+  get_url:
+    url: "http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
+    dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
+    checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
+    mode: "0644"
+  tags: [sunxi, sunxi-kernel]
+
+- name: install debian-archive-keyring into the NFS root
+  command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
+  args:
+    creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
+  tags: [sunxi, sunxi-kernel]
+
+- name: debian armhf apt source (kernel only) in NFS root
+  template:
+    src: templates/apt/debian-armmp.sources.j2
+    dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/debian-armmp.sources"
+    mode: "0644"
+  tags: [sunxi]
+
+- name: pin the debian source to the armmp kernel only
+  template:
+    src: templates/apt/debian-armmp.pref.j2
+    dest: "{{ nfs_root }}/root/etc/apt/preferences.d/debian-armmp.pref"
+    mode: "0644"
+  tags: [sunxi]
+
+# ~30 min under qemu-user-static (update-initramfs with MODULES=most), hence
+# the creates guard and the sunxi-kernel tag CI skips. Kernel upgrades arrive
+# through onpi's apt upgrade in the pi play like every other package.
+- name: install the armmp kernel into the NFS root
+  command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "apt-get update && apt-get install -y {{ sunxi_kernel_package }}"
+  args:
+    creates: "{{ nfs_root }}/root/boot/vmlinuz-*-armmp"
+  tags: [sunxi, sunxi-kernel]
+
+- name: find the installed armmp kernel
+  find:
+    paths: "{{ nfs_root }}/root/boot"
+    patterns: "vmlinuz-*-armmp"
+  register: fixpi_sunxi_vmlinuz
+  tags: [sunxi]
+
+- name: derive the armmp kernel version
+  set_fact:
+    fixpi_sunxi_kver: >-
+      {{ (fixpi_sunxi_vmlinuz.files | map(attribute='path') | sort | last | basename)
+         | regex_replace('^vmlinuz-', '') }}
+  when: fixpi_sunxi_vmlinuz.matched > 0
+  tags: [sunxi]
+
+- name: create tftp sunxi directories
+  file:
+    path: "{{ tftp_root }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [sunxi, sunxi/dtbs, pxelinux.cfg]
+  tags: [sunxi]
+
+- name: publish kernel + initrd to tftp sunxi/
+  copy:
+    remote_src: true
+    src: "{{ nfs_root }}/root/boot/{{ item.src }}-{{ fixpi_sunxi_kver }}"
+    dest: "{{ tftp_root }}/sunxi/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - {src: vmlinuz, dest: vmlinuz}
+    - {src: initrd.img, dest: initrd.img}
+  when: fixpi_sunxi_vmlinuz.matched > 0
+  tags: [sunxi]
+
+- name: publish sunxi DTBs to tftp sunxi/dtbs/
+  copy:
+    remote_src: true
+    src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
+    dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
+    mode: "0644"
+  loop:
+    - sun8i-h3-orangepi-pc.dtb
+    - sun8i-h3-orangepi-pc-plus.dtb
+    - sun8i-h3-orangepi-one.dtb
+  when: fixpi_sunxi_vmlinuz.matched > 0
+  tags: [sunxi]
+
+- name: U-Boot PXE config for the sunxi boards
+  template:
+    src: templates/boot/default-arm-sunxi.j2
+    dest: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
+    mode: "0644"
+  tags: [sunxi]

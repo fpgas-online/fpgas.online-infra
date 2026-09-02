@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Allow only the armmp kernel (+ its linux-base dependency) from deb.debian.org.
+Package: linux-image-*-armmp {{ sunxi_kernel_package }} linux-base
+Pin: origin deb.debian.org
+Pin-Priority: 500
+
+Package: *
+Pin: origin deb.debian.org
+Pin-Priority: -1

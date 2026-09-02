@@ -132,8 +132,11 @@ streaming_frontend_aliases:
 streaming_frontend_hostname: welland.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-# fixture_path intentionally absent: the pibfpgas.pi fixture is the legacy
-# MAC-table board list (ps1 still loads its own).
+# Seeds the /fpgas/ board list from the fixture shipped inside the installed
+# fpgas-online-site package (rebuilt 2026-08-31 from a live probe of the
+# s3300: 4x Arty A7, 6x Acorn CLE-215+, 4x TT FPGA emulation, all switch=2
+# VLAN-per-port rows).
+fixture_path: fpgas.online.json
 
 # Tim's
 # Netgear S3300-52X-PoE+
@@ -193,13 +196,15 @@ tt_boards:
   # pi-sw2-p3 carries a Tiny Tapeout 3.5 chip. Reflashed 2026-08-24 to demo-board
   # firmware v1.2.2 (the newest release supporting tt03p5 -- SDK 2.x dropped it);
   # boots into tt_um_test with the full 27-project mux working over serial.
-  # Stays disabled until the Commander fork supports SDK 1.2.x (it currently
-  # requires >= 2.0.0RC2 and would offer a firmware "update" that breaks the board).
-  - {slug: tt03p5, switch: 2, port: 3, kind: asic, shuttle: tt03p5, title: "Tiny Tapeout 3.5", enabled: false,
+  # Enabled 2026-08-31 (camera-first, Tim): the page is live for the video feed
+  # while the Commander still lacks SDK 1.2.x support (it requires >= 2.0.0RC2
+  # and must never offer this board its 2.x firmware "update") -- see
+  # fpgas-online/tt-commander-app#9 for the legacy-branch port that fixes this.
+  - {slug: tt03p5, switch: 2, port: 3, kind: asic, shuttle: tt03p5, title: "Tiny Tapeout 3.5",
      blurb: "TT03p5 (sky130) on a demo board", pcb: "TT demo board (RP2040)",
      description: "TT 3.5 chip on demo-board firmware v1.2.2 (the last release supporting this shuttle).
-       The 27-project mux works over the serial REPL; the web Commander needs a compatibility
-       update before this board goes live."}
+       The 27-project mux works over the serial REPL; the web Commander does not support this
+       firmware generation yet, so for now this page is camera-only."}
   - {slug: tt04, switch: 2, port: 4, kind: asic, shuttle: tt04, title: "Tiny Tapeout 4",
      blurb: "TT04 (sky130) on a demo board", pcb: "TT demo board (RP2040)"}
   - {slug: tt05, switch: 2, port: 5, kind: asic, shuttle: tt05, title: "Tiny Tapeout 5",
@@ -318,3 +323,18 @@ vault_ansible_ssh_private_key: !vault |
           32326464646636316566636130353439353437363638646562303538616134646561323565323463
           64383131383461336530396461343363343563303965643538333963313763356137353364393431
           3230
+
+# --- Orange Pi H3 boards (spec: docs/superpowers/specs/2026-08-28-orange-pi-netboot-design.md) --
+# They have no SD/eMMC, so the BROM sits in USB FEL mode until the hub host
+# (`host`, USB path `usb`) FEL-boots U-Boot into them; U-Boot then PXE-boots
+# the SHARED NFS root with the Debian armmp kernel that fixpi/sunxi.yml bakes
+# in. Network identity is the ordinary per-port one (pi-sw2-p<port>).
+# Mapping verified 2026-08-28: docs/hardware/2026-08-28-orange-pi-h3-boards.md
+sunxi_kernel_package: linux-image-armmp   # Debian bookworm metapackage (6.1.0-x-armmp)
+sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
+sunxi_boards:
+  - {switch: 2, port: 20, host: pi-sw2-p30, usb: "1-1.2.2", model: orangepi-pc, mac: "02:81:bf:f6:b7:99"}
+  - {switch: 2, port: 21, host: pi-sw2-p30, usb: "1-1.3.1", model: orangepi-pc, mac: "02:81:31:f4:6e:48"}
+  - {switch: 2, port: 23, host: pi-sw2-p30, usb: "1-1.2.3", model: orangepi-pc, mac: "02:81:1f:e1:45:1d"}
+  - {switch: 2, port: 24, host: pi-sw2-p30, usb: "1-1.2.4", model: orangepi-pc, mac: "02:81:f5:c0:a6:10"}
+  - {switch: 2, port: 22, host: pi-sw2-p30, usb: "1-1.3.2", model: orangepi-pc, mac: "02:81:2e:b7:a3:4e"}

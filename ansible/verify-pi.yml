@@ -184,3 +184,141 @@
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
+
+    # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
+    # neither fail nor stall the boot.
+    - name: Check no failed units
+      command: systemctl --failed --no-legend --plain
+      changed_when: false
+      register: verify_pi_failed
+      tags: [verify, services]
+
+    - name: Assert ifupdown is masked and not failed
+      assert:
+        that:
+          - "'networking.service' not in verify_pi_failed.stdout"
+          - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
+        fail_msg: "ifupdown units still failing on the Pi: {{ verify_pi_failed.stdout }}"
+      tags: [verify, services]
+
+    # --- Orange Pi H3 boards + their FEL-boot host (tag hw-sunxi; hardware only) ---
+    - name: read the device-tree model
+      slurp:
+        src: /proc/device-tree/model
+      register: verify_pi_dt_model
+      failed_when: false
+      tags: [verify, hw-sunxi]
+
+    - name: Assert a sunxi board runs the armmp kernel from the shared root
+      assert:
+        that:
+          - ansible_kernel is search('armmp')
+          - ansible_architecture == 'armv7l'
+        fail_msg: "Orange Pi {{ ansible_hostname }} runs {{ ansible_kernel }} on {{ ansible_architecture }}, expected an armmp kernel"
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: sunxi boards declared for this site
+      set_fact:
+        verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
+      tags: [verify, hw-sunxi]
+
+    # fpgas-felboot.sh leaves /run/fpgas-felboot/<usb-device> on success; the
+    # journal is volatile and rotates within minutes under systemd debug
+    # logging, and finished oneshot instances are unloaded from systemctl.
+    - name: List FEL-boot success markers on the hub host
+      find:
+        paths: /run/fpgas-felboot
+      register: verify_pi_felboot
+      when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
+      tags: [verify, hw-sunxi]
+
+    - name: Assert every attached board was FEL-booted from this host
+      assert:
+        that: >-
+          verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | map(attribute='usb') | list
+          | difference(verify_pi_felboot.files | map(attribute='path') | map('basename') | list) | length == 0
+        fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
+      when: verify_pi_felboot is not skipped
+      tags: [verify, hw-sunxi]
+    # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
+    # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
+    # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"
+    # in bcm2712-rpi-5-b.dtb, and `dtoverlay=disable-bt` -- which frees this UART
+    # on Pi 0-4 -- resolves to disable-bt-pi5.dtbo here, whose only fragment
+    # targets `bluetooth`. So /dev/ttyAMA0 exists only if roles/fixpi's
+    # `[pi5] dtoverlay=uart0-pi5` block is present. It silently was not, and
+    # every Acorn host went without a serial link. Model-gated, so the VM test's
+    # virtual Pi 4B skips both assertions.
+    - name: Read the board model
+      command: cat /proc/device-tree/model
+      changed_when: false
+      register: verify_pi_model
+      tags: [verify, uart]
+
+    - name: Read the kernel command line
+      command: cat /proc/cmdline
+      changed_when: false
+      register: verify_pi_cmdline
+      tags: [verify, uart]
+
+    - name: Check the 40-pin header UART device
+      stat:
+        path: /dev/ttyAMA0
+      register: verify_pi_ttyama0
+      tags: [verify, uart]
+
+    - name: Assert the header UART is enabled on Pi 5
+      assert:
+        that: verify_pi_ttyama0.stat.exists
+        fail_msg: >-
+          /dev/ttyAMA0 missing on a Pi 5 -- the RP1 header UART (GPIO14/15) is
+          disabled, so nothing can talk to a PCIe FPGA card's UART. config.txt
+          needs `[pi5] dtoverlay=uart0-pi5`; `dtoverlay=disable-bt` does NOT
+          enable it on this model.
+      when: "'Raspberry Pi 5' in verify_pi_model.stdout"
+      tags: [verify, uart]
+
+    # Enabling uart0 makes the firmware resolve `console=serial0` to ttyAMA0,
+    # which would put the kernel console -- and the getty systemd derives from
+    # it -- on the FPGA's serial pins. A design driving K2 then feeds the console
+    # bytes that SysRq reads as reboot/crash. The Pi 5s must stay on their
+    # dedicated debug UART (ttyAMA10) via `[pi5] cmdline=cmdline-pi5.txt`.
+    - name: Assert the kernel console is off the header UART on Pi 5
+      assert:
+        that: "'console=ttyAMA0' not in verify_pi_cmdline.stdout"
+        fail_msg: >-
+          Pi 5 kernel console is on ttyAMA0, the FPGA's UART. An FPGA design
+          driving serial TX can trigger SysRq (reboot/crash) and will fight the
+          getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
+      when: "'Raspberry Pi 5' in verify_pi_model.stdout"
+      tags: [verify, uart]
+
+    # --- USB gadget console (tag hw-usb-gadget; boards with a UDC only) ---
+    # fpgas-online-setup-pi's udev rule loads g_serial when a USB device
+    # controller appears: ttyGS0 streams the kernel log, ttyGS1 runs a getty.
+    - name: USB device controllers
+      find:
+        paths: /sys/class/udc
+        file_type: any
+      register: verify_pi_udc
+      tags: [verify, hw-usb-gadget]
+
+    - name: Check the gadget console units
+      command: systemctl is-active fpgas-usb-console.service serial-getty@ttyGS1.service
+      changed_when: false
+      failed_when: false
+      register: verify_pi_usb_console
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]
+
+    - name: Assert the gadget console runs on every board with a UDC
+      assert:
+        that:
+          - verify_pi_usb_console.stdout_lines == ['active', 'active']
+        fail_msg: >-
+          {{ ansible_hostname }} has a USB device controller
+          ({{ verify_pi_udc.files | map(attribute='path') | map('basename') | join(', ') }})
+          but fpgas-usb-console / serial-getty@ttyGS1 are {{ verify_pi_usb_console.stdout_lines }}
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]

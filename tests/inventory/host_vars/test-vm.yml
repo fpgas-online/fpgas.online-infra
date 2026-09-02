@@ -44,7 +44,11 @@ streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-fixture_path: test.json
+# The real welland fixture, shipped inside the installed fpgas-online-site
+# package -- so the VM test exercises the production seeding path end to end.
+# (Was `test.json`, a fixture that never existed: the old role silently
+# skipped missing fixtures, which is the outage this PR fixes.)
+fixture_path: fpgas.online.json
 
 switch_base: base
 
@@ -103,3 +107,10 @@ tt_boards:
   - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
 tt_commander_embed_version: ""
+# Orange Pi netboot rendering (fixpi/sunxi.yml). The kernel install itself is
+# tagged sunxi-kernel and skipped in CI (tests/vm/run_tests.py --skip-tags):
+# a 30-minute qemu-emulated update-initramfs is not worth a CI run.
+sunxi_kernel_package: linux-image-armmp
+sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
+sunxi_boards:
+  - {switch: 1, port: 1, host: pi-sw1-p1, usb: "1-1.2.2", model: orangepi-pc, mac: "02:81:00:00:00:01"}
