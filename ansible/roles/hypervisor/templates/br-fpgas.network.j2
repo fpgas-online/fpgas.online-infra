@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+[Match]
+Name=br-fpgas
+
+[Link]
+MTUBytes={{ hypervisor_fpgas_mtu }}
+# Carrier appears only when a port (NIC or VM tap) is up; never block boot.
+RequiredForOnline=no
+
+[Network]
+Description=FPGA-side bridge (gw VM <-> eth-local trunk)
+ConfigureWithoutCarrier=yes
+{% if hypervisor_fpgas_host_address is defined %}
+# Host debugging address (hypervisor_fpgas_host_address) — NOT set in normal
+# operation; the gw VM owns all addressing on this network.
+IPv6AcceptRA=no
+
+[Address]
+Address={{ hypervisor_fpgas_host_address }}
+{% else %}
+# The host stays silent on the FPGA network: the gw VM owns 10.21.0.1 and
+# the whole per-port VLAN scheme, exactly as bare-metal tweed did.
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+{% endif %}

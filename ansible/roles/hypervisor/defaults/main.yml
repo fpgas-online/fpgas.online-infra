@@ -1,0 +1,58 @@
+---
+# KVM/libvirt hypervisor base (Phase 3 of the tweed split — see
+# docs/superpowers/runbooks/2026-09-02-tweed-hypervisor-cutover.md).
+#
+# The role converts a fresh Debian trixie install into a VM host with two
+# plain (non-VLAN-filtering) bridges:
+#   br-fpgas  — carries the FPGA per-port VLAN trunk; the gw VM's first NIC
+#               attaches here and does everything bare-metal tweed's
+#               eth-local used to do. MTU 1504 for the tagged trunk frames
+#               (same reasoning as roles/vlan-ports eth-local.network.j2).
+#   br-uplink — transit to ten64; the host's own management address lives
+#               here, VM uplink NICs attach alongside it.
+
+# trixie has no real qemu-kvm package (it is a virtual name Provided by
+# qemu-system-x86, which the ansible apt module will not resolve), so the
+# real provider is listed. qemu-utils supplies qemu-img for the libvirt-vm
+# role's backing-file disk copies.
+hypervisor_packages:
+  - qemu-system-x86
+  - qemu-utils
+  - libvirt-daemon-system
+  - libvirt-clients
+  - ovmf
+  - genisoimage
+  - etckeeper
+  - chrony
+
+# Physical NIC names after the MAC-matched .link rename (same names the
+# bare-metal gateway used, so LLDP/debugging stays familiar). The MACs come
+# from host_vars (hypervisor_fpgas_mac / hypervisor_uplink_mac).
+hypervisor_fpgas_nic: eth-local
+hypervisor_uplink_nic: eth-uplink
+
+# Trunk MTU: tagged 1500-byte VLAN frames are 1504 bytes of L2 payload
+# (roles/vlan-ports eth-local.network.j2 has the full story). Applies to
+# the NIC, the bridge and the bridge's .network.
+hypervisor_fpgas_mtu: 1504
+
+# The host keeps NO address on br-fpgas by default — the gw VM owns
+# 10.21.0.1 and the per-port VLAN scheme exactly as bare-metal tweed did.
+# Set hypervisor_fpgas_host_address (e.g. for debugging) to give the host
+# an address there.
+# hypervisor_fpgas_host_address: 10.21.255.1/24
+
+# Host management address on br-uplink: the ten64 <-> tweed /30 transit,
+# same address bare-metal tweed used (the inventory reaches tweed-hv at it).
+# IPv6 comes from host_vars (hypervisor_uplink_address6/_gateway6) because
+# transit widening (decision D-3) may change it per site.
+hypervisor_uplink_address: 10.99.21.2/30
+hypervisor_uplink_gateway: 10.99.21.1
+# hypervisor_uplink_address6: 2404:e80:a137:9921::2/126
+# hypervisor_uplink_gateway6: 2404:e80:a137:9921::1
+# hypervisor_uplink_dns_server: 10.99.21.1
+
+# Reboot once when the NICs still carry their installer names (fresh
+# install): .link files only apply at device add — same trade-off as
+# roles/netif (netif_allow_reboot).
+hypervisor_allow_reboot: true
