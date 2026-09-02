@@ -1,0 +1,29 @@
+---
+# Server-side application of the Tiny Tapeout site catalogue to the NFS
+# root. Mirrors the chroot path in onpi/tasks/tt.yml (which still runs in
+# build mode; both converge to the same files) so that pull-mode roots --
+# prebuilt in CI without any site vars -- still get the catalogue and the
+# service enablement (issue #34 phase 3). The fpgas-online-tt debs
+# themselves are generic and already baked into the image (tt_install).
+
+- name: create /etc/fpgas-online in the NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/fpgas-online"
+    state: directory
+    mode: "0755"
+
+- name: bake tt-boards.yaml into the NFS root
+  template:
+    src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
+    dest: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"
+    mode: "0644"
+
+- name: enable fpgas-tt.service in the NFS root
+  file:
+    src: /lib/systemd/system/fpgas-tt.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-tt.service"
+    state: link
+    # The src path is absolute inside the NFS root (valid once the Pi boots
+    # with nfs_root/root as /) but does not exist on the server -- force,
+    # like the other wants links in netboot.yml.
+    force: true
