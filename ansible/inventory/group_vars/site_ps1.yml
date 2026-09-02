@@ -1,0 +1,9 @@
+---
+# Site identity for the Pumping Station: One site (gateway host:
+# ps1.fpgas.online / val2). See group_vars/site_welland.yml for why these
+# live in group_vars (tweed-split-design docs/07-pr-contract.md, PR 2).
+site_id: ps1
+site_name: "Pumping Station: One"
+site_location: "Chicago, IL"
+site_timezone: America/Chicago
+gw_domain_name: gw.ps1.fpgas.online
