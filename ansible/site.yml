@@ -19,32 +19,8 @@
 # Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
 - import_playbook: web.yml
 
-# Pi NFS root provisioning via nspawn+sshd chroot.
-# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
-# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
-# container is stopped. This bakes all Pi config into the NFS root so Pis
-# boot read-only with everything pre-installed.
-- hosts: nbp
-  tasks:
-    - name: start nspawn+sshd on Pi NFS root
-      include_role:
-        name: nspawn-pi
-        tasks_from: start.yml
-      tags: [pi]
-
-- hosts: pi
-  roles:
-    - role: fpgas-apt
-      tags: [fpgas-apt]
-    - role: cam/pi
-      tags: [cam]
-    - role: onpi
-      tags: [onpi]
-
-- hosts: nbp
-  tasks:
-    - name: stop nspawn+sshd
-      include_role:
-        name: nspawn-pi
-        tasks_from: stop.yml
-      tags: [pi]
+# Pi NFS root provisioning via nspawn+sshd chroot -- see pi-provision.yml.
+# Build mode only: hosts with nfsroot_source: pull get their root prebuilt
+# from GHCR via the img role (issue #34 phase 3) and skip the chroot plays.
+- import_playbook: pi-provision.yml
+  when: hostvars[groups['nbp'][0]].nfsroot_source | default('build') == 'build'

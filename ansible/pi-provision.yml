@@ -1,0 +1,35 @@
+---
+# Pi NFS root provisioning via nspawn+sshd chroot (build mode only).
+# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
+# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
+# container is stopped. This bakes all Pi config into the NFS root so Pis
+# boot read-only with everything pre-installed.
+#
+# Hosts with nfsroot_source: pull skip this entirely (site.yml's
+# import_playbook condition): their root arrives prebuilt from GHCR via the
+# img role, and the site layer is applied by the server-side fixpi tasks.
+
+- hosts: nbp
+  tasks:
+    - name: start nspawn+sshd on Pi NFS root
+      include_role:
+        name: nspawn-pi
+        tasks_from: start.yml
+      tags: [pi]
+
+- hosts: pi
+  roles:
+    - role: fpgas-apt
+      tags: [fpgas-apt]
+    - role: cam/pi
+      tags: [cam]
+    - role: onpi
+      tags: [onpi]
+
+- hosts: nbp
+  tasks:
+    - name: stop nspawn+sshd
+      include_role:
+        name: nspawn-pi
+        tasks_from: stop.yml
+      tags: [pi]
