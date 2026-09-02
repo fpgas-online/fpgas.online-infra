@@ -5,3 +5,4 @@
 - {include_tasks: gw.yml, tags: [board-access]}
 - {include_tasks: wssh.yml, tags: [board-access]}
 - {include_tasks: dnsmasq.yml, tags: [board-access]}
+- {include_tasks: nginx.yml, tags: [board-access]}
