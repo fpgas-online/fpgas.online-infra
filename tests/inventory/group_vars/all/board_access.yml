@@ -1,0 +1,8 @@
+# Board-access gateway (roles/board-access) in the VM test.  No public DNS,
+# so no certbot: the vhost stays plain HTTP, exactly like ttsite's
+# (ttsite_certbot: false) does.  The token is a CI-only fake; production
+# vaults real ones as vault_gw_tokens.
+gw_domain_name: gw.test.fpgas.online
+gw_certbot: false
+gw_tokens:
+  - {name: ci, token: "ci-test-token"}
