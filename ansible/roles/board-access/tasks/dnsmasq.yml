@@ -1,0 +1,21 @@
+---
+# DHCP lease events -> gateway: dnsmasq invokes the gw package's dhcp-script
+# hook (add/old/del + env), which POSTs to the localhost-only /internal/event
+# endpoint; the gateway fans it out over redis to /api/events subscribers.
+- name: Install dnsmasq gw-events hook
+  copy:
+    dest: /etc/dnsmasq.d/gw-events.conf
+    content: |
+      # Managed by Ansible (roles/board-access): DHCP lease events -> fpgas-gw.
+      dhcp-script={{ gw_venv }}/bin/fpgas-gw-dhcp-script
+    mode: "0644"
+  notify: restart dnsmasq
+
+# The hook this replaces.  send_stat.py addressed Pis via a MAC-table lookup
+# and is broken on the VLAN-per-port scheme (data/site/ANALYSIS.md 2.3); its
+# deploy task is removed from roles/site/tasks/pistat.yml in the same PR.
+- name: Remove the legacy send_stat dnsmasq hook
+  file:
+    path: /etc/dnsmasq.d/send_stat.conf
+    state: absent
+  notify: restart dnsmasq
