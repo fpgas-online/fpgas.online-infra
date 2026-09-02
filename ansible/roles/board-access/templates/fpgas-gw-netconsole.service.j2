@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+[Unit]
+Description=fpgas.online gateway netconsole listener (UDP 6666 -> /internal/event)
+After=network.target fpgas-gw.service
+Wants=fpgas-gw.service
+
+[Service]
+# Port 6666 is unprivileged, so no capabilities are needed; run unprivileged.
+User={{ gw_user }}
+Group={{ gw_user }}
+ExecStart={{ gw_venv }}/bin/fpgas-gw-netconsole
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

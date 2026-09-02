@@ -1,0 +1,5 @@
+---
+# Board-access gateway (fpgas-online-gw): the per-site HTTP API in front of
+# the Pi daemons, the PoE switches and the serial/webssh bridges.
+# Contract: tweed-split-design docs/07-pr-contract.md (PR 3 consumes PR 1).
+- {include_tasks: gw.yml, tags: [board-access]}

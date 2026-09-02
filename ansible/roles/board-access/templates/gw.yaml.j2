@@ -1,0 +1,31 @@
+# {{ ansible_managed }} -- fpgas-online-gw configuration.
+# Contract: tweed-split-design docs/07-pr-contract.md (Gateway service contract).
+site:
+  id: {{ gw_site_id | to_json }}
+  name: {{ gw_site_name | to_json }}
+  location: {{ gw_site_location | to_json }}
+  timezone: {{ gw_site_timezone | to_json }}
+public_base: {{ gw_public_base | to_json }}
+pi_network: {{ gw_pi_network | to_json }}
+boards_file: {{ gw_boards_path | to_json }}
+{# Legacy MAC-table hosts (ps1): boards from the switch.nos list -> slug pi<N> #}
+{% if switch is defined and switch.nos is defined %}
+legacy_boards:
+{% for b in switch.nos %}
+  - {port: {{ b.port }}, model: {{ b.model | default('') | to_json }}, loc: {{ b.loc | default('') | to_json }}}
+{% endfor %}
+{% else %}
+legacy_boards: []
+{% endif %}
+daemon_port: {{ gw_daemon_port }}
+redis_url: {{ gw_redis_url | to_json }}
+poe:
+{% if switches is defined %}
+  switches:
+{% for sw in switches %}
+    - {index: {{ sw.index }}, model: {{ sw.model | to_json }}, mgmt_host: {{ sw.mgmt_host | to_json }}, poe_oid: {{ sw.poe_oid | default('1.3.6.1.2.1.105.1.1.1.3.1') | to_json }}}
+{% endfor %}
+{% else %}
+  # no switches defined on this host -> power endpoints return 503
+  switches: []
+{% endif %}

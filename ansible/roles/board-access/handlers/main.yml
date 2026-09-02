@@ -1,0 +1,33 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: restart fpgas-gw
+  systemd:
+    name: fpgas-gw
+    state: restarted
+
+- name: restart fpgas-gw-netconsole
+  systemd:
+    name: fpgas-gw-netconsole
+    state: restarted
+
+- name: restart fpgas-gw-wssh
+  systemd:
+    name: fpgas-gw-wssh
+    state: restarted
+
+# The site role's handler of the same name is a no-op (its `state: restarted`
+# is commented out), so its notifications never restarted anything.  This one
+# really restarts dnsmasq, which is required for dhcp-script changes: dnsmasq
+# only reads its configuration at startup (SIGHUP does not re-read it).
+- name: restart dnsmasq
+  systemd:
+    name: dnsmasq
+    state: restarted
+
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
