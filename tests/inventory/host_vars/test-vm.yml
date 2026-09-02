@@ -98,6 +98,15 @@ pxe_test_clients:
     nfs_root: "/srv/nfs/rpi/bookworm/root"
     console: "ttyAMA0,115200"
 
+# Site identity (mirrors ansible/inventory/group_vars/site_welland.yml; the
+# test inventory has no site_* groups, so these sit in host_vars) so roles
+# that key off site_id work in CI.
+site_id: test
+site_name: "Test Site"
+site_location: "QEMU VM"
+site_timezone: UTC
+gw_domain_name: gw.test.fpgas.online
+
 # tinytapeout.fpgas.online in the VM test: one live slot on the virtual Pi
 # (10.21.0.128 = switch 0 / port 128 in the legacy scheme), the rest unwired;
 # no public DNS => no certbot; no embed download.
