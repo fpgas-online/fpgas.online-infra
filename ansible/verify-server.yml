@@ -16,6 +16,12 @@
         tasks_from: verify/main.yml
       tags: [verify, operators]
 
+    - name: verify jump
+      include_role:
+        name: jump
+        tasks_from: verify/main.yml
+      tags: [verify, jump]
+
     - name: verify lldp
       include_role:
         name: lldp

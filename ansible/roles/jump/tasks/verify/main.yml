@@ -1,0 +1,103 @@
+---
+- name: "verify: jump account exists"
+  getent:
+    database: passwd
+    key: "{{ jump_user }}"
+
+- name: "verify: jump account uses the restricted shell"
+  assert:
+    that:
+      - getent_passwd[jump_user][5] == jump_shell
+    fail_msg: "{{ jump_user }} shell is {{ getent_passwd[jump_user][5] }}, expected {{ jump_shell }}"
+
+- name: "verify: restricted command symlinks"
+  stat:
+    path: "{{ jump_home }}/bin/{{ item | basename }}"
+  register: jump_v_cmds
+  loop: "{{ jump_commands }}"
+
+- name: "verify: assert only the allowed commands are exposed"
+  assert:
+    that:
+      - item.stat.exists
+      - item.stat.islnk
+      - item.stat.lnk_source == item.item
+    fail_msg: "{{ jump_home }}/bin/{{ item.item | basename }} is not a symlink to {{ item.item }}"
+  loop: "{{ jump_v_cmds.results }}"
+  loop_control:
+    label: "{{ item.item | basename }}"
+
+- name: "verify: nothing else in the restricted directory"
+  find:
+    paths: "{{ jump_home }}/bin"
+    file_type: any
+  register: jump_v_bin
+
+- name: "verify: assert the restricted directory holds exactly the allowed commands"
+  assert:
+    that:
+      - jump_v_bin.files | map(attribute='path') | map('basename') | sort == jump_commands | map('basename') | sort
+    fail_msg: "{{ jump_home }}/bin contains {{ jump_v_bin.files | map(attribute='path') | map('basename') | list }}"
+
+- name: "verify: PATH is locked to the restricted directory"
+  command: "grep -x 'export PATH={{ jump_home }}/bin' {{ jump_home }}/.bash_profile"
+  changed_when: false
+
+- name: "verify: onward hops accept new host keys"
+  command: "grep -x '    StrictHostKeyChecking accept-new' {{ jump_home }}/.ssh/config"
+  changed_when: false
+
+- name: "verify: authorized_keys is non-empty"
+  stat:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+  register: jump_v_keys
+
+- name: "verify: assert keys present (when the inventory configures any)"
+  assert:
+    that:
+      - jump_v_keys.stat.exists
+      - jump_v_keys.stat.size > 0
+    fail_msg: "{{ jump_user }} has no authorized_keys"
+  when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
+
+- name: "verify: no sudo for the jump account"
+  stat:
+    path: "/etc/sudoers.d/{{ jump_user }}"
+  register: jump_v_sudo
+
+- name: "verify: assert no sudoers file"
+  assert:
+    that:
+      - not jump_v_sudo.stat.exists
+    fail_msg: "/etc/sudoers.d/{{ jump_user }} exists; the jump account must not have sudo"
+
+- name: "verify: login shell sees only the allowed commands"
+  command: "su - {{ jump_user }} -c 'command -v ssh ssh-keyscan; ! command -v cat'"
+  changed_when: false
+
+- name: "verify: sshd forces the wrapper and allows TCP forwarding for the account"
+  command: "/usr/sbin/sshd -T -C user={{ jump_user }},host=localhost,addr=127.0.0.1"
+  register: jump_v_sshd
+  changed_when: false
+
+- name: "verify: assert sshd settings"
+  assert:
+    that:
+      - "'forcecommand jump-shell' in jump_v_sshd.stdout_lines"
+      - "'allowtcpforwarding yes' in jump_v_sshd.stdout_lines"
+      - "'allowagentforwarding no' in jump_v_sshd.stdout_lines"
+    fail_msg: "sshd does not apply the jump restrictions to {{ jump_user }}"
+
+# What `ssh jump 'cmd'` goes through: the wrapper must refuse anything but
+# ssh/ssh-keyscan, and run those with PATH locked to ~/bin.
+- name: "verify: wrapper refuses other commands"
+  command: "su -s /bin/bash - {{ jump_user }} -c 'SSH_ORIGINAL_COMMAND=\"cat /etc/passwd\" /usr/local/bin/jump-shell'"
+  register: jump_v_deny
+  changed_when: false
+  failed_when: jump_v_deny.rc == 0
+
+- name: "verify: wrapper runs ssh-keyscan with the locked PATH"
+  command: "su -s /bin/bash - {{ jump_user }} -c 'SSH_ORIGINAL_COMMAND=\"ssh-keyscan -t ed25519 127.0.0.1\" /usr/local/bin/jump-shell'"
+  register: jump_v_allow
+  changed_when: false
+  failed_when: "'ssh-ed25519' not in jump_v_allow.stdout"
