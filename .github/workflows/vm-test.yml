@@ -94,10 +94,22 @@ jobs:
           NFSROOT_IMAGE: ${{ needs.nfsroot.outputs.image }}
         run: uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE"
 
+      # Belt and braces with the artifact below: on a failure, put the log
+      # tails straight into the job log — a crashed teardown has produced
+      # runs where the artifact upload "succeeded" with nothing matching
+      # (if-no-files-found: ignore masks it).
+      - name: Show serial log tails
+        if: failure()
+        run: |
+          for f in tests/vm/workdir/*-serial.log*; do
+            echo "===== $f ====="
+            tail -n 200 "$f" || true
+          done
+
       - name: Upload serial logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: serial-logs
-          path: tests/vm/workdir/*-serial.log
+          path: tests/vm/workdir/*-serial.log*
           if-no-files-found: ignore

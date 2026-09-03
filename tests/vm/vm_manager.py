@@ -466,8 +466,13 @@ class VMManager:
             self.process.wait(timeout=10)
 
     def cleanup(self) -> None:
-        """Remove temporary files (overlays, seed ISOs, keys, sockets)."""
-        for pattern in ["*.qcow2", "*.iso", "*.sock", "*-serial.log"]:
+        """Remove temporary files (overlays, seed ISOs, keys, sockets).
+
+        Serial logs are deliberately NOT removed: they are the post-mortem
+        evidence CI uploads (vm-test.yml), and cleanup on a failure path
+        used to destroy them before the upload step could run.
+        """
+        for pattern in ["*.qcow2", "*.iso", "*.sock"]:
             for f in self.workdir.glob(pattern):
                 f.unlink(missing_ok=True)
 
