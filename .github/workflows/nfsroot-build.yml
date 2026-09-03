@@ -7,25 +7,34 @@
 # rolling apt repo.
 name: nfsroot build
 
+# No push trigger: every push/PR builds via the VM test workflow, which
+# calls this one and then boots the freshly built image (workflow_call
+# output `image` = the dated tag). The weekly cron picks up new debs from
+# the rolling apt repo between merges.
 on:
   workflow_dispatch:
   schedule:
     - cron: "17 2 * * 1"
-  push:
-    branches: [main, ci-nfsroot-phase2]
+  workflow_call:
+    outputs:
+      image:
+        description: "GHCR ref of the image this run pushed (dated tag)"
+        value: ${{ jobs.build.outputs.image }}
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: nfsroot-build-${{ github.ref }}
+  group: nfsroot-build-${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     steps:
       - uses: actions/checkout@v6
 
@@ -44,6 +53,20 @@ jobs:
         run: |
           uv sync
           uv run ansible-galaxy collection install -r requirements.yml --upgrade
+
+      # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
+      # 524 MB image vs the usual 16 s). Cache the download; the img role's
+      # get_url (force: false) skips it on a hit. Keyed on srv.yml so a new
+      # image release busts the cache. The dir must be runner-writable for
+      # actions/cache's tar restore/save (the download itself runs as root).
+      - name: Prepare image cache dir
+        run: sudo install -d -o "$(id -un)" /var/cache/pib
+
+      - name: Cache the RasPiOS base image
+        uses: actions/cache@v5
+        with:
+          path: /var/cache/pib
+          key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
 
       - name: Build the NFS root (same roles as site.yml, chroot connection)
         working-directory: ansible
@@ -65,4 +88,5 @@ jobs:
           path: manifest/
 
       - name: Publish to GHCR
+        id: publish
         run: uv run tests/ci/nfsroot_publish.py

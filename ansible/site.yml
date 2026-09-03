@@ -19,8 +19,7 @@
 # Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
 - import_playbook: web.yml
 
-# Pi NFS root provisioning via nspawn+sshd chroot -- see pi-provision.yml.
-# Build mode only: hosts with nfsroot_source: pull get their root prebuilt
-# from GHCR via the img role (issue #34 phase 3) and skip the chroot plays.
-- import_playbook: pi-provision.yml
-  when: hostvars[groups['nbp'][0]].nfsroot_source | default('build') == 'build'
+# The Pi NFS root arrives prebuilt from GHCR via the img role (issue #34):
+# CI builds and publishes it (.github/workflows/nfsroot-build.yml), the
+# server pulls and extracts it, and fixpi applies the site layer on top.
+# The old on-server nspawn/chroot provisioning path was removed with it.

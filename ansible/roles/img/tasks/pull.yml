@@ -1,10 +1,8 @@
 ---
-# Pull the prebuilt Pi NFS root from GHCR instead of building it on this
-# server (issue #34 phase 3). The image is produced by
-# .github/workflows/nfsroot-build.yml from the same roles; the site layer
-# (fixpi userconf, ssh host keys, tt catalogue, per-site config) is applied
-# on top by the roles that run after img in site.yml, exactly as in build
-# mode. The nspawn chroot plays are skipped entirely (see site.yml).
+# Pull the prebuilt Pi NFS root from GHCR (issue #34). The image is
+# produced by .github/workflows/nfsroot-build.yml; the site layer (fixpi
+# userconf, ssh host keys, tt catalogue, per-site config) is applied on
+# top by the roles that run after img in site.yml.
 #
 # Extraction rsyncs --delete into the live NFS export, so only run it with
 # the fleet powered off or between boots — the same constraint a full

@@ -56,7 +56,13 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
         str(ANSIBLE_DIR / playbook),
         "-i", str(inventory),
         "--limit", limit,
-        "--ssh-extra-args", "-o StrictHostKeyChecking=accept-new",
+        # Generous connect patience: the TCG-emulated Pi runs the full
+        # image service set (fpgas-cam gstreamer, fpgas-tt, pistat) at
+        # ~1/20th speed right after boot, and default SSH timeouts caught
+        # it mid-thrash ("banner exchange" timeouts in verify-pi).
+        "--ssh-extra-args",
+        "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=120 -o ServerAliveInterval=15",
+        "-e", "ansible_timeout=120",
     ]
     if extra_args:
         cmd.extend(extra_args)
@@ -179,6 +185,12 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
         inventory = TEST_INVENTORY
         extra = []
 
+    # The server pulls the prebuilt NFS root (issue #34): CI builds the
+    # image from the same checkout in the nfsroot job and passes its ref
+    # here, so the VM test exercises the production pull path with the
+    # PR's own roles baked in.
+    extra.extend(["-e", f"nfsroot_image={args.nfsroot_image}"])
+
     # Set SSH key and become for ansible (test VM uses non-root user)
     extra.extend([
         "-e", f"ansible_ssh_private_key_file={key_path}",
@@ -187,8 +199,8 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
-    # Run site.yml (includes nspawn Pi provisioning)
-    rc = run_ansible("site.yml", inventory, "test-vm,test-pi-nfs", extra)
+    # Run site.yml (server roles; pulls and site-layers the prebuilt NFS root)
+    rc = run_ansible("site.yml", inventory, "test-vm", extra)
     if rc != 0:
         print(f"ERROR: site.yml failed with exit code {rc}")
         if args.keep_vm:
@@ -379,6 +391,10 @@ def main():
     parser = argparse.ArgumentParser(description="QEMU VM integration tests for fpgas.online")
     parser.add_argument("--distro", choices=["bookworm", "trixie"], default="bookworm")
     parser.add_argument("--phase", choices=["server", "pi", "all"], default="all")
+    parser.add_argument("--nfsroot-image", type=str, required=True,
+                        help="GHCR ref of the prebuilt Pi NFS root the server pulls "
+                             "(e.g. ghcr.io/fpgas-online/nfsroot:bookworm-armhf); "
+                             "CI passes the image built from the same checkout")
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
