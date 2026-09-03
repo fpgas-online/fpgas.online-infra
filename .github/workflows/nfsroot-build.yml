@@ -54,6 +54,20 @@ jobs:
           uv sync
           uv run ansible-galaxy collection install -r requirements.yml --upgrade
 
+      # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
+      # 524 MB image vs the usual 16 s). Cache the download; the img role's
+      # get_url (force: false) skips it on a hit. Keyed on srv.yml so a new
+      # image release busts the cache. The dir must be runner-writable for
+      # actions/cache's tar restore/save (the download itself runs as root).
+      - name: Prepare image cache dir
+        run: sudo install -d -o "$(id -un)" /var/cache/pib
+
+      - name: Cache the RasPiOS base image
+        uses: actions/cache@v5
+        with:
+          path: /var/cache/pib
+          key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
+
       - name: Build the NFS root (same roles as site.yml, chroot connection)
         working-directory: ansible
         run: >-
