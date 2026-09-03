@@ -1,0 +1,79 @@
+---
+# libvirt VM lifecycle on a hypervisor host (Phase 3 of the tweed split).
+# Driven by ansible/vms.yml:
+#   uv run ansible-playbook ansible/vms.yml --limit tweed-hv \
+#       -e vm_name=gw-welland -e vm_action=create [-e vm_colour=blue]
+#
+# vm_action: create | destroy | switch (no default — always given explicitly).
+
+# --- identity ---------------------------------------------------------------
+# The libvirt domain is <vm_name> or <vm_name>-<vm_colour> for blue/green
+# pairs (contract 07 §hypervisor: "names gw-blue|gw-green etc.").
+vm_colour: ""
+# Guest hostname baked in by cloud-init (defaults to the domain name in
+# tasks; override for a colour pair that must keep one stable hostname).
+# vm_hostname: gw-welland
+
+# --- base image (create) ----------------------------------------------------
+# Pinned Debian trixie generic-cloud image: dated release + sha512, verified
+# on every run (get_url checksum= also re-verifies a cached file). Cached in
+# vm_image_cache_dir; the VM disks are qcow2 backing-file copies of it, so
+# the cache file must stay for the life of the VMs built from it.
+vm_image_url: >-
+  https://cloud.debian.org/images/cloud/trixie/20260831-2587/debian-13-genericcloud-amd64-20260831-2587.qcow2
+vm_image_sha512: >-
+  8ea9faae810043a0b35b0149f05014f26705c2339ffb11ead308f33e844a87cc3ef46ec81d5262b38817b6a88af404874d48a5857ebe072ef6a31dfb6e371f50
+vm_image_cache_dir: /var/cache/vm-images
+
+# --- shape (create) ---------------------------------------------------------
+vm_vcpus: 2
+vm_memory_mb: 2048
+vm_disk_gb: 20
+# Root disk path; default computed in tasks as
+# /var/lib/libvirt/images/<domain>.qcow2 (see the cut-over runbook for the
+# LV backing /var/lib/libvirt/images on tweed-hv).
+# vm_disk_path: /var/lib/libvirt/images/gw-welland-blue.qcow2
+# Virtio NICs: [{bridge: br-uplink, mac: "52:54:00:..."}]. MACs are fixed in
+# host_vars — never auto-generated (ten64's rows and the switch tables key
+# on them).
+vm_nics: []
+# Extra pre-existing volumes attached at define time and moved by `switch`:
+# [{path: /var/lib/libvirt/images/nfsroot.qcow2, target: vdb}]
+vm_extra_volumes: []
+# The NIC whose bridge matches this name gets dhcp4 in the guest's
+# cloud-init network-config; every other NIC is left unconfigured (the gw
+# VM's own site.yml converge owns the FPGA-side NIC).
+vm_uplink_bridge: br-uplink
+
+# OVMF firmware for q35 UEFI guests (Debian trixie ovmf package paths).
+vm_ovmf_code: /usr/share/OVMF/OVMF_CODE_4M.fd
+vm_ovmf_vars: /usr/share/OVMF/OVMF_VARS_4M.fd
+
+# --- cloud-init (create) ----------------------------------------------------
+# Public half of the fpgas.online-ansible automation key — the ONLY key the
+# guest's ansible user trusts, mirroring the bare-metal preseed
+# (pxe scripts/ansible_authorized_keys on ten64; private half is
+# vault_ansible_ssh_private_key in host_vars/fpgas.online.yml).
+vm_ansible_ssh_pubkey: >-
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINi3CY09dGximW9TxjyNDRvonODp4awquuYNiFT7EalK fpgas.online-ansible
+
+# --- behaviour --------------------------------------------------------------
+vm_autostart: false
+# Re-define an existing domain (destroy + undefine first). Without it,
+# create is a no-op for an already-defined domain.
+vm_recreate: false
+
+# destroy refuses to run unless this is true (contract guard).
+vm_allow_destroy: false
+# destroy removes the root disk (and cloud-init seed) only when asked;
+# vm_extra_volumes (the nfsroot) are NEVER removed by this role.
+vm_remove_disk: false
+
+# --- switch (blue/green) ----------------------------------------------------
+# vm_switch_from: gw-welland-blue
+# vm_switch_to: gw-welland-green
+# Seconds to wait for a graceful shutdown before virsh destroy.
+vm_switch_shutdown_timeout: 90
+# Where the switched-to VM answers ssh (probed from the hypervisor).
+# vm_ssh_probe_host: 10.99.21.3
+vm_ssh_probe_timeout: 300

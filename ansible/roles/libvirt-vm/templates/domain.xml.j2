@@ -1,0 +1,65 @@
+<!-- {{ ansible_managed }} -->
+<!-- q35 + OVMF UEFI guest: undefine it with the nvram flag or stale
+     _VARS.fd files pile up (hetzner ANALYSIS.md pitfall 18). -->
+<domain type='kvm'>
+  <name>{{ vm_domain }}</name>
+  <memory unit='MiB'>{{ vm_memory_mb }}</memory>
+  <currentMemory unit='MiB'>{{ vm_memory_mb }}</currentMemory>
+  <vcpu placement='static'>{{ vm_vcpus }}</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <loader readonly='yes' type='pflash'>{{ vm_ovmf_code }}</loader>
+    <nvram template='{{ vm_ovmf_vars }}'>{{ vm_nvram_path }}</nvram>
+    <boot dev='hd'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>restart</on_crash>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{ vm_disk_path_eff }}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+{% for vol in vm_extra_volumes %}
+    <!-- extra volume (moved between colours by vm_action=switch) -->
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{ vol.path }}'/>
+      <target dev='{{ vol.target }}' bus='virtio'/>
+    </disk>
+{% endfor %}
+    <!-- cloud-init NoCloud seed; kept attached (stable instance-id makes
+         re-reads harmless) -->
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ vm_seed_iso }}'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+{% for nic in vm_nics %}
+    <interface type='bridge'>
+      <source bridge='{{ nic.bridge }}'/>
+      <mac address='{{ nic.mac | lower }}'/>
+      <model type='virtio'/>
+    </interface>
+{% endfor %}
+    <!-- serial console: `virsh console {{ vm_domain }}` -->
+    <serial type='pty'>
+      <target port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <rng model='virtio'>
+      <backend model='random'>/dev/urandom</backend>
+    </rng>
+    <memballoon model='virtio'/>
+  </devices>
+</domain>

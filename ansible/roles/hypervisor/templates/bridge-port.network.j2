@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+[Match]
+Name={{ item.name }}
+Type=ether
+
+[Link]
+{% if item.mtu is defined %}
+MTUBytes={{ item.mtu }}
+{% endif %}
+# The port has no address of its own; whether the box is "online" is the
+# bridge's business, not the port's.
+RequiredForOnline=no
+
+[Network]
+Bridge={{ item.bridge }}

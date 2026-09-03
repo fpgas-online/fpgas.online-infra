@@ -1,0 +1,39 @@
+---
+# Destroy a VM. Refuses without vm_allow_destroy=true; never touches
+# vm_extra_volumes (the nfsroot outlives every colour of the gw VM).
+
+- name: refuse without the guard
+  assert:
+    that:
+      - vm_allow_destroy | bool
+    fail_msg: >-
+      destroy of {{ vm_domain }} refused: set -e vm_allow_destroy=true if you
+      really mean it (and vm_remove_disk=true to also delete the root disk).
+
+- name: is the domain defined?
+  command: virsh dominfo {{ vm_domain }}
+  register: vm_dominfo
+  changed_when: false
+  failed_when: false
+
+- name: destroy and undefine
+  when: vm_dominfo.rc == 0
+  block:
+    - name: stop the domain (ignore not-running)
+      command: virsh destroy {{ vm_domain }}
+      register: vm_destroy
+      changed_when: vm_destroy.rc == 0
+      failed_when: vm_destroy.rc != 0 and 'not running' not in vm_destroy.stderr
+
+    - name: undefine the domain (with its nvram)
+      command: virsh undefine --nvram {{ vm_domain }}
+
+- name: remove the root disk and seed (vm_remove_disk)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ vm_disk_path_eff }}"
+    - "{{ vm_seed_iso }}"
+    - "/var/lib/libvirt/images/{{ vm_domain }}.xml"
+  when: vm_remove_disk | bool

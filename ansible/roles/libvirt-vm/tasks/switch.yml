@@ -1,0 +1,81 @@
+---
+# Blue/green switch: stop vm_switch_from, move vm_extra_volumes (the
+# nfsroot) from its definition to vm_switch_to's, start vm_switch_to, wait
+# for ssh. The moved volumes are attached --config so both operations work
+# on shut-off domains; nothing is copied, only the definitions change.
+
+- name: validate switch vars
+  assert:
+    that:
+      - vm_switch_from is defined
+      - vm_switch_to is defined
+      - vm_switch_from != vm_switch_to
+      - vm_ssh_probe_host is defined and vm_ssh_probe_host | length > 0
+    fail_msg: >-
+      switch needs -e vm_switch_from=<domain> -e vm_switch_to=<domain>
+      (different) and vm_ssh_probe_host (where the new colour answers ssh).
+
+- name: both domains are defined
+  command: virsh dominfo {{ item }}
+  loop: ["{{ vm_switch_from }}", "{{ vm_switch_to }}"]
+  changed_when: false
+
+- name: state of {{ vm_switch_from }}
+  command: virsh domstate {{ vm_switch_from }}
+  register: vm_from_state
+  changed_when: false
+
+- name: graceful shutdown of {{ vm_switch_from }}
+  command: virsh shutdown {{ vm_switch_from }}
+  when: "'running' in vm_from_state.stdout"
+
+- name: wait for {{ vm_switch_from }} to shut off
+  command: virsh domstate {{ vm_switch_from }}
+  register: vm_from_wait
+  until: "'shut off' in vm_from_wait.stdout"
+  retries: "{{ ((vm_switch_shutdown_timeout | int) // 5) + 1 }}"
+  delay: 5
+  changed_when: false
+  ignore_errors: true
+
+- name: force off {{ vm_switch_from }} (graceful shutdown timed out)
+  command: virsh destroy {{ vm_switch_from }}
+  when: "'shut off' not in vm_from_wait.stdout"
+
+- name: current disks of {{ vm_switch_from }}
+  command: virsh domblklist {{ vm_switch_from }}
+  register: vm_from_blk
+  changed_when: false
+
+- name: current disks of {{ vm_switch_to }}
+  command: virsh domblklist {{ vm_switch_to }}
+  register: vm_to_blk
+  changed_when: false
+
+- name: detach extra volumes from {{ vm_switch_from }}
+  command: virsh detach-disk {{ vm_switch_from }} {{ item.target }} --config
+  loop: "{{ vm_extra_volumes }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.path in vm_from_blk.stdout
+
+- name: attach extra volumes to {{ vm_switch_to }}
+  command: >-
+    virsh attach-disk {{ vm_switch_to }} {{ item.path }} {{ item.target }}
+    --config --driver qemu --subdriver qcow2 --targetbus virtio
+  loop: "{{ vm_extra_volumes }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.path not in vm_to_blk.stdout
+
+- name: start {{ vm_switch_to }}
+  command: virsh start {{ vm_switch_to }}
+  register: vm_start
+  changed_when: vm_start.rc == 0
+  failed_when: vm_start.rc != 0 and 'already active' not in vm_start.stderr
+
+- name: wait for ssh on {{ vm_ssh_probe_host }}
+  wait_for:
+    host: "{{ vm_ssh_probe_host }}"
+    port: 22
+    timeout: "{{ vm_ssh_probe_timeout }}"

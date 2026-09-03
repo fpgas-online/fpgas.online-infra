@@ -1,0 +1,65 @@
+---
+# tweed as a hypervisor (Phase 3 of the tweed split). Same physical box as
+# host_vars/fpgas.online.yml — this identity takes over at the cut-over
+# (runbook docs/superpowers/runbooks/2026-09-02-tweed-hypervisor-cutover.md);
+# until then nothing reads it (hypervisor.yml / vms.yml are not in site.yml).
+#
+# Reached exactly like tweed today: ansible from inside the Welland network
+# to the private transit address, as the dedicated `ansible` user.
+ansible_become: true
+
+# --- physical NICs -> bridges (hypervisor role) -----------------------------
+# The same two cabled Intel NICs the bare-metal gateway used (live survey
+# data/live/tweed/NOTES.md): eth-local -> GSM7252PS-s2 port 47 (FPGA VLAN
+# trunk), eth-uplink -> port 48 (ten64 transit).
+hypervisor_fpgas_mac: "0c:c4:7a:16:3b:4a"
+hypervisor_uplink_mac: "0c:c4:7a:16:3b:4b"
+
+# Host management address on br-uplink: the role's defaults already carry the
+# v4 transit (10.99.21.2/30 via 10.99.21.1); the v6 transit is per-site so it
+# lives here. NOTE: decision D-3 (widening the transit to /29 so host + VMs
+# each get an address) may change all of these — revisit before cut-over.
+hypervisor_uplink_address6: "2404:e80:a137:9921::2/126"
+hypervisor_uplink_gateway6: "2404:e80:a137:9921::1"
+hypervisor_uplink_dns_server: 10.99.21.1
+
+# --- VM definitions (vms.yml -> libvirt-vm role) ----------------------------
+# Memory budget on the 16 GB target (05-implementation-plan Phase 4): host
+# ~1 GB, gw 5 GB (page cache for the 4.5 GB NFS root), web 2 GB, remainder
+# spare for a blue/green pair during a switch.
+hypervisor_vms:
+  # The gateway VM: takes over EVERYTHING bare-metal tweed does today
+  # (dnsmasq/NFS/nftables + web tier until Phase 4 splits it out).
+  gw-welland:
+    memory_mb: 5120
+    vcpus: 3
+    nics:
+      # DELIBERATE reuse of the physical NICs' MACs: the switch MAC tables,
+      # ten64's gdoc2netcfg rows and the Pis' ARP caches all see the same
+      # gateway addresses as before the conversion, so the cut-over changes
+      # nothing outside this box and rollback is just booting the old SSD
+      # (05-implementation-plan Phase 3 rollback). Safe because the physical
+      # NICs are now silent bridge ports (no addresses) and libvirt taps get
+      # their own fe:... MACs.
+      - {bridge: br-fpgas, mac: "0c:c4:7a:16:3b:4a"}   # = old tweed eth-local
+      - {bridge: br-uplink, mac: "0c:c4:7a:16:3b:4b"}  # = old tweed eth-uplink
+    extra_volumes:
+      # The Pi NFS root + pib cache, pre-seeded by rsync from live tweed
+      # before the cut-over; vm_action=switch moves it between colours and
+      # destroy never deletes it.
+      - {path: /var/lib/libvirt/images/nfsroot.qcow2, target: vdb}
+    # Where a freshly switched-to colour answers ssh: the gateway keeps
+    # tweed's transit address on its uplink NIC (same MAC, same DHCP/static
+    # arrangement — D-3 dependent).
+    ssh_probe_host: 10.99.21.2
+
+  # The web tier VM (Phase 4): welland.fpgas.online + tinytapeout.fpgas.online.
+  web-welland:
+    memory_mb: 2048
+    vcpus: 2
+    nics:
+      # NEW locally-administered MAC (52:54:00 = QEMU OUI; :fa:21:04 ~
+      # "fpgas .21 web/04"). ten64 needs a gdoc2netcfg sheet row for this MAC
+      # before the VM can get an address/DNS/SNI routing — manual step,
+      # tracked in the cut-over runbook.
+      - {bridge: br-uplink, mac: "52:54:00:fa:21:04"}
