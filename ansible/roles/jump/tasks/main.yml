@@ -106,12 +106,15 @@
   tags:
     - jump
 
+# Only when the inventory configures keys: the CI VM sets both lists empty
+# (no network), and a key-less account is unusable rather than unsafe.
 - name: assert the jump account has at least one key
   assert:
     that:
       - jump_authkeys.stat.exists
       - jump_authkeys.stat.size > 0
     fail_msg: "{{ jump_user }}@{{ inventory_hostname }} has no authorized_keys"
+  when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
   tags:
     - jump
 

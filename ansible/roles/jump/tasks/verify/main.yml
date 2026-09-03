@@ -52,12 +52,13 @@
     path: "{{ jump_home }}/.ssh/authorized_keys"
   register: jump_v_keys
 
-- name: "verify: assert keys present"
+- name: "verify: assert keys present (when the inventory configures any)"
   assert:
     that:
       - jump_v_keys.stat.exists
       - jump_v_keys.stat.size > 0
     fail_msg: "{{ jump_user }} has no authorized_keys"
+  when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
 
 - name: "verify: no sudo for the jump account"
   stat:
