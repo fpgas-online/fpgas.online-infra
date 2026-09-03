@@ -132,15 +132,12 @@ streaming_frontend_aliases:
 streaming_frontend_hostname: welland.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-# --- Pi NFS root source (issue #34 phase 3) ---------------------------------
-# Pull the CI-prebuilt root from GHCR instead of building it in the nspawn
-# chroot (~minutes of pull+extract vs hours of emulated apt); the nspawn
-# plays are skipped and fixpi applies the site layer on top. Pinned to a
-# dated tag so a rebuild is reproducible; bump the pin deliberately, and
+# --- Pi NFS root image pin (issue #34 phase 3) ------------------------------
+# Every server pulls the CI-prebuilt root from GHCR; welland pins a dated
+# tag so a rebuild is reproducible (the img role default is the rolling
+# bookworm-armhf tag, which tracks main). Bump the pin deliberately, and
 # only extract in a maintenance window with the fleet powered off (the
-# extraction rsyncs --delete into the live NFS export). The rolling
-# ghcr.io/fpgas-online/nfsroot:bookworm-armhf tag tracks main.
-nfsroot_source: pull
+# extraction rsyncs --delete into the live NFS export).
 nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf-20260902-55d750c
 
 # Seeds the /fpgas/ board list from the fixture shipped inside the installed
