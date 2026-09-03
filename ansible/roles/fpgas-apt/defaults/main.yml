@@ -1,7 +1,11 @@
 ---
-# The fpgas-online apt repo is a GitHub Pages site. The org site carries the
-# custom domain fpgas.online, so every project page -- including
-# fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, which apt
-# refuses to follow (https -> http). Use the canonical https URL directly.
-fpgas_apt_url: https://fpgas.online/apt
+# The apt repository now has its own domain with its own certificate, so there
+# is no cross-domain redirect involved.
+#
+# This previously had to be https://fpgas.online/apt: the org site carries the
+# fpgas.online custom domain, so every project page -- including
+# fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, an
+# https -> http downgrade that apt refuses to follow. Giving the apt repository
+# its own Pages domain removes that hop entirely.
+fpgas_apt_url: https://apt.fpgas.online
 fpgas_apt_suite: bookworm
