@@ -1,0 +1,79 @@
+---
+# Pull the prebuilt Pi NFS root from GHCR instead of building it on this
+# server (issue #34 phase 3). The image is produced by
+# .github/workflows/nfsroot-build.yml from the same roles; the site layer
+# (fixpi userconf, ssh host keys, tt catalogue, per-site config) is applied
+# on top by the roles that run after img in site.yml, exactly as in build
+# mode. The nspawn chroot plays are skipped entirely (see site.yml).
+#
+# Extraction rsyncs --delete into the live NFS export, so only run it with
+# the fleet powered off or between boots — the same constraint a full
+# rebuild has today (a changed root under a running Pi means stale NFS
+# handles). A re-run with an unchanged image digest skips extraction.
+
+- name: Install podman and rsync
+  apt:
+    name:
+      - podman
+      - rsync
+    install_recommends: false
+  tags:
+    - img
+
+- name: Pull the nfsroot image
+  command: podman pull {{ nfsroot_image }}
+  changed_when: false
+  tags:
+    - img
+
+- name: Read the pulled image digest
+  command: >-
+    podman image inspect --format {% raw %}{{.Digest}}{% endraw %}
+    {{ nfsroot_image }}
+  register: img_digest
+  changed_when: false
+  tags:
+    - img
+
+- name: Read the extraction stamp
+  command: cat {{ nfs_root }}/.image-digest
+  register: img_stamp
+  failed_when: false
+  changed_when: false
+  tags:
+    - img
+
+- name: create the NFS root directory
+  file:
+    path: "{{ nfs_root }}"
+    state: directory
+  tags:
+    - img
+
+- name: Extract the nfsroot image
+  when: img_stamp.stdout | default('') != img_digest.stdout
+  tags:
+    - img
+  block:
+    - name: mount the image
+      command: podman image mount {{ nfsroot_image }}
+      register: img_mnt
+
+    - name: rsync boot/ and root/ from the image
+      command: >-
+        rsync -aHAX --delete --numeric-ids
+        {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
+      loop:
+        - boot
+        - root
+
+    - name: record the extraction stamp
+      copy:
+        content: "{{ img_digest.stdout }}\n"
+        dest: "{{ nfs_root }}/.image-digest"
+        mode: "0644"
+  always:
+    - name: unmount the image
+      command: podman image umount {{ nfsroot_image }}
+      failed_when: false
+      changed_when: false
