@@ -264,3 +264,10 @@
         name: cam/stream-server
         tasks_from: verify/main.yml
       tags: [verify, cam-stream]
+
+    - name: verify cam/webrtc
+      include_role:
+        name: cam/webrtc
+        tasks_from: verify/main.yml
+      when: webrtc_additional_hosts is defined
+      tags: [verify, cam-webrtc]

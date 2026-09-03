@@ -117,3 +117,8 @@ sunxi_kernel_package: linux-image-armmp
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
 sunxi_boards:
   - {switch: 1, port: 1, host: pi-sw1-p1, usb: "1-1.2.2", model: orangepi-pc, mac: "02:81:00:00:00:01"}
+
+# WebRTC/WHEP (roles/cam/webrtc): converge + verify in CI. The advertised
+# candidate is the TEST-NET uplink address; no browser reaches it in CI.
+webrtc_media_port: 8189
+webrtc_additional_hosts: ["203.0.113.1"]

@@ -8,6 +8,11 @@
     - site
     - wssh
     - cam/stream-server
+    # WebRTC/WHEP leg (mediamtx). Switched on per host by defining
+    # webrtc_additional_hosts (the ICE candidates to advertise); ps1 sits
+    # behind CGNAT where the media port cannot be forwarded, so only tweed
+    # (and the CI test-vm) define it.
+    - {role: cam/webrtc, when: webrtc_additional_hosts is defined}
     # ttsite deploys INTO the site role's Django install (manage.py, venv),
     # so it carries the django tag as well: `--skip-tags django` (the VM test's
     # default) must skip it too, or it fails on a host with no Django deploy.

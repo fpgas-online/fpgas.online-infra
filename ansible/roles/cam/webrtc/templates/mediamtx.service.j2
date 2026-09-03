@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+[Unit]
+Description=mediamtx (WebRTC/WHEP camera streaming)
+After=network-online.target
+Wants=network-online.target
+StartLimitInterval=0
+
+[Service]
+User=mediamtx
+ExecStart=/usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml
+Restart=always
+RestartSec=2
+WorkingDirectory=/var/lib/mediamtx
+StateDirectory=mediamtx
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

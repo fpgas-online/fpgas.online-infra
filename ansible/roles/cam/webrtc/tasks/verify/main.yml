@@ -1,0 +1,32 @@
+---
+- name: Check mediamtx service is active
+  ansible.builtin.command: systemctl is-active mediamtx
+  changed_when: false
+  register: webrtc_verify_active
+
+- name: Check mediamtx API answers
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9997/v3/paths/list
+  register: webrtc_verify_api
+
+- name: Check the WHEP endpoint answers through mediamtx
+  # OPTIONS on any path works without a publisher; 204 + Accept-Post proves
+  # the WHEP handler is live behind the local listener.
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8889/cam/verify-probe/whep
+    method: OPTIONS
+    status_code: 204
+  register: webrtc_verify_whep
+
+- name: Check the WHEP endpoint answers through nginx
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/cam/verify-probe/whep"
+    method: OPTIONS
+    status_code: [204, 301]
+  register: webrtc_verify_whep_nginx
+
+- name: Check RTSP ingest port is listening
+  ansible.builtin.wait_for:
+    port: 8554
+    host: 127.0.0.1
+    timeout: 5
