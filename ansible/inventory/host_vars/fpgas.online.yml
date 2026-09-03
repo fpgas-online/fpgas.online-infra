@@ -138,6 +138,12 @@ domain_name: "{{ streaming_frontend_hostname }}"
 # VLAN-per-port rows).
 fixture_path: fpgas.online.json
 
+# Fleet self-registration (fpgas.online-infra#47): per-site mosquitto
+# broker on eth-local + the Django fleet consumer + the Pi agent config
+# baked into the nfsroot. The topic scheme is fpgas/<fleet_site>/pi/...
+fleet_broker: true
+fleet_site: welland
+
 # Tim's
 # Netgear S3300-52X-PoE+
 switch_base: base

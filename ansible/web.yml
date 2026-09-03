@@ -8,6 +8,9 @@
     - site
     - wssh
     - cam/stream-server
+    # fleet self-registration broker (fpgas.online-infra#47): guarded so
+    # hosts without fleet vars (CI variants, future sites) skip cleanly
+    - {role: mqtt, when: fleet_broker | default(false), tags: [mqtt, fleet]}
     # ttsite deploys INTO the site role's Django install (manage.py, venv),
     # so it carries the django tag as well: `--skip-tags django` (the VM test's
     # default) must skip it too, or it fails on a host with no Django deploy.

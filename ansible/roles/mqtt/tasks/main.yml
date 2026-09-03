@@ -1,0 +1,24 @@
+---
+# Per-site MQTT broker for fleet self-registration (docs/superpowers/specs/
+# 2026-08-31-fleet-self-registration-design.md). The LAN listener is
+# anonymous (resolved D-4): per-port VLAN isolation + the firewall are the
+# trust boundary, and the firewall's internal_networks chain already
+# accepts 10.21.0.0/16 so no new rule is needed. sensors2mqtt shares this
+# broker. Everything is guarded by fleet_broker at the play level.
+- name: Install mosquitto
+  ansible.builtin.apt:
+    name: mosquitto
+    state: present
+
+- name: fleet broker config
+  ansible.builtin.template:
+    src: fpgas-fleet.conf.j2
+    dest: /etc/mosquitto/conf.d/fpgas-fleet.conf
+    mode: "0644"
+  notify: restart mosquitto
+
+- name: Enable mosquitto
+  ansible.builtin.systemd:
+    name: mosquitto
+    enabled: true
+    state: started

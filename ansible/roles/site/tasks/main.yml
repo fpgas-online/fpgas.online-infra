@@ -19,5 +19,6 @@
 - {include_tasks: gunicorn.yml, tags: django}
 - {include_tasks: uvicorn.yml, tags: django}
 - {include_tasks: daphne.yml, tags: django}
+- {include_tasks: fleet.yml, tags: [django, fleet], when: fleet_broker | default(false)}
 
 - {include_tasks: switch.yml, tags: [switch]}

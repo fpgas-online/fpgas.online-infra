@@ -29,6 +29,10 @@ letsencrypt_account_email: carl@NextDayVideo.com
 
 fixture_path: ps1.fpgas.online.json
 
+# Fleet self-registration (fpgas.online-infra#47); topics fpgas/ps1/pi/...
+fleet_broker: true
+fleet_site: ps1
+
 tt06_dev_id: usb-MicroPython_Board_in_FS_mode_de640cb1d3975a26-if00
 
 # some netgear:

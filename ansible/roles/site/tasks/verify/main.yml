@@ -116,3 +116,45 @@
     fail_msg: >-
       TLS over IPv6 for {{ domain_name }} did not serve its own certificate.
       s_client said: {{ site_v_v6cert.stdout_lines | select('search', '^(subject|issuer)=') | join('; ') | default('no certificate', true) }}
+
+# Fleet self-registration (fpgas.online-infra#47): broker + consumer +
+# pages, only on hosts that opted in via fleet_broker.
+- name: Check the fleet broker and consumer are active
+  command: systemctl is-active {{ item }}
+  changed_when: false
+  register: site_v_fleet_services
+  loop: [mosquitto.service, fleet-consumer.service]
+  failed_when: false
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+- name: Assert the fleet broker and consumer are active
+  assert:
+    that: item.stdout == "active"
+    fail_msg: "{{ item.item }} is not active (got: {{ item.stdout }})"
+  loop: "{{ site_v_fleet_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+# Straight to gunicorn's socket: proves Django serves the fleet pages
+# without depending on TLS/SNI details already asserted above.
+- name: GET /fleet/ from the app server
+  command: >-
+    curl --silent --output /dev/null --write-out '%{http_code}'
+    --unix-socket /run/gunicorn.sock
+    --header 'Host: {{ domain_name }}'
+    http://localhost/fleet/
+  changed_when: false
+  register: site_v_fleet_page
+  failed_when: false
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+- name: Assert /fleet/ returns 200
+  assert:
+    that: site_v_fleet_page.stdout == "200"
+    fail_msg: "GET /fleet/ returned {{ site_v_fleet_page.stdout }}, expected 200"
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]

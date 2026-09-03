@@ -17,3 +17,9 @@
     - gunicorn
     - daphne
     - uvicorn
+
+- name: restart fleet-consumer
+  systemd:
+    name: fleet-consumer
+    state: restarted
+  when: fleet_broker | default(false)
