@@ -26,8 +26,16 @@ application pib {
     # gave ~40 s glass-to-glass; 1 s fragments are expected to give ~5 s
     # (fpgas.online-cam tests/ measure it). The window
     # (playlist length / fragment) is 8 fragments; hls_cleanup (default on)
-    # removes older files from the tmpfs.
+    # removes older files.
+    #
+    # The playlist length does NOT affect latency (that is 3 x fragment of
+    # player hold-back + the fragment in progress); it is the DVR window:
+    # video.js with liveui exposes it as a seekable "rewind" range. 10 min
+    # of 1 s fragments ~= 666 playlist entries; hls_cleanup (default on)
+    # keeps ~2x the window, so up to ~300 MB per stream at ~2 Mbit/s
+    # (~6 GB for 20 Pis) - which is why the hls directory is a plain disk
+    # directory, not a tmpfs (tasks/back.yml).
     hls_fragment 900ms;
-    hls_playlist_length 8s;
+    hls_playlist_length 600s;
 
 }
