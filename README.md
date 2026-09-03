@@ -180,6 +180,7 @@ test coverage grows correspondingly.
 
 | Role | Target | Purpose |
 |------|--------|---------|
+| `jump` | server (SSH) | Restricted `pi` jump account (rbash, only `ssh`/`ssh-keyscan`, no sudo) so `ssh -o ProxyJump=pi@<gateway> pi@10.21.<sw>.<port>` reaches the Pis from outside |
 | `firewall` | server (SSH) | nftables firewall rules |
 | `nfs` | server (SSH) | NFS server for Pi netboot filesystems |
 | `img` | server (SSH) | Download and extract Raspberry Pi OS images |

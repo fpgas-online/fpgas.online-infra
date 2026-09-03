@@ -1,0 +1,124 @@
+---
+# Restricted jump account (see defaults/main.yml for what and why).
+
+- name: install ssh-import-id
+  apt:
+    name: ssh-import-id
+  tags:
+    - jump
+
+- name: create the jump account with a restricted shell
+  user:
+    name: "{{ jump_user }}"
+    shell: "{{ jump_shell }}"
+    home: "{{ jump_home }}"
+    create_home: true
+    system: false
+  tags:
+    - jump
+
+# rbash refuses to change PATH after login, so the only commands the account
+# can run are what ~/bin holds, and .bash_profile points PATH there and
+# nowhere else.
+- name: restricted command directory
+  file:
+    path: "{{ jump_home }}/bin"
+    state: directory
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0755"
+  tags:
+    - jump
+
+- name: expose only the allowed commands
+  file:
+    src: "{{ item }}"
+    dest: "{{ jump_home }}/bin/{{ item | basename }}"
+    state: link
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+  loop: "{{ jump_commands }}"
+  tags:
+    - jump
+
+- name: lock PATH to the restricted directory
+  copy:
+    content: "export PATH={{ jump_home }}/bin\n"
+    dest: "{{ jump_home }}/.bash_profile"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0644"
+  tags:
+    - jump
+
+- name: ssh directory
+  file:
+    path: "{{ jump_home }}/.ssh"
+    state: directory
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0700"
+  tags:
+    - jump
+
+# The Pis' host keys change whenever the NFS root is rebuilt; the jump
+# account only ever hops onward, so accept new keys and keep them per host.
+- name: accept new Pi host keys when hopping onward
+  copy:
+    content: |
+      Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile {{ jump_home }}/.ssh/known_hosts
+    dest: "{{ jump_home }}/.ssh/config"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0600"
+  tags:
+    - jump
+
+- name: authorize the static operator keys
+  ansible.posix.authorized_key:
+    user: "{{ jump_user }}"
+    state: present
+    key: "{{ item }}"
+  loop: "{{ jump_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[-1] }}"
+  tags:
+    - jump
+
+# Same tolerance as the operators role: a GitHub outage must not fail the
+# converge, but the assert below refuses to leave the account key-less.
+- name: import the shared ssh ids from GitHub / Launchpad
+  command: "ssh-import-id {{ jump_ssh_import_ids | join(' ') }}"
+  become: true
+  become_user: "{{ jump_user }}"
+  changed_when: false
+  failed_when: false
+  when: jump_ssh_import_ids | length > 0
+  tags:
+    - jump
+
+- name: check the jump account has authorized_keys
+  stat:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+  register: jump_authkeys
+  tags:
+    - jump
+
+- name: assert the jump account has at least one key
+  assert:
+    that:
+      - jump_authkeys.stat.exists
+      - jump_authkeys.stat.size > 0
+    fail_msg: "{{ jump_user }}@{{ inventory_hostname }} has no authorized_keys"
+  tags:
+    - jump
+
+# Belt and braces: the account must never gain sudo.
+- name: no sudoers entry for the jump account
+  file:
+    path: "/etc/sudoers.d/{{ jump_user }}"
+    state: absent
+  tags:
+    - jump
