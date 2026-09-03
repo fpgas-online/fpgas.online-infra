@@ -1,0 +1,93 @@
+# {{ ansible_managed }} -- {{ gw_domain }} (board-access gateway).
+# Published via ten64's reverse proxy (http) / SNI passthrough (https); TLS
+# terminates here with a webroot-issued Let's Encrypt cert (see roles/board-access).
+{% macro gw_locations() %}
+    access_log /var/log/nginx/{{ gw_domain }}-access.log;
+    error_log /var/log/nginx/{{ gw_domain }}-error.log;
+    client_max_body_size 1m;
+
+    # Events WebSocket (token-gated by the app itself).
+    location = /api/events {
+        proxy_pass http://127.0.0.1:{{ gw_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout {{ gw_ws_read_timeout }};
+        proxy_send_timeout {{ gw_ws_read_timeout }};
+        proxy_buffering off;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:{{ gw_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Pi status pings -- path-compatible with the deployed Pis, no auth (as today).
+    location /pistat/ {
+        proxy_pass http://127.0.0.1:{{ gw_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Localhost-only hook sink (dhcp-script/netconsole) -- never public.
+    location /internal/ {
+        return 403;
+    }
+
+    include includes/{{ gw_domain }}-ws-boards.conf;
+
+    # HLS camera streams.  CORS * so consumer sites (all.fpgas.online) can
+    # fetch playlists/segments cross-origin.
+    location /live/ {
+        alias {{ (streaming | default({})).data_root | default('/srv/streams') }}/hls/source/;
+        add_header Access-Control-Allow-Origin *;
+        # A cached live playlist is stale by definition (1 s fragments).
+        add_header Cache-Control no-cache;
+    }
+
+    location /wssh/ {
+        rewrite /wssh/(.*) /$1 break;
+        proxy_pass http://127.0.0.1:{{ gw_wssh_port }};
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Real-PORT $remote_port;
+    }
+{% endmacro %}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ gw_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+{% if gw_cert_exists | bool %}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {{ gw_domain }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ gw_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ gw_domain }}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    add_header Strict-Transport-Security "max-age=15552000";
+{{ gw_locations() }}}
+{% else %}
+{{ gw_locations() }}}
+{% endif %}
