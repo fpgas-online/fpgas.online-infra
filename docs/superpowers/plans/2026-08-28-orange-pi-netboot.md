@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Every new switch/board-specific render is guarded `when: sunxi_boards is defined` — ps1.fpgas.online, slf.sytes.net and the CI VM must be unaffected unless they define it (spec §3, multi-host guard rule).
+- Every new switch/board-specific render is guarded `when: sunxi_boards is defined` — ps1.fpgas.online and the CI VM must be unaffected unless they define it (spec §3, multi-host guard rule).
 - Raspbian stays the source of every package except `linux-image-*-armmp` and `linux-base`: the Debian source is pinned to priority −1 for everything else (spec §3.1).
 - Kernel: Debian bookworm `linux-image-armmp` (currently 6.1.0-50-armmp, 6.1.176-1) — matches the root's bookworm userland (spec §1).
 - U-Boot image: `orangepi_pc_plus` `u-boot-sunxi-with-spl.bin` from Debian `u-boot-sunxi_2025.01-3+deb13u1` (spec §3.4); default DTB `sun8i-h3-orangepi-pc.dtb` (spec §3.2).

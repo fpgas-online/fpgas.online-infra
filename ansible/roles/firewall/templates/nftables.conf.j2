@@ -8,7 +8,7 @@ flush ruleset
 # forward-default-drop with v* <-> v* (Pi to Pi) isolation, per-port DNAT
 # derived from the switches/port_vlan_map source of truth, and a /16
 # internal network (10.21.0.0/16-style pib_network). Hosts without
-# `switches:` (ps1.fpgas.online, slf.sytes.net) fall through to the
+# `switches:` (ps1.fpgas.online) fall through to the
 # unchanged legacy scheme below.
 
 table inet filter {

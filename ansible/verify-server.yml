@@ -60,7 +60,7 @@
 
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
-    # (ps1.fpgas.online, slf.sytes.net, CI test-vm) don't have per-port
+    # (ps1.fpgas.online, CI test-vm) don't have per-port
     # networkd/dnsmasq/nft config, so these are skipped there.
     - name: Check networkctl list for a per-port VLAN interface
       command: networkctl list
