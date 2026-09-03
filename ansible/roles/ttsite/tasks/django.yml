@@ -10,6 +10,7 @@
   loop:
     - {key: TTSITE_HOST, value: "'{{ ttsite_domain }}'"}
     - {key: TTSITE_COMMANDER_VERSION, value: "'{{ tt_commander_embed_version }}'"}
+    - {key: TTSITE_COMMANDER_LEGACY_VERSION, value: "'{{ tt_commander_legacy_embed_version }}'"}
   loop_control:
     label: "{{ item.key }}"
   notify:

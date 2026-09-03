@@ -22,3 +22,30 @@
     remote_src: true
     creates: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}/tt-commander-embed.js"
   when: tt_commander_embed_version | length > 0
+
+# The legacy Commander (SDK-agnostic, for pre-2.x-firmware boards like tt03p5)
+# ships the same inner filenames; its own version directory is what tells the
+# two bundles apart (ttsite serves it as tt-commander/legacy-<version>/).
+- name: legacy embed bundle directory
+  file:
+    path: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}"
+    state: directory
+    mode: "0755"
+  when: tt_commander_legacy_embed_version | length > 0
+
+- name: download legacy Commander embed bundle
+  get_url:
+    url: "https://github.com/fpgas-online/tt-commander-app/releases/download/\
+      legacy-embed-v{{ tt_commander_legacy_embed_version }}/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
+    dest: "{{ static_dir }}/tt-commander/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
+    checksum: "sha256:{{ tt_commander_legacy_embed_sha256 }}"
+    mode: "0644"
+  when: tt_commander_legacy_embed_version | length > 0
+
+- name: unpack legacy Commander embed bundle
+  unarchive:
+    src: "{{ static_dir }}/tt-commander/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
+    dest: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}/"
+    remote_src: true
+    creates: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}/tt-commander-embed.js"
+  when: tt_commander_legacy_embed_version | length > 0

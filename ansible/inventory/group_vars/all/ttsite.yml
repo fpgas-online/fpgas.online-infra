@@ -10,3 +10,8 @@ ttsite_certbot: true
 # (tag embed-v<ver>).  Empty version => not deployed; Django shows a notice.
 tt_commander_embed_version: ""
 tt_commander_embed_sha256: ""
+# Legacy Commander embed (tag legacy-embed-v<ver>): the SDK-agnostic build
+# for boards whose catalogue row says `commander: legacy` (pre-2.x-firmware
+# chips — tt03p5).  Same empty-version semantics as above.
+tt_commander_legacy_embed_version: ""
+tt_commander_legacy_embed_sha256: ""

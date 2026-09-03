@@ -65,6 +65,18 @@
     fail_msg: "Commander embed bundle {{ tt_commander_embed_version }} not unpacked"
   when: tt_commander_embed_version | length > 0
 
+- name: legacy embed bundle present when pinned
+  stat:
+    path: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}/tt-commander-embed.js"
+  register: ttsite_v_legacy_embed
+  when: tt_commander_legacy_embed_version | length > 0
+
+- name: Assert legacy embed bundle present
+  assert:
+    that: ttsite_v_legacy_embed.stat.exists
+    fail_msg: "legacy Commander embed bundle {{ tt_commander_legacy_embed_version }} not unpacked"
+  when: tt_commander_legacy_embed_version | length > 0
+
 - name: live fpga boards
   set_fact:
     ttsite_v_fpga_boards: "{{ ttsite_v_live | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'fpga') | list }}"
