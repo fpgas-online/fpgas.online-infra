@@ -132,8 +132,8 @@
       when: switches is defined
       tags: [verify, switch-vlans]
 
-    # NFS root package verification — check packages were installed
-    # into the NFS root by the nspawn chroot provisioning step.
+    # NFS root package verification — check the packages the pulled
+    # prebuilt image is supposed to carry (baked in by the CI build).
     - name: Check overlayroot installed in NFS root
       command: dpkg --root={{ nfs_root }}/root -l overlayroot
       changed_when: false

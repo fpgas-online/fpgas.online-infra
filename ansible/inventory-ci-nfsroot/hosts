@@ -2,10 +2,9 @@
 # docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
 #
 # The GitHub arm64 runner is the build host, and the "Pi" is the extracted
-# NFS root reached through the community.general.chroot connection plugin
-# instead of the piroot SSH-chroot wrapper site.yml uses -- same roles,
-# only the inventory differs. ansible-playbook must run as root: the
-# chroot connection requires it (the workflow invokes it via sudo).
+# NFS root reached through the community.general.chroot connection plugin.
+# ansible-playbook must run as root: the chroot connection requires it
+# (the workflow invokes it via sudo).
 
 [nbp]
 localhost ansible_connection=local

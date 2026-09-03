@@ -1,10 +1,7 @@
 ---
-# Dispatch on nfsroot_source: 'build' (default) provisions the root from
-# the RasPiOS image on this server via the nspawn chroot plays; 'pull'
-# extracts the CI-prebuilt image from GHCR (issue #34 phase 3, design in
-# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
-- import_tasks: build.yml
-  when: nfsroot_source == 'build'
-
+# The Pi NFS root always arrives prebuilt: CI builds and publishes it
+# (.github/workflows/nfsroot-build.yml, issue #34) and every server pulls
+# it. build.yml is NOT part of this flow — it is the raspios
+# download/extract step that only ansible/ci-nfsroot.yml uses to produce
+# the image in the first place.
 - import_tasks: pull.yml
-  when: nfsroot_source == 'pull'

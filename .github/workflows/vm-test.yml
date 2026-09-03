@@ -5,7 +5,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # nfsroot-pull is in the list so PRs stacked on the phase-3 branch get
+    # full CI; harmless once that branch is gone.
+    branches: [main, nfsroot-pull]
   workflow_dispatch:
 
 concurrency:
@@ -13,8 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Build the Pi NFS root image from THIS checkout and publish it (dated
+  # tag; rolling tag only on main). The VM test below then pulls exactly
+  # this image, so a PR's role changes are baked into the root its own
+  # virtual Pi boots. ~13 min on a native-AArch32 arm64 runner (issue #34).
+  nfsroot:
+    uses: ./.github/workflows/nfsroot-build.yml
+    permissions:
+      contents: read
+      packages: write
+
   vm-test:
     name: Server + Pi PXE Boot
+    needs: nfsroot
     runs-on: ubuntu-latest
     # Run inside a Debian trixie container so qemu-rpi-system-arm (built
     # for trixie) can be installed via APT. The package depends on
@@ -77,7 +90,9 @@ jobs:
           key: vm-images-bookworm-v2
 
       - name: Run VM integration tests (server + Pi PXE boot)
-        run: uv run tests/vm/run_tests.py --phase all
+        env:
+          NFSROOT_IMAGE: ${{ needs.nfsroot.outputs.image }}
+        run: uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE"
 
       - name: Upload serial logs
         if: always()

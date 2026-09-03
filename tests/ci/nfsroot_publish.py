@@ -61,6 +61,12 @@ def main():
         run(["docker", "push", rolling_tag])
         pushed.append(rolling_tag)
 
+    # The dated tag is this build's identity: downstream jobs (the VM test)
+    # consume it via the workflow_call output.
+    if out := os.environ.get("GITHUB_OUTPUT"):
+        with open(out, "a") as f:
+            f.write(f"image={dated_tag}\n")
+
     lines = [
         "## nfsroot published",
         "",
