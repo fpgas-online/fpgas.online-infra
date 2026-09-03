@@ -56,7 +56,13 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
         str(ANSIBLE_DIR / playbook),
         "-i", str(inventory),
         "--limit", limit,
-        "--ssh-extra-args", "-o StrictHostKeyChecking=accept-new",
+        # Generous connect patience: the TCG-emulated Pi runs the full
+        # image service set (fpgas-cam gstreamer, fpgas-tt, pistat) at
+        # ~1/20th speed right after boot, and default SSH timeouts caught
+        # it mid-thrash ("banner exchange" timeouts in verify-pi).
+        "--ssh-extra-args",
+        "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=120 -o ServerAliveInterval=15",
+        "-e", "ansible_timeout=120",
     ]
     if extra_args:
         cmd.extend(extra_args)
