@@ -70,8 +70,33 @@
       - not jump_v_sudo.stat.exists
     fail_msg: "/etc/sudoers.d/{{ jump_user }} exists; the jump account must not have sudo"
 
-# The whole point: a TCP forward through the account works (this is what
-# `ssh -o ProxyJump=pi@gateway` uses). The restricted shell is exercised too.
-- name: "verify: restricted shell sees only the allowed commands"
+- name: "verify: login shell sees only the allowed commands"
   command: "su - {{ jump_user }} -c 'command -v ssh ssh-keyscan; ! command -v cat'"
   changed_when: false
+
+- name: "verify: sshd forces the wrapper and allows TCP forwarding for the account"
+  command: "/usr/sbin/sshd -T -C user={{ jump_user }},host=localhost,addr=127.0.0.1"
+  register: jump_v_sshd
+  changed_when: false
+
+- name: "verify: assert sshd settings"
+  assert:
+    that:
+      - "'forcecommand jump-shell' in jump_v_sshd.stdout_lines"
+      - "'allowtcpforwarding yes' in jump_v_sshd.stdout_lines"
+      - "'allowagentforwarding no' in jump_v_sshd.stdout_lines"
+    fail_msg: "sshd does not apply the jump restrictions to {{ jump_user }}"
+
+# What `ssh jump 'cmd'` goes through: the wrapper must refuse anything but
+# ssh/ssh-keyscan, and run those with PATH locked to ~/bin.
+- name: "verify: wrapper refuses other commands"
+  command: "su -s /bin/bash - {{ jump_user }} -c 'SSH_ORIGINAL_COMMAND=\"cat /etc/passwd\" /usr/local/bin/jump-shell'"
+  register: jump_v_deny
+  changed_when: false
+  failed_when: jump_v_deny.rc == 0
+
+- name: "verify: wrapper runs ssh-keyscan with the locked PATH"
+  command: "su -s /bin/bash - {{ jump_user }} -c 'SSH_ORIGINAL_COMMAND=\"ssh-keyscan -t ed25519 127.0.0.1\" /usr/local/bin/jump-shell'"
+  register: jump_v_allow
+  changed_when: false
+  failed_when: "'ssh-ed25519' not in jump_v_allow.stdout"

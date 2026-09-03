@@ -122,3 +122,44 @@
     state: absent
   tags:
     - jump
+
+# rbash + .bash_profile only restrict login shells; `ssh jump 'cmd'` runs a
+# non-login shell with the default PATH. sshd's ForceCommand routes every
+# command through a wrapper that allows only ssh/ssh-keyscan (see files/).
+- name: install the jump command wrapper
+  copy:
+    src: jump-shell
+    dest: /usr/local/bin/jump-shell
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - jump
+
+- name: sshd drop-in for the jump account
+  copy:
+    content: |
+      # Restricted jump account (fpgas.online-infra roles/jump).
+      # sshd runs ForceCommand through the account's login shell, and rbash
+      # refuses command names containing '/', so the wrapper is named bare
+      # (sshd's default PATH holds /usr/local/bin). The wrapper is a child
+      # process with its own #!/bin/bash, so it is not itself restricted.
+      Match User {{ jump_user }}
+          ForceCommand jump-shell
+          AllowTcpForwarding yes
+          AllowAgentForwarding no
+          X11Forwarding no
+          PermitTunnel no
+    dest: "/etc/ssh/sshd_config.d/50-jump.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload sshd
+  tags:
+    - jump
+
+- name: sshd configuration is still valid
+  command: /usr/sbin/sshd -t
+  changed_when: false
+  tags:
+    - jump
