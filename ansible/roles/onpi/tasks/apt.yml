@@ -47,7 +47,6 @@
       # after a reboot: the NFS root is a read-only lower layer.
       - lldpd
       - openocd
-      - openfpgaloader
       - fxload
       - openwince-jtag
       - python3-full
@@ -66,6 +65,33 @@
     install_recommends: true
   tags:
     - img
+
+# openFPGALoader on the Pis comes from mithro/rp1-jtag rather than Debian. It is
+# built with -DENABLE_RP1_PIO=ON, so on a Pi 5 / CM5 it drives JTAG from the RP1's
+# PIO block instead of bit-banging GPIOs through libgpiod, and it is new enough to
+# have --read-dna / --read-xadc / --read-register (Debian's 0.10.0 has none of
+# them, which is why FPGA DNA could not be read on the welland boards).
+#
+# Debian's `openfpgaloader` ships the same /usr/bin/openFPGALoader and the rp1pio
+# package declares no Conflicts/Replaces, so dpkg refuses to unpack over it. It
+# has to be removed first, and staying removed is what makes ours the default.
+- name: Remove Debian's openfpgaloader
+  ansible.builtin.apt:
+    name: openfpgaloader
+    state: absent
+  tags:
+    - img
+    - openfpgaloader
+    - fpgas-apt
+
+- name: Install openFPGALoader with RP1 PIO acceleration
+  ansible.builtin.apt:
+    name: openfpgaloader-rp1pio
+    state: present
+  tags:
+    - img
+    - openfpgaloader
+    - fpgas-apt
 
 #      - raspberrypi-kernel-headers
 
