@@ -266,12 +266,14 @@
 
     # The published DTBs get TWI0/TWI1 forced to status=okay (fixpi/sunxi.yml)
     # so the kernel can see the Digilent Pmod HATs. TWI1 carries the HAT ID
-    # EEPROM at 0x50; its first byte is 'R' (0x52) of the "R-Pi" signature.
+    # EEPROM at 0x50 -- a 24c32-style part with 2-byte addressing, so use
+    # i2ctransfer with an explicit address write (i2cget's 1-byte pointer
+    # write reads from offset 1: found on hardware). Signature = "R-Pi".
     - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
       shell: |
         set -e
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
-        i2cget -y "${dev##*i2c-}" 0x50 0x00
+        i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
       changed_when: false
       register: verify_pi_hat_eeprom
       failed_when: false
@@ -280,7 +282,7 @@
 
     - name: Assert the HAT ID EEPROM is visible on TWI1
       assert:
-        that: verify_pi_hat_eeprom.stdout_lines | last | default('') == '0x52'
+        that: verify_pi_hat_eeprom.stdout_lines | last | default('') == '0x52 0x2d 0x50 0x69'
         fail_msg: >-
           {{ ansible_hostname }}: no HAT ID EEPROM via the kernel TWI1 bus
           (got {{ verify_pi_hat_eeprom.stdout | default('') }}
