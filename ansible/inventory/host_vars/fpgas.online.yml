@@ -194,17 +194,17 @@ pi_pw: !vault |
 # ("coming soon") until one is plugged in.
 tt_boards:
   # pi-sw2-p3 carries a Tiny Tapeout 3.5 chip. Reflashed 2026-08-24 to demo-board
-  # firmware v1.2.2 (the newest release supporting tt03p5 -- SDK 2.x dropped it);
-  # boots into tt_um_test with the full 27-project mux working over serial.
-  # Enabled 2026-08-31 (camera-first, Tim): the page is live for the video feed
-  # while the Commander still lacks SDK 1.2.x support (it requires >= 2.0.0RC2
-  # and must never offer this board its 2.x firmware "update") -- see
-  # fpgas-online/tt-commander-app#9 for the legacy-branch port that fixes this.
+  # firmware v1.2.2 (the newest release supporting tt03p5 -- SDK 2.x dropped it).
+  # `commander: legacy` selects the SDK-agnostic legacy Commander embed (pinned
+  # above as tt_commander_legacy_embed_*), which bit-bangs the mux and never
+  # offers firmware updates -- a 2.x "update" would break this chip. The chip
+  # has no ROM; the board's flash carries rom_fallback.txt (shuttle=tt03p5).
   - {slug: tt03p5, switch: 2, port: 3, kind: asic, shuttle: tt03p5, title: "Tiny Tapeout 3.5",
+     commander: legacy,
      blurb: "TT03p5 (sky130) on a demo board", pcb: "TT demo board (RP2040)",
-     description: "TT 3.5 chip on demo-board firmware v1.2.2 (the last release supporting this shuttle).
-       The 27-project mux works over the serial REPL; the web Commander does not support this
-       firmware generation yet, so for now this page is camera-only."}
+     description: "TT 3.5 chip on demo-board firmware v1.2.2 (the last release supporting this shuttle),
+       driven by the legacy Commander build: project selection, clock control and the REPL all work.
+       Firmware updates are deliberately unavailable -- newer firmware does not support this chip."}
   - {slug: tt04, switch: 2, port: 4, kind: asic, shuttle: tt04, title: "Tiny Tapeout 4",
      blurb: "TT04 (sky130) on a demo board", pcb: "TT demo board (RP2040)"}
   - {slug: tt05, switch: 2, port: 5, kind: asic, shuttle: tt05, title: "Tiny Tapeout 5",
@@ -285,6 +285,11 @@ tt_boards:
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
 tt_commander_embed_version: "0.2.0"
 tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
+# Legacy Commander embed pin (release legacy-embed-v<ver>) for boards whose
+# catalogue row says `commander: legacy` — the tt03p5 chip only works on 1.x
+# demo-board firmware, which the main Commander refuses.
+tt_commander_legacy_embed_version: "0.1.0"
+tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
 # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online; TLS is
 # terminated on tweed (ten64's SNI router lists the name since 2026-08-23 via
 # the gdoc2netcfg alias on tweed's row), so certbot runs here (webroot http-01

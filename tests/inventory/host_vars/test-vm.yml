@@ -103,6 +103,9 @@ pxe_test_clients:
 # no public DNS => no certbot; no embed download.
 tt_boards:
   - {slug: tt06, switch: 0, port: 128, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (VM)"}
+  # commander: legacy exercises the catalogue key end to end (template render,
+  # daemon tolerance, ttsite_loadboards) without needing a legacy bundle pin.
+  - {slug: tt03p5, port: null, kind: asic, shuttle: tt03p5, title: "TT 3.5 (unwired)", commander: legacy}
   - {slug: kianv-1, port: null, kind: kianv, title: "KianV (unwired)"}
   - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
