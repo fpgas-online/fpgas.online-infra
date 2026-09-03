@@ -169,3 +169,23 @@ Separately, on 2026-09-02 four of five boards (p20-p23) were found dead
 separate problem from the boot-time Oops; their next hang will be on the
 captured consoles.
 
+## Digilent Pmod HATs + header I2C (2026-09-03)
+
+All seven boards (now p18-p24; p18/p19 joined on hub 1-1.3.3/1-1.3.4) carry a
+**Digilent Pmod HAT Adaptor** (HAT ID EEPROM: vendor `Digilent`, product
+`Pmod HAT Adaptor`, product_id 0x0001, version 0x0001, unique UUID per hat).
+Established by bit-banging I2C over libgpiod on the header, because mainline
+ships every H3 TWI controller disabled: pins 27/28 (PA19/PA18 = TWI1) hold the
+HAT EEPROM at 0x50, pins 3/5 (PA12/PA11 = TWI0) are the hat's I2C Pmod port
+(pull-ups present, no module fitted as of the probe). SPI/UART/GPIO Pmods are
+invisible to an I2C scan, so port population beyond I2C is unknown.
+
+`fixpi/tasks/sunxi.yml` therefore forces `status=okay` on `/soc/i2c@1c2ac00`
+(TWI0) and `/soc/i2c@1c2b000` (TWI1) in the **published** DTBs with `fdtput`
+at publish time -- the kernel-package DTBs stay pristine, the fixup re-applies
+after every kernel sync, and nothing depends on U-Boot overlay support. On a
+rebooted board `i2c-mv64xxx` autoloads (OF alias `allwinner,sun6i-a31-i2c`)
+and the buses appear as `/sys/bus/platform/devices/1c2ac00.i2c` /
+`1c2b000.i2c`; `verify-pi` (hw-sunxi) reads the EEPROM's `R` (0x52) through
+TWI1. `i2c-tools` is in the root for `i2cdetect`/`i2cget`.
+

@@ -263,6 +263,33 @@
           the board booted before it was added
       when: verify_pi_lsmod is not skipped
       tags: [verify, hw-sunxi]
+
+    # The published DTBs get TWI0/TWI1 forced to status=okay (fixpi/sunxi.yml)
+    # so the kernel can see the Digilent Pmod HATs. TWI1 carries the HAT ID
+    # EEPROM at 0x50 -- a 24c32-style part with 2-byte addressing, so use
+    # i2ctransfer with an explicit address write (i2cget's 1-byte pointer
+    # write reads from offset 1: found on hardware). Signature = "R-Pi".
+    - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
+      shell: |
+        set -e
+        dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
+        i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
+      changed_when: false
+      register: verify_pi_hat_eeprom
+      failed_when: false
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the HAT ID EEPROM is visible on TWI1
+      assert:
+        that: verify_pi_hat_eeprom.stdout_lines | last | default('') == '0x52 0x2d 0x50 0x69'
+        fail_msg: >-
+          {{ ansible_hostname }}: no HAT ID EEPROM via the kernel TWI1 bus
+          (got {{ verify_pi_hat_eeprom.stdout | default('') }}
+          {{ verify_pi_hat_eeprom.stderr | default('') }}) -- DTB fixup not
+          served, board not rebooted since, or no Pmod HAT fitted
+      when: verify_pi_hat_eeprom is not skipped
+      tags: [verify, hw-sunxi]
     # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
     # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
     # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"

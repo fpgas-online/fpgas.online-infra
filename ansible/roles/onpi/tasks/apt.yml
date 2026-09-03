@@ -39,6 +39,7 @@
       - tree
       - ack
       - tcpdump
+      - i2c-tools
       # Advertises this Pi's hostname on its link so the switch's LLDP
       # neighbour table names which Pi is on which port -- confirms the
       # assumed cabling instead of trusting it (fpgas.online-setup-pi#6;

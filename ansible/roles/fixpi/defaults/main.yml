@@ -4,3 +4,16 @@
 # https://deb.debian.org/debian/dists/bookworm/main/binary-all/Packages.gz
 sunxi_debian_keyring_deb: debian-archive-keyring_2023.3+deb12u2_all.deb
 sunxi_debian_keyring_sha256: f699e2f88dca05212f2a452b58475f2993cb6993dfbafb1d0205a3291eb8b4b8
+
+# DTBs published to <tftp_root>/sunxi/dtbs/ (and given the I2C fixup below).
+sunxi_dtbs:
+  - sun8i-h3-orangepi-pc.dtb
+  - sun8i-h3-orangepi-pc-plus.dtb
+  - sun8i-h3-orangepi-one.dtb
+# Header I2C controllers to force status=okay in the published DTBs: mainline
+# ships every H3 TWI disabled, so the kernel cannot see the Digilent Pmod HATs
+# (ID EEPROM on TWI1, Pmod I2C port on TWI0). Node paths from sun8i-h3.dtsi;
+# the nodes already carry their pinctrl, so flipping status is sufficient.
+sunxi_i2c_nodes:
+  - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
+  - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
