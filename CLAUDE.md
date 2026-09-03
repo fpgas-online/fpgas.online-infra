@@ -16,11 +16,17 @@ inventory (hosts, group_vars, host_vars), and roles.
 
 ### Architecture
 
-**Server (x86) provisions everything.** The server runs dnsmasq (DHCP/TFTP), NFS, and
-a Django web app. It also builds the Pi NFS root filesystem — downloading the RPi OS image,
-extracting it, then running Pi-targeted Ansible roles against the NFS root via
-`systemd-nspawn` + `sshd` with `qemu-user-static` ARM syscall emulation. This makes the
-NFS root chroot appear as a normal SSH host to Ansible.
+**CI builds the Pi NFS root; the server pulls it.** GitHub Actions
+(`.github/workflows/nfsroot-build.yml`, an arm64 runner with native AArch32)
+runs `ansible/ci-nfsroot.yml` — the RasPiOS download/extract plus the
+Pi-targeted roles over a `community.general.chroot` connection — and publishes
+the provisioned root as a public OCI image at `ghcr.io/fpgas-online/nfsroot`
+(rolling `bookworm-armhf` from main, dated pinnable tags always). The server
+runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
+image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
+`fixpi` applies the site layer (pi password, ssh host keys, controller
+authorized_keys, TT catalogue, per-site config) on top. The old on-server
+nspawn/chroot provisioning path is gone.
 
 **Pis boot read-only from the network.** Each Pi PXE boots via:
 dnsmasq DHCP → TFTP (bootcode.bin, kernel8.img, DTB, initramfs) → NFS root mounted
@@ -33,15 +39,16 @@ the pre-provisioned NFS root.
 The infra repo does NOT embed application source code. Instead, roles install packages
 from other repos:
 - `site` role: `pip install fpgas-online-site fpgas-online-poe[cli]`
-- `onpi` role: `apt install fpgas-online-setup-pi` (via nspawn chroot)
-- `cam/pi` role: `apt install fpgas-online-cam` (via nspawn chroot)
-- `fpgas-apt` role: Adds the fpgas.online apt repository (via nspawn chroot)
+- `onpi` role: `apt install fpgas-online-setup-pi` (baked into the CI image)
+- `cam/pi` role: `apt install fpgas-online-cam` (baked into the CI image)
+- `fpgas-apt` role: Adds the fpgas.online apt repository (baked into the CI image)
 
 ### Deployment Flow
 
-1. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH
-2. `site.yml` `pi` play: server starts nspawn+sshd on the NFS root, Pi roles
-   (`fpgas-apt`, `cam/pi`, `onpi`) run against localhost:2200, server stops nspawn
+1. CI publishes the provisioned NFS root image (every PR/merge via the VM
+   test workflow's `nfsroot` job, plus a weekly cron)
+2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
+   the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
 4. Pis PXE boot from the fully-provisioned server
 5. `verify-pi.yml` checks running Pis (NFS mount, overlayfs, services, packages)
@@ -54,7 +61,8 @@ from other repos:
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
 - `ansible/roles/` -- All deployment roles
-- `ansible/roles/nspawn-pi/` -- Manages nspawn+sshd lifecycle for Pi NFS root provisioning
+- `ansible/ci-nfsroot.yml` + `ansible/inventory-ci-nfsroot/` -- CI build of the
+  Pi NFS root image (chroot connection; publishes to GHCR)
 - `tests/vm/` -- QEMU VM test harness
 
 
@@ -78,8 +86,9 @@ differs between test and production.
 
 **End-to-end coverage:**
 
-- `site.yml` converges: server roles plus Pi NFS root provisioning via
-  nspawn+chroot+qemu-user-static
+- `site.yml` converges: server roles, plus pulling and extracting the
+  CI-built NFS root image (the CI run builds it from the same checkout
+  first and passes the tag in, so PR role changes are in the booted root)
 - `verify-server.yml`: firewall, dnsmasq, TFTP layout, NFS exports, NFS root
   packages and config
 - Virtual Pi PXE boots: DHCP → TFTP → kernel → initramfs → NFS root mounted
@@ -94,15 +103,20 @@ echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
   | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
-# Full run locally (server + Pi + both verify playbooks)
-uv run tests/vm/run_tests.py --phase all
+# Full run locally (server + Pi + both verify playbooks); --nfsroot-image
+# names the prebuilt root the server pulls (rolling tag, or a CI run's
+# dated tag to reproduce that run)
+uv run tests/vm/run_tests.py --phase all \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
-# Server phase only (faster iteration, ~60-90 min under TCG)
-uv run tests/vm/run_tests.py --phase server --keep-vm
+# Server phase only (faster iteration)
+uv run tests/vm/run_tests.py --phase server --keep-vm \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 ```
 
-A full run under TCG takes ~2 hours (server phase is the long pole). KVM
-acceleration is used automatically when `/dev/kvm` is available.
+With KVM (used automatically when `/dev/kvm` is available) the server phase
+is minutes; the Pi phase remains ~1 h of aarch64 TCG — ARM guests cannot be
+KVM-accelerated on x86 hosts.
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
 push to `main` and on PRs. Serial logs are uploaded as an artifact on every run

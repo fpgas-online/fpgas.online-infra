@@ -13,14 +13,24 @@
 
 - hosts: nbp
   become: true
-  roles:
-    - img
-    - fixpi
+  tasks:
+    # The img role's main path pulls the published image; this playbook is
+    # what PRODUCES that image, so it runs the raspios download/extract
+    # tasks directly.
+    - name: download and extract the RasPiOS base image
+      include_role:
+        name: img
+        tasks_from: build.yml
+      tags: [img]
+
+    - name: apply the generic fixpi layer
+      include_role:
+        name: fixpi
 
 # The chroot connection plugin does not provide the API filesystems the Pi
 # roles' apt runs need (posix_openpt wants /dev/pts). Give the chroot the
-# same mounts + policy-rc.d that nspawn-pi/start.yml gives the production
-# one; the qemu/piroot/sshd parts of start.yml are not needed here.
+# API-filesystem mounts + a policy-rc.d that suppresses service starts,
+# the standard chroot-apt environment.
 - hosts: nbp
   become: true
   tasks:
@@ -54,11 +64,18 @@
   tasks:
     # Unmount the API filesystems and drop policy-rc.d BEFORE the payload
     # sync and packaging: a still-mounted /dev must never be tarred into
-    # the image. Same cleanup as production's nspawn-pi stop.
-    - name: clean up chroot mounts and policy-rc.d
-      include_role:
-        name: nspawn-pi
-        tasks_from: stop.yml
+    # the image.
+    - name: Unmount chroot bind mounts
+      shell: |
+        for d in dev/pts dev sys proc; do
+          mountpoint -q "{{ nfs_root }}/root/$d" && umount "{{ nfs_root }}/root/$d" || true
+        done
+      changed_when: false
+
+    - name: Remove policy-rc.d
+      file:
+        path: "{{ nfs_root }}/root/usr/sbin/policy-rc.d"
+        state: absent
 
     # The chroot apt runs resolved names through the build host's
     # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's

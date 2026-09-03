@@ -7,10 +7,6 @@ test-vm
 [pig]
 test-vm
 
-# Pi NFS root provisioning — SSH to server as piroot (chroot wrapper shell)
-[pi]
-test-pi-nfs ansible_host=127.0.0.1 ansible_port=2222 ansible_user=piroot
-
 # Live Pi verification — connects to running Pi via ProxyJump through server
 [pi_live]
 test-pi ansible_host=10.21.0.128 ansible_user=pi

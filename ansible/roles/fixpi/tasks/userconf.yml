@@ -81,7 +81,7 @@
   tags:
     - keys
 
-# The controller's automation key (same mechanism as nspawn-pi/start.yml):
+# The controller's automation key:
 # without it the control node can only reach real Pis through operator
 # keys, and verify-pi against hardware needed a hand-injected key every
 # rebuild (rebuild #2; "ephemeral" hack in rebuild #1's verify phase).

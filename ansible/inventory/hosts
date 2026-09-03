@@ -15,9 +15,6 @@ slf.sytes.net
 fpgas.online
 ps1.fpgas.online
 
-[onpi]
-# Pi NFS-root provisioning target: NOT a running Pi but the nspawn/chroot
-# wrapper shell (user piroot) that roles/nspawn-pi/tasks/start.yml sets up on
-# the server -- same pattern as tests/inventory/test-hosts.  Reached over the
-# private ten64 <-> tweed link like the server itself.
-pi ansible_host=10.99.21.2 ansible_user=piroot
+# The old [onpi] nspawn/chroot provisioning target (piroot@tweed) is gone:
+# the Pi NFS root arrives prebuilt from GHCR (issue #34) and the Pi roles
+# run only inside the CI build (ansible/ci-nfsroot.yml, chroot connection).
