@@ -68,6 +68,83 @@
     - netboot
     - qemu
 
+# The trixie image ships a placeholder pi account with /usr/sbin/nologin as
+# its shell (userconf-pi's first-boot wizard would normally fix it, but we
+# mask that wizard below).  Bookworm images shipped no pi user at all, so
+# the useradd above handled the shell.  Without this every SSH command as
+# pi fails with "This account is currently not available."
+- name: give the pi user a login shell (trixie placeholder is nologin)
+  command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "usermod --shell /bin/bash {{ user }}"
+  tags:
+    - netboot
+    - qemu
+
+# Trixie enables systemd's hardware runtime watchdog
+# (usr/lib/systemd/system.conf.d/40-rpi-enable-watchdog.conf,
+# RuntimeWatchdogSec=1m).  The BCM2835 watchdog can only count ~16 s, so
+# the kernel must pat it continuously -- and on an NFS-root fleet any
+# server or network stall longer than that would reboot EVERY Pi at once
+# (observed as mid-run resets in CI rounds 6/7).  Netboot Pis rely on PoE
+# power-cycling for recovery, so keep the runtime watchdog off.
+- name: create systemd system.conf.d in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/systemd/system.conf.d"
+    state: directory
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
+- name: disable the systemd runtime hardware watchdog in NFS root
+  copy:
+    content: |
+      # NFS-root netboot: a >16 s NFS/network stall must not reset the
+      # fleet; recovery is PoE power-cycling. Overrides trixie's
+      # usr/lib/systemd/system.conf.d/40-rpi-enable-watchdog.conf.
+      [Manager]
+      RuntimeWatchdogSec=off
+    dest: "{{ nfs_root }}/root/etc/systemd/system.conf.d/50-fpgas-no-runtime-watchdog.conf"
+    mode: "0644"
+  tags:
+    - netboot
+    - qemu
+
+# Trixie lite ships cloud-init, which pulls in the noauto /boot/firmware
+# NFS mount (looking for its NoCloud seed) and stalls boot ~60 s waiting
+# for it before failing (CI round 6).  Netboot Pis are fully provisioned
+# in the NFS root; cloud-init has no job here on any release.
+- name: ensure /etc/cloud exists in NFS root (absent on bookworm images)
+  file:
+    path: "{{ nfs_root }}/root/etc/cloud"
+    state: directory
+    mode: "0755"
+  tags:
+    - netboot
+    - qemu
+
+- name: disable cloud-init in NFS root
+  file:
+    path: "{{ nfs_root }}/root/etc/cloud/cloud-init.disabled"
+    state: touch
+    modification_time: preserve
+    access_time: preserve
+  tags:
+    - netboot
+    - qemu
+
+# userconf-pi adds an sshd banner ("SSH may not work until a valid user has
+# been set up") that only the masked first-boot wizard would remove; it
+# pollutes stderr of every SSH session, so drop it.
+- name: drop the userconf-pi ssh rename banner (first-boot wizard is masked)
+  file:
+    path: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/rename_user.conf"
+    state: absent
+  tags:
+    - netboot
+    - qemu
+
 # On stock RPi OS the pi user gets passwordless sudo from the first-boot
 # userconf mechanism -- but we create the user directly (above) and mask that
 # wizard (userconfig.service is noauto-blind, see below), so nothing grants it
@@ -165,11 +242,33 @@
   tags:
     - netboot
 
+# pi-gen bakes MODULES=dep into the image's initramfs.conf (trixie onward,
+# export-image/05-finalise/01-run.sh), so mkinitramfs wants to resolve the
+# block device behind / -- impossible in the server's bind-mounted chroot,
+# which fails the initramfs-tools trigger of the apt install below
+# ("mkinitramfs: failed to determine device for /"). A dep-built initramfs
+# also lacks the NFS/overlay modules netboot needs; most builds a generic one.
+- name: build generic initramfs (MODULES=most) in NFS root
+  lineinfile:
+    path: "{{ nfs_root }}/root/etc/initramfs-tools/initramfs.conf"
+    regexp: '^MODULES='
+    line: MODULES=most
+  tags:
+    - netboot
+    - qemu
+
+# libnss-myhostname resolves the machine's OWN hostname instantly via NSS
+# (its postinst registers 'myhostname' after 'files' in nsswitch.conf), so
+# sudo's per-invocation getaddrinfo never falls through to DNS.  The
+# fpgas-hostname-hosts.service /etc/hosts approach below still helps other
+# tools, but on trixie it raced hostname assignment (the boot-time hostname
+# was still 'raspberrypi', already present in the stock /etc/hosts, so the
+# service skipped its append and sudo stalled ~22 s -- CI round 5).
 - name: install nfs-common into pi's fs
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
     - "apt update"
-    - "apt install -y nfs-common overlayroot"
+    - "apt install -y nfs-common overlayroot libnss-myhostname"
   tags:
     - netboot
     - qemu

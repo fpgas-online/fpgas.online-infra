@@ -49,3 +49,17 @@
         name: nspawn-pi
         tasks_from: stop.yml
       tags: [pi]
+
+    # The chroot plays above need the SERVER's resolvers baked into the NFS
+    # root (fixpi's "ensure DNS resolution works in chroot"), but they must
+    # not survive into the booted Pi: trixie's systemd-resolved reads a
+    # foreign /etc/resolv.conf as its UPSTREAM DNS config, so the Pi ended
+    # up querying the server VM's unreachable resolver (10.0.2.3) and every
+    # stray lookup stalled for tens of seconds (CI round 6).  Point it at
+    # the server's dnsmasq instead — the same address DHCP advertises.
+    - name: point the baked NFS-root resolv.conf at the Pi-network DNS
+      copy:
+        content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        mode: "0644"
+      tags: [pi]
