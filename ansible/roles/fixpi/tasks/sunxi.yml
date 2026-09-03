@@ -94,10 +94,34 @@
     src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
     dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
     mode: "0644"
-  loop:
-    - sun8i-h3-orangepi-pc.dtb
-    - sun8i-h3-orangepi-pc-plus.dtb
-    - sun8i-h3-orangepi-one.dtb
+  loop: "{{ sunxi_dtbs }}"
+  when: fixpi_sunxi_vmlinuz.matched > 0
+  tags: [sunxi]
+
+# fdtget/fdtput for the I2C fixup below.
+- name: install device-tree-compiler on the server
+  apt:
+    name: device-tree-compiler
+  tags: [sunxi]
+
+# The copy above refreshes the DTBs from the kernel package on every kernel
+# change, so this fixup re-applies right after it. Done at publish time (not
+# a U-Boot fdtoverlays line) so nothing depends on the U-Boot build having
+# overlay support.
+- name: enable the header I2C controllers in the published sunxi DTBs
+  shell: |
+    set -e
+    changed=0
+    for node in {{ sunxi_i2c_nodes | join(' ') }}; do
+      if [ "$(fdtget '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status)" != okay ]; then
+        fdtput -t s '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status okay
+        changed=1
+      fi
+    done
+    echo "changed=$changed"
+  register: fixpi_sunxi_i2c
+  changed_when: "'changed=1' in fixpi_sunxi_i2c.stdout"
+  loop: "{{ sunxi_dtbs }}"
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 
