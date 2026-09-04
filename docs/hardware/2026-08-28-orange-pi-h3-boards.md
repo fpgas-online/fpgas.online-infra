@@ -13,15 +13,24 @@ Both methods agreed for all four boards.
 * USB: one Realtek RTS5411 hub at `1-1` with four RTS5411 sub-hubs `1-1.1`…`1-1.4`
   (16 downstream ports). A USB-3 twin (`2-1`, 0bda:0411) has nothing attached.
 
-## Boards (five; all Allwinner H3, `sunxi-fel ver` soc=0x1680; U-Boot `orangepi_pc_plus` DRAM init OK)
+## Boards (seven; all Allwinner H3, `sunxi-fel ver` soc=0x1680; U-Boot `orangepi_pc_plus` DRAM init OK)
 
 | Hub port (sysfs) | Switch port (s3300-1 = "sw2") | VLAN | IP / hostname (per-port scheme) | MAC (U-Boot, derived from SID) | SID (`sunxi-fel sid`) |
 |---|---|---|---|---|---|
+| 1-1.3.4 | 1/g18 | 2218 | 10.21.2.18 `pi-sw2-p18` | 02:81:0b:12:20:44 | (not FEL-probed by hand) |
+| 1-1.3.3 | 1/g19 | 2219 | 10.21.2.19 `pi-sw2-p19` | 02:81:e1:ce:7d:46 | (not FEL-probed by hand) |
 | 1-1.2.2 | 1/g20 | 2220 | 10.21.2.20 `pi-sw2-p20` | 02:81:bf:f6:b7:99 | 02c00181:34304620:79058814:541b0614 |
 | 1-1.3.1 | 1/g21 | 2221 | 10.21.2.21 `pi-sw2-p21` | 02:81:31:f4:6e:48 | 02c00081:35b04620:79058814:502c0194 |
 | 1-1.2.3 | 1/g23 | 2223 | 10.21.2.23 `pi-sw2-p23` | 02:81:1f:e1:45:1d | 02c00181:34504620:79058814:40260714 |
 | 1-1.2.4 | 1/g24 | 2224 | 10.21.2.24 `pi-sw2-p24` | 02:81:f5:c0:a6:10 | 02c00081:35e04620:79058814:48230714 |
 | 1-1.3.2 | 1/g22 | 2222 | 10.21.2.22 `pi-sw2-p22` | 02:81:2e:b7:a3:4e | 02c00081:35d04620:79058814:401c0a94 |
+
+The p18/p19 rows (added 2026-09-04) were mapped by PoE-cycling switch port 19
+and watching which `/run/fpgas-felboot/<usb>` marker on the hub host was
+rewritten: `1-1.3.3` refreshed, so p19 = 1-1.3.3 and p18 = the remaining
+1-1.3.4. MACs read live from each booted board's `eth0`. Both rows are in the
+`sunxi_boards` inventory (with `hat_uuid`), so the felboot-marker and HAT-uuid
+assertions in `verify-pi.yml` now cover them.
 
 * Power: PoE from s3300-1 through a PoE splitter (1.1–1.2 W while idle in FEL,
   ~1.5 W with U-Boot running). The micro-USB OTG cable does **not** power them:
@@ -188,4 +197,27 @@ rebooted board `i2c-mv64xxx` autoloads (OF alias `allwinner,sun6i-a31-i2c`)
 and the buses appear as `/sys/bus/platform/devices/1c2ac00.i2c` /
 `1c2b000.i2c`; `verify-pi` (hw-sunxi) reads the EEPROM's `R` (0x52) through
 TWI1. `i2c-tools` is in the root for `i2cdetect`/`i2cget`.
+
+### Physical board identity: HAT product_uuid (read 2026-09-04)
+
+Each hat's ID EEPROM carries a unique `product_uuid` -- together with the
+SID-derived MAC it is the durable identity of the physical board. The
+`pi-sw2-pNN` hostname is **not** a board identity: it follows whichever
+switch port the cable lands on. `sunxi_boards` records identity (hat_uuid,
+mac) plus current placement (switch/port/usb), and `verify-pi` (hw-sunxi)
+reads the uuid back through TWI1 to assert the board answering on each port
+is the one the inventory placed there -- a recable fails verify until the
+placement fields are updated. Beware the text form: eepdump /
+`/proc/device-tree/hat/uuid` build it from the four little-endian u32 serial
+words in reverse word order, not a straight hex dump of the 16 EEPROM bytes.
+
+| hat_uuid (board identity) | MAC | placement 2026-09-04 |
+|---|---|---|
+| 66196f35-58f5-4b03-b479-d9eb1f696204 | 02:81:0b:12:20:44 | sw2 port 18, usb 1-1.3.4 |
+| 547291f7-1440-4be9-a49a-c3081fa92984 | 02:81:e1:ce:7d:46 | sw2 port 19, usb 1-1.3.3 |
+| 0d05d999-1d10-49e7-b94a-8c2252816633 | 02:81:bf:f6:b7:99 | sw2 port 20, usb 1-1.2.2 |
+| 02b54c27-053b-463d-a74a-e6614129ed88 | 02:81:31:f4:6e:48 | sw2 port 21, usb 1-1.3.1 |
+| 6c12f955-093c-4272-a94d-8824363bffaa | 02:81:2e:b7:a3:4e | sw2 port 22, usb 1-1.3.2 |
+| 55fc28c9-257a-4d0d-8888-117834bd52ab | 02:81:1f:e1:45:1d | sw2 port 23, usb 1-1.2.3 |
+| 2577845e-7668-460a-a9d1-2c97373b1da9 | 02:81:f5:c0:a6:10 | sw2 port 24, usb 1-1.2.4 |
 

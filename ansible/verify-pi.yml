@@ -290,6 +290,54 @@
           served, board not rebooted since, or no Pmod HAT fitted
       when: verify_pi_hat_eeprom is not skipped
       tags: [verify, hw-sunxi]
+
+    # The physical board's identity is its HAT product_uuid (hat_uuid in
+    # sunxi_boards; the pi-sw2-pNN hostname follows the switch port, not the
+    # board). Reading it back proves the board answering on this switch port
+    # is the one the inventory placed there. The canonical text form (eepdump /
+    # /proc/device-tree/hat/uuid) is built from four little-endian u32 words in
+    # reverse word order -- NOT a straight hex dump of the 16 bytes -- hence
+    # the python3 formatter.
+    - name: sunxi_boards row for this board
+      set_fact:
+        verify_pi_sunxi_self: >-
+          {{ verify_pi_sunxi
+             | selectattr('switch', 'eq', ansible_hostname | regex_replace('^pi-sw([0-9]+)-p([0-9]+)$', '\1') | int)
+             | selectattr('port', 'eq', ansible_hostname | regex_replace('^pi-sw([0-9]+)-p([0-9]+)$', '\2') | int)
+             | list | first | default({}) }}
+      tags: [verify, hw-sunxi]
+
+    - name: Read the Pmod HAT product uuid from the ID EEPROM
+      shell: |
+        set -e
+        dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
+        i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r36 | python3 -c '
+        import struct, sys
+        b = bytes(int(t, 16) for t in sys.stdin.read().split())
+        assert b[0:4] == b"R-Pi", b[0:4]
+        assert struct.unpack_from("<H", b, 12)[0] == 1, "vendor atom not first"
+        s1, s2, s3, s4 = struct.unpack_from("<IIII", b, 20)
+        print(f"{s4:08x}-{s3 >> 16:04x}-{s3 & 0xffff:04x}-{s2 >> 16:04x}-{s2 & 0xffff:04x}{s1:08x}")'
+      changed_when: false
+      register: verify_pi_hat_uuid
+      failed_when: false
+      when: >-
+        verify_pi_dt_model.content is defined and
+        (verify_pi_dt_model.content | b64decode) is search('Orange Pi') and
+        verify_pi_sunxi_self.hat_uuid is defined
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the board on this switch port is the one the inventory placed there
+      assert:
+        that: verify_pi_hat_uuid.stdout_lines | default([]) | last | default('') == verify_pi_sunxi_self.hat_uuid
+        fail_msg: >-
+          {{ ansible_hostname }}: HAT uuid {{ verify_pi_hat_uuid.stdout | default('') }}
+          {{ verify_pi_hat_uuid.stderr | default('') }} does not match the
+          inventory hat_uuid {{ verify_pi_sunxi_self.hat_uuid | default('') }}
+          -- the board was recabled to a different switch port, or the
+          sunxi_boards placement fields are stale
+      when: verify_pi_hat_uuid is not skipped
+      tags: [verify, hw-sunxi]
     # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
     # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
     # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"

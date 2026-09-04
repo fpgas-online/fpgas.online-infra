@@ -337,9 +337,26 @@ vault_ansible_ssh_private_key: !vault |
 # Mapping verified 2026-08-28: docs/hardware/2026-08-28-orange-pi-h3-boards.md
 sunxi_kernel_package: linux-image-armmp   # Debian bookworm metapackage (6.1.0-x-armmp)
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
+# Each row = one PHYSICAL board (identified by the stable fields) and where it
+# is currently plugged in (the placement fields, which change on recabling):
+#   identity:  hat_uuid (product_uuid from the Digilent Pmod HAT Adaptor's ID
+#              EEPROM at 0x50 on TWI1, eepdump/device-tree canonical form,
+#              unique per hat) + mac (U-Boot derives it from the SoC SID).
+#              The pi-sw2-pNN hostname is NOT an identity -- it follows the
+#              switch port, not the board.
+#   placement: switch/port (-> per-port VLAN identity), usb (OTG cable on the
+#              FEL hub host), host (the hub host). verify-pi (hw-sunxi)
+#              asserts the board answering on each port carries the row's
+#              hat_uuid, so a recable shows up as a verify failure until the
+#              placement fields are updated.
+# Read from hardware 2026-09-04; usb<->port for the two new boards proven by
+# PoE-cycling port 19 and watching which /run/fpgas-felboot marker was
+# rewritten (1-1.3.3 refreshed).
 sunxi_boards:
-  - {switch: 2, port: 20, host: pi-sw2-p30, usb: "1-1.2.2", model: orangepi-pc, mac: "02:81:bf:f6:b7:99"}
-  - {switch: 2, port: 21, host: pi-sw2-p30, usb: "1-1.3.1", model: orangepi-pc, mac: "02:81:31:f4:6e:48"}
-  - {switch: 2, port: 23, host: pi-sw2-p30, usb: "1-1.2.3", model: orangepi-pc, mac: "02:81:1f:e1:45:1d"}
-  - {switch: 2, port: 24, host: pi-sw2-p30, usb: "1-1.2.4", model: orangepi-pc, mac: "02:81:f5:c0:a6:10"}
-  - {switch: 2, port: 22, host: pi-sw2-p30, usb: "1-1.3.2", model: orangepi-pc, mac: "02:81:2e:b7:a3:4e"}
+  - {hat_uuid: "66196f35-58f5-4b03-b479-d9eb1f696204", mac: "02:81:0b:12:20:44", model: orangepi-pc, switch: 2, port: 18, usb: "1-1.3.4", host: pi-sw2-p30}
+  - {hat_uuid: "547291f7-1440-4be9-a49a-c3081fa92984", mac: "02:81:e1:ce:7d:46", model: orangepi-pc, switch: 2, port: 19, usb: "1-1.3.3", host: pi-sw2-p30}
+  - {hat_uuid: "0d05d999-1d10-49e7-b94a-8c2252816633", mac: "02:81:bf:f6:b7:99", model: orangepi-pc, switch: 2, port: 20, usb: "1-1.2.2", host: pi-sw2-p30}
+  - {hat_uuid: "02b54c27-053b-463d-a74a-e6614129ed88", mac: "02:81:31:f4:6e:48", model: orangepi-pc, switch: 2, port: 21, usb: "1-1.3.1", host: pi-sw2-p30}
+  - {hat_uuid: "6c12f955-093c-4272-a94d-8824363bffaa", mac: "02:81:2e:b7:a3:4e", model: orangepi-pc, switch: 2, port: 22, usb: "1-1.3.2", host: pi-sw2-p30}
+  - {hat_uuid: "55fc28c9-257a-4d0d-8888-117834bd52ab", mac: "02:81:1f:e1:45:1d", model: orangepi-pc, switch: 2, port: 23, usb: "1-1.2.3", host: pi-sw2-p30}
+  - {hat_uuid: "2577845e-7668-460a-a9d1-2c97373b1da9", mac: "02:81:f5:c0:a6:10", model: orangepi-pc, switch: 2, port: 24, usb: "1-1.2.4", host: pi-sw2-p30}
