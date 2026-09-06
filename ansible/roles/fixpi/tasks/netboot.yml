@@ -60,6 +60,18 @@
     - cmdline
     - netboot
 
+# The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
+# cmdline.txt.j2 no longer puts a kernel console there, and this disables
+# SysRq so any stray bytes the FPGA drives onto that line can never be
+# parsed as reboot/crash/poweroff. See files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
+- name: disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
+  copy:
+    src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
+  tags:
+    - cmdline
+    - netboot
+
 - name: create pi user in NFS root if missing
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
