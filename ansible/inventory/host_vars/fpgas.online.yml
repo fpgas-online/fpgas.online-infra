@@ -132,6 +132,12 @@ streaming_frontend_aliases:
 streaming_frontend_hostname: welland.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
+# This site runs ahead of ps1, so its pages carry an "under construction"
+# banner pointing visitors at ps1.fpgas.online. Covers tinytapeout.fpgas.online
+# too: it is a CNAME for this host, served by the same Django process, and the
+# flag is per deployment rather than per hostname.
+site_under_construction: true
+
 # Seeds the /fpgas/ board list from the fixture shipped inside the installed
 # fpgas-online-site package (rebuilt 2026-08-31 from a live probe of the
 # s3300: 4x Arty A7, 6x Acorn CLE-215+, 4x TT FPGA emulation, all switch=2
