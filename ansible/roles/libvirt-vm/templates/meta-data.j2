@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# Stable instance-id: cloud-init runs its per-instance modules once per
+# instance-id, so this must NOT change across re-runs (hetzner-ansible's
+# per-run id re-ran package_upgrade on every reboot — ANALYSIS.md pitfall 5).
+instance-id: {{ vm_domain }}
+local-hostname: {{ vm_hostname | default(vm_domain) }}

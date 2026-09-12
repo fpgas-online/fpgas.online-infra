@@ -21,3 +21,12 @@ ps1.fpgas.online
 # the server -- same pattern as tests/inventory/test-hosts.  Reached over the
 # private ten64 <-> tweed link like the server itself.
 pi ansible_host=10.99.21.2 ansible_user=piroot
+
+# Hypervisor tier (Phase 3 of the tweed split — hypervisor.yml / vms.yml,
+# neither imported by site.yml, so this entry is inert until they are run).
+# tweed-hv is the SAME physical box as fpgas.online above: it becomes real at
+# the Phase 3 cut-over, when tweed is reinstalled as a KVM host and today's
+# monolith moves into the gw-welland VM (runbook
+# docs/superpowers/runbooks/2026-09-02-tweed-hypervisor-cutover.md).
+[hypervisors]
+tweed-hv ansible_host=10.99.21.2 ansible_user=ansible

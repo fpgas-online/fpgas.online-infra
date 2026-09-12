@@ -1,0 +1,24 @@
+---
+- name: validate vm_action
+  assert:
+    that:
+      - vm_action is defined
+      - vm_action in ['create', 'destroy', 'switch']
+    fail_msg: "vm_action must be create, destroy or switch (got: {{ vm_action | default('<unset>') }})"
+  tags: [libvirt-vm]
+
+- name: compute domain name and paths
+  set_fact:
+    vm_domain: "{{ vm_name }}{{ ('-' + vm_colour) if vm_colour else '' }}"
+  tags: [libvirt-vm]
+
+- name: compute derived paths
+  set_fact:
+    vm_disk_path_eff: "{{ vm_disk_path | default('/var/lib/libvirt/images/' + vm_domain + '.qcow2') }}"
+    vm_seed_iso: "/var/lib/libvirt/images/{{ vm_domain }}-seed.iso"
+    vm_nvram_path: "/var/lib/libvirt/qemu/nvram/{{ vm_domain }}_VARS.fd"
+  tags: [libvirt-vm]
+
+- name: "run {{ vm_action }}"
+  include_tasks: "{{ vm_action }}.yml"
+  tags: [libvirt-vm]

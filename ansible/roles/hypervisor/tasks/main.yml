@@ -1,0 +1,167 @@
+---
+# KVM/libvirt + networkd bridges. Deliberately NOT part of site.yml: run via
+# ansible/hypervisor.yml against the [hypervisors] group at Phase 3 cut-over.
+
+- name: install hypervisor packages
+  apt:
+    name: "{{ hypervisor_packages }}"
+    update_cache: true
+    cache_valid_time: 3600
+  tags: [hypervisor]
+
+# tweed's BIOS shipped with VT-x DISABLED ("x86/cpu: VMX (outside TXT)
+# disabled by BIOS", live-host survey 2026-08-28), so a fresh install has no
+# /dev/kvm until someone flips Intel Virtualization Technology in the BIOS
+# via IPMI SOL / KVM-over-IP and reboots. Fail loudly rather than let libvirt
+# fall back to TCG software emulation.
+- name: check /dev/kvm exists
+  stat:
+    path: /dev/kvm
+  register: hypervisor_kvm
+  tags: [hypervisor]
+
+- name: assert KVM is usable
+  assert:
+    that:
+      - hypervisor_kvm.stat.exists
+    fail_msg: >-
+      /dev/kvm is missing: Intel VT-x is disabled in the BIOS (dmesg says
+      "VMX (outside TXT) disabled by BIOS" on tweed as shipped). Enable
+      Intel Virtualization Technology via IPMI SOL / KVM-over-IP
+      (BMC 10.1.5.131), reboot, and re-run — see
+      docs/superpowers/runbooks/2026-09-02-tweed-hypervisor-cutover.md step 1.
+  tags: [hypervisor]
+
+- name: current names of the two NICs (by MAC)
+  set_fact:
+    hypervisor_fpgas_cur: >-
+      {{ hypervisor_fpgas_nic if hypervisor_fpgas_nic in ansible_facts.interfaces
+         else (ansible_facts | iface_by_mac(hypervisor_fpgas_mac)) }}
+    hypervisor_uplink_cur: >-
+      {{ hypervisor_uplink_nic if hypervisor_uplink_nic in ansible_facts.interfaces
+         else (ansible_facts | iface_by_mac(hypervisor_uplink_mac)) }}
+  tags: [hypervisor]
+
+- name: MAC-matched .link files for the physical NICs
+  template:
+    src: templates/link.j2
+    dest: "/etc/systemd/network/10-{{ item.name }}.link"
+    mode: "0644"
+  loop:
+    - {name: "{{ hypervisor_fpgas_nic }}", mac: "{{ hypervisor_fpgas_mac }}"}
+    - {name: "{{ hypervisor_uplink_nic }}", mac: "{{ hypervisor_uplink_mac }}"}
+  loop_control:
+    label: "{{ item.name }}"
+  tags: [hypervisor]
+
+- name: bridge netdevs (br-fpgas, br-uplink)
+  template:
+    src: templates/bridge.netdev.j2
+    dest: "/etc/systemd/network/20-{{ item.name }}.netdev"
+    mode: "0644"
+  loop:
+    - {name: br-fpgas, mtu: "{{ hypervisor_fpgas_mtu }}"}
+    - {name: br-uplink}
+  loop_control:
+    label: "{{ item.name }}"
+  notify: reload networkd
+  tags: [hypervisor]
+
+- name: enslave the physical NICs to their bridges
+  template:
+    src: templates/bridge-port.network.j2
+    dest: "/etc/systemd/network/25-{{ item.name }}.network"
+    mode: "0644"
+  loop:
+    - {name: "{{ hypervisor_fpgas_nic }}", bridge: br-fpgas, mtu: "{{ hypervisor_fpgas_mtu }}"}
+    - {name: "{{ hypervisor_uplink_nic }}", bridge: br-uplink}
+  loop_control:
+    label: "{{ item.name }}"
+  notify: reload networkd
+  tags: [hypervisor]
+
+- name: br-fpgas network (no host address by default)
+  template:
+    src: templates/br-fpgas.network.j2
+    dest: /etc/systemd/network/30-br-fpgas.network
+    mode: "0644"
+  notify: reload networkd
+  tags: [hypervisor]
+
+- name: br-uplink network (host management address)
+  template:
+    src: templates/br-uplink.network.j2
+    dest: /etc/systemd/network/30-br-uplink.network
+    mode: "0644"
+  notify: reload networkd
+  tags: [hypervisor]
+
+- name: static resolv.conf (networkd without systemd-resolved)
+  copy:
+    content: |
+      # Managed by ansible (fpgas.online-infra, hypervisor role)
+      nameserver {{ hypervisor_uplink_dns_server }}
+    dest: /etc/resolv.conf
+    mode: "0644"
+    follow: false
+  when: hypervisor_uplink_dns_server is defined
+  tags: [hypervisor]
+
+# The Debian installer leaves the boot NIC under ifupdown; networkd must own
+# both NICs or the bridge enslavement fights DHCP (same move roles/netif
+# makes for the bare-metal uplink).
+- name: take the NICs away from ifupdown
+  replace:
+    path: /etc/network/interfaces
+    regexp: >-
+      ^(\s*)(auto|allow-hotplug|iface)(\s+)({{ ([hypervisor_fpgas_nic, hypervisor_uplink_nic,
+      hypervisor_fpgas_cur, hypervisor_uplink_cur] | reject("equalto", "")
+      | unique | map("regex_escape") | join("|")) }})(\s|$)
+    replace: '\1#\2\3\4\5'
+  tags: [hypervisor]
+
+- name: enable systemd-networkd
+  systemd:
+    name: systemd-networkd
+    enabled: true
+    state: started
+  tags: [hypervisor]
+
+- name: reboot so the .link renames take effect
+  reboot:
+    msg: "hypervisor: renaming NICs to {{ hypervisor_fpgas_nic }}/{{ hypervisor_uplink_nic }}"
+    reboot_timeout: 600
+  when:
+    - hypervisor_allow_reboot
+    - (hypervisor_fpgas_cur != hypervisor_fpgas_nic) or (hypervisor_uplink_cur != hypervisor_uplink_nic)
+  tags: [hypervisor]
+
+- name: re-gather facts after rename
+  setup:
+  when:
+    - hypervisor_allow_reboot
+    - (hypervisor_fpgas_cur != hypervisor_fpgas_nic) or (hypervisor_uplink_cur != hypervisor_uplink_nic)
+  tags: [hypervisor]
+
+- name: enable libvirtd
+  systemd:
+    name: libvirtd
+    enabled: true
+    state: started
+  tags: [hypervisor]
+
+# Basic NTP client: chrony with the Debian default pool config. Unlike the
+# bare-metal gateway (roles/pxe serves the Pi LAN) the hypervisor keeps time
+# only for itself and its VMs' kvm-clock.
+- name: enable chrony
+  systemd:
+    name: chrony
+    enabled: true
+    state: started
+  tags: [hypervisor]
+
+- name: enable etckeeper
+  command: etckeeper init
+  args:
+    creates: /etc/.git
+  tags: [hypervisor]
