@@ -1,4 +1,54 @@
 ---
+# Forwarding is asserted first, and deliberately: a gateway with masquerade
+# rules but ip_forward=0 looks entirely healthy to every other check in this
+# file (package installed, service active, ruleset present) while forwarding
+# nothing at all. Assert the sysctl, not just the ruleset.
+- name: Check runtime IPv4 forwarding
+  command: sysctl -n net.ipv4.ip_forward
+  changed_when: false
+  register: firewall_ip_forward_v4_state
+  when: firewall_ip_forward_v4
+
+- name: Assert IPv4 forwarding is enabled
+  assert:
+    that: firewall_ip_forward_v4_state.stdout | trim == "1"
+    fail_msg: >-
+      net.ipv4.ip_forward is {{ firewall_ip_forward_v4_state.stdout | trim }}, not 1 --
+      this gateway will not route the Pi pool, and the nft forward/NAT chains
+      will never see a packet.
+  when: firewall_ip_forward_v4
+
+- name: Check runtime IPv6 forwarding
+  command: sysctl -n net.ipv6.conf.all.forwarding
+  changed_when: false
+  register: firewall_ip_forward_v6_state
+  when: firewall_ip_forward_v6
+
+- name: Assert IPv6 forwarding is enabled
+  assert:
+    that: firewall_ip_forward_v6_state.stdout | trim == "1"
+    fail_msg: >-
+      net.ipv6.conf.all.forwarding is
+      {{ firewall_ip_forward_v6_state.stdout | trim }}, not 1 -- this gateway will not
+      route IPv6 for the Pi pool.
+  when: firewall_ip_forward_v6
+
+# Runtime alone is not enough: a hand-run `sysctl -w` survives until the next
+# reboot and then the fault comes back. Assert it is persisted on disk too.
+- name: Check the forwarding sysctls are persisted
+  stat:
+    path: "{{ firewall_sysctl_file }}"
+  register: firewall_sysctl_file_stat
+  when: firewall_ip_forward_v4 or firewall_ip_forward_v6
+
+- name: Assert the forwarding sysctls are persisted
+  assert:
+    that: firewall_sysctl_file_stat.stat.exists
+    fail_msg: >-
+      {{ firewall_sysctl_file }} is missing -- forwarding may be on now but
+      would be lost at the next reboot or rebuild.
+  when: firewall_ip_forward_v4 or firewall_ip_forward_v6
+
 - name: Check nftables package installed
   command: dpkg -s nftables
   changed_when: false

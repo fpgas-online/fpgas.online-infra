@@ -1,0 +1,17 @@
+---
+# The nbp hosts are routers: they masquerade the Pi pool out eth-uplink. Linux
+# will not forward a packet at all unless these are on, so the nftables NAT and
+# forward chains this role installs are inert without them.
+#
+# CAUTION (IPv6): enabling forwarding makes the kernel ignore Router
+# Advertisements on that host. A gateway that learns its IPv6 default route via
+# RA loses it. tweed is unaffected -- its default route is static, installed
+# from /etc/systemd/network/30-eth-uplink.network. Set firewall_ip_forward_v6
+# to false for any gateway that does depend on RA.
+firewall_ip_forward_v4: true
+firewall_ip_forward_v6: true
+
+# Single owner for the forwarding sysctls. Matches the file hand-created on
+# tweed on 2026-09-08 so the first converge adopts that file instead of adding
+# a second, competing drop-in.
+firewall_sysctl_file: /etc/sysctl.d/99-fpgas-gateway.conf
