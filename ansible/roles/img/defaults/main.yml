@@ -1,3 +1,13 @@
 ---
 cache_dir: "/var/cache/pib"
 nfs_root: "/srv/nfs/rpi/{{ dist }}"
+
+# Where the Pi NFS root comes from: 'build' downloads RasPiOS and
+# provisions it on this server via the nspawn chroot plays; 'pull'
+# extracts the prebuilt image CI publishes (issue #34 phase 3).
+# Production hosts opt in to pull via host_vars.
+nfsroot_source: build
+
+# Image reference for pull mode. Pin a dated tag in host_vars for
+# reproducible rebuilds; the rolling tag tracks main.
+nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf

@@ -1,36 +1,10 @@
 ---
-- name: Install packages
-  apt:
-    name:
-      - unzip
-      - parted
-      - rsync
-      # img2files.sh extracts the raspios image with xz; a minimal d-i
-      # install has no xz-utils (CI's genericcloud image does — tweed
-      # rebuild B1-5, 2026-08-25).
-      - xz-utils
-    install_recommends: true
-  tags:
-    - img
+# Dispatch on nfsroot_source: 'build' (default) provisions the root from
+# the RasPiOS image on this server via the nspawn chroot plays; 'pull'
+# extracts the CI-prebuilt image from GHCR (issue #34 phase 3, design in
+# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+- import_tasks: build.yml
+  when: nfsroot_source == 'build'
 
-- name: create pib cache dir
-  file:
-    path: "{{ cache_dir }}"
-    state: directory
-
-- name: Download pi sd card img file
-  get_url:
-    url: "{{ img_host }}/{{ img_path }}/{{ zip_name }}"
-    dest: "{{ cache_dir }}"
-    force: false
-  # creates: "{{ cache_dir }}/{{ zip_name }}"
-  tags:
-    - img
-
-- name: extract files from raspios.img.xz
-  script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
-  args:
-    chdir: "{{ cache_dir }}"
-    creates: "{{ nfs_root }}/root/home"
-  tags:
-    - img
+- import_tasks: pull.yml
+  when: nfsroot_source == 'pull'

@@ -33,11 +33,14 @@
 #   - hostname
 #   - fixpi
 
+# regexp so the site value REPLACES the generic one a pulled CI image
+# carries (pistat_host=fpgas.online) instead of appending a second line.
 - name: set pistat_host in /etc/environment
   lineinfile:
     dest: "{{ nfs_root }}/root/etc/environment"
     state: present
     create: true
+    regexp: '^pistat_host='
     line: "pistat_host={{domain_name}}"
   tags:
     - hostname
