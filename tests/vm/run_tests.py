@@ -382,7 +382,7 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,fpgas-apt,hw-camera,hw-fpga,sunxi-kernel,hw-sunxi",
+    parser.add_argument("--skip-tags", type=str, default="cam,hw-camera,hw-fpga,sunxi-kernel,hw-sunxi",
                         help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks and the "
                              "30-minute qemu-emulated sunxi kernel build; the sunxi PXE render is still verified)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
