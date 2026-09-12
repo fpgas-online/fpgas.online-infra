@@ -322,6 +322,17 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
             ("/etc/resolv.conf", "cat /etc/resolv.conf"),
             ("resolve self", "getent hosts $(hostname) || echo '(no result)'"),
             ("sudo -n timing", "time sudo -n true 2>&1 || echo 'sudo rc='$?"),
+            # Upstream DNS actually in use: a baked-in unreachable resolver
+            # (CI round 6: the server VM's 10.0.2.3) stalls every stray
+            # lookup and inflates each verify task by tens of seconds.
+            ("resolvectl dns", "resolvectl dns 2>&1 || echo '(no resolvectl)'"),
+            # Approximate one verify task's remote cost (module exec).
+            ("python exec timing", "time sudo -n python3 -c pass 2>&1"),
+            # Surface kernel-side trouble (e.g. GENET RX checksum faults
+            # collapsing SSH throughput, watchdog arming) without a shell
+            # on the dead VM.
+            ("kernel warnings",
+             "sudo -n journalctl -p warning -k --no-pager 2>&1 | tail -8"),
         ]:
             try:
                 _in, _out, _err = ssh.exec_command(cmd, timeout=30)

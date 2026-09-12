@@ -22,7 +22,7 @@
     name:
       - overlayroot
       - ssh-import-id
-      - software-properties-common
+      # software-properties-common (add-apt-repository) was removed in trixie
       - vim
       - tmux
       - screen
@@ -60,7 +60,7 @@
       - pipx
       - dkms
       - python3-dev
-      - libfreetype6-dev
+      - libfreetype-dev
       - libjpeg-dev
       - build-essential
     install_recommends: true
