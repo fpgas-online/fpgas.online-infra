@@ -224,6 +224,13 @@
         fail_msg: "eeprom_write_protect=1 missing from {{ nfs_root }}/boot/config.txt — bootloader EEPROM would be writable"
       tags: [verify, nfs-root]
 
+    - name: verify board-access
+      include_role:
+        name: board-access
+        tasks_from: verify/main.yml
+      when: board_access | default(true)
+      tags: [verify, board-access]
+
 - name: Verify uhubctl
   hosts: uhubctl
   become: true

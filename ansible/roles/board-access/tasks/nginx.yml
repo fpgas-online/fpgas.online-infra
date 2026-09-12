@@ -1,0 +1,73 @@
+---
+# Public face of the gateway: {{ gw_domain }}.  Same vhost/certbot scheme as
+# roles/ttsite -- `certbot certonly --webroot` only (never `certbot --nginx`,
+# see roles/site/tasks/certbot.yml history), vhost rendered plain-http first
+# so http-01 can be answered, then re-rendered with the https server.
+- name: Create /etc/nginx/includes
+  file:
+    path: /etc/nginx/includes
+    state: directory
+    mode: "0755"
+
+- name: Render per-board websocket include
+  template:
+    src: ws-board.conf.j2
+    dest: "/etc/nginx/includes/{{ gw_domain }}-ws-boards.conf"
+    mode: "0644"
+  notify: reload nginx
+
+- name: ACME webroot
+  file:
+    path: /var/www/html
+    state: directory
+    mode: "0755"
+
+# This role runs in the nbp play, BEFORE the web play's site role installs
+# certbot -- so replicate its install-only-when-missing guard (tweed runs the
+# snap certbot; Debian's must not be installed over it).
+- name: Check for an existing certbot
+  stat:
+    path: /usr/bin/certbot
+  register: gw_certbot_bin
+
+- name: Install certbot
+  apt:
+    name:
+      - certbot
+  when: gw_certbot | default(true) and not gw_certbot_bin.stat.exists
+
+- name: Check for an existing certificate
+  stat:
+    path: "/etc/letsencrypt/live/{{ gw_domain }}/fullchain.pem"
+  register: gw_cert
+
+- name: Render vhost
+  template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ gw_domain }}.conf"
+    mode: "0644"
+  vars:
+    gw_cert_exists: "{{ gw_cert.stat.exists }}"
+  notify: reload nginx
+
+- name: Flush handlers so nginx serves the vhost before certbot
+  meta: flush_handlers
+
+- name: Obtain certificate (webroot http-01 via the port-80 vhost)
+  command: >-
+    certbot certonly --webroot -w /var/www/html -d {{ gw_domain }}
+    --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
+  args:
+    creates: "/etc/letsencrypt/live/{{ gw_domain }}/fullchain.pem"
+  when: gw_certbot | default(true) and not gw_cert.stat.exists
+  register: gw_certonly
+
+- name: Render vhost (https, after the certificate was issued)
+  template:
+    src: vhost.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ gw_domain }}.conf"
+    mode: "0644"
+  vars:
+    gw_cert_exists: true
+  when: gw_certonly is changed
+  notify: reload nginx

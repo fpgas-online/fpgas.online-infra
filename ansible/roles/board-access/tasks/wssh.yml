@@ -1,0 +1,28 @@
+---
+# Web SSH terminal for the gateway (same webssh package as roles/wssh, same
+# --system-site-packages approach for the deb-installed cryptography/bcrypt).
+# A SEPARATE venv, unit and port (127.0.0.1:8889) from the site's wssh
+# instance (8888) so a co-located deployment keeps both working.
+- name: Install webssh into the gateway wssh venv
+  ansible.builtin.pip:
+    name:
+      - webssh
+    virtualenv: "{{ gw_wssh_venv }}"
+    virtualenv_command: "python3 -m venv --system-site-packages"
+  notify: restart fpgas-gw-wssh
+
+- name: Install fpgas-gw-wssh unit
+  template:
+    src: fpgas-gw-wssh.service.j2
+    dest: /etc/systemd/system/fpgas-gw-wssh.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart fpgas-gw-wssh
+
+- name: Enable fpgas-gw-wssh
+  systemd:
+    name: fpgas-gw-wssh.service
+    daemon_reload: true
+    enabled: true
+    state: started

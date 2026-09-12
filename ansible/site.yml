@@ -12,6 +12,9 @@
     - img
     - fixpi
     - pxe
+    # Board-access gateway (fpgas-online-gw) -- default ON everywhere (CI VM
+    # included); the role converges with no switches/Pis/redis events.
+    - {role: board-access, tags: [board-access], when: board_access | default(true)}
 
 - hosts: uhubctl
   roles:

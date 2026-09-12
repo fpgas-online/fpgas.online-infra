@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+[Unit]
+Description=fpgas.online gateway board-access API (127.0.0.1:{{ gw_port }})
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+User={{ gw_user }}
+Group={{ gw_user }}
+ExecStart={{ gw_venv }}/bin/fpgas-gw --config /etc/fpgas-online/gw.yaml
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

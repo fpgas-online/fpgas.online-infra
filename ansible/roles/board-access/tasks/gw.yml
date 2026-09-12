@@ -1,0 +1,103 @@
+---
+- name: Install gateway deb packages
+  apt:
+    name:
+      - git  # the gateway pip spec is a git+https URL
+      - nginx
+      - python3-pip
+      - python3-venv
+      - python3-cryptography  # used via --system-site-packages by the wssh venv
+      - python3-bcrypt
+      - redis
+
+# The site role installs redis too (roles/site/tasks/pistat.yml) but never
+# enables/starts it explicitly; do both here so a gateway-only host works.
+- name: Enable redis
+  systemd:
+    name: redis-server
+    enabled: true
+    state: started
+
+- name: Create gateway system user
+  user:
+    name: "{{ gw_user }}"
+    system: true
+    home: "{{ gw_home }}"
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Create gateway home
+  file:
+    path: "{{ gw_home }}"
+    state: directory
+    mode: "0755"
+
+# forcereinstall matches roles/site/tasks/fpgas-online-site.yml: the pip spec
+# tracks a git branch, so the version number alone cannot signal an update.
+- name: Install the gateway service into its venv
+  ansible.builtin.pip:
+    name:
+      - "{{ boardaccess_pip_spec }}"
+    virtualenv: "{{ gw_venv }}"
+    virtualenv_command: "python3 -m venv"
+    state: forcereinstall
+  notify:
+    - restart fpgas-gw
+    - restart fpgas-gw-netconsole
+
+- name: Create /etc/fpgas-online
+  file:
+    path: /etc/fpgas-online
+    state: directory
+    mode: "0755"
+
+# The board catalogue the gateway serves.  Rendered from the ttsite role's
+# template (single source of truth for the format) so a gateway-only host
+# still gets the file; on a co-located host both roles render identical
+# content to the same path, so this stays idempotent.
+- name: Render tt-boards.yaml
+  template:
+    src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
+    dest: "{{ gw_boards_path }}"
+    mode: "0644"
+  when: tt_boards is defined
+  notify: restart fpgas-gw
+
+- name: Render gw.yaml
+  template:
+    src: gw.yaml.j2
+    dest: /etc/fpgas-online/gw.yaml
+    mode: "0644"
+  notify: restart fpgas-gw
+
+- name: Render gw-secrets.yaml
+  template:
+    src: gw-secrets.yaml.j2
+    dest: /etc/fpgas-online/gw-secrets.yaml
+    owner: root
+    group: "{{ gw_user }}"
+    mode: "0640"
+  notify: restart fpgas-gw
+
+- name: Install gateway systemd units
+  template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - fpgas-gw.service
+    - fpgas-gw-netconsole.service
+  notify:
+    - reload systemd
+    - restart fpgas-gw
+    - restart fpgas-gw-netconsole
+
+- name: Enable gateway services
+  systemd:
+    name: "{{ item }}"
+    daemon_reload: true
+    enabled: true
+    state: started
+  loop:
+    - fpgas-gw.service
+    - fpgas-gw-netconsole.service
