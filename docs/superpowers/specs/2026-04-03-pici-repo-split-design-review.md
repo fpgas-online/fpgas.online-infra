@@ -1,6 +1,6 @@
 # Design Review: pici repo split spec
 **Reviewed**: 2026-04-03
-**Spec**: `docs/specs/2026-04-03-pici-repo-split-design.md`
+**Spec**: `docs/superpowers/specs/2026-04-03-pici-repo-split-design.md`
 **Reviewer**: Claude (code-reviewer agent)
 
 ## Overall Assessment

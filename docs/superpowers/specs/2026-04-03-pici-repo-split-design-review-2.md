@@ -1,7 +1,7 @@
 # Design Review #2: pici repo split spec (post-update)
 **Reviewed**: 2026-04-03
-**Spec**: `docs/specs/2026-04-03-pici-repo-split-design.md`
-**Previous review**: `docs/specs/2026-04-03-pici-repo-split-design-review.md`
+**Spec**: `docs/superpowers/specs/2026-04-03-pici-repo-split-design.md`
+**Previous review**: `docs/superpowers/specs/2026-04-03-pici-repo-split-design-review.md`
 **Reviewer**: Claude (code-reviewer agent)
 
 ## Overall Assessment

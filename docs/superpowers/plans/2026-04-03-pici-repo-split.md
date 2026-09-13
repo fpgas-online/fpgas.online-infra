@@ -8,7 +8,7 @@
 
 **Tech Stack:** Git, `git-filter-repo`, GitHub CLI (`gh`), Python packaging (`pyproject.toml`, `build`), Debian packaging (`nfpm`), GitHub Actions, GitHub Pages, GPG, Ansible.
 
-**Spec:** `docs/specs/2026-04-03-pici-repo-split-design.md`
+**Spec:** `docs/superpowers/specs/2026-04-03-pici-repo-split-design.md`
 
 ---
 
