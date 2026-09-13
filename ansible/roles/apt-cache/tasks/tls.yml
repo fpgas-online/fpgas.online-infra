@@ -35,7 +35,7 @@
     path: /etc/letsencrypt/ssl-dhparams.pem
   register: apt_cache_ssl_dhparams
 
-- name: apt cache vhost
+- name: Apt cache vhost
   ansible.builtin.template:
     src: nginx-apt-cache.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ apt_cache_host }}.conf"
@@ -64,7 +64,7 @@
   register: apt_cache_dns
   changed_when: false
   failed_when: false
-  when: apt_cache_certbot | bool and not apt_cache_cert_exists
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists | bool
 
 - name: Warn that the apt cache certificate is waiting for DNS
   ansible.builtin.debug:
@@ -73,7 +73,7 @@
       Pis and the NFS root use {{ apt_cache_url }} (cached, plain http) until
       the public DNS record exists; the next converge then issues the
       certificate and moves every client to https://{{ apt_cache_host }}.
-  when: apt_cache_certbot | bool and not apt_cache_cert_exists and apt_cache_dns.rc != 0
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists | bool and apt_cache_dns.rc != 0
 
 - name: Obtain the apt cache certificate (webroot http-01)
   ansible.builtin.command: >-
@@ -82,15 +82,17 @@
   args:
     creates: "/etc/letsencrypt/live/{{ apt_cache_host }}/fullchain.pem"
   register: apt_cache_certonly
-  when: apt_cache_certbot | bool and not apt_cache_cert_exists and apt_cache_dns.rc == 0
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists | bool and apt_cache_dns.rc == 0
 
-# include (dynamic), not import: an import would push the `when` onto the
-# stat inside and re-register apt_cache_cert as "skipped" on every other run.
+# Mirrors facts.yml's certificate branch, so the rest of this run (fixpi, the
+# NFS root sources, the pi play) already uses https.
 - name: Switch clients to https now the certificate exists
-  ansible.builtin.include_tasks: facts.yml
+  ansible.builtin.set_fact:
+    apt_cache_cert_exists: true
+    apt_cache_url: "https://{{ apt_cache_host }}"
   when: apt_cache_certonly is changed
 
-- name: apt cache vhost (https, after the certificate was issued)
+- name: Apt cache vhost (https, after the certificate was issued)
   ansible.builtin.template:
     src: nginx-apt-cache.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ apt_cache_host }}.conf"
@@ -100,4 +102,4 @@
     apt_cache_ssl_options_exists: "{{ apt_cache_ssl_options.stat.exists }}"
     apt_cache_ssl_dhparams_exists: "{{ apt_cache_ssl_dhparams.stat.exists }}"
   when: apt_cache_certonly is changed
-  notify: apt-cache reload nginx
+  notify: Reload nginx (apt-cache)

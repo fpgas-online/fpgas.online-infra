@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Raspberry Pi archive through the gateway's apt cache (roles/apt-cache;
+# upstream is http://archive.raspberrypi.com/debian/).
+deb {{ apt_cache_url }}/raspberrypi/ {{ dist }} main

@@ -1,0 +1,29 @@
+---
+# Runs in the nbp play after img (which re-extracts the stock image, and with
+# it the stock sources.list) and before fixpi (whose chroot apt runs are the
+# first clients). Design: docs/superpowers/specs/2026-09-08-tweed-apt-cache-design.md
+- name: Apt cache facts
+  ansible.builtin.import_tasks: facts.yml
+  tags: [always]
+
+- name: Apt cache service
+  when: apt_cache_enabled | bool
+  tags: [apt-cache]
+  block:
+    - name: Apt-cacher-ng
+      ansible.builtin.import_tasks: server.yml
+
+    - name: Nginx front end and certificate
+      ansible.builtin.import_tasks: tls.yml
+
+# fixpi's chroot apt runs later in this play: acng must already be serving
+# the remaps, and nginx the vhost, when they start. (Outside the block:
+# flush_handlers does not take a `when`.)
+- name: Apply apt cache config before any client uses it
+  ansible.builtin.meta: flush_handlers
+  tags: [apt-cache]
+
+- name: Pi NFS root apt sources
+  when: apt_cache_enabled | bool
+  tags: [apt-cache]
+  ansible.builtin.import_tasks: nfsroot.yml

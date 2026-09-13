@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Raspbian through the gateway's apt cache (roles/apt-cache; upstream is
+# http://raspbian.raspberrypi.com/raspbian/).
+deb [ arch=armhf ] {{ apt_cache_url }}/raspbian/ {{ dist }} main contrib non-free rpi

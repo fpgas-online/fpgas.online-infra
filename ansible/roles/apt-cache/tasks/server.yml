@@ -11,7 +11,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: apt-cache restart apt-cacher-ng
+  notify: Restart apt-cacher-ng (apt-cache)
 
 - name: Remap backends
   ansible.builtin.copy:
@@ -23,7 +23,7 @@
   loop: "{{ apt_cache_remaps }}"
   loop_control:
     label: "{{ item.name }}"
-  notify: apt-cache restart apt-cacher-ng
+  notify: Restart apt-cacher-ng (apt-cache)
 
 - name: Enable and start apt-cacher-ng
   ansible.builtin.systemd_service:

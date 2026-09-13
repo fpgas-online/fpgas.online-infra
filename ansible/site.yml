@@ -10,6 +10,9 @@
     - {role: switch-vlans, when: switches is defined}
     - nfs
     - img
+    # After img (a fresh extract restores the stock sources.list) and before
+    # fixpi (whose chroot apt runs are the cache's first clients).
+    - apt-cache
     - fixpi
     - pxe
 

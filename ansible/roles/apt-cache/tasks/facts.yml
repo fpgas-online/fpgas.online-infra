@@ -14,14 +14,14 @@
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ apt_cache_host }}/fullchain.pem"
   register: apt_cache_cert
-  when: apt_cache_enabled
+  when: apt_cache_enabled | bool
 
 - name: Publish the apt cache URL
   ansible.builtin.set_fact:
     apt_cache_host: "{{ apt_cache_host }}"
-    apt_cache_cert_exists: "{{ apt_cache_enabled and apt_cache_cert.stat.exists }}"
+    apt_cache_cert_exists: "{{ apt_cache_enabled | bool and apt_cache_cert.stat.exists }}"
     apt_cache_url: >-
-      {%- if not apt_cache_enabled -%}
+      {%- if not apt_cache_enabled | bool -%}
       {%- elif apt_cache_cert.stat.exists -%}
       https://{{ apt_cache_host }}
       {%- else -%}
