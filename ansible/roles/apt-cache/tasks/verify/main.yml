@@ -57,6 +57,13 @@
         timeout: 120
       failed_when: false
       register: apt_cache_v_probe
+      # Ride out a transient upstream failure: the PR #78 VM run got one
+      # "500 Remote or cache error" for archive.raspberrypi.com's Release
+      # (17 s, no redirect, not reproducible). A wrong backend or a stale
+      # Range-hazard file fails every attempt, so it still fails verify.
+      until: apt_cache_v_probe.status == 200
+      retries: 3
+      delay: 10
       loop: "{{ (apt_cache_remaps | map(attribute='path') | zip(apt_cache_remaps | map(attribute='probe')) | map('join', '/') | list) + apt_cache_stock_probes }}"
 
     - name: Assert every remap serves its Release file
