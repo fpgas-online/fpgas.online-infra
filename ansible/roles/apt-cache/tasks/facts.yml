@@ -1,0 +1,29 @@
+---
+# apt_cache_url is the one value every apt client in this repo derives its
+# source URL from (NFS root sources.list/raspi.list, fixpi's armmp source,
+# fpgas-apt, dnsmasq's host-record). Tagged `always` by the caller so a
+# partial run (--tags fixpi, --tags pi) still sees it and does not rewrite a
+# client back to its upstream URL.
+#
+#   disabled             -> ""  (clients keep their upstream URLs)
+#   certificate present  -> https://<apt_cache_host>
+#   otherwise            -> http://<eth_local_address>:<port>  -- still
+#                           cached, needs neither DNS nor a certificate (the
+#                           VM test, and production until the DNS record lands)
+- name: Check for the apt cache certificate
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ apt_cache_host }}/fullchain.pem"
+  register: apt_cache_cert
+  when: apt_cache_enabled
+
+- name: Publish the apt cache URL
+  ansible.builtin.set_fact:
+    apt_cache_host: "{{ apt_cache_host }}"
+    apt_cache_cert_exists: "{{ apt_cache_enabled and apt_cache_cert.stat.exists }}"
+    apt_cache_url: >-
+      {%- if not apt_cache_enabled -%}
+      {%- elif apt_cache_cert.stat.exists -%}
+      https://{{ apt_cache_host }}
+      {%- else -%}
+      http://{{ eth_local_address }}:{{ apt_cache_port }}
+      {%- endif -%}

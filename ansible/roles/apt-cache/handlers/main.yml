@@ -1,0 +1,12 @@
+---
+# Restart, not reload: acng only applies Remap-*/backend changes on a full
+# restart (a reload leaves remapped paths answering 503; ten64 apt_proxy).
+- name: apt-cache restart apt-cacher-ng
+  ansible.builtin.systemd_service:
+    name: apt-cacher-ng
+    state: restarted
+
+- name: apt-cache reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
