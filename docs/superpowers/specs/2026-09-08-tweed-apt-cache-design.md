@@ -1,7 +1,12 @@
 # Design: apt caching proxy on the gateway (`apt-cache` role)
 
 Date: 2026-09-08
-Status: design approved, not yet implemented
+Status: implemented 2026-09-13 (`roles/apt-cache`). Plan:
+`docs/superpowers/plans/2026-09-13-tweed-apt-cache.md`. Its "Findings that
+refine the spec" table records where the implementation departs from this
+document, and why: role placement after `img`, an empty `BindAddress`, the
+`apt.fpgas.online` backend, the added `rp1jtag` and Debian coverage, the
+plain-http fallback, and the https limitation of chaining to ten64.
 
 ## Problem
 
