@@ -1,0 +1,60 @@
+# {{ ansible_managed }} -- {{ apt_cache_host }}
+# TLS front end for apt-cacher-ng (roles/apt-cache). Ansible owns this file;
+# the certificate comes from `certbot certonly --webroot`, never
+# `certbot --nginx` -- see roles/site/tasks/certbot.yml for why.
+#
+# Every TLS server block carries BOTH `listen 443 ssl` and `listen [::]:443
+# ssl` (roles/site/tasks/verify/main.yml asserts it for every vhost).
+{% macro cache_proxy() %}
+    access_log /var/log/nginx/apt-cache-access.log;
+    error_log /var/log/nginx/apt-cache-error.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ apt_cache_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # acng streams a package to the client while it is still fetching it
+        # upstream; buffering here would stall the first client until the
+        # whole file had arrived, and a slow upstream past the default 60 s.
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 600s;
+    }
+{% endmacro %}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ apt_cache_host }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+{% if apt_cache_vhost_tls | bool %}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {{ apt_cache_host }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ apt_cache_host }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ apt_cache_host }}/privkey.pem;
+{% if apt_cache_ssl_options_exists | bool %}
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+{% endif %}
+{% if apt_cache_ssl_dhparams_exists | bool %}
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+{% endif %}
+
+{{ cache_proxy() }}}
+{% else %}
+
+{{ cache_proxy() }}}
+{% endif %}

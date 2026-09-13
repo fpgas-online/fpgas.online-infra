@@ -1,0 +1,103 @@
+---
+# Same shape as roles/site/tasks/certbot.yml: an Ansible-owned vhost rendered
+# plain-http first (so http-01 can be answered), then again with TLS once the
+# lineage exists. This runs in the nbp play, BEFORE the web tier installs
+# nginx, so it installs nginx itself (same flavour as roles/site).
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx-extras
+
+# tweed runs the snap certbot; installing Debian's over it would take over
+# /usr/bin/certbot with a version that cannot read the snap's renewal configs.
+- name: Check for an existing certbot
+  ansible.builtin.stat:
+    path: /usr/bin/certbot
+  register: apt_cache_certbot_bin
+
+- name: Install certbot
+  ansible.builtin.apt:
+    name: certbot
+  when: not apt_cache_certbot_bin.stat.exists
+
+- name: ACME webroot
+  ansible.builtin.file:
+    path: /var/www/html
+    state: directory
+    mode: "0755"
+
+- name: Check for certbot's nginx TLS options
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/options-ssl-nginx.conf
+  register: apt_cache_ssl_options
+
+- name: Check for certbot's DH parameters
+  ansible.builtin.stat:
+    path: /etc/letsencrypt/ssl-dhparams.pem
+  register: apt_cache_ssl_dhparams
+
+- name: apt cache vhost
+  ansible.builtin.template:
+    src: nginx-apt-cache.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ apt_cache_host }}.conf"
+    mode: "0644"
+  vars:
+    apt_cache_vhost_tls: "{{ apt_cache_cert_exists }}"
+    apt_cache_ssl_options_exists: "{{ apt_cache_ssl_options.stat.exists }}"
+    apt_cache_ssl_dhparams_exists: "{{ apt_cache_ssl_dhparams.stat.exists }}"
+  register: apt_cache_vhost
+
+# An explicit reload rather than flush_handlers: this file runs inside a
+# `when:` block, and flush_handlers does not honour conditionals.
+- name: Reload nginx so it serves the vhost before certbot
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when: apt_cache_vhost is changed
+
+# The certificate cannot issue until apt_cache_host has a public DNS record
+# (the fpgas.online zone on ns1; ten64 already forwards *.welland.fpgas.online
+# http and https to tweed). Without one, skip issuance and say so -- clients
+# stay on the plain-http cache address. A name that DOES resolve but fails
+# http-01 is a real fault and fails the run.
+- name: Check the apt cache name resolves
+  ansible.builtin.command: "getent ahosts {{ apt_cache_host }}"
+  register: apt_cache_dns
+  changed_when: false
+  failed_when: false
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists
+
+- name: Warn that the apt cache certificate is waiting for DNS
+  ansible.builtin.debug:
+    msg: >-
+      {{ apt_cache_host }} does not resolve, so no certificate was requested.
+      Pis and the NFS root use {{ apt_cache_url }} (cached, plain http) until
+      the public DNS record exists; the next converge then issues the
+      certificate and moves every client to https://{{ apt_cache_host }}.
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists and apt_cache_dns.rc != 0
+
+- name: Obtain the apt cache certificate (webroot http-01)
+  ansible.builtin.command: >-
+    certbot certonly --webroot -w /var/www/html -d {{ apt_cache_host }}
+    --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
+  args:
+    creates: "/etc/letsencrypt/live/{{ apt_cache_host }}/fullchain.pem"
+  register: apt_cache_certonly
+  when: apt_cache_certbot | bool and not apt_cache_cert_exists and apt_cache_dns.rc == 0
+
+# include (dynamic), not import: an import would push the `when` onto the
+# stat inside and re-register apt_cache_cert as "skipped" on every other run.
+- name: Switch clients to https now the certificate exists
+  ansible.builtin.include_tasks: facts.yml
+  when: apt_cache_certonly is changed
+
+- name: apt cache vhost (https, after the certificate was issued)
+  ansible.builtin.template:
+    src: nginx-apt-cache.conf.j2
+    dest: "/etc/nginx/sites-enabled/{{ apt_cache_host }}.conf"
+    mode: "0644"
+  vars:
+    apt_cache_vhost_tls: true
+    apt_cache_ssl_options_exists: "{{ apt_cache_ssl_options.stat.exists }}"
+    apt_cache_ssl_dhparams_exists: "{{ apt_cache_ssl_dhparams.stat.exists }}"
+  when: apt_cache_certonly is changed
+  notify: apt-cache reload nginx
