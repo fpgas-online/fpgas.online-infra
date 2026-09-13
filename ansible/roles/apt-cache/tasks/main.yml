@@ -23,7 +23,8 @@
   ansible.builtin.meta: flush_handlers
   tags: [apt-cache]
 
+# Not gated on apt_cache_enabled: with the cache disabled these render the
+# upstream URLs, so turning the cache off really does take it out of the path.
 - name: Pi NFS root apt sources
-  when: apt_cache_enabled | bool
   tags: [apt-cache]
   ansible.builtin.import_tasks: nfsroot.yml
