@@ -75,6 +75,10 @@ apt_cache_remaps:
     probe: bookworm/Release
 
 # Stock acng.conf remaps the NFS root also uses (Remap-debrep, for fixpi's
-# Debian armmp kernel source). Only probed, not configured.
+# Debian armmp kernel source; Remap-secdeb). Not configured here: the paths
+# are exposed through nginx, and the probes are fetched by verify.
+apt_cache_stock_paths:
+  - /debian
+  - /debian-security
 apt_cache_stock_probes:
   - /debian/dists/bookworm/Release
