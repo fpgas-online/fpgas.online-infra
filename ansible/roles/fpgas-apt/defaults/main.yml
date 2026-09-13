@@ -3,5 +3,12 @@
 # custom domain fpgas.online, so every project page -- including
 # fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, which apt
 # refuses to follow (https -> http). Use the canonical https URL directly.
-fpgas_apt_url: https://fpgas.online/apt
+fpgas_apt_upstream_url: https://fpgas.online/apt
+
+# The "Pi" here is the NFS root on a gateway, so the gateway's apt cache
+# (roles/apt-cache publishes apt_cache_url) is read from the first nbp host's
+# vars -- the same pattern as onpi/tasks/tt.yml. Empty (no nbp group, as in
+# ci-nfsroot.yml, or the cache disabled) falls back to upstream.
+fpgas_apt_cache_url: "{{ hostvars[groups['nbp'][0]].apt_cache_url | default('') if groups['nbp'] | default([]) else '' }}"
+fpgas_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online') if fpgas_apt_cache_url else fpgas_apt_upstream_url }}"
 fpgas_apt_suite: bookworm

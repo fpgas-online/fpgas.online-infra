@@ -42,3 +42,9 @@ server=8.8.8.8
 # forever (tweed rebuild C2-2 — the old server ran chrony configured
 # out-of-band; captured here so a fresh install serves time too).
 dhcp-option=option:ntp-server,{{ eth_local_address }}
+{% if apt_cache_url | default('') %}
+
+# The gateway's apt cache (roles/apt-cache): resolve its public name to this
+# gateway so Pis reach it directly rather than out through the uplink and back.
+host-record={{ apt_cache_host }},{{ eth_local_address }}
+{% endif %}
