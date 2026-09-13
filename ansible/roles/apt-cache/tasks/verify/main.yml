@@ -57,14 +57,32 @@
         timeout: 120
       failed_when: false
       register: apt_cache_v_probe
-      # Ride out a transient upstream failure: the PR #78 VM run got one
-      # "500 Remote or cache error" for archive.raspberrypi.com's Release
-      # (17 s, no redirect, not reproducible). A wrong backend or a stale
-      # Range-hazard file fails every attempt, so it still fails verify.
-      until: apt_cache_v_probe.status == 200
-      retries: 3
-      delay: 10
       loop: "{{ (apt_cache_remaps | map(attribute='path') | zip(apt_cache_remaps | map(attribute='probe')) | map('join', '/') | list) + apt_cache_stock_probes }}"
+
+    # acng's error pages say little ("500 Remote or cache error") and the
+    # cache lives on the gateway, so gather what explains a failed probe
+    # before asserting: the verbose exchange, acng's logs, and the cached
+    # index files with the upstream headers acng stored for them.
+    - name: Diagnose failed remap probes
+      ansible.builtin.shell: |
+        curl -sv -o /dev/null "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" 2>&1 | tail -n 25
+        echo "--- apt-cacher.err"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.err
+        echo "--- apt-cacher.log"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.log
+        echo "--- cached index files"; find {{ apt_cache_dir }} -maxdepth 4 -path '*dists*' -ls | head -n 40
+        for h in {{ apt_cache_dir }}/*/dists/*/*.head; do echo "== $h"; cat "$h"; done
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_probe_diag
+      loop: "{{ apt_cache_v_probe.results | rejectattr('status', 'equalto', 200) | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Show failed remap probe diagnostics
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines + item.stderr_lines }}"
+      loop: "{{ apt_cache_v_probe_diag.results }}"
+      loop_control:
+        label: "{{ item.item.item }}"
 
     - name: Assert every remap serves its Release file
       ansible.builtin.assert:
