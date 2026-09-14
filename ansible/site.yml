@@ -3,6 +3,7 @@
   roles:
     - netif
     - operators
+    - jump
     - lldp
     - firewall
     - {role: vlan-ports, when: switches is defined}

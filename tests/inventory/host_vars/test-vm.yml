@@ -44,7 +44,11 @@ streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-fixture_path: test.json
+# The real welland fixture, shipped inside the installed fpgas-online-site
+# package -- so the VM test exercises the production seeding path end to end.
+# (Was `test.json`, a fixture that never existed: the old role silently
+# skipped missing fixtures, which is the outage this PR fixes.)
+fixture_path: fpgas.online.json
 
 switch_base: base
 
@@ -78,7 +82,10 @@ switches:
     house_uplink_port: 52
 switches_manage: false
 
-pi_pw: "$6$test$testpasswordhash"
+# The pi user's PLAINTEXT shared password. roles/fixpi hashes it into the NFS
+# root's /etc/shadow; roles/site hands it (base64) to the web terminal, which
+# is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
+pi_pw: "fpgas-test-pi"
 
 # QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
 # in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
@@ -99,6 +106,9 @@ pxe_test_clients:
 # no public DNS => no certbot; no embed download.
 tt_boards:
   - {slug: tt06, switch: 0, port: 128, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (VM)"}
+  # commander: legacy exercises the catalogue key end to end (template render,
+  # daemon tolerance, ttsite_loadboards) without needing a legacy bundle pin.
+  - {slug: tt03p5, port: null, kind: asic, shuttle: tt03p5, title: "TT 3.5 (unwired)", commander: legacy}
   - {slug: kianv-1, port: null, kind: kianv, title: "KianV (unwired)"}
   - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
@@ -108,5 +118,8 @@ tt_commander_embed_version: ""
 # a 30-minute qemu-emulated update-initramfs is not worth a CI run.
 sunxi_kernel_package: linux-image-armmp
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
+# hat_uuid + mac identify the physical board; switch/port/usb/host are its
+# current placement (see the production host_vars). hat_uuid is only checked
+# on real Orange Pi hardware (the virtual Pi skips the DT-model-gated tasks).
 sunxi_boards:
-  - {switch: 1, port: 1, host: pi-sw1-p1, usb: "1-1.2.2", model: orangepi-pc, mac: "02:81:00:00:00:01"}
+  - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 1, usb: "1-1.2.2", host: pi-sw1-p1}

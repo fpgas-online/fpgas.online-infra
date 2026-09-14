@@ -39,6 +39,7 @@
       - tree
       - ack
       - tcpdump
+      - i2c-tools
       # Advertises this Pi's hostname on its link so the switch's LLDP
       # neighbour table names which Pi is on which port -- confirms the
       # assumed cabling instead of trusting it (fpgas.online-setup-pi#6;
@@ -102,12 +103,27 @@
   apt:
     autoremove: true
 
+# Pin the pipx locations: bare `pipx install` places venvs wherever the
+# invoking environment points it (the old tweed chroot build: /root/.local/
+# pipx; the CI runner chroot: /opt/pipx) and puts the binaries on no user's
+# PATH. /opt/pipx + /usr/local/bin is deterministic and reachable by every
+# user (issue #34 CI-vs-tweed manifest comparison).
 - name: install mpremote via pipx
   command: "pipx install mpremote"
+  args:
+    creates: /usr/local/bin/mpremote
+  environment:
+    PIPX_HOME: /opt/pipx
+    PIPX_BIN_DIR: /usr/local/bin
   tags:
     - mp
 
 - name: install uv via pipx
   command: "pipx install uv"
+  args:
+    creates: /usr/local/bin/uv
+  environment:
+    PIPX_HOME: /opt/pipx
+    PIPX_BIN_DIR: /usr/local/bin
   tags:
     - mp

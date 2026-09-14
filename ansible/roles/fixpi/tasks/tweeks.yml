@@ -87,6 +87,31 @@
   tags:
     - fixpi
 
+# Write-protect the bootloader EEPROM. The EEPROM (SPI flash) is the one piece
+# of per-board state that a netbooted Pi does NOT revert on reboot, so it is the
+# only place a root user could leave a persistent change (reflash the bootloader,
+# change BOOT_ORDER, etc). eeprom_write_protect=1 tells the bootloader to set the
+# SPI flash Write Status Register to protect the whole device, which blocks
+# rpi-eeprom-update / rpi-eeprom-config from writing it.
+#
+#   Pi 5 (BCM2712): /WP is pulled low by default, so configuring the Write Status
+#     Register makes the protection hardware-enforced immediately -- even root
+#     cannot clear it without physically bridging TP14<->TP1. This is a real,
+#     tamper-resistant lock.
+#   Pi 4 (BCM2711): /WP (TP5) is NOT asserted by default, so this blocks the
+#     standard tooling but a determined root user could still clear the Write
+#     Status Register. Pull TP5 low to make it hardware-enforced.
+#
+# To legitimately update an EEPROM later: set eeprom_write_protect=0 in the
+# served config.txt, reboot the board, flash, then restore =1. See
+# docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md
+- name: config.txt write-protect the bootloader EEPROM
+  ansible.builtin.lineinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    line: eeprom_write_protect=1
+  tags:
+    - fixpi
+
 # The block above frees the 40-pin header UART on Pi 0-4 only, and does so as a
 # side effect: disable-bt.dtbo is compatible="brcm,bcm2835" and its fragment@1
 # targets `uart0` with status="okay" + uart0_pins.  On a Pi 5 the firmware
@@ -117,8 +142,29 @@
   tags:
     - fixpi
     - cmdline
+# USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
+# USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
+# in peripheral mode a laptop on that port gets the kernel log + a getty.
+# Only these models: their USB-A ports hang off separate controllers (VL805 /
+# RP1), so nothing is lost, whereas on a Pi 3 or Zero dwc2 IS the only USB
+# (Ethernet on the 3B+ included). Fleet nodes are PoE-powered, so the USB-C
+# port is free. Orange Pi H3 boards need nothing here (musb autoloads).
+- name: config.txt dwc2 peripheral mode on Pi 4 / Pi 5 (USB gadget console)
+  ansible.builtin.blockinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: usb gadget console"
+    block: |
+      [pi4]
+      dtoverlay=dwc2,dr_mode=peripheral
+      [pi5]
+      dtoverlay=dwc2,dr_mode=peripheral
+      [all]
+  tags:
+    - fixpi
 
-# the rest of these tasks config the server to monitor client boot spew
+# the rest of these tasks config the server to monitor client boot spew.
+# They touch the build host, not the NFS root, so the CI nfsroot build
+# (issue #34) skips them with fixpi_server_monitor: false.
 
 - name: is server pi
   stat:
@@ -145,18 +191,21 @@
     name:
       - brltty
     state: absent
+  when: fixpi_server_monitor | default(true)
 
 - name: install packages on server
   apt:
     name:
       - tio
       - ansible
+  when: fixpi_server_monitor | default(true)
 
 - name: let tio connect to the tty and see pi boot messages
   ansible.builtin.user:
     name: "{{ user_name }}"
     groups: dialout
     append: true
+  when: fixpi_server_monitor | default(true)
 
 # don't let getty mess up boot messages over the serial console
 - name: disable (mask) getty systemd service
@@ -165,6 +214,7 @@
     masked: true
     state: stopped
     name: serial-getty@ttyAMA0.service
+  when: fixpi_server_monitor | default(true)
   tags:
     - ispi
 
@@ -176,8 +226,9 @@
     single_branch: true
     accept_hostkey: true
     force: true
-    # args:
-    # creates: "/home/{{ user_name }}/pici"
+  when: fixpi_server_monitor | default(true)
+  # args:
+  # creates: "/home/{{ user_name }}/pici"
 
 # ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts
 

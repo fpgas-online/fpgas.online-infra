@@ -369,7 +369,7 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `switch.host` | PoE switch address | `10.21.0.200` (unreachable, OK) |
 | `switch.mac` | PoE switch MAC | `00:00:00:00:00:00` (dummy) |
 | `switch.nos` | Pi list with sn, mac, port | 1-2 entries; `sn` must match `pxe_test_clients.sn` |
-| `pi_pw` | Pi user password hash | plaintext test value (not vault-encrypted) |
+| `pi_pw` | Pi user password (plaintext; fixpi hashes it into the NFS root) | plaintext test value (not vault-encrypted) |
 | `user_name` | Pi system user | `testuser` |
 | `domain` | Server domain | `test.fpgas.online` |
 | `domain_name` | Hostname for pistat etc. | `test.fpgas.online` |
