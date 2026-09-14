@@ -80,12 +80,9 @@
       tags: [verify, services]
 
     # The board pages' web terminal (webssh on the server) logs in as the pi
-    # user WITH THE SHARED PASSWORD -- it has no key. useradd creates the
-    # account in the NFS root with the password locked ("L"); only
-    # fixpi/userconf.yml writing the hash makes it "P". From the 2026-08-26
-    # tweed rebuild nothing did, and every welland board's terminal failed
-    # with "Authentication failed." (e2e-tests ROADMAP, 2026-09-12) while
-    # every check here passed.
+    # user with the shared password; it has no key. useradd creates the
+    # account with the password locked ("L"); fixpi/userconf.yml writing the
+    # hash into the NFS root is what makes it usable ("P").
     - name: Check the pi user has a usable password
       command: passwd -S {{ user | default('pi') }}
       changed_when: false

@@ -9,22 +9,13 @@
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
 
-# The pi user is created by useradd in the NFS root (netboot.yml "create pi
-# user"), which leaves its password LOCKED. The RPi OS first-boot wizard that
-# would apply boot/userconf.txt is masked there, and /boot/firmware is noauto
-# so it could never have seen the file -- yet writing userconf.txt is all the
-# old pipw.sh did (guarded by a marker file, so it never ran twice). The
-# account stayed locked (`passwd -S pi` -> "pi L"), and every password login
-# failed: the board pages' web terminal (webssh, password in the iframe URL)
-# reported "Authentication failed." on all 14 welland boards from the
-# 2026-08-26 tweed rebuild until 2026-09-14 (e2e-tests ROADMAP, 2026-09-12).
-#
-# So write the hash straight into the root's /etc/shadow, with the same
-# `chpasswd -e` the wizard would have run. pi_pw is the PLAINTEXT shared
-# password -- roles/site hands it (base64) to the web terminal, so it cannot
-# be a hash. The salt is derived from it, so the hash is stable across runs
-# and the tasks are idempotent. openssl hashes on the server (the NFS root's
-# own python3 would need qemu, and the server's has no crypt module).
+# useradd (netboot.yml "create pi user") leaves the account's password locked.
+# pi_pw is the PLAINTEXT shared password: roles/site hands it (base64) to the
+# web terminal, which logs in to the Pi with it, so it cannot be a hash. Hash
+# it here on the server with openssl (the NFS root's own python3 would need
+# qemu, and the server's has no crypt module) and write it into the root's
+# /etc/shadow with `chpasswd -e`. The salt is derived from the password, so
+# the hash is stable across runs and the tasks are idempotent.
 - name: hash the pi user's password (sha512-crypt, salt derived from it)
   command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
@@ -53,9 +44,11 @@
   tags:
     - pipw
 
-# What pipw.sh left behind: the plaintext password in the TFTP-served boot
-# dir, and the marker that kept it from running again.
-- name: remove the old userconf.txt and password marker
+# Nothing reads these: the RPi OS first-boot wizard that would apply
+# boot/userconf.txt is masked in the NFS root (netboot.yml), and password.txt
+# was only ever a marker. userconf.txt holds the plaintext password in the
+# TFTP-served boot dir, so make sure it is gone.
+- name: remove userconf.txt and the password marker
   file:
     path: "{{ item }}"
     state: absent

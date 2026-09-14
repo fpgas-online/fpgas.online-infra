@@ -64,12 +64,10 @@ def pi_password_login_works(host: str, password: str, key_path: Path, proxy_jump
     """Log in to the Pi as `pi` with the shared password, as the web terminal does.
 
     webssh (roles/wssh) has no key for the Pi: the board page's iframe URL
-    carries the password and paramiko authenticates with it, so this is the
-    only test of that path. useradd creates the account in the NFS root with
-    its password locked; only fixpi/userconf.yml writing the hash unlocks it.
-    For three weeks after the 2026-08-26 tweed rebuild nothing did, every
-    welland board's terminal failed with "Authentication failed." (e2e-tests
-    ROADMAP, 2026-09-12), and this harness -- keys only -- passed.
+    carries the password and paramiko authenticates with it. The key login
+    above says nothing about that path -- useradd creates the account with
+    its password locked, and only fixpi/userconf.yml writing the hash into
+    the NFS root makes it usable.
     """
     sock = open_proxied_socket(proxy_jump, key_path, host, 22)
     client = paramiko.SSHClient()
