@@ -160,6 +160,50 @@
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
 
+    # JTAG tools: roles/onpi/tasks/apt.yml installs the RP1-PIO builds from
+    # mithro/rp1-jtag (source: roles/fpgas-apt/tasks/rp1-jtag.yml) in place of
+    # Debian's openocd / openfpgaloader. They come from a third-party apt
+    # source under the fpgas-apt tag, so these checks carry it too and are
+    # skipped alongside the install (the VM test runs --skip-tags fpgas-apt).
+    # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
+    - name: Check the RP1-PIO openFPGALoader and OpenOCD packages
+      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-rp1pio openocd-rp1pio
+      changed_when: false
+      register: verify_pi_rp1pio
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert the RP1-PIO openFPGALoader and OpenOCD are installed
+      assert:
+        that:
+          - verify_pi_rp1pio.rc == 0
+          - "'openfpgaloader-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+          - "'openocd-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+        fail_msg: >-
+          openfpgaloader-rp1pio / openocd-rp1pio not installed on the Pi
+          (got: {{ verify_pi_rp1pio.stdout_lines }}) -- the NFS root predates
+          the rp1-jtag apt source, or Debian's openocd / openfpgaloader were
+          reinstalled over them
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: List openFPGALoader cables
+      command: openFPGALoader --list-cables
+      changed_when: false
+      register: verify_pi_cables
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert openFPGALoader offers the rp1pio cable
+      assert:
+        that:
+          - verify_pi_cables.rc == 0
+          - verify_pi_cables.stdout_lines | select('match', '^rp1pio ') | list | length == 1
+        fail_msg: >-
+          `openFPGALoader --list-cables` does not list rp1pio -- the binary
+          on the root is not the rp1-jtag build (rc {{ verify_pi_cables.rc }}:
+          {{ verify_pi_cables.stderr | default('') }})
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
     # Hardware-dependent services (tag-based skip)
     - name: Check fpgas-cam service enabled
       command: systemctl is-enabled fpgas-cam
