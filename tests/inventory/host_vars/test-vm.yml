@@ -82,7 +82,10 @@ switches:
     house_uplink_port: 52
 switches_manage: false
 
-pi_pw: "$6$test$testpasswordhash"
+# The pi user's PLAINTEXT shared password. roles/fixpi hashes it into the NFS
+# root's /etc/shadow; roles/site hands it (base64) to the web terminal, which
+# is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
+pi_pw: "fpgas-test-pi"
 
 # QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
 # in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
