@@ -382,3 +382,22 @@ sunxi_boards:
 # fpgas.welland.mithis.com at all.  Both are unresolved as of 2026-09-14.
 firewall_dns_query_sources:
   - 10.99.21.1
+
+# ── Authoritative DNS for the zone ten64 delegates to us ────────────────
+# ten64 (the welland site router) delegates fpgas.welland.mithis.com here:
+# its zone carries `fpgas.welland.mithis.com. NS gw.fpgas.welland.mithis.com.`
+# with glue `gw.fpgas.welland.mithis.com. A 10.21.0.1`, and the target is
+# hardcoded in gdoc2netcfg's generators/pdns_zones.py as
+# DELEGATED_NET_SERVERS = {"fpgas": "10.21.0.1"}.  Keep dnsmasq_auth_glue in
+# step with that NS name.
+#
+# Queries reach us across the VLAN-121 transit link, so they arrive on
+# eth-uplink; auth-server overrides the interface= list for exactly that
+# case and serves authoritative-only (no recursion) there.
+#
+# See also firewall_dns_query_sources above: the firewall must let those
+# queries in before dnsmasq ever sees them.
+dnsmasq_auth_zone: fpgas.welland.mithis.com
+dnsmasq_auth_glue: gw.fpgas.welland.mithis.com
+dnsmasq_auth_subnet: 10.21.0.0/16
+dnsmasq_auth_interface: eth-uplink
