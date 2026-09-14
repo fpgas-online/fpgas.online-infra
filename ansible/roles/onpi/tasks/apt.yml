@@ -46,8 +46,7 @@
       # the server half is the lldp role). A running Pi only picks this up
       # after a reboot: the NFS root is a read-only lower layer.
       - lldpd
-      - openocd
-      - openfpgaloader
+      # openocd / openfpgaloader: the RP1-PIO builds, below.
       - fxload
       - openwince-jtag
       - python3-full
@@ -66,6 +65,36 @@
     install_recommends: true
   tags:
     - img
+
+# openFPGALoader and OpenOCD on the Pis come from mithro/rp1-jtag rather than
+# Debian. Both are built against librp1jtag, so on a Pi 5 / CM5 they drive
+# JTAG from the RP1's PIO block instead of bit-banging GPIOs through libgpiod,
+# and the openFPGALoader is new enough to have --read-dna / --read-xadc /
+# --read-register (Debian's 0.10.0 has none of them, which is why FPGA DNA
+# could not be read on the welland boards).
+#
+# Both packages declare Provides/Conflicts/Replaces on the Debian package
+# they stand in for, so a root that already has Debian's openocd or
+# openfpgaloader (every root built before this task) is swapped in place:
+# the apt module runs `apt-get -y install` without --no-remove
+# (fail_on_autoremove is false), and apt resolves the Conflicts by removing
+# the stock package in the same transaction. Debian's names must stay out
+# of the "Install packages" list above, or the next run would swap them
+# back.
+#
+# The source is roles/fpgas-apt/tasks/rp1-jtag.yml, which runs under the
+# fpgas-apt tag; this task carries fpgas-apt too so the VM integration test,
+# which skips that tag (issue #49), skips the install along with the source.
+- name: Install the RP1-PIO openFPGALoader and OpenOCD
+  ansible.builtin.apt:
+    name:
+      - openfpgaloader-rp1pio
+      - openocd-rp1pio
+    state: present
+  tags:
+    - img
+    - rp1-jtag
+    - fpgas-apt
 
 #      - raspberrypi-kernel-headers
 

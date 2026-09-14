@@ -30,6 +30,10 @@
     state: present
     filename: fpgas-online
 
+# RP1-PIO openFPGALoader / OpenOCD builds from mithro/rp1-jtag.
+- name: Add the rp1-jtag apt repository
+  ansible.builtin.include_tasks: rp1-jtag.yml
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true

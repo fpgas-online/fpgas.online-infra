@@ -1,0 +1,61 @@
+---
+# Add the mithro/rp1-jtag apt repository: openfpgaloader-rp1pio and
+# openocd-rp1pio, which roles/onpi/tasks/apt.yml installs in place of
+# Debian's openocd / openfpgaloader (RP1 PIO JTAG on Pi 5 / CM5).
+#
+# Same shape as the fpgas.online repo above: the published key is armoured,
+# so fetch it as the change detector and dearmour it into the binary keyring
+# apt's signed-by expects (issue #13). The keyring path matches the upstream
+# setup instructions (https://mithro.github.io/rp1-jtag/), so a root set up
+# by hand from those instructions converges without a second keyring.
+#
+# These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
+# tag the whole role), which is also what the VM integration test skips
+# (tests/vm/run_tests.py, issue #49). The onpi install and the verify-pi
+# checks for these packages carry fpgas-apt too, so skipping the source
+# skips everything that needs it.
+
+- name: Ensure /etc/apt/keyrings exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Fetch rp1-jtag apt signing key (armoured)
+  ansible.builtin.get_url:
+    url: "{{ rp1_jtag_apt_url }}/rp1-jtag.gpg"
+    dest: /etc/apt/keyrings/rp1-jtag.asc
+    mode: '0644'
+  register: rp1_jtag_apt_key
+
+- name: Read the fetched rp1-jtag key's fingerprint
+  ansible.builtin.command:
+    cmd: gpg --batch --with-colons --show-keys /etc/apt/keyrings/rp1-jtag.asc
+  register: rp1_jtag_apt_key_info
+  changed_when: false
+
+- name: Assert the rp1-jtag key is the pinned one
+  ansible.builtin.assert:
+    # The first fpr: record is the primary key's (subkeys follow their pub).
+    that: >-
+      (rp1_jtag_apt_key_info.stdout_lines
+       | select('match', '^fpr:')
+       | map('regex_replace', '[^0-9A-F]', '')
+       | first | default('')) == rp1_jtag_apt_key_fingerprint
+    fail_msg: >-
+      {{ rp1_jtag_apt_url }}/rp1-jtag.gpg is not signed by the pinned
+      primary key {{ rp1_jtag_apt_key_fingerprint }}
+      (got {{ rp1_jtag_apt_key_info.stdout_lines | select('match', '^fpr:') | list }}).
+      If mithro/rp1-jtag rotated its signing key, update
+      rp1_jtag_apt_key_fingerprint in roles/fpgas-apt/defaults/main.yml.
+
+- name: Dearmour rp1-jtag apt signing key
+  ansible.builtin.command:
+    cmd: gpg --batch --yes --dearmor -o /etc/apt/keyrings/rp1-jtag.gpg /etc/apt/keyrings/rp1-jtag.asc
+  when: rp1_jtag_apt_key.changed
+
+- name: Add rp1-jtag apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/rp1-jtag.gpg] {{ rp1_jtag_apt_url }}/{{ rp1_jtag_apt_suite }}/ ./"
+    state: present
+    filename: rp1-jtag
