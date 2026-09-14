@@ -186,6 +186,29 @@ def create_overlay(base_image: Path, overlay_path: Path, size: str = "20G") -> P
     return overlay_path
 
 
+def open_proxied_socket(
+    proxy_jump: str, key_path: Path | None, host: str, port: int
+) -> paramiko.Channel:
+    """Open a direct-tcpip channel to host:port through a ProxyJump host.
+
+    proxy_jump is "user@host:port" (see network.proxy_jump_string); the jump
+    host is authenticated with key_path. The returned channel is what
+    paramiko.SSHClient.connect() takes as `sock`.
+    """
+    proxy_user, proxy_rest = proxy_jump.split("@")
+    proxy_host, proxy_port = proxy_rest.split(":")
+    proxy = paramiko.SSHClient()
+    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    proxy.connect(
+        proxy_host, port=int(proxy_port),
+        username=proxy_user, key_filename=str(key_path),
+        timeout=5,
+    )
+    return proxy.get_transport().open_channel(
+        "direct-tcpip", (host, port), ("127.0.0.1", 0)
+    )
+
+
 def generate_ssh_keypair(key_path: Path) -> tuple[Path, str]:
     """Generate an ephemeral ed25519 SSH keypair. Returns (private_key_path, public_key_string)."""
     key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -403,20 +426,7 @@ class VMManager:
 
                 sock = None
                 if proxy_jump:
-                    # Parse proxy_jump as "user@host:port"
-                    proxy_user, proxy_rest = proxy_jump.split("@")
-                    proxy_host, proxy_port = proxy_rest.split(":")
-                    proxy = paramiko.SSHClient()
-                    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    proxy.connect(
-                        proxy_host, port=int(proxy_port),
-                        username=proxy_user, key_filename=str(key_path),
-                        timeout=5,
-                    )
-                    transport = proxy.get_transport()
-                    sock = transport.open_channel(
-                        "direct-tcpip", (host, port), ("127.0.0.1", 0)
-                    )
+                    sock = open_proxied_socket(proxy_jump, key_path, host, port)
 
                 client.connect(
                     host, port=port, username=username,

@@ -79,6 +79,26 @@
         fail_msg: "SSH service is not active on Pi"
       tags: [verify, services]
 
+    # The board pages' web terminal (webssh on the server) logs in as the pi
+    # user with the shared password; it has no key. useradd creates the
+    # account with the password locked ("L"); fixpi/userconf.yml writing the
+    # hash into the NFS root is what makes it usable ("P").
+    - name: Check the pi user has a usable password
+      command: passwd -S {{ user | default('pi') }}
+      changed_when: false
+      register: verify_pi_passwd
+      tags: [verify, services]
+
+    - name: Assert the pi user's password is set (the web terminal logs in with it)
+      assert:
+        that: verify_pi_passwd.stdout.split()[1] == 'P'
+        fail_msg: >-
+          `passwd -S` reports '{{ verify_pi_passwd.stdout }}' -- the pi
+          account's password is locked (L) or empty (NP), so the web
+          terminal's password login fails. fixpi/userconf.yml (tag pipw)
+          writes it into the NFS root.
+      tags: [verify, services]
+
     - name: Check python3 available
       command: python3 --version
       changed_when: false

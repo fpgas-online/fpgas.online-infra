@@ -36,7 +36,6 @@ ROOT_EXCLUDES = {
 CONFIG_FILES = [
     "boot/cmdline.txt",
     "boot/config.txt",
-    "boot/userconf.txt",
     "root/etc/fstab",
     "root/etc/environment",
     "root/etc/resolv.conf",
