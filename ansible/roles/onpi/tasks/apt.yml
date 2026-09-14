@@ -1,5 +1,14 @@
 ---
 
+# A run that died mid-upgrade (an aborted play, a postinst that failed in
+# the chroot) leaves packages half-configured, and apt then refuses to do
+# anything until dpkg has finished them. Do that first, so the role can
+# always be re-run to repair the root.
+- name: finish any interrupted dpkg configuration
+  command: dpkg --configure -a
+  register: onpi_dpkg_configure
+  changed_when: onpi_dpkg_configure.stdout | trim | length > 0
+
 - name: apt update/upgrade
   apt:
     # name: "*"
