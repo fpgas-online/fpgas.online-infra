@@ -5,8 +5,8 @@
 - name: Install fpgas.online Django site
   ansible.builtin.pip:
     name:
-      - "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"
-      - "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
+      - "{{ site_package }}"
+      - "{{ site_poe_package }}"
     virtualenv: "{{ django_dir }}/venv"
     state: forcereinstall
   # a new wheel means new templates/code: the running gunicorn/daphne keep

@@ -10,3 +10,8 @@ site_certbot: true
 # UNDER_CONSTRUCTION, read by pibfpgas.middleware.UnderConstructionMiddleware).
 # Off by default: welland opts in, ps1 is the site being pointed AT.
 site_under_construction: false
+
+# pip requirement specs for the site and the PoE/switch package.  Override to
+# deploy a branch (`... .git@my-branch`) for testing before it is merged.
+site_package: "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"
+site_poe_package: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
