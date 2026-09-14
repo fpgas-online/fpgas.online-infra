@@ -11,6 +11,16 @@ site_certbot: true
 # Off by default: welland opts in, ps1 is the site being pointed AT.
 site_under_construction: false
 
+# pip requirement specs for the site and the PoE/switch package.  Override
+# site_package with `... .git@my-branch` to deploy a site branch for testing.
+site_package: "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"
+site_poe_package: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
+# The site package pins fpgas-online-poe to its main branch, so a poe branch
+# cannot be resolved alongside it.  To test one, set this to its spec; it is
+# installed on top afterwards with --no-deps (its dependencies must already
+# be satisfied by main's).  Undefined in production.
+# site_poe_package_override: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git@my-branch"
+
 # Largest request body nginx accepts on the board-page upload endpoint
 # (/pibup/, the pibup Django app, which SFTPs the file into ~/Uploads on the
 # Pi).  Only that location gets it; the rest of the vhost keeps nginx's 1m
