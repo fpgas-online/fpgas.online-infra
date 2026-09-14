@@ -7,7 +7,10 @@ cmdline.txt - root=nfs
 etc/fstab / and /boot/firmware nfs
 
 ### userconf.yml
-set the password and tell everyone
+hash the pi user's password (sha512-crypt, salt derived from it)
+check whether the NFS root already carries that hash
+set the pi user's password in the NFS root
+remove the old userconf.txt and password marker
 enable sshd
 create issue.d dir
 display IP, pw and things on console

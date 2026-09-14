@@ -9,10 +9,59 @@
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
 
-- name: set the password and tell everyone
-  script: files/pipw.sh "{{user}}" "{{pi_pw}}" "{{nfs_root}}/boot" "{{nfs_root}}/root"
+# The pi user is created by useradd in the NFS root (netboot.yml "create pi
+# user"), which leaves its password LOCKED. The RPi OS first-boot wizard that
+# would apply boot/userconf.txt is masked there, and /boot/firmware is noauto
+# so it could never have seen the file -- yet writing userconf.txt is all the
+# old pipw.sh did (guarded by a marker file, so it never ran twice). The
+# account stayed locked (`passwd -S pi` -> "pi L"), and every password login
+# failed: the board pages' web terminal (webssh, password in the iframe URL)
+# reported "Authentication failed." on all 14 welland boards from the
+# 2026-08-26 tweed rebuild until 2026-09-14 (e2e-tests ROADMAP, 2026-09-12).
+#
+# So write the hash straight into the root's /etc/shadow, with the same
+# `chpasswd -e` the wizard would have run. pi_pw is the PLAINTEXT shared
+# password -- roles/site hands it (base64) to the web terminal, so it cannot
+# be a hash. The salt is derived from it, so the hash is stable across runs
+# and the tasks are idempotent. openssl hashes on the server (the NFS root's
+# own python3 would need qemu, and the server's has no crypt module).
+- name: hash the pi user's password (sha512-crypt, salt derived from it)
+  command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
-    creates: "{{nfs_root}}/root/etc/ssh/password.txt"
+    stdin: "{{ pi_pw }}"
+  register: fixpi_pi_pw_hash
+  changed_when: false
+  no_log: true
+  tags:
+    - pipw
+
+- name: check whether the NFS root already carries that hash
+  command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
+  register: fixpi_pi_pw_current
+  changed_when: false
+  failed_when: fixpi_pi_pw_current.rc not in [0, 1]
+  no_log: true
+  tags:
+    - pipw
+
+- name: set the pi user's password in the NFS root
+  command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "chpasswd -e"
+  args:
+    stdin: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}"
+  when: fixpi_pi_pw_current.rc != 0
+  no_log: true
+  tags:
+    - pipw
+
+# What pipw.sh left behind: the plaintext password in the TFTP-served boot
+# dir, and the marker that kept it from running again.
+- name: remove the old userconf.txt and password marker
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ nfs_root }}/boot/userconf.txt"
+    - "{{ nfs_root }}/root/etc/ssh/password.txt"
   tags:
     - pipw
 
