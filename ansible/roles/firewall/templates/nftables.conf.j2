@@ -21,6 +21,17 @@ table inet filter {
           tcp dport ssh counter accept;
               meta l4proto {icmp, icmpv6} counter accept;
               udp dport { 67, 68, 546, 547 } counter accept;
+{% if firewall_dns_query_sources is defined %}
+          # Off-net DNS clients.  Queries from the internal /16 are already
+          # accepted by internal_networks; these are hosts reaching this
+          # resolver from elsewhere -- e.g. a site resolver that delegates a
+          # zone to this dnsmasq and queries it across a transit link.
+          # TCP as well: DNSSEC and large answers fall back to TCP.
+{% for src in firewall_dns_query_sources %}
+          ip saddr {{ src }} udp dport 53 counter accept;
+          ip saddr {{ src }} tcp dport 53 counter accept;
+{% endfor %}
+{% endif %}
           # tcp dport 4433 counter accept;
           # tcp dport 6379 counter accept;
           # tcp dport 8084 counter accept;
