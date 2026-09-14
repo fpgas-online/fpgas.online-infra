@@ -10,6 +10,7 @@ etc/fstab / and /boot/firmware nfs
 hash the pi user's password (sha512-crypt, salt derived from it)
 check whether the NFS root already carries that hash
 set the pi user's password in the NFS root
+reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
 remove userconf.txt and the password marker
 enable sshd
 create issue.d dir

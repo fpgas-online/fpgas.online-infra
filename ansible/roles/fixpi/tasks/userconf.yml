@@ -35,12 +35,26 @@
   tags:
     - pipw
 
+# chpasswd replaces /etc/shadow (new inode). The running Pis mount this root
+# as the lower layer of an overlayroot over NFS, and their sshd keeps the
+# old dentry: after this changes, every one of them closes each SSH
+# connection (key or password) until it is rebooted. Reboot them all.
 - name: set the pi user's password in the NFS root
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "chpasswd -e"
   args:
     stdin: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}"
   when: fixpi_pi_pw_current.rc != 0
+  register: fixpi_pi_pw_set
   no_log: true
+  tags:
+    - pipw
+
+- name: reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
+  debug:
+    msg: >-
+      {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
+      now refuses SSH until rebooted: PoE-cycle their switch ports.
+  when: fixpi_pi_pw_set is changed
   tags:
     - pipw
 
