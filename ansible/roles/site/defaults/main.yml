@@ -20,3 +20,10 @@ site_poe_package: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/f
 # installed on top afterwards with --no-deps (its dependencies must already
 # be satisfied by main's).  Undefined in production.
 # site_poe_package_override: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git@my-branch"
+
+# Largest request body nginx accepts on the board-page upload endpoint
+# (/pibup/, the pibup Django app, which SFTPs the file into ~/Uploads on the
+# Pi).  Only that location gets it; the rest of the vhost keeps nginx's 1m
+# default.  Sized for the biggest bitstream on the fleet (Acorn CLE-215+,
+# ~9.7 MiB) plus a LiteX kernel+rootfs image with room to spare.
+site_upload_max_body_size: 64m
