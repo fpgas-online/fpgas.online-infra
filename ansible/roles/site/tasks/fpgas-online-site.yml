@@ -16,6 +16,18 @@
   tags:
     - django
 
+- name: Install a PoE package branch on top (testing only, see defaults)
+  ansible.builtin.pip:
+    name: "{{ site_poe_package_override }}"
+    virtualenv: "{{ django_dir }}/venv"
+    state: forcereinstall
+    extra_args: --no-deps
+  when: site_poe_package_override is defined
+  notify:
+    - restart django services
+  tags:
+    - django
+
 # Servers + the Channels redis layer (pib.settings uses channels_redis, which
 # the site package does not declare). Installed here, before the unit files
 # in gunicorn.yml/uvicorn.yml/daphne.yml, so the first start of gunicorn
