@@ -114,8 +114,11 @@ fleet_watchdog_exclude:
   1:
     - 13    # rpiz-4, SD-booted, its own ssh host key
   2:
-    - 11    # Pi 5 2c:cf:67:16:bc:30: draws 5.6 W, link never comes up,
-            # a PoE cycle does not revive it. Needs on-site attention.
+    # p11 is a Pi 5 (2c:cf:67:16:bc:30). It draws 5.6 W but its link never
+    # comes up, and a PoE cycle does not revive it: it needs on-site
+    # attention, so cycling it every ten minutes forever would achieve
+    # nothing.
+    - 11
     - 12    # rpi5-netv2pcie-test, boots locally, rejects every key we hold
     - 27    # rpi5-new-13f56e, SD-booted
     - 30    # rpi5-new-13f59c, SD-booted; the EEPROM recovery host
