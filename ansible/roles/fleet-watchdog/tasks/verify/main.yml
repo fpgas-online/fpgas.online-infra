@@ -1,0 +1,82 @@
+---
+- name: "verify: the watchdog key exists"
+  stat:
+    path: "{{ fleet_watchdog_home }}/id_ed25519"
+  register: fleet_watchdog_verify_key
+
+- name: "verify: the watchdog key is private to the service account"
+  assert:
+    that:
+      - fleet_watchdog_verify_key.stat.exists
+      - fleet_watchdog_verify_key.stat.pw_name == fleet_watchdog_user
+      - fleet_watchdog_verify_key.stat.mode == "0600"
+    fail_msg: "watchdog ssh key missing or world-readable"
+
+# Read the public key FROM THE TARGET. `lookup('file', ...)` would read the
+# control node's filesystem, where this path does not exist, so it would
+# either fail or silently compare the wrong thing.
+- name: "verify: read the watchdog public key from the target"
+  slurp:
+    src: "{{ fleet_watchdog_home }}/id_ed25519.pub"
+  register: fleet_watchdog_verify_pub
+
+- name: "verify: the watchdog key is authorised in the NFS root"
+  command: >-
+    grep -qF "{{ (fleet_watchdog_verify_pub.content | b64decode).split()[1] }}"
+    {{ nfs_root }}/root/home/pi/.ssh/authorized_keys
+  changed_when: false
+
+- name: "verify: known_hosts pins one key per managed address"
+  command: "wc -l < {{ fleet_watchdog_home }}/known_hosts"
+  register: fleet_watchdog_verify_known_hosts
+  changed_when: false
+
+- name: "verify: known_hosts covers every access port"
+  assert:
+    that:
+      - fleet_watchdog_verify_known_hosts.stdout | int
+        >= (switches | map(attribute='access_ports') | sum)
+    fail_msg: "known_hosts does not cover every access port"
+
+- name: "verify: the environment file holds no world-readable secrets"
+  stat:
+    path: "{{ fleet_watchdog_env_file }}"
+  register: fleet_watchdog_verify_env
+
+- name: "verify: the environment file is 0600"
+  assert:
+    that:
+      - fleet_watchdog_verify_env.stat.mode == "0600"
+    fail_msg: "{{ fleet_watchdog_env_file }} must be 0600, it holds SNMP write communities"
+
+- name: "verify: the console script is installed in the shared venv"
+  stat:
+    path: "{{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog"
+  register: fleet_watchdog_verify_script
+
+- name: "verify: fpgas-fleet-watchdog is present"
+  assert:
+    that:
+      - fleet_watchdog_verify_script.stat.exists
+    fail_msg: >-
+      fpgas-fleet-watchdog missing from {{ fleet_watchdog_venv }};
+      roles/switch-vlans installs fpgas-online-poe there
+
+- name: "verify: the config parses and one dry-run sweep decides something"
+  command: >-
+    {{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog
+    --config {{ fleet_watchdog_config_file }} --once --dry-run
+  become: true
+  become_user: "{{ fleet_watchdog_user }}"
+  environment:
+    HOME: "{{ fleet_watchdog_home }}"
+  register: fleet_watchdog_verify_sweep
+  changed_when: false
+  when: fleet_watchdog_enabled
+
+- name: "verify: the dry-run sweep reported a summary"
+  assert:
+    that:
+      - "'sweep: occupied=' in fleet_watchdog_verify_sweep.stdout"
+    fail_msg: "the dry-run sweep printed no summary line"
+  when: fleet_watchdog_enabled

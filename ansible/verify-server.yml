@@ -58,6 +58,15 @@
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    # Only on hosts with `switches:` defined (tweed). The legacy MAC-table
+    # hosts (ps1.fpgas.online) run no watchdog.
+    - name: verify fleet-watchdog
+      include_role:
+        name: fleet-watchdog
+        tasks_from: verify/main.yml
+      when: switches is defined
+      tags: [verify, fleet-watchdog]
+
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
     # (ps1.fpgas.online, CI test-vm) don't have per-port
