@@ -73,8 +73,8 @@ A new `src/fleet_watchdog/` alongside the existing `snmp_switch` and
 |---|---|
 | `config.py` | Load `/etc/fpgas/watchdog.yml` into a frozen `WatchdogConfig`; resolve switch specs and communities. |
 | `switches.py` | Build a `SyncSwitch` per switch index, with `protected_ports` populated. Enumerate occupied ports. |
-| `probe.py` | The SSH health check. One `Probe` protocol so tests inject a fake. |
-| `policy.py` | Pure decision function: state plus observations in, actions out. No I/O, no clock, no sleeping. |
+| `probe.py` | The SSH health check, behind a plain callable so tests inject a fake. |
+| `policy.py` | Pure decision function: state plus observations in, actions out. No I/O, no clock, no sleeping. Also owns the `Observation` type, so nothing in the decision path imports anything that touches the network. |
 | `cycle.py` | Execute a PoE cycle with the 30 second dwell. |
 | `service.py` | The sweep loop, logging and signal handling. |
 | `cli.py` | Argument parsing, `--once`, `--dry-run`, logging setup. |
