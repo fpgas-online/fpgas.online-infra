@@ -1,7 +1,8 @@
 # Design: fleet watchdog (`fleet-watchdog` role, `fleet_watchdog` module)
 
 Date: 2026-09-15
-Status: design approved 2026-09-15, not yet implemented.
+Status: implemented 2026-09-16 (`roles/fleet-watchdog`, `fleet_watchdog` in
+fpgas.online-poe). Plan: `docs/superpowers/plans/2026-09-15-fleet-watchdog.md`.
 
 ## Problem
 
