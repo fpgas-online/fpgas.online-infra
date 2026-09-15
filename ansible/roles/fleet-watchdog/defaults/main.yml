@@ -1,0 +1,37 @@
+---
+# The fleet watchdog: sweeps every access port, SSH-checks the board, and
+# PoE-cycles anything dead or up too long.
+# Design: docs/superpowers/specs/2026-09-15-fleet-watchdog-design.md
+
+# OFF by default. The service's key only reaches the boards through an NFS root
+# update and a fleet PoE cycle; until then every probe fails, the circuit
+# breaker trips and it cycles nothing. Enable in host_vars once the key is in
+# the root and verified (see the role README).
+fleet_watchdog_enabled: false
+
+fleet_watchdog_user: fleetwd
+fleet_watchdog_home: /var/lib/fleet-watchdog
+# Shared with roles/switch-vlans, which pip-installs fpgas-online-poe[cli]
+# there on every converge. This role deliberately installs no software.
+fleet_watchdog_venv: /opt/fpgas-switch/venv
+
+fleet_watchdog_interval: 300
+fleet_watchdog_fail_threshold: 2
+fleet_watchdog_ssh_timeout: 20
+fleet_watchdog_probe_concurrency: 8
+fleet_watchdog_poe_off_seconds: 30
+fleet_watchdog_boot_grace: 300
+fleet_watchdog_max_uptime_hours: 8
+fleet_watchdog_uptime_jitter_minutes: 60
+fleet_watchdog_hard_cap_hours: 12
+fleet_watchdog_max_scheduled_cycles_per_sweep: 2
+fleet_watchdog_cycle_concurrency: 2
+fleet_watchdog_breaker_fraction: 0.5
+fleet_watchdog_breaker_min_failures: 3
+fleet_watchdog_ssh_user: pi
+
+# Ports the watchdog must never cycle, per switch index. Trunk and uplink
+# ports need no entry: the role passes them to the switch as protected.
+# Welland's real values live in host_vars; this default is empty so another
+# site does not inherit welland's board layout.
+fleet_watchdog_exclude: {}
