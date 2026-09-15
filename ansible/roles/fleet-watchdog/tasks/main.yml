@@ -94,3 +94,47 @@
       pin. Every probe would fail. Run the pi provisioning first.
   when: fleet_watchdog_enabled
   tags: [fleet-watchdog]
+
+- name: create /etc/fpgas directory
+  file:
+    path: /etc/fpgas
+    state: directory
+    mode: "0755"
+  tags: [fleet-watchdog]
+
+- name: install the watchdog config
+  template:
+    src: watchdog.yml.j2
+    dest: "{{ fleet_watchdog_config_file }}"
+    mode: "0644"
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+- name: install the watchdog environment file
+  template:
+    src: watchdog.env.j2
+    dest: "{{ fleet_watchdog_env_file }}"
+    owner: "{{ fleet_watchdog_user }}"
+    group: "{{ fleet_watchdog_user }}"
+    mode: "0600"
+  no_log: true
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+- name: install the watchdog systemd unit
+  template:
+    src: fleet-watchdog.service.j2
+    dest: /etc/systemd/system/fleet-watchdog.service
+    mode: "0644"
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+# Enabled state follows fleet_watchdog_enabled in both directions, so turning
+# the flag off is a real off switch and not just "stop notifying".
+- name: set the watchdog service state
+  systemd:
+    name: fleet-watchdog
+    daemon_reload: true
+    enabled: "{{ fleet_watchdog_enabled }}"
+    state: "{{ 'started' if fleet_watchdog_enabled else 'stopped' }}"
+  tags: [fleet-watchdog]

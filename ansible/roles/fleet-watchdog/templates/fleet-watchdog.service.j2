@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+[Unit]
+Description=fpgas.online fleet watchdog
+Documentation=https://github.com/fpgas-online/fpgas.online-poe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User={{ fleet_watchdog_user }}
+Group={{ fleet_watchdog_user }}
+# ProtectHome hides /home, so ssh needs to be told where HOME is. It never
+# writes there: the identity and known_hosts are both passed on the command
+# line and StrictHostKeyChecking=yes adds no host keys.
+Environment=HOME={{ fleet_watchdog_home }}
+EnvironmentFile={{ fleet_watchdog_env_file }}
+ExecStart={{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog --config {{ fleet_watchdog_config_file }}
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths={{ fleet_watchdog_home }}
+
+[Install]
+WantedBy=multi-user.target

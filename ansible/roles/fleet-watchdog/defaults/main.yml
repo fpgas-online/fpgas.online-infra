@@ -35,3 +35,6 @@ fleet_watchdog_ssh_user: pi
 # Welland's real values live in host_vars; this default is empty so another
 # site does not inherit welland's board layout.
 fleet_watchdog_exclude: {}
+
+fleet_watchdog_config_file: /etc/fpgas/watchdog.yml
+fleet_watchdog_env_file: /etc/fpgas/watchdog.env
