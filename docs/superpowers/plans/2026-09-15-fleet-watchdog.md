@@ -1883,6 +1883,11 @@ def test_a_cycle_is_logged_with_the_board_and_the_reason(config_path, caplog):
 
 
 def test_a_switch_that_cannot_be_reached_does_not_kill_the_sweep(tmp_path, monkeypatch, caplog):
+    """If pointing at a closed port makes this slow (the SNMP client may retry
+    for tens of seconds), replace the unreachable host with
+    `monkeypatch.setattr(Watchdog, "switch", raises)` where `raises` throws
+    OSError. The behaviour under test is that one switch's failure is logged
+    and skipped, not how the failure is produced."""
     switches = tmp_path / "switches.yml"
     switches.write_text(textwrap.dedent("""
         switches:
@@ -2754,9 +2759,17 @@ Create `ansible/roles/fleet-watchdog/tasks/verify/main.yml`:
       - fleet_watchdog_verify_key.stat.mode == "0600"
     fail_msg: "watchdog ssh key missing or world-readable"
 
+# Read the public key FROM THE TARGET. `lookup('file', ...)` would read the
+# control node's filesystem, where this path does not exist, so it would
+# either fail or silently compare the wrong thing.
+- name: "verify: read the watchdog public key from the target"
+  slurp:
+    src: "{{ fleet_watchdog_home }}/id_ed25519.pub"
+  register: fleet_watchdog_verify_pub
+
 - name: "verify: the watchdog key is authorised in the NFS root"
   command: >-
-    grep -qF "{{ lookup('file', fleet_watchdog_home + '/id_ed25519.pub') | trim }}"
+    grep -qF "{{ (fleet_watchdog_verify_pub.content | b64decode).split()[1] }}"
     {{ nfs_root }}/root/home/pi/.ssh/authorized_keys
   changed_when: false
 
