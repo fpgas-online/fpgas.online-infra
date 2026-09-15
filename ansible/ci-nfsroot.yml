@@ -125,14 +125,22 @@
         - overlays
       tags: [verify]
 
+    # dpkg -l exits 0 for a package that is merely known to the database
+    # ("rc" after a removal, "un"), so read the status field instead.
     - name: assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
-      command: dpkg --root={{ nfs_root }}/root -l {{ item }}
+      command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
+      register: ci_nfsroot_pkg_status
       changed_when: false
+      failed_when: ci_nfsroot_pkg_status.stdout != 'install ok installed'
       loop:
         - overlayroot
         - nfs-common
         - fpgas-online-setup-pi
         - fpgas-online-cam
+        # roles/onpi/tasks/apt.yml: the RP1-PIO builds from mithro/rp1-jtag
+        # stand in for Debian's openfpgaloader / openocd.
+        - openfpgaloader-rp1pio
+        - openocd-rp1pio
       tags: [verify]
 
     - name: assert pi user exists in the root

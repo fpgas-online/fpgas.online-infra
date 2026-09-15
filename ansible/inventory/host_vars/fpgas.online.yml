@@ -366,3 +366,38 @@ sunxi_boards:
   - {hat_uuid: "6c12f955-093c-4272-a94d-8824363bffaa", mac: "02:81:2e:b7:a3:4e", model: orangepi-pc, switch: 2, port: 22, usb: "1-1.3.2", host: pi-sw2-p30}
   - {hat_uuid: "55fc28c9-257a-4d0d-8888-117834bd52ab", mac: "02:81:1f:e1:45:1d", model: orangepi-pc, switch: 2, port: 23, usb: "1-1.2.3", host: pi-sw2-p30}
   - {hat_uuid: "2577845e-7668-460a-a9d1-2c97373b1da9", mac: "02:81:f5:c0:a6:10", model: orangepi-pc, switch: 2, port: 24, usb: "1-1.2.4", host: pi-sw2-p30}
+
+# ── Off-net DNS clients (firewall) ──────────────────────────────────────
+# ten64 (the welland site router) delegates the fpgas.welland.mithis.com
+# zone to this host's dnsmasq and queries it across the VLAN-121 transit
+# link, so its queries arrive from 10.99.21.1 -- outside the pib /16 that
+# `internal_networks` accepts wholesale.  Without this the queries hit the
+# input chain's closing `ct state ... new ... drop` and the delegation
+# fails with NoNameservers.
+#
+# NOTE: opening the firewall is necessary but NOT sufficient for that
+# delegation to work.  dnsmasq here also listens only on eth-local and the
+# per-port v* interfaces (see /etc/dnsmasq.d/base.conf), so queries
+# arriving on eth-uplink are ignored, and it has no auth-zone/domain for
+# fpgas.welland.mithis.com at all.  Both are unresolved as of 2026-09-14.
+firewall_dns_query_sources:
+  - 10.99.21.1
+
+# ── Authoritative DNS for the zone ten64 delegates to us ────────────────
+# ten64 (the welland site router) delegates fpgas.welland.mithis.com here:
+# its zone carries `fpgas.welland.mithis.com. NS gw.fpgas.welland.mithis.com.`
+# with glue `gw.fpgas.welland.mithis.com. A 10.21.0.1`, and the target is
+# hardcoded in gdoc2netcfg's generators/pdns_zones.py as
+# DELEGATED_NET_SERVERS = {"fpgas": "10.21.0.1"}.  Keep dnsmasq_auth_glue in
+# step with that NS name.
+#
+# Queries reach us across the VLAN-121 transit link, so they arrive on
+# eth-uplink; auth-server overrides the interface= list for exactly that
+# case and serves authoritative-only (no recursion) there.
+#
+# See also firewall_dns_query_sources above: the firewall must let those
+# queries in before dnsmasq ever sees them.
+dnsmasq_auth_zone: fpgas.welland.mithis.com
+dnsmasq_auth_glue: gw.fpgas.welland.mithis.com
+dnsmasq_auth_subnet: 10.21.0.0/16
+dnsmasq_auth_interface: eth-uplink

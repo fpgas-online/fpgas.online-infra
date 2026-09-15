@@ -79,6 +79,26 @@
         fail_msg: "SSH service is not active on Pi"
       tags: [verify, services]
 
+    # The board pages' web terminal (webssh on the server) logs in as the pi
+    # user with the shared password; it has no key. useradd creates the
+    # account with the password locked ("L"); fixpi/userconf.yml writing the
+    # hash into the NFS root is what makes it usable ("P").
+    - name: Check the pi user has a usable password
+      command: passwd -S {{ user | default('pi') }}
+      changed_when: false
+      register: verify_pi_passwd
+      tags: [verify, services]
+
+    - name: Assert the pi user's password is set (the web terminal logs in with it)
+      assert:
+        that: verify_pi_passwd.stdout.split()[1] == 'P'
+        fail_msg: >-
+          `passwd -S` reports '{{ verify_pi_passwd.stdout }}' -- the pi
+          account's password is locked (L) or empty (NP), so the web
+          terminal's password login fails. fixpi/userconf.yml (tag pipw)
+          writes it into the NFS root.
+      tags: [verify, services]
+
     - name: Check python3 available
       command: python3 --version
       changed_when: false
@@ -139,6 +159,50 @@
         that: verify_pi_lldpd_active.stdout == "active"
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
+
+    # JTAG tools: roles/onpi/tasks/apt.yml installs the RP1-PIO builds from
+    # mithro/rp1-jtag (source: roles/fpgas-apt/tasks/rp1-jtag.yml) in place of
+    # Debian's openocd / openfpgaloader. They come from a third-party apt
+    # source under the fpgas-apt tag, so these checks carry it too and are
+    # skipped alongside the install (the VM test runs --skip-tags fpgas-apt).
+    # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
+    - name: Check the RP1-PIO openFPGALoader and OpenOCD packages
+      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-rp1pio openocd-rp1pio
+      changed_when: false
+      register: verify_pi_rp1pio
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert the RP1-PIO openFPGALoader and OpenOCD are installed
+      assert:
+        that:
+          - verify_pi_rp1pio.rc == 0
+          - "'openfpgaloader-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+          - "'openocd-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+        fail_msg: >-
+          openfpgaloader-rp1pio / openocd-rp1pio not installed on the Pi
+          (got: {{ verify_pi_rp1pio.stdout_lines }}) -- the NFS root predates
+          the rp1-jtag apt source, or Debian's openocd / openfpgaloader were
+          reinstalled over them
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: List openFPGALoader cables
+      command: openFPGALoader --list-cables
+      changed_when: false
+      register: verify_pi_cables
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert openFPGALoader offers the rp1pio cable
+      assert:
+        that:
+          - verify_pi_cables.rc == 0
+          - verify_pi_cables.stdout_lines | select('match', '^rp1pio ') | list | length == 1
+        fail_msg: >-
+          `openFPGALoader --list-cables` does not list rp1pio -- the binary
+          on the root is not the rp1-jtag build (rc {{ verify_pi_cables.rc }}:
+          {{ verify_pi_cables.stderr | default('') }})
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
 
     # Hardware-dependent services (tag-based skip)
     - name: Check fpgas-cam service enabled
