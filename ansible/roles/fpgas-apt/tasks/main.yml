@@ -16,19 +16,15 @@
     cmd: gpg --batch --yes --dearmor -o /usr/share/keyrings/fpgas-online.gpg /usr/share/keyrings/fpgas-online.asc
   when: fpgas_apt_key.changed
 
-# Hosts configured before the custom domain still carry the github.io line;
-# apt_repository only adds, so drop it explicitly.
-- name: Remove the old fpgas-online.github.io apt repository line
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] https://fpgas-online.github.io/apt {{ fpgas_apt_suite }} main"
-    state: absent
-    filename: fpgas-online
-
-- name: Add fpgas.online apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] {{ fpgas_apt_url }} {{ fpgas_apt_suite }} main"
-    state: present
-    filename: fpgas-online
+# The whole file, not apt_repository: apt_repository only adds lines, so a
+# URL change (upstream -> the gateway's apt cache, or back) would leave the
+# old line behind and apt would keep fetching straight from upstream too.
+# Owning the file also drops any pre-custom-domain github.io line.
+- name: Fpgas.online apt repository
+  ansible.builtin.copy:
+    content: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] {{ fpgas_apt_url }} {{ fpgas_apt_suite }} main\n"
+    dest: /etc/apt/sources.list.d/fpgas-online.list
+    mode: '0644'
 
 # RP1-PIO openFPGALoader / OpenOCD builds from mithro/rp1-jtag.
 - name: Add the rp1-jtag apt repository

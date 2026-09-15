@@ -58,6 +58,12 @@
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    - name: verify apt-cache
+      include_role:
+        name: apt-cache
+        tasks_from: verify/main.yml
+      tags: [verify, apt-cache]
+
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
     # (ps1.fpgas.online, CI test-vm) don't have per-port

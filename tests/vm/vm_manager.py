@@ -318,8 +318,24 @@ class VMManager:
             "-drive", f"file={overlay},format=qcow2,if=virtio",
             # Cloud-init seed ISO
             "-drive", f"file={seed_iso},format=raw,if=virtio",
-            # NIC 1: user-mode for SSH from host
-            "-netdev", f"user,id=net0,hostfwd=tcp::{ssh_port}-:22",
+            # NIC 1: user-mode for SSH from host, and the guest's only uplink.
+            #
+            # ipv6=off because slirp otherwise hands the guest a fec0::/64
+            # address and a default route by router advertisement, while the
+            # runner underneath has no IPv6 egress at all. Connections to a
+            # global v6 address are then swallowed rather than refused: from
+            # inside the VM, `curl -6` to every upstream archive sits until it
+            # times out, while `curl -4` answers in half a second. glibc sorts
+            # AAAA ahead of A, so anything that does not implement Happy
+            # Eyeballs walks into the blackhole -- curl(1) escapes it by racing
+            # v4 after ~200 ms, apt-cacher-ng does not. It tries the addresses
+            # in order and gives up with "500 Remote or cache error" on
+            # archive.raspberrypi.com, which publishes 12 AAAA records against
+            # one or four for the other archives (PR #78).
+            #
+            # This only removes the fake uplink v6. The IPv6 the tests actually
+            # exercise is on the internal network (2001:db8:a137::/48, NIC 2).
+            "-netdev", f"user,id=net0,ipv6=off,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
             # NIC 2: internal VLAN trunk -- connects to the vswitch trunk port.
             # host_mtu=1504 advertises room for a full 1500-byte VLAN payload
