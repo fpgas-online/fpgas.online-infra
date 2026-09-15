@@ -66,8 +66,24 @@
     - name: Diagnose failed remap probes
       ansible.builtin.shell: |
         curl -sv -o /dev/null "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" 2>&1 | tail -n 25
+        echo "--- acng error page"
+        curl -sS -m 30 "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" | tail -n 15
         echo "--- apt-cacher.err"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.err
         echo "--- apt-cacher.log"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.log
+        echo "--- journal"; journalctl -u apt-cacher-ng --no-pager -n 40
+        echo "--- this host's addressing"
+        ip -brief address show; echo "-- v6 routes"; ip -6 route show | head -n 20
+        echo "--- each backend as the cache reaches it (order is what glibc prefers)"
+        {% for r in apt_cache_remaps %}
+        echo "== {{ r.backend }}"
+        getent ahosts {{ r.backend | urlsplit('hostname') }} | head -n 8
+        for fam in "" -4 -6; do
+          printf '   curl %-2s ' "$fam"
+          curl $fam -sS -o /dev/null -m 25 \
+            -w 'code=%{http_code} ip=%{remote_ip} t=%{time_total}\n' \
+            "{{ r.backend }}{{ r.probe }}" || echo "failed rc=$?"
+        done
+        {% endfor %}
         echo "--- cached index files"; find {{ apt_cache_dir }} -maxdepth 4 -path '*dists*' -ls | head -n 40
         for h in {{ apt_cache_dir }}/*/dists/*/*.head; do echo "== $h"; cat "$h"; done
       changed_when: false
