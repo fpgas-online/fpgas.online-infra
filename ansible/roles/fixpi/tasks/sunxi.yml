@@ -12,9 +12,11 @@
 # Raspbian does not carry debian-archive-keyring, so fetch Debian's own
 # bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
 # into the root; it provides the Signed-By keyring the source below names.
+# Fetched through the gateway's apt cache when there is one (the checksum
+# pins the content either way).
 - name: fetch debian-archive-keyring for the armmp kernel source
   get_url:
-    url: "http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
+    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
     dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
     checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
     mode: "0644"
