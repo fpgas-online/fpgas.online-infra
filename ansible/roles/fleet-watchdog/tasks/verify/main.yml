@@ -26,6 +26,27 @@
     {{ nfs_root }}/root/home/pi/.ssh/authorized_keys
   changed_when: false
 
+# ansible.posix.authorized_key resolves `user:` against THIS host's passwd
+# file even with an explicit `path:`, so `user: pi` here would chown the file
+# to the gateway's own jump-account UID, not the Pi's UID 1000 -- and sshd's
+# StrictModes (default yes, not overridden anywhere in this repo) then
+# ignores an authorized_keys owned by neither the user nor root, silently
+# breaking key auth for the whole fleet. Assert the numeric UID so a
+# regression here can never pass quietly again.
+- name: "verify: the NFS root's authorized_keys is owned by the Pi's uid"
+  stat:
+    path: "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
+  register: fleet_watchdog_verify_authorized_keys_owner
+
+- name: "verify: authorized_keys is owned by uid 1000, not the gateway's pi"
+  assert:
+    that:
+      - fleet_watchdog_verify_authorized_keys_owner.stat.uid == 1000
+    fail_msg: >-
+      {{ nfs_root }}/root/home/pi/.ssh/authorized_keys is owned by uid
+      {{ fleet_watchdog_verify_authorized_keys_owner.stat.uid }}, not 1000.
+      sshd's StrictModes will ignore it and key auth breaks fleet-wide.
+
 - name: "verify: known_hosts pins one key per managed address"
   command: "wc -l < {{ fleet_watchdog_home }}/known_hosts"
   register: fleet_watchdog_verify_known_hosts

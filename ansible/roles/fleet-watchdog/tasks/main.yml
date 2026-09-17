@@ -37,12 +37,34 @@
 # Additive: authorized_key appends, so the videoteam and controller keys that
 # fixpi installs survive. The Orange Pi boards on sw2 18-24 share this root,
 # so this authorises the watchdog on them too.
+#
+# `user:` is resolved against THIS host's passwd file even though `path:`
+# points into the NFS root, and this host has its own `pi` account (the
+# restricted jump account, roles/jump). Using it would chown the fleet's
+# authorized_keys to the gateway's UID, and sshd's StrictModes then ignores
+# the file on every board. `root` always exists and needs no lookup; the
+# ownership is put right by the next task. manage_dir: false stops the module
+# touching the .ssh directory, but note it still chowns the FILE regardless,
+# which is why the next task is not optional.
 - name: authorise the watchdog key for pi in the NFS root
   ansible.posix.authorized_key:
-    user: pi
+    user: root
     state: present
     key: "{{ fleet_watchdog_key.public_key }}"
     path: "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
+    manage_dir: false
+  tags: [fleet-watchdog]
+
+# Numeric IDs, matching roles/fixpi: the Pi's `pi` user is UID/GID 1000 in
+# the NFS root, and no name on this host maps to it.
+- name: restore the NFS root's pi ownership on the ssh files
+  file:
+    path: "{{ item }}"
+    owner: "1000"
+    group: "1000"
+  loop:
+    - "{{ nfs_root }}/root/home/pi/.ssh"
+    - "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
   tags: [fleet-watchdog]
 
 # fixpi generates the NFS root's host keys earlier in this play, so the file
