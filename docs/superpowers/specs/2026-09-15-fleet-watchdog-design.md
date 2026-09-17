@@ -192,8 +192,9 @@ Outcome:
   output, host key mismatch.
 
 A non-interactive SSH command allocates no pty and therefore writes no `utmp`
-record, so the watchdog's own probe never registers as a user. This is asserted
-in the deployment checks rather than assumed.
+record, so the watchdog's own probe never registers as a user. This is covered
+by a unit test (`test_the_command_never_allocates_a_pty`), not by the
+deployment checks.
 
 The web terminal and direct SSH both land as `sshd` sessions on the board, so
 `who` sees both. That matters because the Django site has no server-side notion
