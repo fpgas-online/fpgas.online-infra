@@ -58,6 +58,12 @@
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    - name: verify apt-cache
+      include_role:
+        name: apt-cache
+        tasks_from: verify/main.yml
+      tags: [verify, apt-cache]
+
     # Only on hosts with `switches:` defined (tweed). The legacy MAC-table
     # hosts (ps1.fpgas.online) run no watchdog.
     - name: verify fleet-watchdog

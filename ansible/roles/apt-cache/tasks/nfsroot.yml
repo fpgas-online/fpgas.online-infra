@@ -1,0 +1,17 @@
+---
+# The NFS root's two stock sources (from the RPi OS image) now belong to this
+# role, rendered from apt_cache_url (upstream URLs when the cache is disabled). The other sources are
+# owned by the roles that add them and derive their URL from apt_cache_url
+# too: fixpi (debian-armmp.sources) and fpgas-apt (fpgas-online.list).
+# verify/main.yml asserts that EVERY source in the root goes through the cache.
+- name: Raspbian source in the NFS root
+  ansible.builtin.template:
+    src: sources.list.j2
+    dest: "{{ nfs_root }}/root/etc/apt/sources.list"
+    mode: "0644"
+
+- name: Raspberry Pi source in the NFS root
+  ansible.builtin.template:
+    src: raspi.list.j2
+    dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/raspi.list"
+    mode: "0644"
