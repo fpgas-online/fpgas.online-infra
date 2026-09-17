@@ -83,21 +83,47 @@
       fpgas-fleet-watchdog missing from {{ fleet_watchdog_venv }};
       roles/switch-vlans installs fpgas-online-poe there
 
+# The communities live solely in /etc/fpgas/watchdog.env, which only systemd
+# reads (EnvironmentFile=). Without them here, community_for() raises,
+# enumerate() swallows it per switch, and the sweep finds zero boards -- built
+# the same way templates/watchdog.env.j2 does, one FPGAS_SWITCH_COMMUNITY_<i>
+# per switch that defines snmp_rw_community.
+- name: "verify: build the SNMP community environment for the dry-run sweep"
+  set_fact:
+    fleet_watchdog_verify_sweep_env: >-
+      {{ (fleet_watchdog_verify_sweep_env | default({'HOME': fleet_watchdog_home}))
+         | combine({'FPGAS_SWITCH_COMMUNITY_' ~ item.index: item.snmp_rw_community}) }}
+  loop: "{{ switches }}"
+  loop_control:
+    label: "switch {{ item.index }}"
+  no_log: true
+  when: fleet_watchdog_enabled and item.snmp_rw_community is defined
+
 - name: "verify: the config parses and one dry-run sweep decides something"
   command: >-
     {{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog
     --config {{ fleet_watchdog_config_file }} --once --dry-run
   become: true
   become_user: "{{ fleet_watchdog_user }}"
-  environment:
-    HOME: "{{ fleet_watchdog_home }}"
+  environment: "{{ fleet_watchdog_verify_sweep_env | default({'HOME': fleet_watchdog_home}) }}"
   register: fleet_watchdog_verify_sweep
   changed_when: false
+  no_log: true
   when: fleet_watchdog_enabled
 
-- name: "verify: the dry-run sweep reported a summary"
+# A bare substring match on `occupied=` is satisfied by `occupied=0`, which is
+# exactly what a wrong community, an unreachable switch, a missing config or a
+# dead key produces: the sweep "succeeds" having found nothing. Require a real
+# board count instead.
+- name: "verify: the dry-run sweep found a non-zero number of occupied ports"
   assert:
     that:
       - "'sweep: occupied=' in fleet_watchdog_verify_sweep.stdout"
-    fail_msg: "the dry-run sweep printed no summary line"
+      - fleet_watchdog_verify_sweep.stdout is search("sweep: occupied=[1-9]")
+    fail_msg: >-
+      the dry-run sweep reported zero occupied ports. That means the switches
+      were not reachable or the SNMP communities were wrong -- not that the
+      fleet is empty. Check FPGAS_SWITCH_COMMUNITY_<index> against
+      switches[].snmp_rw_community and that the switches answer SNMP from
+      this host.
   when: fleet_watchdog_enabled

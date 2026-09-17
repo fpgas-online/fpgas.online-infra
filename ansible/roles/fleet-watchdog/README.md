@@ -44,11 +44,19 @@ correct but useless.
      -o UserKnownHostsFile=/var/lib/fleet-watchdog/known_hosts \
      -i /var/lib/fleet-watchdog/id_ed25519 pi@10.21.2.42 'cat /proc/uptime; who'
    ```
-4. Dry-run a sweep and read what it proposes:
+4. Dry-run a sweep and read what it proposes. The SNMP write communities live
+   only in `/etc/fpgas/watchdog.env` (0600, owned by `fleetwd`), which
+   systemd's `EnvironmentFile=` reads for you when the service runs -- by
+   hand you must source it yourself, or `community_for()` raises, every
+   switch is skipped, and the sweep reports `occupied=0`, looking exactly
+   like a working, empty fleet instead of a broken dry run:
    ```bash
-   sudo -u fleetwd HOME=/var/lib/fleet-watchdog \
+   sudo -u fleetwd bash -c '
+     set -a; . /etc/fpgas/watchdog.env; set +a
+     export HOME=/var/lib/fleet-watchdog
      /opt/fpgas-switch/venv/bin/fpgas-fleet-watchdog \
-     --config /etc/fpgas/watchdog.yml --once --dry-run --verbose
+       --config /etc/fpgas/watchdog.yml --once --dry-run --verbose
+   '
    ```
 5. Set `fleet_watchdog_enabled: true` in `host_vars` and converge.
 6. `journalctl -u fleet-watchdog -f` and watch one sweep.
