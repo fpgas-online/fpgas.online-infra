@@ -1,0 +1,129 @@
+---
+- name: "verify: the watchdog key exists"
+  stat:
+    path: "{{ fleet_watchdog_home }}/id_ed25519"
+  register: fleet_watchdog_verify_key
+
+- name: "verify: the watchdog key is private to the service account"
+  assert:
+    that:
+      - fleet_watchdog_verify_key.stat.exists
+      - fleet_watchdog_verify_key.stat.pw_name == fleet_watchdog_user
+      - fleet_watchdog_verify_key.stat.mode == "0600"
+    fail_msg: "watchdog ssh key missing or world-readable"
+
+# Read the public key FROM THE TARGET. `lookup('file', ...)` would read the
+# control node's filesystem, where this path does not exist, so it would
+# either fail or silently compare the wrong thing.
+- name: "verify: read the watchdog public key from the target"
+  slurp:
+    src: "{{ fleet_watchdog_home }}/id_ed25519.pub"
+  register: fleet_watchdog_verify_pub
+
+- name: "verify: the watchdog key is authorised in the NFS root"
+  command: >-
+    grep -qF "{{ (fleet_watchdog_verify_pub.content | b64decode).split()[1] }}"
+    {{ nfs_root }}/root/home/pi/.ssh/authorized_keys
+  changed_when: false
+
+# ansible.posix.authorized_key resolves `user:` against THIS host's passwd
+# file even with an explicit `path:`, so `user: pi` here would chown the file
+# to the gateway's own jump-account UID, not the Pi's UID 1000 -- and sshd's
+# StrictModes (default yes, not overridden anywhere in this repo) then
+# ignores an authorized_keys owned by neither the user nor root, silently
+# breaking key auth for the whole fleet. Assert the numeric UID so a
+# regression here can never pass quietly again.
+- name: "verify: the NFS root's authorized_keys is owned by the Pi's uid"
+  stat:
+    path: "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
+  register: fleet_watchdog_verify_authorized_keys_owner
+
+- name: "verify: authorized_keys is owned by uid 1000, not the gateway's pi"
+  assert:
+    that:
+      - fleet_watchdog_verify_authorized_keys_owner.stat.uid == 1000
+    fail_msg: >-
+      {{ nfs_root }}/root/home/pi/.ssh/authorized_keys is owned by uid
+      {{ fleet_watchdog_verify_authorized_keys_owner.stat.uid }}, not 1000.
+      sshd's StrictModes will ignore it and key auth breaks fleet-wide.
+
+- name: "verify: known_hosts pins one key per managed address"
+  command: "wc -l < {{ fleet_watchdog_home }}/known_hosts"
+  register: fleet_watchdog_verify_known_hosts
+  changed_when: false
+
+- name: "verify: known_hosts covers every access port"
+  assert:
+    that:
+      - fleet_watchdog_verify_known_hosts.stdout | int
+        >= (switches | map(attribute='access_ports') | sum)
+    fail_msg: "known_hosts does not cover every access port"
+
+- name: "verify: the environment file holds no world-readable secrets"
+  stat:
+    path: "{{ fleet_watchdog_env_file }}"
+  register: fleet_watchdog_verify_env
+
+- name: "verify: the environment file is 0600"
+  assert:
+    that:
+      - fleet_watchdog_verify_env.stat.mode == "0600"
+    fail_msg: "{{ fleet_watchdog_env_file }} must be 0600, it holds SNMP write communities"
+
+- name: "verify: the console script is installed in the shared venv"
+  stat:
+    path: "{{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog"
+  register: fleet_watchdog_verify_script
+
+- name: "verify: fpgas-fleet-watchdog is present"
+  assert:
+    that:
+      - fleet_watchdog_verify_script.stat.exists
+    fail_msg: >-
+      fpgas-fleet-watchdog missing from {{ fleet_watchdog_venv }};
+      roles/switch-vlans installs fpgas-online-poe there
+
+# The communities live solely in /etc/fpgas/watchdog.env, which only systemd
+# reads (EnvironmentFile=). Without them here, community_for() raises,
+# enumerate() swallows it per switch, and the sweep finds zero boards -- built
+# the same way templates/watchdog.env.j2 does, one FPGAS_SWITCH_COMMUNITY_<i>
+# per switch that defines snmp_rw_community.
+- name: "verify: build the SNMP community environment for the dry-run sweep"
+  set_fact:
+    fleet_watchdog_verify_sweep_env: >-
+      {{ (fleet_watchdog_verify_sweep_env | default({'HOME': fleet_watchdog_home}))
+         | combine({'FPGAS_SWITCH_COMMUNITY_' ~ item.index: item.snmp_rw_community}) }}
+  loop: "{{ switches }}"
+  loop_control:
+    label: "switch {{ item.index }}"
+  no_log: true
+  when: fleet_watchdog_enabled and item.snmp_rw_community is defined
+
+- name: "verify: the config parses and one dry-run sweep decides something"
+  command: >-
+    {{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog
+    --config {{ fleet_watchdog_config_file }} --once --dry-run
+  become: true
+  become_user: "{{ fleet_watchdog_user }}"
+  environment: "{{ fleet_watchdog_verify_sweep_env | default({'HOME': fleet_watchdog_home}) }}"
+  register: fleet_watchdog_verify_sweep
+  changed_when: false
+  no_log: true
+  when: fleet_watchdog_enabled
+
+# A bare substring match on `occupied=` is satisfied by `occupied=0`, which is
+# exactly what a wrong community, an unreachable switch, a missing config or a
+# dead key produces: the sweep "succeeds" having found nothing. Require a real
+# board count instead.
+- name: "verify: the dry-run sweep found a non-zero number of occupied ports"
+  assert:
+    that:
+      - "'sweep: occupied=' in fleet_watchdog_verify_sweep.stdout"
+      - fleet_watchdog_verify_sweep.stdout is search("sweep: occupied=[1-9]")
+    fail_msg: >-
+      the dry-run sweep reported zero occupied ports. That means the switches
+      were not reachable or the SNMP communities were wrong -- not that the
+      fleet is empty. Check FPGAS_SWITCH_COMMUNITY_<index> against
+      switches[].snmp_rw_community and that the switches answer SNMP from
+      this host.
+  when: fleet_watchdog_enabled
