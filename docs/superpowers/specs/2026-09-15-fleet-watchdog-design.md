@@ -114,9 +114,9 @@ Tasks:
 
 ## Port model
 
-`ansible/filter_plugins/port_vlan_map.py` is the single source of truth on the
-Ansible side and the watchdog reproduces its formulas, which are fixed by the
-VLAN-per-port design:
+`ansible/filter_plugins/port_vlans.py` (which registers the `port_vlan_map`
+filter) is the single source of truth on the Ansible side and the watchdog
+reproduces its formulas, which are fixed by the VLAN-per-port design:
 
 | Quantity | Formula | Example (switch 2, port 42) |
 |---|---|---|
@@ -464,7 +464,7 @@ the watchdog logs an alarm and cycles nothing.
 
 ## References
 
-- `ansible/filter_plugins/port_vlan_map.py` — port, VLAN, IP and hostname map.
+- `ansible/filter_plugins/port_vlans.py` — port, VLAN, IP and hostname map (the `port_vlan_map` filter).
 - `ansible/roles/switch-vlans/` — `/etc/fpgas/switches.yml` and the shared venv.
 - `ansible/roles/site/templates/gunicorn-poe.conf.j2` — the community env pattern.
 - `ansible/roles/fixpi/tasks/userconf.yml` — how NFS root `authorized_keys` is built.
