@@ -44,6 +44,18 @@ then `sudo nft -f /etc/nftables.conf` and commit /etc (etckeeper).
 
 1. infra: this branch (mediamtx role + firewall + vhost include) converges
    tweed; then the manual ten64 DNAT above.
-2. fpgas.online-cam rtsp-publish deb rolls out to the Pis (the tee probes
-   the RTSP port, so the wrong order is inert, not broken).
+2. Move the publishers onto the new nginx config. mediamtx pulls each
+   camera from nginx-rtmp on demand, which only works once `wait_video on`
+   is gone from the worker the Pi is publishing to - and an nginx reload
+   leaves existing publishers on the OLD worker. Either restart nginx once
+   in a quiet moment (`sudo systemctl restart nginx`; drops web-terminal
+   websockets, the Pis' fpgas-cam reconnects within seconds) or restart
+   `fpgas-cam` on the Pis. Check with a pull of any live camera:
+   `curl -s http://127.0.0.1:9997/v3/paths/list` on tweed shows
+   `cam/<host>` `ready: true` a few seconds after the board page is opened;
+   `journalctl -u mediamtx` must not show `not enough bytes`.
 3. fpgas.online-site WHEP player.
+
+No Pi-side change is needed: fpgas.online-cam `rtsp-publish` (the RTSP tee)
+is NOT part of this design. A Pi that already runs it probes tweed:8554,
+finds it closed, and publishes RTMP only.
