@@ -1,0 +1,28 @@
+---
+# Restricted SSH jump account on the site gateway (tweed). Lets people and
+# test harnesses reach the Pis (which are not routable from outside) with
+#   ssh -o ProxyJump=pi@tweed.welland.mithis.com pi@10.21.<switch>.<port>
+# or the older nested form
+#   ssh pi@tweed.welland.mithis.com "ssh pi@10.21.2.29 hostname"
+#
+# The account is a login shell of /bin/rbash whose PATH holds nothing but
+# `ssh` and `ssh-keyscan`, so it can forward and hop but not run anything
+# else on the gateway. It has no sudo and no private key of its own:
+# ProxyJump authenticates end to end with the caller's key.
+#
+# History: the previous tweed (Debian 12) had exactly this account, built by
+# hand on 2026-03-18 (/home/pi/bin/{ssh,ssh-keyscan} symlinks, .bash_profile
+# `export PATH=/home/pi/bin`, .ssh/config `StrictHostKeyChecking accept-new`).
+# It was never in Ansible, so the 2026-08-26 reinstall dropped it and every
+# consumer of pi@tweed broke. This role makes it part of the converge.
+jump_user: pi
+jump_home: "/home/{{ jump_user }}"
+jump_shell: /bin/rbash
+# Binaries reachable from the restricted shell, symlinked into ~/bin.
+jump_commands:
+    - /usr/bin/ssh
+    - /usr/bin/ssh-keyscan
+# Who may log in: the static operator keys plus the GitHub/Launchpad ids
+# every Pi's `pi` user trusts (both from inventory/group_vars/all/ssh_keys.yml).
+jump_public_keys: "{{ ssh_public_keys | default([]) | map(attribute='keys') | flatten }}"
+jump_ssh_import_ids: "{{ ssh_imports | default([]) }}"

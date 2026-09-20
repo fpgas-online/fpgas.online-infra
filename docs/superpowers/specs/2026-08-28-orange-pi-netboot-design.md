@@ -44,7 +44,7 @@ keep as the escape hatch if a different sunxi board ever appears).
 ## 3. Design (fpgas.online-infra)
 
 All new renders are guarded `when: sunxi_boards is defined` — the multi-host guard rule
-(ps1 / slf / CI VM must not change).
+(ps1 / CI VM must not change).
 
 1. **Kernel in the NFS root** (`fixpi` role, new `sunxi.yml`, tag `sunxi`):
    * add `deb http://deb.debian.org/debian bookworm main` for arch armhf to the root with an apt

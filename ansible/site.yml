@@ -3,12 +3,16 @@
   roles:
     - netif
     - operators
+    - jump
     - lldp
     - firewall
     - {role: vlan-ports, when: switches is defined}
     - {role: switch-vlans, when: switches is defined}
     - nfs
     - img
+    # After img (a fresh extract restores the stock sources.list) and before
+    # fixpi (whose chroot apt runs are the cache's first clients).
+    - apt-cache
     - fixpi
     - pxe
 
@@ -30,6 +34,12 @@
       include_role:
         name: nspawn-pi
         tasks_from: start.yml
+        # Tags on an include_role reach only the include itself; without
+        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
+        # skipped every mount and policy-rc.d task here, and the Pi roles ran
+        # in a chroot with no /proc or /dev/pts.
+        apply:
+          tags: [pi]
       tags: [pi]
 
 - hosts: pi
@@ -47,4 +57,10 @@
       include_role:
         name: nspawn-pi
         tasks_from: stop.yml
+        # Tags on an include_role reach only the include itself; without
+        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
+        # skipped every mount and policy-rc.d task here, and the Pi roles ran
+        # in a chroot with no /proc or /dev/pts.
+        apply:
+          tags: [pi]
       tags: [pi]

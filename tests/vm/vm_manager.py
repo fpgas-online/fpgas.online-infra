@@ -186,6 +186,29 @@ def create_overlay(base_image: Path, overlay_path: Path, size: str = "20G") -> P
     return overlay_path
 
 
+def open_proxied_socket(
+    proxy_jump: str, key_path: Path | None, host: str, port: int
+) -> paramiko.Channel:
+    """Open a direct-tcpip channel to host:port through a ProxyJump host.
+
+    proxy_jump is "user@host:port" (see network.proxy_jump_string); the jump
+    host is authenticated with key_path. The returned channel is what
+    paramiko.SSHClient.connect() takes as `sock`.
+    """
+    proxy_user, proxy_rest = proxy_jump.split("@")
+    proxy_host, proxy_port = proxy_rest.split(":")
+    proxy = paramiko.SSHClient()
+    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    proxy.connect(
+        proxy_host, port=int(proxy_port),
+        username=proxy_user, key_filename=str(key_path),
+        timeout=5,
+    )
+    return proxy.get_transport().open_channel(
+        "direct-tcpip", (host, port), ("127.0.0.1", 0)
+    )
+
+
 def generate_ssh_keypair(key_path: Path) -> tuple[Path, str]:
     """Generate an ephemeral ed25519 SSH keypair. Returns (private_key_path, public_key_string)."""
     key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -295,8 +318,24 @@ class VMManager:
             "-drive", f"file={overlay},format=qcow2,if=virtio",
             # Cloud-init seed ISO
             "-drive", f"file={seed_iso},format=raw,if=virtio",
-            # NIC 1: user-mode for SSH from host
-            "-netdev", f"user,id=net0,hostfwd=tcp::{ssh_port}-:22",
+            # NIC 1: user-mode for SSH from host, and the guest's only uplink.
+            #
+            # ipv6=off because slirp otherwise hands the guest a fec0::/64
+            # address and a default route by router advertisement, while the
+            # runner underneath has no IPv6 egress at all. Connections to a
+            # global v6 address are then swallowed rather than refused: from
+            # inside the VM, `curl -6` to every upstream archive sits until it
+            # times out, while `curl -4` answers in half a second. glibc sorts
+            # AAAA ahead of A, so anything that does not implement Happy
+            # Eyeballs walks into the blackhole -- curl(1) escapes it by racing
+            # v4 after ~200 ms, apt-cacher-ng does not. It tries the addresses
+            # in order and gives up with "500 Remote or cache error" on
+            # archive.raspberrypi.com, which publishes 12 AAAA records against
+            # one or four for the other archives (PR #78).
+            #
+            # This only removes the fake uplink v6. The IPv6 the tests actually
+            # exercise is on the internal network (2001:db8:a137::/48, NIC 2).
+            "-netdev", f"user,id=net0,ipv6=off,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
             # NIC 2: internal VLAN trunk -- connects to the vswitch trunk port.
             # host_mtu=1504 advertises room for a full 1500-byte VLAN payload
@@ -403,20 +442,7 @@ class VMManager:
 
                 sock = None
                 if proxy_jump:
-                    # Parse proxy_jump as "user@host:port"
-                    proxy_user, proxy_rest = proxy_jump.split("@")
-                    proxy_host, proxy_port = proxy_rest.split(":")
-                    proxy = paramiko.SSHClient()
-                    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    proxy.connect(
-                        proxy_host, port=int(proxy_port),
-                        username=proxy_user, key_filename=str(key_path),
-                        timeout=5,
-                    )
-                    transport = proxy.get_transport()
-                    sock = transport.open_channel(
-                        "direct-tcpip", (host, port), ("127.0.0.1", 0)
-                    )
+                    sock = open_proxied_socket(proxy_jump, key_path, host, port)
 
                 client.connect(
                     host, port=port, username=username,

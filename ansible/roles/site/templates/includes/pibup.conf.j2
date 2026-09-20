@@ -1,5 +1,9 @@
 # {{ ansible_managed }} -- pibup
   location /pibup/ {
+    # Bitstreams are pushed through here (an Arty A7-35T .bit is ~2.2 MiB, an
+    # Acorn CLE-215+ one ~9.7 MiB, LiteX images more).  nginx's default is
+    # 1m, which turned every real upload into a 413 before it reached Django.
+    client_max_body_size {{ site_upload_max_body_size }};
     include proxy_params;
     proxy_pass http://unix:/run/gunicorn.sock;
   }

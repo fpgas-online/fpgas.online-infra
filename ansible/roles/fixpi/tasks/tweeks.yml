@@ -162,7 +162,9 @@
   tags:
     - fixpi
 
-# the rest of these tasks config the server to monitor client boot spew
+# the rest of these tasks config the server to monitor client boot spew.
+# They touch the build host, not the NFS root, so the CI nfsroot build
+# (issue #34) skips them with fixpi_server_monitor: false.
 
 - name: is server pi
   stat:
@@ -189,18 +191,21 @@
     name:
       - brltty
     state: absent
+  when: fixpi_server_monitor | default(true)
 
 - name: install packages on server
   apt:
     name:
       - tio
       - ansible
+  when: fixpi_server_monitor | default(true)
 
 - name: let tio connect to the tty and see pi boot messages
   ansible.builtin.user:
     name: "{{ user_name }}"
     groups: dialout
     append: true
+  when: fixpi_server_monitor | default(true)
 
 # don't let getty mess up boot messages over the serial console
 - name: disable (mask) getty systemd service
@@ -209,6 +214,7 @@
     masked: true
     state: stopped
     name: serial-getty@ttyAMA0.service
+  when: fixpi_server_monitor | default(true)
   tags:
     - ispi
 
@@ -220,8 +226,9 @@
     single_branch: true
     accept_hostkey: true
     force: true
-    # args:
-    # creates: "/home/{{ user_name }}/pici"
+  when: fixpi_server_monitor | default(true)
+  # args:
+  # creates: "/home/{{ user_name }}/pici"
 
 # ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts
 

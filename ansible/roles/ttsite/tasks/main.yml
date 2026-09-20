@@ -5,8 +5,10 @@
 # Spec: docs/superpowers/specs/2026-08-22-tinytapeout-fpgas-online-design.md
 - name: assert embed pin is complete
   assert:
-    that: (tt_commander_embed_version | length == 0) or (tt_commander_embed_sha256 | length == 64)
-    fail_msg: "tt_commander_embed_sha256 must be the 64-hex sha256 when tt_commander_embed_version is set"
+    that:
+      - (tt_commander_embed_version | length == 0) or (tt_commander_embed_sha256 | length == 64)
+      - (tt_commander_legacy_embed_version | length == 0) or (tt_commander_legacy_embed_sha256 | length == 64)
+    fail_msg: "tt_commander_(legacy_)embed_sha256 must be the 64-hex sha256 when the matching version is set"
   tags: [ttsite]
 
 - {include_tasks: boards.yml, tags: [ttsite, ttsite-boards]}

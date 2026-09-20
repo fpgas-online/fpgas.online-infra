@@ -1,0 +1,177 @@
+---
+# Verify the gateway apt cache (roles/apt-cache). Everything is skipped on a
+# host with apt_cache_enabled: false.
+- name: Apt cache facts
+  ansible.builtin.import_tasks: facts.yml
+
+- name: Verify the apt cache
+  when: apt_cache_enabled | bool
+  block:
+    - name: Check apt-cacher-ng installed
+      ansible.builtin.command: dpkg -s apt-cacher-ng
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_dpkg
+
+    - name: Assert apt-cacher-ng is installed
+      ansible.builtin.assert:
+        that: apt_cache_v_dpkg.rc == 0
+        fail_msg: apt-cacher-ng is not installed
+
+    - name: Check apt-cacher-ng service active
+      ansible.builtin.command: systemctl is-active apt-cacher-ng
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_active
+
+    - name: Assert apt-cacher-ng is active
+      ansible.builtin.assert:
+        that: apt_cache_v_active.stdout == "active"
+        fail_msg: "apt-cacher-ng is not active (got: {{ apt_cache_v_active.stdout }})"
+
+    # Listening on the Pi-facing address, not merely running: acng binds once
+    # at start-up, and ten64's copy runs happily on 127.0.0.1 alone.
+    - name: Check the cache answers on eth-local
+      ansible.builtin.uri:
+        url: "http://{{ eth_local_address }}:{{ apt_cache_port }}{{ apt_cache_remaps[0].path }}/{{ apt_cache_remaps[0].probe }}"
+        return_content: false
+      failed_when: false
+      register: apt_cache_v_local
+
+    - name: Assert the cache answers on eth-local
+      ansible.builtin.assert:
+        that: apt_cache_v_local.status == 200
+        fail_msg: >-
+          http://{{ eth_local_address }}:{{ apt_cache_port }} answered
+          {{ apt_cache_v_local.status }} ({{ apt_cache_v_local.msg | default('') }}):
+          the Pis and the NFS root cannot reach the cache.
+
+    # A real fetch through every remap: this is what catches a wrong backend,
+    # a missing Remap- line, and GitHub Pages' "503 Server reports unexpected
+    # range" (README.md, "Range hazard").
+    - name: Fetch a Release file through every remap
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ apt_cache_port }}{{ item }}"
+        return_content: false
+        # A cold cache fetches upstream before answering.
+        timeout: 120
+      failed_when: false
+      register: apt_cache_v_probe
+      loop: "{{ (apt_cache_remaps | map(attribute='path') | zip(apt_cache_remaps | map(attribute='probe')) | map('join', '/') | list) + apt_cache_stock_probes }}"
+
+    # acng's error pages say little ("500 Remote or cache error") and the
+    # cache lives on the gateway, so gather what explains a failed probe
+    # before asserting: the verbose exchange, acng's logs, and the cached
+    # index files with the upstream headers acng stored for them.
+    - name: Diagnose failed remap probes
+      ansible.builtin.shell: |
+        curl -sv -o /dev/null "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" 2>&1 | tail -n 25
+        echo "--- acng error page"
+        curl -sS -m 30 "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" | tail -n 15
+        echo "--- apt-cacher.err"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.err
+        echo "--- apt-cacher.log"; tail -n 40 /var/log/apt-cacher-ng/apt-cacher.log
+        echo "--- journal"; journalctl -u apt-cacher-ng --no-pager -n 40
+        echo "--- this host's addressing"
+        ip -brief address show; echo "-- v6 routes"; ip -6 route show | head -n 20
+        echo "--- each backend as the cache reaches it (order is what glibc prefers)"
+        {% for r in apt_cache_remaps %}
+        echo "== {{ r.backend }}"
+        getent ahosts {{ r.backend | urlsplit('hostname') }} | head -n 8
+        for fam in "" -4 -6; do
+          printf '   curl %-2s ' "$fam"
+          curl $fam -sS -o /dev/null -m 25 \
+            -w 'code=%{http_code} ip=%{remote_ip} t=%{time_total}\n' \
+            "{{ r.backend }}{{ r.probe }}" || echo "failed rc=$?"
+        done
+        {% endfor %}
+        echo "--- cached index files"; find {{ apt_cache_dir }} -maxdepth 4 -path '*dists*' -ls | head -n 40
+        for h in {{ apt_cache_dir }}/*/dists/*/*.head; do echo "== $h"; cat "$h"; done
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_probe_diag
+      loop: "{{ apt_cache_v_probe.results | rejectattr('status', 'equalto', 200) | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Show failed remap probe diagnostics
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines + item.stderr_lines }}"
+      loop: "{{ apt_cache_v_probe_diag.results }}"
+      loop_control:
+        label: "{{ item.item.item }}"
+
+    - name: Assert every remap serves its Release file
+      ansible.builtin.assert:
+        that: item.status == 200
+        fail_msg: >-
+          {{ item.item }} through the cache answered {{ item.status }}
+          ({{ item.msg | default('') }}). If it is a 503 "unexpected range" on
+          a GitHub Pages remap, delete the stale file and its .head under
+          {{ apt_cache_dir }} (README.md, "Range hazard").
+      loop: "{{ apt_cache_v_probe.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check the nginx config is valid
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_nginx
+
+    - name: Assert the nginx config is valid
+      ansible.builtin.assert:
+        that: apt_cache_v_nginx.rc == 0
+        fail_msg: "nginx -t failed: {{ apt_cache_v_nginx.stderr }}"
+
+    # The TLS path end to end on this host: certificate chain, name, and the
+    # proxy to acng. --resolve keeps it independent of which DNS view the
+    # gateway itself gets.
+    - name: Fetch through the TLS front end
+      ansible.builtin.command: >-
+        curl -sS -o /dev/null -w '%{http_code}'
+        --resolve {{ apt_cache_host }}:443:127.0.0.1
+        https://{{ apt_cache_host }}{{ apt_cache_remaps[0].path }}/{{ apt_cache_remaps[0].probe }}
+      changed_when: false
+      failed_when: false
+      register: apt_cache_v_tls
+      when: apt_cache_cert_exists | bool
+
+    - name: Assert the TLS front end serves the cache
+      ansible.builtin.assert:
+        that: apt_cache_v_tls.stdout == "200"
+        fail_msg: >-
+          https://{{ apt_cache_host }} answered '{{ apt_cache_v_tls.stdout }}'
+          {{ apt_cache_v_tls.stderr }}
+      when: apt_cache_cert_exists | bool
+
+    - name: Report a cache still waiting for its certificate
+      ansible.builtin.debug:
+        msg: >-
+          No certificate for {{ apt_cache_host }} yet: clients use
+          {{ apt_cache_url }} (plain http). See README.md, "Prerequisites".
+      when: not apt_cache_cert_exists | bool
+
+    # "All apt repos should be cached, no exceptions." Checked over EVERY
+    # source in the root -- not just the files this role writes -- so a
+    # source added by hand or by another role that bypasses the cache fails
+    # here instead of silently fetching from upstream.
+    - name: Collect the NFS root's apt source URIs
+      ansible.builtin.shell: >-
+        grep -rhE '^[[:space:]]*(deb|deb-src)[[:space:]]|^[[:space:]]*URIs:'
+        {{ nfs_root }}/root/etc/apt/sources.list {{ nfs_root }}/root/etc/apt/sources.list.d/
+      changed_when: false
+      failed_when: apt_cache_v_sources.rc > 1
+      register: apt_cache_v_sources
+
+    - name: Assert every NFS root source goes through the cache
+      ansible.builtin.assert:
+        that: apt_cache_v_bypass | length == 0
+        fail_msg: >-
+          These apt sources in {{ nfs_root }}/root bypass the cache at
+          {{ apt_cache_url }}: {{ apt_cache_v_bypass | join(', ') }}. Add a
+          remap (apt_cache_remaps) and point the source at
+          {{ apt_cache_url }}/<path>/.
+      vars:
+        apt_cache_v_bypass: >-
+          {{ apt_cache_v_sources.stdout | regex_findall('[a-z][a-z0-9+.-]*://[^\s\]]+')
+             | reject('match', (apt_cache_url | regex_escape) ~ '/') | list }}

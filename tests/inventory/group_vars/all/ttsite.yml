@@ -7,3 +7,5 @@ ttsite_domain: tinytapeout.test.fpgas.online
 ttsite_certbot: false
 tt_commander_embed_version: ""
 tt_commander_embed_sha256: ""
+tt_commander_legacy_embed_version: ""
+tt_commander_legacy_embed_sha256: ""

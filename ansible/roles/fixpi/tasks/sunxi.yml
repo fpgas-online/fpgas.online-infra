@@ -12,9 +12,11 @@
 # Raspbian does not carry debian-archive-keyring, so fetch Debian's own
 # bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
 # into the root; it provides the Signed-By keyring the source below names.
+# Fetched through the gateway's apt cache when there is one (the checksum
+# pins the content either way).
 - name: fetch debian-archive-keyring for the armmp kernel source
   get_url:
-    url: "http://deb.debian.org/debian/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
+    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
     dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
     checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
     mode: "0644"
@@ -94,10 +96,34 @@
     src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
     dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
     mode: "0644"
-  loop:
-    - sun8i-h3-orangepi-pc.dtb
-    - sun8i-h3-orangepi-pc-plus.dtb
-    - sun8i-h3-orangepi-one.dtb
+  loop: "{{ sunxi_dtbs }}"
+  when: fixpi_sunxi_vmlinuz.matched > 0
+  tags: [sunxi]
+
+# fdtget/fdtput for the I2C fixup below.
+- name: install device-tree-compiler on the server
+  apt:
+    name: device-tree-compiler
+  tags: [sunxi]
+
+# The copy above refreshes the DTBs from the kernel package on every kernel
+# change, so this fixup re-applies right after it. Done at publish time (not
+# a U-Boot fdtoverlays line) so nothing depends on the U-Boot build having
+# overlay support.
+- name: enable the header I2C controllers in the published sunxi DTBs
+  shell: |
+    set -e
+    changed=0
+    for node in {{ sunxi_i2c_nodes | join(' ') }}; do
+      if [ "$(fdtget '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status)" != okay ]; then
+        fdtput -t s '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status okay
+        changed=1
+      fi
+    done
+    echo "changed=$changed"
+  register: fixpi_sunxi_i2c
+  changed_when: "'changed=1' in fixpi_sunxi_i2c.stdout"
+  loop: "{{ sunxi_dtbs }}"
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 
@@ -106,4 +132,26 @@
     src: templates/boot/default-arm-sunxi.j2
     dest: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
     mode: "0644"
+  tags: [sunxi]
+
+# The H3 boards have no audio use, and the sun4i-codec probe has crashed three
+# different boards: a jump through an uninitialised DAI set_fmt pointer during
+# deferred probe ("Internal error: Oops: 80000005", PC = garbage, LR =
+# snd_soc_dai_set_fmt+0x34 [snd_soc_core], Workqueue deferred_probe_work_func,
+# ~25 s into boot -- captured 2026-09-02 on the USB gadget consoles of
+# pi-sw2-p20/p21 and the 1-1.3.3 board). The modules load only by udev's
+# DT-alias coldplug from the real root (none of them are in the sunxi
+# initramfs), so a root modprobe.d blacklist removes the whole probe path.
+- name: blacklist the sunxi audio codec modules in the NFS root
+  copy:
+    dest: "{{ nfs_root }}/root/etc/modprobe.d/fpgas-sunxi-no-audio.conf"
+    mode: "0644"
+    content: |
+      # fpgas.online (fixpi/sunxi.yml): the Orange Pi H3 boards are headless
+      # rack nodes; the sun4i-codec deferred probe has caused boot-time kernel
+      # Oopses (docs/hardware/2026-08-28-orange-pi-h3-boards.md). No board
+      # uses audio, so keep the whole codec stack unloadable-by-alias.
+      blacklist sun4i_codec
+      blacklist sun8i_codec_analog
+      blacklist sun8i_adda_pr_regmap
   tags: [sunxi]
