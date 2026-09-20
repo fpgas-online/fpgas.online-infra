@@ -4,6 +4,16 @@ Description=fpgas.online fleet watchdog
 Documentation=https://github.com/fpgas-online/fpgas.online-poe
 After=network-online.target
 Wants=network-online.target
+# The service exits non-zero when it cannot do its job: a sweep that raised,
+# or {{ fleet_watchdog_unhealthy_exit_after }} consecutive sweeps that found
+# nothing or tripped the circuit breaker. Restart=always then brings it back.
+# These two lines are what stops that being an infinite quiet retry: if it
+# keeps exiting, systemd gives up and puts the unit in `failed`, which is the
+# only state `systemctl is-failed` -- or anything else outside the journal --
+# can actually see. A structural fault (bad config) burns the budget in about
+# two minutes; a persistent unhealthy fleet takes about an hour.
+StartLimitIntervalSec={{ fleet_watchdog_start_limit_interval }}
+StartLimitBurst={{ fleet_watchdog_start_limit_burst }}
 
 [Service]
 Type=exec

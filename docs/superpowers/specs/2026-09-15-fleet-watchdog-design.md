@@ -3,6 +3,7 @@
 Date: 2026-09-15
 Status: implemented 2026-09-16 (`roles/fleet-watchdog`, `fleet_watchdog` in
 fpgas.online-poe). Plan: `docs/superpowers/plans/2026-09-15-fleet-watchdog.md`.
+Revised 2026-09-20 after a fail-loud review -- see **Failing loud** below.
 
 ## Problem
 
@@ -60,6 +61,9 @@ than 8 hours. It deploys as part of the tweed Ansible setup.
 | SSH identity | Dedicated watchdog key in the NFS root | Tim, 2026-09-15, re-confirmed after being shown that it needs a root rebuild and fleet cycle first. |
 | Uptime hard cap | 12 h | Tim, 2026-09-15. |
 | Enabled on deploy | No, ships disabled | The key reaches boards only after an NFS root update and fleet cycle. |
+| Port recovery | Clear PoE faults and re-enable switched-off ports | Tim, 2026-09-20: "The watch dog should also be clearing any PoE fault status and pushing the ports back into searching/delivering state." |
+| Unknown config keys | Fatal | Tim, 2026-09-20. A typo that loads as a default is a fleet cycled on a rule nobody wrote. |
+| Persistent trouble | Exit and let systemd restart | Tim, 2026-09-20: "When things are going wrong, the daemon should exit and systemd restarts it." |
 
 ## Components
 
@@ -326,7 +330,11 @@ the point, and the cadence is a floor on idle polling, not a deadline.
 | `fleet_watchdog_breaker_fraction` | `0.5` | Breaker trips above this share failing. |
 | `fleet_watchdog_breaker_min_failures` | `3` | And at least this many failing. |
 | `fleet_watchdog_ssh_user` | `pi` | Login user on the boards. |
-| `fleet_watchdog_exclude` | see table above | Map of switch index to port list. |
+| `fleet_watchdog_unhealthy_exit_after` | `3` | Consecutive sweeps finding nothing, or tripping the breaker, before the process exits. |
+| `fleet_watchdog_max_recovery_attempts` | `3` | Attempts to put one port back in service before reporting it instead. |
+| `fleet_watchdog_start_limit_interval` | `3600` | systemd's give-up window, seconds. |
+| `fleet_watchdog_start_limit_burst` | `4` | Starts within that window before the unit is marked failed. |
+| `fleet_watchdog_exclude` | see table above | Map of switch index to port list. Excluded ports are never probed, cycled or recovered. |
 
 Secrets stay out of this file. `/etc/fpgas/watchdog.env` (0600) carries
 `FPGAS_SWITCHES_CONFIG=/etc/fpgas/switches.yml` and one
@@ -338,6 +346,8 @@ Secrets stay out of this file. `/etc/fpgas/watchdog.env` (0600) carries
 ```
 [Unit]
 Description=fpgas.online fleet watchdog
+StartLimitIntervalSec=3600
+StartLimitBurst=4
 After=network-online.target
 Wants=network-online.target
 
@@ -439,6 +449,60 @@ root.
 
 Skipping step 3 is safe but useless: every board fails, the breaker trips, and
 the watchdog logs an alarm and cycles nothing.
+
+## Failing loud
+
+Added 2026-09-20 after reviewing the service against the principle that it must
+not silently paper over problems. A watchdog has an inverted failure profile:
+it fails by doing nothing, which is byte-for-byte identical to having nothing
+to do. "No alarms" is therefore not evidence of health, and these five changes
+exist so that a watchdog which has stopped watching cannot be mistaken for a
+quiet one.
+
+**Ports are recovered, not lost.** The scan returned only DELIVERING ports, so
+a port the switch had faulted off and a port a half-finished cycle had left
+switched off were both invisible and unrecoverable -- a port that is not
+delivering is not a board to probe, and nothing else ever looked at it.
+`scan_ports` now returns every watchable access port with its PoE state. Each
+sweep clears faults with `SyncSwitch.clear_poe_fault`, which re-arms the port
+and polls until detect leaves FAULT for DELIVERING or SEARCHING, and re-enables
+ports left off. Capped by `max_recovery_attempts`, after which the port is
+reported every sweep rather than re-armed forever.
+
+This means the watchdog re-enables a port an operator has admin-disabled.
+`fleet_watchdog_exclude` is the one way to make it keep its hands off a port,
+and exclusions are applied before anything decides to act.
+
+**Our own bugs never cut power.** `probe_all` converted any exception into an
+ordinary board failure, which two sweeps later is a power cycle: a `TypeError`
+in this code would have rebooted hardware. Internal errors now carry a
+traceback, are marked on the `Observation`, count toward the circuit breaker --
+they are evidence the watchdog is broken, which is what the breaker is for --
+and are never cycled on.
+
+**A failing board is named on every sweep.** Only the first failure carried the
+board and the reason, so a board stuck failing for a week read as a bare
+`failed=1`, and the `journalctl | grep pi-sw2-p20` this spec promises returned
+nothing. Under a breaker one summary line names the boards, rather than 35
+warnings burying the breaker itself.
+
+**The daemon exits when it cannot do its job.** `run()` caught every exception
+and looped forever, so a missing `switches.yml` logged a traceback every five
+minutes while systemd reported the unit active and healthy. A raising sweep now
+exits at once; `unhealthy_exit_after` consecutive sweeps that found no occupied
+port or tripped the breaker also exit. With the unit's `StartLimitIntervalSec`
+and `StartLimitBurst`, a persistent fault ends as a **failed** unit, which is
+the only health signal that exists outside the journal.
+
+One unreachable switch is deliberately not fatal: exiting would stop watching
+the switches that answer, and a restart cannot fix an unreachable switch. It is
+logged every sweep, and when no switch answers the sweep finds nothing, which
+does count.
+
+**A misread config is fatal.** An unknown key used to load as its default, so
+`max_uptime_hrs: 1` silently left `max_uptime_hours` at 8 with nothing
+downstream able to detect it. Unknown keys, uncoercible values and a malformed
+`exclude` block all now raise `ConfigError` and name the key.
 
 ## Risks
 

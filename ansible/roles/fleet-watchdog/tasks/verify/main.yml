@@ -85,7 +85,8 @@
 
 # The communities live solely in /etc/fpgas/watchdog.env, which only systemd
 # reads (EnvironmentFile=). Without them here, community_for() raises,
-# enumerate() swallows it per switch, and the sweep finds zero boards -- built
+# scan() reports it per switch, the sweep finds zero boards and now exits
+# non-zero for it -- built
 # the same way templates/watchdog.env.j2 does, one FPGAS_SWITCH_COMMUNITY_<i>
 # per switch that defines snmp_rw_community.
 - name: "verify: build the SNMP community environment for the dry-run sweep"
@@ -108,22 +109,33 @@
   environment: "{{ fleet_watchdog_verify_sweep_env | default({'HOME': fleet_watchdog_home}) }}"
   register: fleet_watchdog_verify_sweep
   changed_when: false
+  # Asserted below instead, so a non-zero exit is reported WITH the sweep
+  # output rather than as a bare "non-zero return code". The sweep now exits
+  # non-zero whenever it is unhealthy, which is the case worth diagnosing.
+  failed_when: false
+  # Hides the task's own output, because `environment:` carries the SNMP write
+  # communities. It does NOT hide the registered value, so the assert below can
+  # still quote the sweep's stdout -- which is only log lines.
   no_log: true
   when: fleet_watchdog_enabled
 
 # A bare substring match on `occupied=` is satisfied by `occupied=0`, which is
 # exactly what a wrong community, an unreachable switch, a missing config or a
 # dead key produces: the sweep "succeeds" having found nothing. Require a real
-# board count instead.
-- name: "verify: the dry-run sweep found a non-zero number of occupied ports"
+# board count as well as a zero exit.
+- name: "verify: the dry-run sweep succeeded and found occupied ports"
   assert:
     that:
+      - fleet_watchdog_verify_sweep.rc == 0
       - "'sweep: occupied=' in fleet_watchdog_verify_sweep.stdout"
       - fleet_watchdog_verify_sweep.stdout is search("sweep: occupied=[1-9]")
     fail_msg: >-
-      the dry-run sweep reported zero occupied ports. That means the switches
-      were not reachable or the SNMP communities were wrong -- not that the
-      fleet is empty. Check FPGAS_SWITCH_COMMUNITY_<index> against
+      the dry-run sweep failed or reported zero occupied ports. That means the
+      switches were not reachable or the SNMP communities were wrong -- not
+      that the fleet is empty. Check FPGAS_SWITCH_COMMUNITY_<index> against
       switches[].snmp_rw_community and that the switches answer SNMP from
       this host.
+      rc={{ fleet_watchdog_verify_sweep.rc }}
+      stdout={{ fleet_watchdog_verify_sweep.stdout_lines | default([]) }}
+      stderr={{ fleet_watchdog_verify_sweep.stderr_lines | default([]) }}
   when: fleet_watchdog_enabled

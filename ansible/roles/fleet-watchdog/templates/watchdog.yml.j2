@@ -20,6 +20,8 @@ max_scheduled_cycles_per_sweep: {{ fleet_watchdog_max_scheduled_cycles_per_sweep
 cycle_concurrency: {{ fleet_watchdog_cycle_concurrency }}
 breaker_fraction: {{ fleet_watchdog_breaker_fraction }}
 breaker_min_failures: {{ fleet_watchdog_breaker_min_failures }}
+unhealthy_exit_after: {{ fleet_watchdog_unhealthy_exit_after }}
+max_recovery_attempts: {{ fleet_watchdog_max_recovery_attempts }}
 
 exclude:
 {% for index, ports in (fleet_watchdog_exclude | dictsort) %}

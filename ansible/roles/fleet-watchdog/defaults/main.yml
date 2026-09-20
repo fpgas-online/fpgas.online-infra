@@ -30,6 +30,20 @@ fleet_watchdog_breaker_fraction: 0.5
 fleet_watchdog_breaker_min_failures: 3
 fleet_watchdog_ssh_user: pi
 
+# Consecutive sweeps that found nothing, or tripped the breaker, before the
+# process exits and lets systemd restart it. Paired with the unit's
+# StartLimit*: if it keeps happening the unit ends up `failed`, which is the
+# only signal visible outside the journal.
+fleet_watchdog_unhealthy_exit_after: 3
+# Attempts to put one port back in service (clear a PoE fault, or re-enable a
+# port left switched off) before the watchdog stops trying and just reports it.
+fleet_watchdog_max_recovery_attempts: 3
+# systemd's give-up budget. A structural fault restarts every RestartSec=30 and
+# so burns this in ~2 min; a persistently unhealthy fleet exits about every 15
+# min and so takes about an hour.
+fleet_watchdog_start_limit_interval: 3600
+fleet_watchdog_start_limit_burst: 4
+
 # Ports the watchdog must never cycle, per switch index. Trunk and uplink
 # ports need no entry: the role passes them to the switch as protected.
 # Welland's real values live in host_vars; this default is empty so another

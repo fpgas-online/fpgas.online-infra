@@ -80,9 +80,11 @@
 - name: warn when the NFS root has no ssh host key
   debug:
     msg: >-
-      {{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key.pub is missing, so no
-      known_hosts can be pinned and the watchdog cannot verify any board.
-      Leaving fleet_watchdog_enabled off until fixpi has generated it.
+      WARNING: {{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key.pub is missing,
+      so no known_hosts can be pinned and the watchdog cannot verify any board.
+      Leaving fleet_watchdog_enabled off until fixpi has generated it. This is
+      only a warning because the service ships disabled; the assert below turns
+      it into a hard failure the moment fleet_watchdog_enabled is true.
   when: not fleet_watchdog_host_key_stat.stat.exists
   tags: [fleet-watchdog]
 
