@@ -9,10 +9,66 @@
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
 
-- name: set the password and tell everyone
-  script: files/pipw.sh "{{user}}" "{{pi_pw}}" "{{nfs_root}}/boot" "{{nfs_root}}/root"
+# useradd (netboot.yml "create pi user") leaves the account's password locked.
+# pi_pw is the PLAINTEXT shared password: roles/site hands it (base64) to the
+# web terminal, which logs in to the Pi with it, so it cannot be a hash. Hash
+# it here on the server with openssl (the NFS root's own python3 would need
+# qemu, and the server's has no crypt module) and write it into the root's
+# /etc/shadow with `chpasswd -e`. The salt is derived from the password, so
+# the hash is stable across runs and the tasks are idempotent.
+- name: hash the pi user's password (sha512-crypt, salt derived from it)
+  command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
-    creates: "{{nfs_root}}/root/etc/ssh/password.txt"
+    stdin: "{{ pi_pw }}"
+  register: fixpi_pi_pw_hash
+  changed_when: false
+  no_log: true
+  tags:
+    - pipw
+
+- name: check whether the NFS root already carries that hash
+  command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
+  register: fixpi_pi_pw_current
+  changed_when: false
+  failed_when: fixpi_pi_pw_current.rc not in [0, 1]
+  no_log: true
+  tags:
+    - pipw
+
+# chpasswd replaces /etc/shadow (new inode). The running Pis mount this root
+# as the lower layer of an overlayroot over NFS, and their sshd keeps the
+# old dentry: after this changes, every one of them closes each SSH
+# connection (key or password) until it is rebooted. Reboot them all.
+- name: set the pi user's password in the NFS root
+  command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "chpasswd -e"
+  args:
+    stdin: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}"
+  when: fixpi_pi_pw_current.rc != 0
+  register: fixpi_pi_pw_set
+  no_log: true
+  tags:
+    - pipw
+
+- name: reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
+  debug:
+    msg: >-
+      {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
+      now refuses SSH until rebooted: PoE-cycle their switch ports.
+  when: fixpi_pi_pw_set is changed
+  tags:
+    - pipw
+
+# Nothing reads these: the RPi OS first-boot wizard that would apply
+# boot/userconf.txt is masked in the NFS root (netboot.yml), and password.txt
+# was only ever a marker. userconf.txt holds the plaintext password in the
+# TFTP-served boot dir, so make sure it is gone.
+- name: remove userconf.txt and the password marker
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ nfs_root }}/boot/userconf.txt"
+    - "{{ nfs_root }}/root/etc/ssh/password.txt"
   tags:
     - pipw
 

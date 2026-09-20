@@ -74,3 +74,35 @@
   assert:
     that: "'nfsroot=' in fixpi_cmdline.stdout"
     fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"
+
+# --- Orange Pi (sunxi) netboot files (fixpi/tasks/sunxi.yml) ---
+- name: read the sunxi PXE config
+  slurp:
+    src: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
+  register: fixpi_verify_sunxi_pxe
+  when: sunxi_boards is defined
+
+- name: Assert sunxi PXE config names the default DTB and the NFS root
+  assert:
+    that:
+      - fixpi_verify_sunxi_pxe.content | b64decode is search('fdt sunxi/dtbs/' ~ sunxi_default_dtb)
+      - fixpi_verify_sunxi_pxe.content | b64decode is search('nfsroot=' ~ eth_local_address ~ ':' ~ nfs_root ~ '/root')
+    fail_msg: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi does not point at {{ sunxi_default_dtb }} / {{ nfs_root }}/root"
+  when: sunxi_boards is defined
+
+# Only meaningful when the kernel was actually installed (tag sunxi-kernel,
+# skipped in CI).
+- name: sunxi kernel payload present in tftp
+  stat:
+    path: "{{ tftp_root }}/sunxi/{{ item }}"
+  register: fixpi_verify_sunxi_payload
+  loop: [vmlinuz, initrd.img, "dtbs/{{ sunxi_default_dtb }}"]
+  when: sunxi_boards is defined
+  tags: [sunxi-kernel]
+
+- name: Assert sunxi kernel payload present
+  assert:
+    that: fixpi_verify_sunxi_payload.results | map(attribute='stat.exists') | list == [true, true, true]
+    fail_msg: "sunxi/vmlinuz, sunxi/initrd.img or {{ sunxi_default_dtb }} missing from {{ tftp_root }}/sunxi"
+  when: sunxi_boards is defined
+  tags: [sunxi-kernel]

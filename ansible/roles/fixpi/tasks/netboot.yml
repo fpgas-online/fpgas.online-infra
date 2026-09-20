@@ -35,12 +35,17 @@
   tags:
     - netboot
 
+# cmdline-pi5.txt is selected only by the `[pi5] cmdline=` line that
+# roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
+# cmdline.txt. It exists so enabling the Pi 5 header UART does not drag the
+# kernel console onto the FPGA's serial pins -- see the comment on that task.
 - name: replace cmdline with netbootie versions
   template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
   with_items:
     - cmdline.txt
+    - cmdline-pi5.txt
   tags:
     - cmdline
     - netboot
@@ -51,6 +56,18 @@
     dest: "{{ nfs_root }}/root/etc/{{ item }}"
   with_items:
     - fstab
+  tags:
+    - cmdline
+    - netboot
+
+# The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
+# cmdline.txt.j2 no longer puts a kernel console there, and this disables
+# SysRq so any stray bytes the FPGA drives onto that line can never be
+# parsed as reboot/crash/poweroff. See files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
+- name: disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
+  copy:
+    src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
   tags:
     - cmdline
     - netboot
@@ -183,6 +200,7 @@
     dest: "{{ nfs_root }}/boot/"
     rsync_opts:
       - "--exclude=cmdline.txt"
+      - "--exclude=cmdline-pi5.txt"
       - "--exclude=config.txt"
   delegate_to: "{{ inventory_hostname }}"
   tags:
@@ -241,10 +259,15 @@
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
 # on the server (native amd64 ssh-keygen), which is both faster and produces
 # valid keys that the Pi's sshd accepts directly.
+# fixpi_generate_host_keys: false skips this on the CI nfsroot build (issue
+# #34): keys baked into the published image would be shared by every
+# consuming site, so each server generates its own after extraction (this
+# same task, which fires whenever the keys are absent).
 - name: check if SSH host keys already exist in NFS root
   stat:
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
+  when: fixpi_generate_host_keys | default(true)
   tags:
     - netboot
     - qemu
@@ -257,7 +280,9 @@
     - {type: rsa}
     - {type: ecdsa}
     - {type: ed25519}
-  when: not fixpi_ssh_host_key_stat.stat.exists
+  when: >-
+    fixpi_generate_host_keys | default(true)
+    and not fixpi_ssh_host_key_stat.stat.exists
   tags:
     - netboot
     - qemu

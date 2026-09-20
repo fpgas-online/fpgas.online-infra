@@ -1,15 +1,15 @@
 [pxe]
 ps1.fpgas.online
 fpgas.online
-slf.sytes.net
 
 [nbp]
 fpgas.online
 ps1.fpgas.online
-slf.sytes.net
 
 [uhubctl]
-slf.sytes.net
+# Hosts with a uhubctl-controlled USB hub. None in the fleet at present: the
+# only member was a No-IP dyndns host inherited from the pici inventory that
+# stopped resolving in 2026-08 and was retired on 2026-09-04.
 
 [pig]
 fpgas.online

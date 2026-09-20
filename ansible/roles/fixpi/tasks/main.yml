@@ -1,6 +1,10 @@
 ---
 - {include_tasks: manage.yml, tags: [manage, qemu]}
 - {include_tasks: netboot.yml, tags: [cmdline, pibs, netboot, qemu]}
+# Only `sunxi` on the include: with `sunxi-kernel` here too, CI's --skip-tags
+# sunxi-kernel skipped the WHOLE include (no PXE render) and verify failed.
+# The kernel tasks inside carry sunxi-kernel themselves.
+- {include_tasks: sunxi.yml, tags: [sunxi], when: sunxi_boards is defined}
 - {include_tasks: userconf.yml, tags: [pipw, keys]}
 - {include_tasks: tweeks.yml, tags: [ispi, hostname, bashrc, fixpi]}
 - {include_tasks: nogrow.yml, tags: [fixpi, nogrow]}

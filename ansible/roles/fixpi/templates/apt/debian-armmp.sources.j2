@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# Debian (not Raspbian) armhf source, used ONLY for the sunxi kernel: Raspbian
+# has no armmp kernel. Everything else from here is pinned to -1 (see
+# preferences.d/debian-armmp.pref) so Raspbian stays the source of every other
+# package on the shared NFS root.
+Types: deb
+{# Through the gateway's apt cache when roles/apt-cache runs on this host (its
+   stock /debian remap); ci-nfsroot.yml has no cache and keeps upstream. #}
+URIs: {{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}
+Suites: bookworm
+Components: main
+Architectures: armhf
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
