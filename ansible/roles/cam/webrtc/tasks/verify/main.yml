@@ -50,3 +50,14 @@
   changed_when: false
   # grep: 1 = no match (good), 0 = directive present, 2 = could not read.
   failed_when: webrtc_verify_wait_video.rc != 1
+
+- name: Check nginx runs a single worker (RTMP pulls depend on it)
+  # rtmp_auto_push between nginx workers is broken (the relays time out in
+  # their handshake, nginx-rtmp-module issue 849; re-measured 2026-09-20 with
+  # 4 workers: every pull served by a non-publisher worker got no data and
+  # no error). HLS hides that - the publisher's own worker writes it - but
+  # an RTMP pull lands on any worker. roles/cam/stream-server pins 1 worker.
+  ansible.builtin.command: grep -cE '^worker_processes\s+1;' /etc/nginx/nginx.conf
+  register: webrtc_verify_workers
+  changed_when: false
+  failed_when: webrtc_verify_workers.stdout | int != 1
