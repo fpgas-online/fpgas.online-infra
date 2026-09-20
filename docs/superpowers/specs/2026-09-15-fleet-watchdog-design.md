@@ -465,13 +465,22 @@ switched off were both invisible and unrecoverable -- a port that is not
 delivering is not a board to probe, and nothing else ever looked at it.
 `scan_ports` now returns every watchable access port with its PoE state. Each
 sweep clears faults with `SyncSwitch.clear_poe_fault`, which re-arms the port
-and polls until detect leaves FAULT for DELIVERING or SEARCHING, and re-enables
-ports left off. Capped by `max_recovery_attempts`, after which the port is
-reported every sweep rather than re-armed forever.
+and polls until detect leaves FAULT for DELIVERING or SEARCHING. Capped by
+`max_recovery_attempts`, after which the port is reported every sweep rather
+than re-armed forever.
 
-This means the watchdog re-enables a port an operator has admin-disabled.
-`fleet_watchdog_exclude` is the one way to make it keep its hands off a port,
-and exclusions are applied before anything decides to act.
+Admin-disabled ports are treated differently, and deliberately so. The board
+page's PoE control (`snmp_switch.LibraryPort.set`) turns a port off and leaves
+it off with no timer, so an operator holding a port off is a supported state
+that the watchdog must not fight. Only ports this process switched off and did
+not see come back are re-enabled. Every other admin-disabled port is reported
+on every sweep and never touched. That set is in memory and does not survive a
+restart, so after a restart a stranded port is indistinguishable from an
+intentionally disabled one -- hence reporting rather than acting. A port whose
+PoE state reads `unknown` is likewise reported and never acted on.
+
+`fleet_watchdog_exclude` remains the way to make the watchdog ignore a port
+entirely; exclusions are applied before anything decides to act.
 
 **Our own bugs never cut power.** `probe_all` converted any exception into an
 ordinary board failure, which two sweeps later is a power cycle: a `TypeError`

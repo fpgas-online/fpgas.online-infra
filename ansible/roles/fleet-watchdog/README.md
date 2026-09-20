@@ -74,17 +74,24 @@ watchdog does to boards can ever bring it back. Two states get it there:
   over-current or a short. Never a deliberate operator state, so the watchdog
   clears it: it re-arms the port and polls until the fault clears to
   delivering or searching.
-* **Switched off** -- somebody, very possibly this service dying mid-cycle,
-  told the switch to stop supplying the port. The watchdog turns it back on.
+* **Switched off by this service** -- a cycle died between the off and the
+  on. The watchdog remembers the ports it switched off and turns those back
+  on.
 
-> **This means the watchdog will re-enable a port you have admin-disabled.**
-> If you switch a port off at the switch to work on a board safely, the next
-> sweep switches it back on within five minutes. Add the port to
-> `fleet_watchdog_exclude` first -- excluded ports are dropped before anything
-> decides to act, so the exclusion list is the one way to make the watchdog
-> keep its hands off a port.
+A port switched off by anyone *else* is left off and reported on every sweep.
+The board page's PoE control turns a port off and leaves it off with no timer,
+so re-enabling those would make the site's own off switch stop working within
+five minutes. That memory does not survive a restart, which is why the
+reporting matters: after a restart, a port this service stranded looks exactly
+like one a person switched off, so it is named every sweep rather than quietly
+fixed or quietly ignored. Turn it back on from the board page or with
+`fpgas-switch` when you see it.
 
-Both are capped by `fleet_watchdog_max_recovery_attempts` (3). A port that
+A port whose PoE state the switch reports as `unknown` is also reported and
+never acted on: the watchdog will not guess at a fix for a state it cannot
+read.
+
+Fault clearing is capped by `fleet_watchdog_max_recovery_attempts` (3). A port that
 will not stay in service is reported on every sweep as needing on-site
 attention rather than re-armed forever. The count resets the moment the port
 is back in service.
