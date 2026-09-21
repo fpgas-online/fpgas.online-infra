@@ -401,3 +401,13 @@ dnsmasq_auth_zone: fpgas.welland.mithis.com
 dnsmasq_auth_glue: gw.fpgas.welland.mithis.com
 dnsmasq_auth_subnet: 10.21.0.0/16
 dnsmasq_auth_interface: eth-uplink
+
+# --- WebRTC / WHEP camera streaming (roles/cam/webrtc) --------------------
+# Defining webrtc_additional_hosts switches the mediamtx role on for this
+# host (web.yml). These are the ICE candidates mediamtx advertises:
+webrtc_media_port: 8189
+webrtc_additional_hosts:
+  - "87.121.95.37"            # the one public IPv4 (ten64 DNATs the media port)
+  - "2404:e80:a137:2100::1"   # this host's global IPv6, reached directly
+  - "10.99.21.2"              # ten64<->tweed transit IP: LAN viewers cannot
+                              # hairpin the WAN DNAT, this gives them a route

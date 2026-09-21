@@ -1,0 +1,53 @@
+# {{ ansible_managed }}
+# Only the deltas from mediamtx's built-in defaults; everything not set
+# here keeps the default from the bundled mediamtx.yml of this version.
+
+logLevel: info
+
+# Ingest: the Pis publish RTSP (gst-libcam.sh rtspclientsink, TCP) to
+# rtsp://<gateway>:8554/cam/<host>. Everything else is off - nginx-rtmp
+# still owns RTMP/HLS, and unused listeners are attack surface.
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp]
+rtmp: no
+hls: no
+srt: no
+moq: no
+playback: no
+
+# Delivery: WHEP. The HTTP side (signalling) is proxied by nginx from
+# /cam/... on the public vhosts, so it binds to localhost only. Media
+# flows on the single muxed ICE port, UDP with TCP fallback.
+webrtc: yes
+webrtcAddress: 127.0.0.1:8889
+webrtcTrustedProxies: ["127.0.0.1", "::1"]
+webrtcLocalUDPAddress: ":{{ webrtc_media_port }}"
+webrtcLocalTCPAddress: ":{{ webrtc_media_port }}"
+# Advertise only the deliberately chosen candidates (public IPv4 via the
+# router DNAT, direct global IPv6, LAN transit IP) - not every interface.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: {{ webrtc_additional_hosts | to_json }}
+
+# Local monitoring only (roles/cam/webrtc verify, ad-hoc debugging).
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Publishing is for the Pis (and local tests); reading is public - the
+# whole point of fpgas.online. Entries are matched in order by IP.
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1", "{{ pib_network }}.0.0/16"]
+    permissions:
+      - action: publish
+      - action: read
+      - action: api
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+
+paths:
+  all_others:

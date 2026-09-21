@@ -1,0 +1,13 @@
+  # WHEP (WebRTC) signalling for the camera streams: browsers POST an SDP
+  # offer to /cam/<host>/whep and PATCH/DELETE the resulting session, so
+  # all methods must pass through. Media does NOT flow here - it uses ICE
+  # on UDP/TCP {{ webrtc_media_port }} directly.
+  location /cam/ {
+    proxy_pass http://127.0.0.1:8889;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # add_header in a location replaces the server-level set, so repeat HSTS.
+    add_header Strict-Transport-Security "max-age=15552000";
+  }
