@@ -4,12 +4,12 @@
 
 logLevel: info
 
-# Ingest: the Pis publish RTSP (gst-libcam.sh rtspclientsink, TCP) to
-# rtsp://<gateway>:8554/cam/<host>. Everything else is off - nginx-rtmp
-# still owns RTMP/HLS, and unused listeners are attack surface.
-rtsp: yes
-rtspAddress: :8554
-rtspTransports: [tcp]
+# Ingest: nothing listens for it. mediamtx PULLS each camera from the local nginx-rtmp
+# (see paths: below) only while somebody is watching it, so every listener
+# except WHEP is off - nginx-rtmp still owns RTMP/HLS, and unused listeners
+# are attack surface. `rtmp: no` only disables the RTMP *server*; the RTMP
+# source client used by the pull is unaffected.
+rtsp: no
 rtmp: no
 hls: no
 srt: no
@@ -33,14 +33,13 @@ webrtcAdditionalHosts: {{ webrtc_additional_hosts | to_json }}
 api: yes
 apiAddress: 127.0.0.1:9997
 
-# Publishing is for the Pis (and local tests); reading is public - the
-# whole point of fpgas.online. Entries are matched in order by IP.
+# Nobody publishes (mediamtx pulls); reading is public - the whole point of
+# fpgas.online. The API stays local. Entries are matched in order by IP.
 authInternalUsers:
   - user: any
     pass:
-    ips: ["127.0.0.1", "::1", "{{ pib_network }}.0.0/16"]
+    ips: ["127.0.0.1", "::1"]
     permissions:
-      - action: publish
       - action: read
       - action: api
   - user: any
@@ -49,5 +48,17 @@ authInternalUsers:
     permissions:
       - action: read
 
+# /cam/<host>/whep -> pull rtmp://localhost/pib/<host> from nginx-rtmp, the
+# same stream the HLS player uses, so the Pis need no change at all. The
+# URL fragment is mediamtx's syntax for "app#streamKey" (a plain
+# /pib/<host> would be sent as app='pib/<host>'). On demand: the pull
+# starts with the first viewer (about 2 s: RTMP connect + next keyframe,
+# the Pis send one per second) and stops 10 s after the last one leaves,
+# so idle cameras cost this host nothing. Names are limited to hostname
+# characters so junk requests never reach nginx.
 paths:
-  all_others:
+  "~^cam/([A-Za-z0-9][A-Za-z0-9._-]*)$":
+    source: "rtmp://127.0.0.1:{{ webrtc_rtmp_source_port }}/{{ webrtc_rtmp_source_app }}#$G1"
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s

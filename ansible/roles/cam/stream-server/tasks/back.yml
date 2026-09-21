@@ -28,6 +28,10 @@
   ansible.builtin.template:
     src: templates/pib.conf.j2
     dest: /etc/nginx/rtmp/pib.conf
+  # A reload only gives NEW workers the new config: publishers stay attached
+  # to the old worker (and its old application settings) until they
+  # reconnect. See the WebRTC runbook's deploy ordering.
+  notify: reload nginx
   tags:
     - streaming
 
