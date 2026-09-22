@@ -10,8 +10,13 @@
     tt_boards: "{{ hostvars[groups['nbp'][0]].tt_boards }}"
   when: tt_boards is not defined and hostvars[groups['nbp'][0]].tt_boards is defined
 
-- name: Tiny Tapeout bridge (when this site has TT boards)
-  when: tt_boards is defined
+# The daemon + demo debs are generic fleet content, so the CI nfsroot build
+# (issue #34) bakes them with tt_install: true even though it has no
+# tt_boards; the site catalogue and the service enablement stay keyed to
+# tt_boards and are applied by the consuming server (a service enabled
+# without its tt-boards.yaml would change behaviour on non-TT sites).
+- name: Tiny Tapeout bridge packages (generic)
+  when: tt_install | default(tt_boards is defined)
   block:
     # Both debs are rolling releases from the fpgas-online apt repo:
     # `latest` so re-running the pi play picks up a newer daemon/demo set.
@@ -30,6 +35,9 @@
         state: directory
         mode: "0755"
 
+- name: Tiny Tapeout site catalogue (when this site has TT boards)
+  when: tt_boards is defined
+  block:
     - name: bake tt-boards.yaml into the Pi root
       ansible.builtin.template:
         src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"

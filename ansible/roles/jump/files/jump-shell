@@ -1,0 +1,21 @@
+#!/bin/bash
+# sshd ForceCommand for the restricted jump account (fpgas.online-infra
+# roles/jump). rbash plus a PATH of ~/bin only restricts *login* shells;
+# `ssh jump 'cmd'` runs a non-login shell that never reads .bash_profile, so
+# without this wrapper any command works. sshd hands us the requested command
+# in SSH_ORIGINAL_COMMAND; only ssh and ssh-keyscan get through, and even
+# those run under rbash with PATH locked to ~/bin. ProxyJump (`ssh -W`) is a
+# TCP forward, not a command, and is unaffected.
+export PATH="$HOME/bin"
+case "${SSH_ORIGINAL_COMMAND:-}" in
+    "")
+        exec -l /bin/rbash
+        ;;
+    ssh|ssh\ *|ssh-keyscan|ssh-keyscan\ *)
+        exec /bin/rbash -c "$SSH_ORIGINAL_COMMAND"
+        ;;
+    *)
+        echo "jump account: only ssh and ssh-keyscan are allowed here" >&2
+        exit 127
+        ;;
+esac

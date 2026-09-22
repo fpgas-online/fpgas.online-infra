@@ -1,0 +1,63 @@
+---
+- name: Check mediamtx service is active
+  ansible.builtin.command: systemctl is-active mediamtx
+  changed_when: false
+  register: webrtc_verify_active
+
+- name: Check mediamtx API answers
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9997/v3/paths/list
+  register: webrtc_verify_api
+
+- name: Check the WHEP endpoint answers through mediamtx
+  # OPTIONS on any path works without a publisher; 204 + Accept-Post proves
+  # the WHEP handler is live behind the local listener.
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8889/cam/verify-probe/whep
+    method: OPTIONS
+    status_code: 204
+  register: webrtc_verify_whep
+
+- name: Check the WHEP endpoint answers through nginx
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/cam/verify-probe/whep"
+    method: OPTIONS
+    status_code: [204, 301]
+  register: webrtc_verify_whep_nginx
+
+- name: Read the mediamtx path configuration
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9997/v3/config/paths/list
+  register: webrtc_verify_paths
+
+- name: Check the cameras are pulled on demand from nginx-rtmp
+  # The regex path must carry the RTMP source: if it is missing, WHEP
+  # answers 404 for every camera because nothing ever publishes here.
+  ansible.builtin.assert:
+    that:
+      - webrtc_verify_paths.json['items'] | selectattr('source', 'search', '^rtmp://127.0.0.1:') | selectattr('sourceOnDemand') | list | length == 1
+    fail_msg: "mediamtx has no on-demand RTMP pull path: {{ webrtc_verify_paths.json['items'] | map(attribute='name') | list }}"
+
+- name: Check nginx-rtmp (the pull source) is listening
+  ansible.builtin.wait_for:
+    port: "{{ webrtc_rtmp_source_port }}"
+    host: 127.0.0.1
+    timeout: 5
+
+- name: Check nginx-rtmp does not send the dummy audio that kills the pull
+  ansible.builtin.command: grep -rnE '^\s*wait_video\s+on' /etc/nginx/rtmp/
+  register: webrtc_verify_wait_video
+  changed_when: false
+  # grep: 1 = no match (good), 0 = directive present, 2 = could not read.
+  failed_when: webrtc_verify_wait_video.rc != 1
+
+- name: Check nginx runs a single worker (RTMP pulls depend on it)
+  # rtmp_auto_push between nginx workers is broken (the relays time out in
+  # their handshake, nginx-rtmp-module issue 849; re-measured 2026-09-20 with
+  # 4 workers: every pull served by a non-publisher worker got no data and
+  # no error). HLS hides that - the publisher's own worker writes it - but
+  # an RTMP pull lands on any worker. roles/cam/stream-server pins 1 worker.
+  ansible.builtin.command: grep -cE '^worker_processes\s+1;' /etc/nginx/nginx.conf
+  register: webrtc_verify_workers
+  changed_when: false
+  failed_when: webrtc_verify_workers.stdout | int != 1

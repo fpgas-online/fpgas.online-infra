@@ -5,8 +5,8 @@
 - name: Install fpgas.online Django site
   ansible.builtin.pip:
     name:
-      - "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"
-      - "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
+      - "{{ site_package }}"
+      - "{{ site_poe_package }}"
     virtualenv: "{{ django_dir }}/venv"
     state: forcereinstall
   # a new wheel means new templates/code: the running gunicorn/daphne keep
@@ -15,6 +15,18 @@
   notify:
     - restart django services
     - restart fleet-consumer
+  tags:
+    - django
+
+- name: Install a PoE package branch on top (testing only, see defaults)
+  ansible.builtin.pip:
+    name: "{{ site_poe_package_override }}"
+    virtualenv: "{{ django_dir }}/venv"
+    state: forcereinstall
+    extra_args: --no-deps
+  when: site_poe_package_override is defined
+  notify:
+    - restart django services
   tags:
     - django
 

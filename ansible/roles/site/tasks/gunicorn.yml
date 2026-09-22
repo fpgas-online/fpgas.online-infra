@@ -15,6 +15,45 @@
   tags:
     - django
 
+# The PoE views (fpgas-online-poe's snmp_switch, served by gunicorn) find the
+# per-port-VLAN switches through environment variables; see the template.
+# Hosts on the legacy single-switch scheme get theirs from snmp.yml instead.
+- name: gunicorn drop-in directory
+  file:
+    path: /etc/systemd/system/gunicorn.service.d
+    state: directory
+    mode: "0755"
+  when: switches is defined
+  tags:
+    - django
+    - snmp
+
+- name: tell gunicorn where the per-port-VLAN switches are (PoE control)
+  template:
+    src: templates/gunicorn-poe.conf.j2
+    dest: /etc/systemd/system/gunicorn.service.d/poe.conf
+    mode: "0600"
+  when: switches is defined
+  no_log: true
+  notify:
+    - reload systemd
+    - restart django services
+  tags:
+    - django
+    - snmp
+
+- name: no per-port-VLAN switch drop-in on a legacy-scheme host
+  file:
+    path: /etc/systemd/system/gunicorn.service.d/poe.conf
+    state: absent
+  when: switches is not defined
+  notify:
+    - reload systemd
+    - restart django services
+  tags:
+    - django
+    - snmp
+
 - name: Enable services
   systemd:
     service: "{{ item }}"

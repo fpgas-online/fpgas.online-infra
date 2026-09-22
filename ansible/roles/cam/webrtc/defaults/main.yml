@@ -1,0 +1,32 @@
+---
+# mediamtx serves the low-latency WebRTC (WHEP) leg of the camera streams.
+# It pulls each camera over RTMP from the local nginx-rtmp (the stream the
+# Pis already publish for HLS/DVR) while at least one viewer is watching,
+# so the Pis need no second publish leg. That pull only works because
+# roles/cam/stream-server no longer sets `wait_video on` (see pib.conf.j2:
+# its zero-length dummy audio message is fatal to mediamtx's RTMP client).
+mediamtx_version: "1.20.1"
+# sha256 of the release tarballs (checksums.sha256 on the GitHub release).
+mediamtx_checksums:
+  x86_64: "81b143f55a5d23d4a8c028d52869c14ea4a59919900528698fcc97a747fd69c6"
+  aarch64: "d1689f0bfefb1864e5ed3dcc8495eb2d7ec0a654f90bf3cd48980cb3bd08718a"
+mediamtx_arch: "{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"
+mediamtx_tarball: "mediamtx_v{{ mediamtx_version }}_linux_{{ mediamtx_arch }}.tar.gz"
+mediamtx_url: "https://github.com/bluenviron/mediamtx/releases/download/v{{ mediamtx_version }}/{{ mediamtx_tarball }}"
+
+# Where the on-demand pull finds the cameras: the nginx-rtmp application
+# of roles/cam/stream-server (pib.conf.j2) on this host. One mediamtx path
+# cam/<host> maps onto rtmp://127.0.0.1:<port>/<app>/<host>.
+webrtc_rtmp_source_port: 1935
+webrtc_rtmp_source_app: pib
+
+# Single ICE media port (UDP+TCP, all WebRTC sessions are muxed onto it).
+# Must be reachable from viewers: input accept on this host (roles/firewall)
+# plus, for IPv4, a DNAT on the router that owns the public address
+# (docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+webrtc_media_port: 8189
+
+# webrtc_additional_hosts (list of IPs advertised as ICE candidates: the
+# public IPv4, this host's global IPv6, and any LAN-reachable transit IP)
+# has NO default: defining it in host_vars is what switches this role on
+# (see web.yml). webrtcIPsFromInterfaces is off so only these are offered.

@@ -158,6 +158,21 @@
   tags:
     - django
 
+# Welland runs ahead of the stable ps1 site, so its pages carry a banner
+# pointing visitors there. Written on EVERY host rather than only the ones that
+# want it, so a host that is switched back gets an explicit False rather than
+# keeping a stale True that nothing would ever remove.
+- name: under-construction banner
+  lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^UNDER_CONSTRUCTION = '
+    line: "UNDER_CONSTRUCTION = {{ 'True' if site_under_construction | bool else 'False' }}"
+  notify:
+    - restart django services
+  tags:
+    - django
+
 - name: set static dir
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"

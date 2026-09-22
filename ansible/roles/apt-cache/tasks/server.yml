@@ -1,0 +1,32 @@
+---
+- name: Install apt-cacher-ng
+  ansible.builtin.apt:
+    name: apt-cacher-ng
+    state: present
+
+- name: Configure apt-cacher-ng (port, upstream proxy, remaps)
+  ansible.builtin.template:
+    src: zzz_override.conf.j2
+    dest: /etc/apt-cacher-ng/zzz_override.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart apt-cacher-ng (apt-cache)
+
+- name: Remap backends
+  ansible.builtin.copy:
+    content: "{{ item.backend }}\n"
+    dest: "/etc/apt-cacher-ng/backends_{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ apt_cache_remaps }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: Restart apt-cacher-ng (apt-cache)
+
+- name: Enable and start apt-cacher-ng
+  ansible.builtin.systemd_service:
+    name: apt-cacher-ng
+    enabled: true
+    state: started

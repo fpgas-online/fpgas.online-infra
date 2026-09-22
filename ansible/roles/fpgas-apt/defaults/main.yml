@@ -3,5 +3,24 @@
 # custom domain fpgas.online, so every project page -- including
 # fpgas-online.github.io/apt -- 301s to http://fpgas.online/<repo>, which apt
 # refuses to follow (https -> http). Use the canonical https URL directly.
-fpgas_apt_url: https://fpgas.online/apt
+fpgas_apt_upstream_url: https://fpgas.online/apt
+
+# The "Pi" here is the NFS root on a gateway, so the gateway's apt cache
+# (roles/apt-cache publishes apt_cache_url) is read from the first nbp host's
+# vars -- the same pattern as onpi/tasks/tt.yml. Empty (no nbp group, as in
+# ci-nfsroot.yml, or the cache disabled) falls back to upstream.
+fpgas_apt_cache_url: "{{ hostvars[groups['nbp'][0]].apt_cache_url | default('') if groups['nbp'] | default([]) else '' }}"
+fpgas_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online') if fpgas_apt_cache_url else fpgas_apt_upstream_url }}"
 fpgas_apt_suite: bookworm
+
+# mithro/rp1-jtag publishes the RP1-PIO builds of openFPGALoader and OpenOCD
+# (openfpgaloader-rp1pio, openocd-rp1pio, librp1jtag0) as one flat apt
+# repository per Debian release under a GitHub Pages site; the suite follows
+# the NFS root's release so a trixie root gets the trixie build. The
+# repository signs with its own key, published alongside the suites at
+# rp1-jtag.gpg (ASCII-armoured, despite the name). Its fingerprint is pinned
+# below so a swapped key on the Pages site fails the build instead of being
+# trusted (roles/fpgas-apt/tasks/rp1-jtag.yml).
+rp1_jtag_apt_url: https://mithro.github.io/rp1-jtag
+rp1_jtag_apt_suite: "{{ dist }}"
+rp1_jtag_apt_key_fingerprint: 118EABC921A380D58883527D8201E1C93BDCA89A

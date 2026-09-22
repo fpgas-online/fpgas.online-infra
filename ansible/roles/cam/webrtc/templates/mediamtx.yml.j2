@@ -1,0 +1,64 @@
+# {{ ansible_managed }}
+# Only the deltas from mediamtx's built-in defaults; everything not set
+# here keeps the default from the bundled mediamtx.yml of this version.
+
+logLevel: info
+
+# Ingest: nothing listens for it. mediamtx PULLS each camera from the local nginx-rtmp
+# (see paths: below) only while somebody is watching it, so every listener
+# except WHEP is off - nginx-rtmp still owns RTMP/HLS, and unused listeners
+# are attack surface. `rtmp: no` only disables the RTMP *server*; the RTMP
+# source client used by the pull is unaffected.
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+moq: no
+playback: no
+
+# Delivery: WHEP. The HTTP side (signalling) is proxied by nginx from
+# /cam/... on the public vhosts, so it binds to localhost only. Media
+# flows on the single muxed ICE port, UDP with TCP fallback.
+webrtc: yes
+webrtcAddress: 127.0.0.1:8889
+webrtcTrustedProxies: ["127.0.0.1", "::1"]
+webrtcLocalUDPAddress: ":{{ webrtc_media_port }}"
+webrtcLocalTCPAddress: ":{{ webrtc_media_port }}"
+# Advertise only the deliberately chosen candidates (public IPv4 via the
+# router DNAT, direct global IPv6, LAN transit IP) - not every interface.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: {{ webrtc_additional_hosts | to_json }}
+
+# Local monitoring only (roles/cam/webrtc verify, ad-hoc debugging).
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Nobody publishes (mediamtx pulls); reading is public - the whole point of
+# fpgas.online. The API stays local. Entries are matched in order by IP.
+authInternalUsers:
+  - user: any
+    pass:
+    ips: ["127.0.0.1", "::1"]
+    permissions:
+      - action: read
+      - action: api
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+
+# /cam/<host>/whep -> pull rtmp://localhost/pib/<host> from nginx-rtmp, the
+# same stream the HLS player uses, so the Pis need no change at all. The
+# URL fragment is mediamtx's syntax for "app#streamKey" (a plain
+# /pib/<host> would be sent as app='pib/<host>'). On demand: the pull
+# starts with the first viewer (about 2 s: RTMP connect + next keyframe,
+# the Pis send one per second) and stops 10 s after the last one leaves,
+# so idle cameras cost this host nothing. Names are limited to hostname
+# characters so junk requests never reach nginx.
+paths:
+  "~^cam/([A-Za-z0-9][A-Za-z0-9._-]*)$":
+    source: "rtmp://127.0.0.1:{{ webrtc_rtmp_source_port }}/{{ webrtc_rtmp_source_app }}#$G1"
+    sourceOnDemand: yes
+    sourceOnDemandStartTimeout: 10s
+    sourceOnDemandCloseAfter: 10s

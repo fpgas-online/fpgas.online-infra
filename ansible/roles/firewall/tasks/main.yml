@@ -1,4 +1,37 @@
 ---
+# Enable routing BEFORE the ruleset lands: the forward/NAT chains below only
+# ever see a packet if the kernel is willing to forward it. Debian ships
+# ip_forward=0, so a rebuilt gateway comes up with a perfect ruleset and no
+# routing at all -- which is exactly how tweed failed after its 2026-08-26
+# rebuild (host-terminated NFS/DHCP/TFTP kept working, so the Pis booted fine
+# while every second hop was silently dead).
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: "{{ firewall_sysctl_file }}"
+    sysctl_set: true
+    reload: true
+    state: present
+  when: firewall_ip_forward_v4
+  tags:
+    - forwarding
+
+# See defaults/main.yml: this also stops the host honouring Router
+# Advertisements, which is safe here only because the gateways' IPv6 default
+# routes are static.
+- name: Enable IPv6 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: "1"
+    sysctl_file: "{{ firewall_sysctl_file }}"
+    sysctl_set: true
+    reload: true
+    state: present
+  when: firewall_ip_forward_v6
+  tags:
+    - forwarding
+
 - name: Install nftables
   apt:
     name:

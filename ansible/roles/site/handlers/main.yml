@@ -23,3 +23,7 @@
     name: fleet-consumer
     state: restarted
   when: fleet_broker | default(false)
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
