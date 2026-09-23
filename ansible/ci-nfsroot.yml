@@ -18,9 +18,11 @@
     - fixpi
 
 # The chroot connection plugin does not provide the API filesystems the Pi
-# roles' apt runs need (posix_openpt wants /dev/pts). Give the chroot the
-# same mounts + policy-rc.d that nspawn-pi/start.yml gives the production
-# one; the qemu/piroot/sshd parts of start.yml are not needed here.
+# roles' apt runs need (posix_openpt wants /dev/pts). chroot-prep.yml is the
+# same preparation nspawn-pi/start.yml gives the production chroot -- mounts,
+# policy-rc.d, initramfs suppression, served-kernel protection -- shared so
+# the two cannot drift; the qemu/piroot/sshd parts of start.yml are not
+# needed here.
 - hosts: nbp
   become: true
   tasks:
