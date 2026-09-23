@@ -14,13 +14,25 @@
   tags:
     - streaming
 
-- name: Use tmpfs for hls
-  ansible.builtin.lineinfile:
-    dest: /etc/fstab
-    line: "tmpfs {{ streaming.data_root }}/hls tmpfs \
-           uid=www-data,gid=www-data,mode=0755 0 2"
-    regexp: \s{{ streaming.data_root }}/hls\s
-  notify: Mount all
+# hls/ used to be a tmpfs, which was fine for the original 8 s window but
+# cannot hold a DVR window: nginx-rtmp's hls_cleanup keeps ~2x the playlist
+# window on "disk", so 10 min of 1 s fragments at up to ~2 Mbit/s is
+# ~300 MB per stream, ~6 GB for 20 streams - RAM tweed does not have.
+# Plain SSD-backed directories handle that write load trivially.
+- name: Remove the old hls tmpfs from fstab (HLS DVR window lives on disk)
+  ansible.posix.mount:
+    path: "{{ streaming.data_root }}/hls"
+    state: absent_from_fstab
+  tags:
+    - streaming
+
+- name: Unmount the old hls tmpfs if it is still mounted
+  # Lazy: nginx workers hold fragments open in it. After a lazy unmount new
+  # fragment/playlist opens land on the disk directory; writers on the
+  # detached tmpfs finish harmlessly and it is freed when they close.
+  ansible.builtin.command: umount --lazy {{ streaming.data_root }}/hls
+  when: (streaming.data_root + '/hls') in (ansible_facts.mounts | map(attribute='mount') | list)
+  changed_when: true
   tags:
     - streaming
 
