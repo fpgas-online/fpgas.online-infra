@@ -160,30 +160,51 @@
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
 
-    # JTAG tools: roles/onpi/tasks/apt.yml installs the RP1-PIO builds from
-    # mithro/rp1-jtag (source: roles/fpgas-apt/tasks/rp1-jtag.yml) in place of
-    # Debian's openocd / openfpgaloader. They come from a third-party apt
-    # source under the fpgas-apt tag, so these checks carry it too and are
-    # skipped alongside the install (the VM test runs --skip-tags fpgas-apt).
+    # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
+    # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
+    # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
+    # from a third-party apt source under the fpgas-apt tag, so these checks
+    # carry it too and are skipped alongside the install (the VM test runs
+    # --skip-tags fpgas-apt).
+    #
+    # SCOPE OF THESE TWO CHECKS -- they are about the software on the root,
+    # not about JTAG working. Together they prove exactly:
+    #   * the two fpgas.online packages are installed and configured, and
+    #   * the openFPGALoader on PATH is the patched build, because the rp1pio
+    #     cable is one of the fpgas.online patches and Debian's 1.x has no
+    #     such cable.
+    # They do NOT prove that this Pi can program anything. --list-cables only
+    # reports which backends were compiled in; it opens no device and touches
+    # no GPIO, and it prints rp1pio on a Pi 4 or an x86 chroot just the same.
+    # In particular nothing here (and nothing anywhere in this repo --
+    # `git grep -nEi "pio0|rp1_pio|gpiochip" -- ansible` finds only comments)
+    # checks or creates the RP1 PIO char device /dev/pio0 the rp1pio backend
+    # opens, or the /dev/gpiochip0 -> gpiochip15 symlink a Pi 5 needs for the
+    # libgpiod backend. A Pi can pass every assertion below and still fail at
+    # the first real programming attempt. Making those device nodes exist is
+    # being worked out on hardware and is deliberately not part of this
+    # playbook yet; do not read a green verify-pi as "JTAG is up".
+    #
     # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
-    - name: Check the RP1-PIO openFPGALoader and OpenOCD packages
-      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-rp1pio openocd-rp1pio
+    - name: Check the fpgas.online openFPGALoader and OpenOCD packages
+      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-fpgasonline-git openocd-fpgasonline-git
       changed_when: false
-      register: verify_pi_rp1pio
+      register: verify_pi_fpgatools
       failed_when: false
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
-    - name: Assert the RP1-PIO openFPGALoader and OpenOCD are installed
+    - name: Assert the fpgas.online openFPGALoader and OpenOCD are installed
       assert:
         that:
-          - verify_pi_rp1pio.rc == 0
-          - "'openfpgaloader-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
-          - "'openocd-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+          - verify_pi_fpgatools.rc == 0
+          - "'openfpgaloader-fpgasonline-git install ok installed' in verify_pi_fpgatools.stdout_lines"
+          - "'openocd-fpgasonline-git install ok installed' in verify_pi_fpgatools.stdout_lines"
         fail_msg: >-
-          openfpgaloader-rp1pio / openocd-rp1pio not installed on the Pi
-          (got: {{ verify_pi_rp1pio.stdout_lines }}) -- the NFS root predates
-          the rp1-jtag apt source, or Debian's openocd / openfpgaloader were
-          reinstalled over them
+          openfpgaloader-fpgasonline-git / openocd-fpgasonline-git not installed on
+          the Pi (got: {{ verify_pi_fpgatools.stdout_lines }}) -- the NFS root
+          predates the fpgas.online-fpga-tools apt source and may still carry
+          the superseded openfpgaloader-rp1pio / openocd-rp1pio, or Debian's
+          openocd / openfpgaloader were reinstalled over them
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
     - name: List openFPGALoader cables
@@ -193,15 +214,36 @@
       failed_when: false
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
-    - name: Assert openFPGALoader offers the rp1pio cable
+    - name: Assert openFPGALoader was built with the rp1pio cable
       assert:
         that:
           - verify_pi_cables.rc == 0
           - verify_pi_cables.stdout_lines | select('match', '^rp1pio ') | list | length == 1
         fail_msg: >-
-          `openFPGALoader --list-cables` does not list rp1pio -- the binary
-          on the root is not the rp1-jtag build (rc {{ verify_pi_cables.rc }}:
-          {{ verify_pi_cables.stderr | default('') }})
+          `openFPGALoader --list-cables` does not list rp1pio, so the binary
+          on the root is not the fpgas.online build (rc
+          {{ verify_pi_cables.rc }}: {{ verify_pi_cables.stderr | default('') }}).
+          This says nothing either way about whether the RP1 PIO device is
+          usable on this Pi -- see the comment above.
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    # mithro/rp1-jtag's apt repository is retired (roles/fpgas-apt/tasks/
+    # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
+    # own nightly upgrade -- once that repository stops serving Packages.
+    - name: Check the retired rp1-jtag apt source is gone
+      stat:
+        path: /etc/apt/sources.list.d/rp1-jtag.list
+      register: verify_pi_rp1jtag_list
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert the retired rp1-jtag apt source is gone
+      assert:
+        that: not verify_pi_rp1jtag_list.stat.exists
+        fail_msg: >-
+          /etc/apt/sources.list.d/rp1-jtag.list is still on the root. mithro/rp1-jtag
+          no longer publishes packages, so apt update fails once its repository
+          goes away; roles/fpgas-apt removes it, so the root has not been
+          reconverged since.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
     # Hardware-dependent services (tag-based skip)
