@@ -141,8 +141,8 @@
         # fpgas.online-fpga-tools stand in for Debian's openfpgaloader /
         # openocd (and for the superseded -rp1pio builds from
         # mithro/rp1-jtag).
-        - openfpgaloader-fpgasonline
-        - openocd-fpgasonline
+        - openfpgaloader-fpgasonline-git
+        - openocd-fpgasonline-git
       tags: [verify]
 
     - name: assert pi user exists in the root

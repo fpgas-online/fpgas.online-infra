@@ -14,8 +14,9 @@ fpgas_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online') if fpgas_apt_cache_ur
 fpgas_apt_suite: bookworm
 
 # fpgas-online/fpgas.online-fpga-tools publishes the fpgas.online patch-series
-# builds of openFPGALoader and OpenOCD (openfpgaloader-fpgasonline,
-# openocd-fpgasonline) -- the rp1pio cable with librp1jtag linked in
+# builds of openFPGALoader and OpenOCD (roles/onpi installs the -git track,
+# openfpgaloader-fpgasonline-git / openocd-fpgasonline-git; the same source
+# carries the stable pair) -- the rp1pio cable with librp1jtag linked in
 # statically, plus the netv2 / tt_fpga boards and --flash-info, none of which
 # the retired mithro/rp1-jtag builds carried. One flat apt repository per
 # Debian release (bookworm / trixie / sid, arm64 + armhf) under a GitHub

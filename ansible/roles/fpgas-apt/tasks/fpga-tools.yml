@@ -1,6 +1,6 @@
 ---
-# Add the fpgas.online-fpga-tools apt repository: openfpgaloader-fpgasonline
-# and openocd-fpgasonline, which roles/onpi/tasks/apt.yml installs in place of
+# Add the fpgas.online-fpga-tools apt repository: openfpgaloader-fpgasonline-git
+# and openocd-fpgasonline-git, which roles/onpi/tasks/apt.yml installs in place of
 # Debian's openocd / openfpgaloader (and in place of the older
 # openfpgaloader-rp1pio / openocd-rp1pio from the retired mithro/rp1-jtag).
 #

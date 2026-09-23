@@ -187,7 +187,7 @@
     #
     # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
     - name: Check the fpgas.online openFPGALoader and OpenOCD packages
-      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-fpgasonline openocd-fpgasonline
+      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-fpgasonline-git openocd-fpgasonline-git
       changed_when: false
       register: verify_pi_fpgatools
       failed_when: false
@@ -197,10 +197,10 @@
       assert:
         that:
           - verify_pi_fpgatools.rc == 0
-          - "'openfpgaloader-fpgasonline install ok installed' in verify_pi_fpgatools.stdout_lines"
-          - "'openocd-fpgasonline install ok installed' in verify_pi_fpgatools.stdout_lines"
+          - "'openfpgaloader-fpgasonline-git install ok installed' in verify_pi_fpgatools.stdout_lines"
+          - "'openocd-fpgasonline-git install ok installed' in verify_pi_fpgatools.stdout_lines"
         fail_msg: >-
-          openfpgaloader-fpgasonline / openocd-fpgasonline not installed on
+          openfpgaloader-fpgasonline-git / openocd-fpgasonline-git not installed on
           the Pi (got: {{ verify_pi_fpgatools.stdout_lines }}) -- the NFS root
           predates the fpgas.online-fpga-tools apt source and may still carry
           the superseded openfpgaloader-rp1pio / openocd-rp1pio, or Debian's

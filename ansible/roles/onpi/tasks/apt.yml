@@ -84,9 +84,16 @@
 # --read-register (Debian's 0.10.0 has none of them, which is why FPGA DNA
 # could not be read on the welland boards).
 #
-# These replace the older openfpgaloader-rp1pio / openocd-rp1pio from
-# mithro/rp1-jtag. No explicit removal task is needed: each package declares
-#   Conflicts/Replaces: openfpgaloader, openfpgaloader-fpgasonline-git,
+# The -git track, not the stable pair (openfpgaloader-fpgasonline /
+# openocd-fpgasonline): every fpgas.online host runs the same lineage, and it
+# is the newest reviewed code -- fpga-tools pins upstream master by commit
+# and bumps the pin daily, so it is not raw-rolling. On trixie it also keeps
+# OpenOCD's linuxgpiod adapter, which the stable build drops.
+#
+# These replace the older openfpgaloader-rp1pio / openocd-rp1pio from the
+# retired mithro/rp1-jtag. No explicit removal task is needed: each package
+# declares
+#   Conflicts/Replaces: openfpgaloader, openfpgaloader-fpgasonline,
 #                       openfpgaloader-rp1pio
 # (and the openocd equivalents), and the apt module runs `apt-get -y install`
 # without --no-remove (fail_on_autoremove is false), so apt resolves the
@@ -114,8 +121,8 @@
 - name: Install the fpgas.online openFPGALoader and OpenOCD  # noqa: package-latest
   ansible.builtin.apt:
     name:
-      - openfpgaloader-fpgasonline
-      - openocd-fpgasonline
+      - openfpgaloader-fpgasonline-git
+      - openocd-fpgasonline-git
     state: latest
   tags:
     - img
