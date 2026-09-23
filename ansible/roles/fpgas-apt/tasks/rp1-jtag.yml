@@ -1,68 +1,35 @@
 ---
-# Add the mithro/rp1-jtag apt repository: openfpgaloader-rp1pio,
-# openocd-rp1pio and librp1jtag0/-dev (RP1 PIO JTAG on Pi 5 / CM5).
+# Retire the mithro/rp1-jtag apt repository.
 #
-# Nothing installs the -rp1pio packages any more: fpga-tools.yml's
-# openfpgaloader-fpgasonline / openocd-fpgasonline supersede them (same
-# rp1pio cable, librp1jtag linked in statically). This source stays because
-# it is the only publisher of librp1jtag-dev, and because a root that still
-# carries the -rp1pio packages from an earlier run has to be able to resolve
-# them. Retiring it wants its own change -- apt_repository state=absent, so
-# the line actually goes away on roots that already have it.
+# mithro/rp1-jtag stopped building Debian packages (its #20, 2026-09-23): its
+# apt repository is frozen at 0.0.post87 and is being replaced by a pointer
+# page, after which it serves no Packages or Release files at all. A root
+# still carrying its sources line would then fail every `apt update` --
+# including the one at the end of this role -- and the NFS root's own nightly
+# upgrade.
 #
-# Same shape as the fpgas.online repo above: the published key is armoured,
-# so fetch it as the change detector and dearmour it into the binary keyring
-# apt's signed-by expects (issue #13). The keyring path matches the upstream
-# setup instructions (https://mithro.github.io/rp1-jtag/), so a root set up
-# by hand from those instructions converges without a second keyring.
+# Nothing needs it. openfpgaloader-fpgasonline / openocd-fpgasonline from
+# fpga-tools.yml supersede the -rp1pio packages (same rp1pio cable, librp1jtag
+# linked in statically) and declare Conflicts/Replaces on them, so
+# roles/onpi/tasks/apt.yml swaps them in one transaction and the autoremove
+# task there collects the orphaned librp1jtag0. Nothing on the Pis builds
+# against librp1jtag, so librp1jtag-dev is not wanted either.
 #
-# These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
-# tag the whole role), which is also what the VM integration test skips
-# (tests/vm/run_tests.py, issue #49). The onpi install and the verify-pi
-# checks for these packages carry fpgas-apt too, so skipping the source
-# skips everything that needs it.
+# Files rather than apt_repository state=absent: that module only removes a
+# line it can reproduce exactly, and roots set up by hand from the upstream
+# instructions, or by earlier revisions of this role, carry the line under
+# either mithro.github.io/rp1-jtag or mith.ro/rp1-jtag. The file name and the
+# keyring paths are the same in every case.
 
-- name: Ensure /etc/apt/keyrings exists
+- name: Remove the rp1-jtag apt sources line
   ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
+    path: /etc/apt/sources.list.d/rp1-jtag.list
+    state: absent
 
-- name: Fetch rp1-jtag apt signing key (armoured)
-  ansible.builtin.get_url:
-    url: "{{ rp1_jtag_apt_url }}/rp1-jtag.gpg"
-    dest: /etc/apt/keyrings/rp1-jtag.asc
-    mode: '0644'
-  register: rp1_jtag_apt_key
-
-- name: Read the fetched rp1-jtag key's fingerprint
-  ansible.builtin.command:
-    cmd: gpg --batch --with-colons --show-keys /etc/apt/keyrings/rp1-jtag.asc
-  register: rp1_jtag_apt_key_info
-  changed_when: false
-
-- name: Assert the rp1-jtag key is the pinned one
-  ansible.builtin.assert:
-    # The first fpr: record is the primary key's (subkeys follow their pub).
-    that: >-
-      (rp1_jtag_apt_key_info.stdout_lines
-       | select('match', '^fpr:')
-       | map('regex_replace', '[^0-9A-F]', '')
-       | first | default('')) == rp1_jtag_apt_key_fingerprint
-    fail_msg: >-
-      {{ rp1_jtag_apt_url }}/rp1-jtag.gpg is not signed by the pinned
-      primary key {{ rp1_jtag_apt_key_fingerprint }}
-      (got {{ rp1_jtag_apt_key_info.stdout_lines | select('match', '^fpr:') | list }}).
-      If mithro/rp1-jtag rotated its signing key, update
-      rp1_jtag_apt_key_fingerprint in roles/fpgas-apt/defaults/main.yml.
-
-- name: Dearmour rp1-jtag apt signing key
-  ansible.builtin.command:
-    cmd: gpg --batch --yes --dearmor -o /etc/apt/keyrings/rp1-jtag.gpg /etc/apt/keyrings/rp1-jtag.asc
-  when: rp1_jtag_apt_key.changed
-
-- name: Add rp1-jtag apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/rp1-jtag.gpg] {{ rp1_jtag_apt_url }}/{{ rp1_jtag_apt_suite }}/ ./"
-    state: present
-    filename: rp1-jtag
+- name: Remove the rp1-jtag apt signing key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/keyrings/rp1-jtag.gpg
+    - /etc/apt/keyrings/rp1-jtag.asc
