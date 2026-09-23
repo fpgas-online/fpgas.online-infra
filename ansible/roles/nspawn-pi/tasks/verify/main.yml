@@ -1,0 +1,28 @@
+---
+# Standalone check that the Pi NFS root's kernel set has not crept back up,
+# runnable without a rebuild: `verify-server.yml --tags nspawn-pi`.
+#
+# The rebuild asserts the same thing at the end of every chroot session
+# (tasks/kernels.yml), but the growth this guards against happens between
+# rebuilds, and a root that has quietly gone back to eight or twelve kernel
+# trees turns the next rebuild into a two-hour run. Cheap and read-only:
+# it stats the tree, it does not enter the chroot.
+
+- name: Copy the kernel maintenance helper to the server
+  ansible.builtin.copy:
+    src: nfsroot_kernels.py
+    dest: /usr/local/sbin/nfsroot-kernels
+    mode: "0755"
+
+- name: Verify the NFS root kernel set and initramfs images
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/sbin/nfsroot-kernels
+      --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
+      check --max-trees {{ nfsroot_max_kernel_trees }}
+  register: nspawn_kernel_check
+  changed_when: false
+
+- name: Report the NFS root kernel set
+  ansible.builtin.debug:
+    msg: "{{ nspawn_kernel_check.stdout_lines + nspawn_kernel_check.stderr_lines }}"
