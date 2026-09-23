@@ -60,6 +60,18 @@
     - cmdline
     - netboot
 
+# The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
+# cmdline.txt.j2 no longer puts a kernel console there, and this disables
+# SysRq so any stray bytes the FPGA drives onto that line can never be
+# parsed as reboot/crash/poweroff. See files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
+- name: disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
+  copy:
+    src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
+  tags:
+    - cmdline
+    - netboot
+
 - name: create pi user in NFS root if missing
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
@@ -247,10 +259,15 @@
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
 # on the server (native amd64 ssh-keygen), which is both faster and produces
 # valid keys that the Pi's sshd accepts directly.
+# fixpi_generate_host_keys: false skips this on the CI nfsroot build (issue
+# #34): keys baked into the published image would be shared by every
+# consuming site, so each server generates its own after extraction (this
+# same task, which fires whenever the keys are absent).
 - name: check if SSH host keys already exist in NFS root
   stat:
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
+  when: fixpi_generate_host_keys | default(true)
   tags:
     - netboot
     - qemu
@@ -263,7 +280,9 @@
     - {type: rsa}
     - {type: ecdsa}
     - {type: ed25519}
-  when: not fixpi_ssh_host_key_stat.stat.exists
+  when: >-
+    fixpi_generate_host_keys | default(true)
+    and not fixpi_ssh_host_key_stat.stat.exists
   tags:
     - netboot
     - qemu

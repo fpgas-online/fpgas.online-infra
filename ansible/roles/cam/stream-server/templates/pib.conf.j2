@@ -8,9 +8,15 @@ application pib {
 
     live on;
 
-    # Make sure clients always get video first; sometimes they get confused if
-    # the first packet they receive is an audio packet.
-    wait_video on;
+    # No `wait_video on;` (it was inherited from the DebConf video setup,
+    # whose streams carry audio). The camera feeds are video-only, where its
+    # one effect is that nginx-rtmp sends every subscriber a ZERO-LENGTH
+    # audio message (dummy_audio in ngx_rtmp_live_module.c) right after the
+    # video codec header. That message is legal RTMP, but gortmplib - and so
+    # mediamtx's RTMP pull in roles/cam/webrtc - rejects it as "not enough
+    # bytes" and drops the connection. Verified 2026-09-20 against stock
+    # mediamtx v1.20.1 and v1.21.0: on = every pull dies, absent = 75 s clean.
+    # Start every subscriber on a keyframe.
     wait_key on;
 
     hls on;
@@ -26,8 +32,16 @@ application pib {
     # gave ~40 s glass-to-glass; 1 s fragments are expected to give ~5 s
     # (fpgas.online-cam tests/ measure it). The window
     # (playlist length / fragment) is 8 fragments; hls_cleanup (default on)
-    # removes older files from the tmpfs.
+    # removes older files.
+    #
+    # The playlist length does NOT affect latency (that is 3 x fragment of
+    # player hold-back + the fragment in progress); it is the DVR window:
+    # video.js with liveui exposes it as a seekable "rewind" range. 10 min
+    # of 1 s fragments ~= 666 playlist entries; hls_cleanup (default on)
+    # keeps ~2x the window, so up to ~300 MB per stream at ~2 Mbit/s
+    # (~6 GB for 20 Pis) - which is why the hls directory is a plain disk
+    # directory, not a tmpfs (tasks/back.yml).
     hls_fragment 900ms;
-    hls_playlist_length 8s;
+    hls_playlist_length 600s;
 
 }

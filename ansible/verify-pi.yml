@@ -79,6 +79,26 @@
         fail_msg: "SSH service is not active on Pi"
       tags: [verify, services]
 
+    # The board pages' web terminal (webssh on the server) logs in as the pi
+    # user with the shared password; it has no key. useradd creates the
+    # account with the password locked ("L"); fixpi/userconf.yml writing the
+    # hash into the NFS root is what makes it usable ("P").
+    - name: Check the pi user has a usable password
+      command: passwd -S {{ user | default('pi') }}
+      changed_when: false
+      register: verify_pi_passwd
+      tags: [verify, services]
+
+    - name: Assert the pi user's password is set (the web terminal logs in with it)
+      assert:
+        that: verify_pi_passwd.stdout.split()[1] == 'P'
+        fail_msg: >-
+          `passwd -S` reports '{{ verify_pi_passwd.stdout }}' -- the pi
+          account's password is locked (L) or empty (NP), so the web
+          terminal's password login fails. fixpi/userconf.yml (tag pipw)
+          writes it into the NFS root.
+      tags: [verify, services]
+
     - name: Check python3 available
       command: python3 --version
       changed_when: false
@@ -139,6 +159,50 @@
         that: verify_pi_lldpd_active.stdout == "active"
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
+
+    # JTAG tools: roles/onpi/tasks/apt.yml installs the RP1-PIO builds from
+    # mithro/rp1-jtag (source: roles/fpgas-apt/tasks/rp1-jtag.yml) in place of
+    # Debian's openocd / openfpgaloader. They come from a third-party apt
+    # source under the fpgas-apt tag, so these checks carry it too and are
+    # skipped alongside the install (the VM test runs --skip-tags fpgas-apt).
+    # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
+    - name: Check the RP1-PIO openFPGALoader and OpenOCD packages
+      command: dpkg-query -W -f='${Package} ${Status}\n' openfpgaloader-rp1pio openocd-rp1pio
+      changed_when: false
+      register: verify_pi_rp1pio
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert the RP1-PIO openFPGALoader and OpenOCD are installed
+      assert:
+        that:
+          - verify_pi_rp1pio.rc == 0
+          - "'openfpgaloader-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+          - "'openocd-rp1pio install ok installed' in verify_pi_rp1pio.stdout_lines"
+        fail_msg: >-
+          openfpgaloader-rp1pio / openocd-rp1pio not installed on the Pi
+          (got: {{ verify_pi_rp1pio.stdout_lines }}) -- the NFS root predates
+          the rp1-jtag apt source, or Debian's openocd / openfpgaloader were
+          reinstalled over them
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: List openFPGALoader cables
+      command: openFPGALoader --list-cables
+      changed_when: false
+      register: verify_pi_cables
+      failed_when: false
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert openFPGALoader offers the rp1pio cable
+      assert:
+        that:
+          - verify_pi_cables.rc == 0
+          - verify_pi_cables.stdout_lines | select('match', '^rp1pio ') | list | length == 1
+        fail_msg: >-
+          `openFPGALoader --list-cables` does not list rp1pio -- the binary
+          on the root is not the rp1-jtag build (rc {{ verify_pi_cables.rc }}:
+          {{ verify_pi_cables.stderr | default('') }})
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
 
     # Hardware-dependent services (tag-based skip)
     - name: Check fpgas-cam service enabled
@@ -241,6 +305,103 @@
         fail_msg: "No /run/fpgas-felboot marker for every board on {{ ansible_hostname }}: {{ verify_pi_felboot.files | map(attribute='path') | list }}"
       when: verify_pi_felboot is not skipped
       tags: [verify, hw-sunxi]
+
+    # The sunxi audio codec is blacklisted (fixpi/sunxi.yml): its deferred
+    # probe has Oopsed the kernel at boot on three boards. Assert the modules
+    # stayed out on Orange Pi hardware.
+    - name: List loaded modules
+      command: lsmod
+      changed_when: false
+      register: verify_pi_lsmod
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the blacklisted sunxi audio modules are not loaded
+      assert:
+        that:
+          - "'sun4i_codec' not in verify_pi_lsmod.stdout"
+          - "'sun8i_codec_analog' not in verify_pi_lsmod.stdout"
+        fail_msg: >-
+          sunxi audio codec modules are loaded on {{ ansible_hostname }} --
+          /etc/modprobe.d/fpgas-sunxi-no-audio.conf missing from the root, or
+          the board booted before it was added
+      when: verify_pi_lsmod is not skipped
+      tags: [verify, hw-sunxi]
+
+    # The published DTBs get TWI0/TWI1 forced to status=okay (fixpi/sunxi.yml)
+    # so the kernel can see the Digilent Pmod HATs. TWI1 carries the HAT ID
+    # EEPROM at 0x50 -- a 24c32-style part with 2-byte addressing, so use
+    # i2ctransfer with an explicit address write (i2cget's 1-byte pointer
+    # write reads from offset 1: found on hardware). Signature = "R-Pi".
+    - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
+      shell: |
+        set -e
+        dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
+        i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
+      changed_when: false
+      register: verify_pi_hat_eeprom
+      failed_when: false
+      when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the HAT ID EEPROM is visible on TWI1
+      assert:
+        that: verify_pi_hat_eeprom.stdout_lines | last | default('') == '0x52 0x2d 0x50 0x69'
+        fail_msg: >-
+          {{ ansible_hostname }}: no HAT ID EEPROM via the kernel TWI1 bus
+          (got {{ verify_pi_hat_eeprom.stdout | default('') }}
+          {{ verify_pi_hat_eeprom.stderr | default('') }}) -- DTB fixup not
+          served, board not rebooted since, or no Pmod HAT fitted
+      when: verify_pi_hat_eeprom is not skipped
+      tags: [verify, hw-sunxi]
+
+    # The physical board's identity is its HAT product_uuid (hat_uuid in
+    # sunxi_boards; the pi-sw2-pNN hostname follows the switch port, not the
+    # board). Reading it back proves the board answering on this switch port
+    # is the one the inventory placed there. The canonical text form (eepdump /
+    # /proc/device-tree/hat/uuid) is built from four little-endian u32 words in
+    # reverse word order -- NOT a straight hex dump of the 16 bytes -- hence
+    # the python3 formatter.
+    - name: sunxi_boards row for this board
+      set_fact:
+        verify_pi_sunxi_self: >-
+          {{ verify_pi_sunxi
+             | selectattr('switch', 'eq', ansible_hostname | regex_replace('^pi-sw([0-9]+)-p([0-9]+)$', '\1') | int)
+             | selectattr('port', 'eq', ansible_hostname | regex_replace('^pi-sw([0-9]+)-p([0-9]+)$', '\2') | int)
+             | list | first | default({}) }}
+      tags: [verify, hw-sunxi]
+
+    - name: Read the Pmod HAT product uuid from the ID EEPROM
+      shell: |
+        set -e
+        dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
+        i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r36 | python3 -c '
+        import struct, sys
+        b = bytes(int(t, 16) for t in sys.stdin.read().split())
+        assert b[0:4] == b"R-Pi", b[0:4]
+        assert struct.unpack_from("<H", b, 12)[0] == 1, "vendor atom not first"
+        s1, s2, s3, s4 = struct.unpack_from("<IIII", b, 20)
+        print(f"{s4:08x}-{s3 >> 16:04x}-{s3 & 0xffff:04x}-{s2 >> 16:04x}-{s2 & 0xffff:04x}{s1:08x}")'
+      changed_when: false
+      register: verify_pi_hat_uuid
+      failed_when: false
+      when: >-
+        verify_pi_dt_model.content is defined and
+        (verify_pi_dt_model.content | b64decode) is search('Orange Pi') and
+        verify_pi_sunxi_self.hat_uuid is defined
+      tags: [verify, hw-sunxi]
+
+    - name: Assert the board on this switch port is the one the inventory placed there
+      assert:
+        that: verify_pi_hat_uuid.stdout_lines | default([]) | last | default('') == verify_pi_sunxi_self.hat_uuid
+        fail_msg: >-
+          {{ ansible_hostname }}: HAT uuid {{ verify_pi_hat_uuid.stdout | default('') }}
+          {{ verify_pi_hat_uuid.stderr | default('') }} does not match the
+          inventory hat_uuid {{ verify_pi_sunxi_self.hat_uuid | default('') }}
+          -- the board was recabled to a different switch port, or the
+          sunxi_boards placement fields are stale
+      when: verify_pi_hat_uuid is not skipped
+      tags: [verify, hw-sunxi]
     # Header UART (GPIO14/15) -- the serial link to a PCIe FPGA card's UART
     # (Acorn CLE-215+ P2 connector, see fpgas.online-test-designs
     # docs/hardware/acorn-pinmap.md). On Pi 5 the RP1 uart0 is status="disabled"
@@ -293,3 +454,32 @@
           getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
       when: "'Raspberry Pi 5' in verify_pi_model.stdout"
       tags: [verify, uart]
+
+    # --- USB gadget console (tag hw-usb-gadget; boards with a UDC only) ---
+    # fpgas-online-setup-pi's udev rule loads g_serial when a USB device
+    # controller appears: ttyGS0 streams the kernel log, ttyGS1 runs a getty.
+    - name: USB device controllers
+      find:
+        paths: /sys/class/udc
+        file_type: any
+      register: verify_pi_udc
+      tags: [verify, hw-usb-gadget]
+
+    - name: Check the gadget console units
+      command: systemctl is-active fpgas-usb-console.service serial-getty@ttyGS1.service
+      changed_when: false
+      failed_when: false
+      register: verify_pi_usb_console
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]
+
+    - name: Assert the gadget console runs on every board with a UDC
+      assert:
+        that:
+          - verify_pi_usb_console.stdout_lines == ['active', 'active']
+        fail_msg: >-
+          {{ ansible_hostname }} has a USB device controller
+          ({{ verify_pi_udc.files | map(attribute='path') | map('basename') | join(', ') }})
+          but fpgas-usb-console / serial-getty@ttyGS1 are {{ verify_pi_usb_console.stdout_lines }}
+      when: verify_pi_udc.matched > 0
+      tags: [verify, hw-usb-gadget]
