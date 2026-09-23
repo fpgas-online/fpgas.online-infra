@@ -24,21 +24,10 @@
 - hosts: nbp
   become: true
   tasks:
-    - name: Mount filesystems for chroot
-      shell: |
-        mountpoint -q "{{ nfs_root }}/root/proc" || mount --bind /proc "{{ nfs_root }}/root/proc"
-        mountpoint -q "{{ nfs_root }}/root/sys" || mount --bind /sys "{{ nfs_root }}/root/sys"
-        mountpoint -q "{{ nfs_root }}/root/dev" || mount --bind /dev "{{ nfs_root }}/root/dev"
-        mountpoint -q "{{ nfs_root }}/root/dev/pts" || mount --bind /dev/pts "{{ nfs_root }}/root/dev/pts"
-      changed_when: false
-
-    - name: Install policy-rc.d to suppress service starts during apt
-      copy:
-        dest: "{{ nfs_root }}/root/usr/sbin/policy-rc.d"
-        content: |
-          #!/bin/sh
-          exit 101
-        mode: "0755"
+    - name: Prepare the NFS root chroot for apt
+      include_role:
+        name: nspawn-pi
+        tasks_from: chroot-prep.yml
 
 - hosts: pi
   roles:
@@ -52,10 +41,17 @@
 - hosts: nbp
   become: true
   tasks:
-    # Unmount the API filesystems and drop policy-rc.d BEFORE the payload
-    # sync and packaging: a still-mounted /dev must never be tarred into
-    # the image. Same cleanup as production's nspawn-pi stop.
-    - name: clean up chroot mounts and policy-rc.d
+    # Lift the initramfs suppression, rebuild any initramfs the chroot apt
+    # runs left stale (before the payload re-sync below picks them up), then
+    # unmount the API filesystems and drop policy-rc.d BEFORE packaging: a
+    # still-mounted /dev must never be tarred into the image. Same as
+    # production's nspawn-pi stop.
+    #
+    # Kernel pruning is a no-op here by design: it keeps what boot/ currently
+    # serves, and in a one-shot build boot/ still holds the stock image's
+    # payload, so nothing is identified as superseded and nothing is purged.
+    # Pruning matters on a long-lived server root, where site.yml runs it.
+    - name: finish the chroot session (kernels, mounts, policy-rc.d)
       include_role:
         name: nspawn-pi
         tasks_from: stop.yml
@@ -88,6 +84,7 @@
       loop: "{{ ci_nfsroot_host_keys.files }}"
       loop_control:
         label: "{{ item.path }}"
+
     # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
     # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
     # -- leaving boot/ stale in a one-shot build: the exact mismatched
