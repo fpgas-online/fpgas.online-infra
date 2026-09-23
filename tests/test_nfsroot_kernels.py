@@ -226,6 +226,79 @@ def test_stale_initramfs_flags_missing_and_outdated(tmp_path):
 # --- the apt safety net ------------------------------------------------
 
 
+class _PruneArgs:
+    def __init__(self, nfs_root):
+        self.nfs_root = str(nfs_root)
+        self.tftp_root = None
+        self.keep = []
+        self.dry_run = False
+
+
+def test_prune_refuses_to_act_when_the_payload_matches_no_kernel(tmp_path, monkeypatch):
+    """The CI-build shape, and the shape of a root whose served kernel is gone.
+
+    ci-nfsroot.yml re-syncs the payload only after this runs, so at prune time
+    boot/ still holds the stock image's kernels while the chroot apt runs have
+    moved the rootfs on. "What the fleet boots" is then not knowable from the
+    tree, so the only safe move is to keep everything -- and, crucially, to
+    reach apt not at all.
+    """
+    root = make_root(
+        tmp_path,
+        kernels={
+            "6.12.96+rpt-rpi-v6": b"new-v6",
+            "6.12.109+rpt-rpi-v6": b"newer-v6",
+        },
+        served={"kernel.img": b"the-stock-images-kernel"},
+    )
+    monkeypatch.setattr(
+        nk,
+        "dpkg_kernel_packages",
+        lambda _root: {
+            v: [(f"linux-image-{v}", "armhf")]
+            for v in ("6.12.96+rpt-rpi-v6", "6.12.109+rpt-rpi-v6")
+        },
+    )
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("prune must not invoke apt when nothing is served")
+
+    monkeypatch.setattr(nk, "chroot_apt", refuse)
+
+    # Without the guard this plan is non-empty: 6.12.96 is superseded by
+    # 6.12.109 and nothing marks it as the kernel in service.
+    plan = nk.load_plan(_PruneArgs(root))
+    assert plan["served"] == []
+    assert plan["purge"] == ["linux-image-6.12.96+rpt-rpi-v6:armhf"]
+
+    assert nk.cmd_prune(_PruneArgs(root)) == 0
+    assert (root / "root" / "boot" / "vmlinuz-6.12.96+rpt-rpi-v6").exists()
+
+
+def test_check_reports_an_orphaned_payload_but_only_fails_on_demand(tmp_path):
+    """A payload older than the root's kernels is normal between netboot runs.
+
+    tweed serves 6.12.96 while the chroot has moved to 6.12.109, so this must
+    not fail an ordinary rebuild; --strict-payload is for a caller that has
+    just published a payload and expects it to match.
+    """
+    root = make_root(
+        tmp_path,
+        kernels={"6.12.109+rpt-rpi-v6": b"newer-v6"},
+        served={"kernel.img": b"something-else"},
+    )
+
+    class Args:
+        nfs_root = str(root)
+        tftp_root = None
+        max_trees = 10
+        strict_payload = False
+
+    assert nk.cmd_check(Args()) == 0
+    Args.strict_payload = True
+    assert nk.cmd_check(Args()) == 1
+
+
 def test_simulated_removals_parses_apt_output():
     output = (
         "NOTE: This is only a simulation!\n"
