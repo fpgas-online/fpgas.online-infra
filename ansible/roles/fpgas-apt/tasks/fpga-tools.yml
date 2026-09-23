@@ -2,18 +2,19 @@
 # Add the fpgas.online-fpga-tools apt repository: openfpgaloader-fpgasonline
 # and openocd-fpgasonline, which roles/onpi/tasks/apt.yml installs in place of
 # Debian's openocd / openfpgaloader (and in place of the older
-# openfpgaloader-rp1pio / openocd-rp1pio from mithro/rp1-jtag).
+# openfpgaloader-rp1pio / openocd-rp1pio from the retired mithro/rp1-jtag).
 #
-# Same shape as rp1-jtag.yml above, with one deliberate difference: the key
-# this repo publishes is a BINARY OpenPGP keyring, not an ASCII-armoured one
-# (`file` reports "OpenPGP Public Key Version 4"), so there is nothing to
-# dearmour -- it is fetched straight to the path signed-by points at.
+# The key is fetched as the BINARY keyring the site publishes
+# (fpgas-online-fpga-tools.gpg, not the armoured .asc beside it), so there is
+# nothing to dearmour. The format is asserted, not assumed: bookworm's apt
+# verifies with gpgv, which rejects an armoured keyring as an unsupported
+# filetype and then treats the repository as unsigned, and apt never
+# re-fetches a keyring that is already on disk.
 #
-# It is fetched to a staging path first, though. rp1-jtag.yml gets that for
-# free: it asserts on the .asc and only dearmours into the trusted .gpg once
-# the assert has passed, so a rotated key never reaches a path apt trusts.
-# Fetching a binary key directly to the signed-by path would lose that, on a
-# root that already carries the sources.list.d line from an earlier run.
+# It is fetched to a staging path and only copied to the path signed-by
+# points at once both asserts have passed, so a rotated or re-armoured key
+# never reaches a path apt trusts -- including on a root that already carries
+# the sources.list.d line from an earlier run.
 #
 # These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
 # tag the whole role), which is also what the VM integration test skips
@@ -58,6 +59,25 @@
       (got {{ fpga_tools_apt_key_info.stdout_lines | select('match', '^fpr:') | list }}).
       If fpgas.online-fpga-tools rotated its signing key, update
       fpga_tools_apt_key_fingerprint in roles/fpgas-apt/defaults/main.yml.
+
+# gpg --show-keys above reads armour and binary alike, so it cannot catch an
+# armoured file. Armour always starts "-----BEGIN"; a binary keyring starts
+# with a packet tag byte, which is never 0x2d ('-').
+- name: Read the first byte of the fetched fpgas.online-fpga-tools key
+  ansible.builtin.command:
+    cmd: od -An -tx1 -N1 {{ fpga_tools_apt_keyring }}.fetched
+  register: fpga_tools_apt_key_first_byte
+  changed_when: false
+
+- name: Assert the fpgas.online-fpga-tools key is a binary keyring, not armour
+  ansible.builtin.assert:
+    that: fpga_tools_apt_key_first_byte.stdout | trim not in ['', '2d']
+    fail_msg: >-
+      {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_key_name }} is ASCII-armoured
+      (first byte {{ fpga_tools_apt_key_first_byte.stdout | trim }}). gpgv, which
+      apt uses on bookworm, rejects an armoured signed-by keyring and treats
+      the repository as unsigned. Fetch the binary keyring, or dearmour it
+      before it is installed.
 
 - name: Install the fpgas.online-fpga-tools keyring
   ansible.builtin.copy:
