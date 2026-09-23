@@ -24,3 +24,23 @@ fpgas_apt_suite: bookworm
 rp1_jtag_apt_url: https://mithro.github.io/rp1-jtag
 rp1_jtag_apt_suite: "{{ dist }}"
 rp1_jtag_apt_key_fingerprint: 118EABC921A380D58883527D8201E1C93BDCA89A
+
+# fpgas-online/fpgas.online-fpga-tools publishes the fpgas.online patch-series
+# builds of openFPGALoader and OpenOCD (openfpgaloader-fpgasonline,
+# openocd-fpgasonline) -- the rp1pio cable with librp1jtag linked in
+# statically, plus the netv2 / tt_fpga boards and --flash-info, none of which
+# mithro/rp1-jtag carried. Same layout as rp1-jtag: one flat apt repository
+# per Debian release (bookworm / trixie / sid, arm64 + armhf) under a GitHub
+# Pages site, so the suite follows the NFS root's release. The URL is the
+# canonical https one on the custom domain: the fpgas-online.github.io
+# project page 301s to http://fpgas.online/<repo>, which apt will not follow.
+#
+# Unlike rp1-jtag's key, the key published here is a BINARY keyring despite
+# neither name saying so, so roles/fpgas-apt/tasks/fpga-tools.yml does not
+# dearmour it. Its fingerprint is pinned so a swapped key on the Pages site
+# fails the build instead of being trusted.
+fpga_tools_apt_url: https://fpgas.online/fpgas.online-fpga-tools
+fpga_tools_apt_suite: "{{ dist }}"
+fpga_tools_apt_key_name: fpgas-online-fpga-tools.gpg
+fpga_tools_apt_keyring: /etc/apt/keyrings/fpgas-online-fpga-tools.gpg
+fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30

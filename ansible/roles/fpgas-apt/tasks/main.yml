@@ -27,8 +27,16 @@
     mode: '0644'
 
 # RP1-PIO openFPGALoader / OpenOCD builds from mithro/rp1-jtag.
+# Superseded by fpgas.online-fpga-tools below; the source is still added so
+# a root that still carries openfpgaloader-rp1pio can resolve it (and for
+# librp1jtag-dev, which only this repo publishes).
 - name: Add the rp1-jtag apt repository
   ansible.builtin.include_tasks: rp1-jtag.yml
+
+# fpgas.online patch-series openFPGALoader / OpenOCD builds, which replace
+# the rp1-jtag ones in roles/onpi/tasks/apt.yml.
+- name: Add the fpgas.online-fpga-tools apt repository
+  ansible.builtin.include_tasks: fpga-tools.yml
 
 - name: Update apt cache
   ansible.builtin.apt:
