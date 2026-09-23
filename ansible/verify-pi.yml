@@ -249,6 +249,47 @@
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
 
+    # The Acorn boot check (roles/onpi/tasks/acorn.yml). Installed and enabled on every Pi: that part is
+    # software and carries fpgas-apt like its install. What it found is hardware (hw-fpga): "pass" is an
+    # Acorn running the pinned release's operational build with both flash slots matching it, "none" is a
+    # Pi with no FPGA on PCIe. Anything else is a board that is not right, and says why.
+    - name: Check the Acorn boot check is installed and enabled
+      command: systemctl is-enabled fpgas-acorn-verify.service
+      changed_when: false
+      failed_when: false
+      register: verify_pi_acorn_enabled
+      tags: [verify, acorn, fpgas-apt]
+
+    - name: Assert the Acorn boot check is enabled
+      assert:
+        that: verify_pi_acorn_enabled.stdout == "enabled"
+        fail_msg: >-
+          fpgas-acorn-verify.service is '{{ verify_pi_acorn_enabled.stdout }}'
+          ({{ verify_pi_acorn_enabled.stderr }}) -- fpgas-online-acorn-tools is not in the NFS root, or
+          roles/onpi/tasks/acorn.yml has not run against it
+      tags: [verify, acorn, fpgas-apt]
+
+    - name: Read what the Acorn boot check found this boot
+      slurp:
+        src: /run/fpgas-online/acorn-verify.json
+      register: verify_pi_acorn_report
+      failed_when: false
+      tags: [verify, acorn, hw-fpga]
+
+    - name: Assert the Acorn boot check passed (or found no FPGA)
+      vars:
+        report: "{{ verify_pi_acorn_report.content | b64decode | from_json if verify_pi_acorn_report.content is defined else {} }}"
+      assert:
+        that:
+          - verify_pi_acorn_report.content is defined
+          - (report.result | default('')) in ['pass', 'none']
+        fail_msg: >-
+          {% if verify_pi_acorn_report.content is not defined %}No /run/fpgas-online/acorn-verify.json: the
+          check has not run this boot ({{ verify_pi_acorn_report.msg | default('') }}).{% else %}Acorn check
+          result '{{ report.result }}' (release {{ report.release or '-' }}):
+          {% for b in report.boards %}{{ b.bdf }} {{ b.kind }} {{ b.variant }} {{ b.result }}{% if b.reason is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% endif %}
+      tags: [verify, acorn, hw-fpga]
+
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
     # neither fail nor stall the boot.
     - name: Check no failed units
