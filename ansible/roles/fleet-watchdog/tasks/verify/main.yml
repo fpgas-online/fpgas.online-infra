@@ -70,6 +70,32 @@
       - fleet_watchdog_verify_env.stat.mode == "0600"
     fail_msg: "{{ fleet_watchdog_env_file }} must be 0600, it holds SNMP write communities"
 
+# templates/watchdog.env.j2 emits a community only for a switch that defines
+# snmp_rw_community, so that one missing value leaves that switch unwatched
+# instead of aborting the whole nbp converge. That guard has a silent failure
+# mode: the sweep below still passes as long as ANY other switch yields
+# boards, so an unwatched switch would never be noticed. Check the rendered
+# artifact, not the inventory -- a template regression fails this too.
+# Counting matches exposes no secret: grep -c prints a number, not a value.
+- name: "verify: count the SNMP communities in the rendered environment file"
+  command: grep -c '^FPGAS_SWITCH_COMMUNITY_' {{ fleet_watchdog_env_file }}
+  register: fleet_watchdog_verify_community_count
+  changed_when: false
+  failed_when: false
+
+- name: "verify: every switch has a community in the environment file"
+  assert:
+    that:
+      - fleet_watchdog_verify_community_count.stdout | int == switches | length
+    fail_msg: >-
+      {{ fleet_watchdog_env_file }} holds
+      {{ fleet_watchdog_verify_community_count.stdout | trim }} SNMP
+      communities but {{ switches | length }} switches are configured. A
+      switch without snmp_rw_community is skipped by watchdog.env.j2 and is
+      then never watched: community_for() raises, scan() logs it once a
+      sweep, and nothing else notices because the other switches still
+      return boards. Add snmp_rw_community for every entry in `switches`.
+
 - name: "verify: the console script is installed in the shared venv"
   stat:
     path: "{{ fleet_watchdog_venv }}/bin/fpgas-fleet-watchdog"
