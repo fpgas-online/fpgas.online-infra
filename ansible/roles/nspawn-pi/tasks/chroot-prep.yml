@@ -43,7 +43,6 @@
 # it into /boot/firmware.  Anything that went stale without a new kernel is
 # rebuilt once at the end of the session, by exactly the versions that need it
 # (nspawn-pi/tasks/kernels.yml).
-#
 - name: Suppress blanket initramfs regeneration during the chroot apt runs
   when: nfsroot_suppress_initramfs | default(true)
   block:

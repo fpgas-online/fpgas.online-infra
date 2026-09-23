@@ -25,16 +25,6 @@
     dest: /usr/local/sbin/nfsroot-kernels
     mode: "0755"
 
-- name: Show the NFS root kernel keep/purge plan
-  ansible.builtin.command:
-    cmd: >-
-      /usr/local/sbin/nfsroot-kernels
-      --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
-      {{ nfsroot_kernel_keep | map('regex_replace', '^', '--keep=') | join(' ') }}
-      plan
-  register: nspawn_kernel_plan
-  changed_when: false
-
 - name: Purge superseded kernel packages from the NFS root
   ansible.builtin.command:
     cmd: >-
@@ -45,6 +35,13 @@
   register: nspawn_kernel_prune
   changed_when: "'purged' in nspawn_kernel_prune.stdout"
   when: nfsroot_kernel_prune | default(true)
+
+# The prune prints what it keeps and what it took out; surface it, because
+# "which kernels does this root have and why" is the first question anyone
+# debugging a boot failure asks.
+- name: Report the NFS root kernel set
+  ansible.builtin.debug:
+    msg: "{{ nspawn_kernel_prune.stdout_lines | default([]) }}"
 
 # Only the images whose inputs changed, and only once -- as opposed to the
 # `update-initramfs -u` a package trigger runs, which rebuilds every installed
