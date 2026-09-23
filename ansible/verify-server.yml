@@ -52,6 +52,14 @@
         tasks_from: verify/main.yml
       tags: [verify, fixpi]
 
+    # The NFS root's kernel set, which grows between rebuilds and turns the
+    # next one into a two-hour emulated initramfs marathon if nobody looks.
+    - name: verify nspawn-pi
+      include_role:
+        name: nspawn-pi
+        tasks_from: verify/main.yml
+      tags: [verify, nspawn-pi]
+
     - name: verify pxe
       include_role:
         name: pxe
