@@ -1,5 +1,20 @@
 ---
-# Clean up the Pi NFS root chroot mounts and policy-rc.d.
+# Finish the Pi NFS root chroot session: lift the build-time initramfs
+# suppression, do the kernel maintenance that needs the chroot, then drop the
+# mounts and policy-rc.d.
+
+# Back to the distro's own file before anything below runs update-initramfs,
+# and before the root is published or booted: a root left saying
+# update_initramfs=no would silently never refresh an initramfs again.
+- name: Restore the root's update-initramfs.conf
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
+         {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf
+    removes: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
+
+- name: Prune kernels and refresh initramfs images in the NFS root
+  ansible.builtin.include_tasks: kernels.yml
 
 - name: Unmount chroot bind mounts
   shell: |
