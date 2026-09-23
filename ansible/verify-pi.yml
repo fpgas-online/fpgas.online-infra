@@ -227,6 +227,25 @@
           usable on this Pi -- see the comment above.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
+    # mithro/rp1-jtag's apt repository is retired (roles/fpgas-apt/tasks/
+    # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
+    # own nightly upgrade -- once that repository stops serving Packages.
+    - name: Check the retired rp1-jtag apt source is gone
+      stat:
+        path: /etc/apt/sources.list.d/rp1-jtag.list
+      register: verify_pi_rp1jtag_list
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
+    - name: Assert the retired rp1-jtag apt source is gone
+      assert:
+        that: not verify_pi_rp1jtag_list.stat.exists
+        fail_msg: >-
+          /etc/apt/sources.list.d/rp1-jtag.list is still on the root. mithro/rp1-jtag
+          no longer publishes packages, so apt update fails once its repository
+          goes away; roles/fpgas-apt removes it, so the root has not been
+          reconverged since.
+      tags: [verify, packages, rp1-jtag, fpgas-apt]
+
     # Hardware-dependent services (tag-based skip)
     - name: Check fpgas-cam service enabled
       command: systemctl is-enabled fpgas-cam
