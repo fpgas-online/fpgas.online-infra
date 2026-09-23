@@ -137,10 +137,12 @@
         - nfs-common
         - fpgas-online-setup-pi
         - fpgas-online-cam
-        # roles/onpi/tasks/apt.yml: the RP1-PIO builds from mithro/rp1-jtag
-        # stand in for Debian's openfpgaloader / openocd.
-        - openfpgaloader-rp1pio
-        - openocd-rp1pio
+        # roles/onpi/tasks/apt.yml: the fpgas.online patch-series builds from
+        # fpgas.online-fpga-tools stand in for Debian's openfpgaloader /
+        # openocd (and for the superseded -rp1pio builds from
+        # mithro/rp1-jtag).
+        - openfpgaloader-fpgasonline
+        - openocd-fpgasonline
       tags: [verify]
 
     - name: assert pi user exists in the root
