@@ -49,3 +49,11 @@
     - pibup
     - snmp_switch
   notify: reload nginx
+
+- name: nginx location include for the fleet pages
+  template:
+    src: includes/fleet.conf.j2
+    dest: "/etc/nginx/includes/{{ conference_name }}-fleet.conf"
+    mode: "0644"
+  when: fleet_broker | default(false)
+  notify: reload nginx

@@ -1,0 +1,13 @@
+# Ansible managed -- fpgas.online fleet broker
+listener 1883 {{ eth_local_address | default('10.21.0.1') }}
+persistence true
+# Anonymous on the LAN listener (resolved D-4): per-port VLAN isolation +
+# the firewall are the trust boundary; sensors2mqtt shares this listener.
+allow_anonymous true
+
+# all.fpgas.online fan-out (D-1: config-ready only; enable when the
+# aggregator exists -- the bridge authenticates OUTBOUND over TLS, so
+# anonymity never extends off-site)
+#connection all-fpgas-online
+#address all.fpgas.online:8883
+#topic fpgas/# out 1

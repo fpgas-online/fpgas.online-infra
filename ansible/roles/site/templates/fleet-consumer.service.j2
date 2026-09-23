@@ -1,0 +1,15 @@
+# {{ ansible_managed }} -- fleet MQTT consumer (fpgas.online-infra#47)
+[Unit]
+Description=fleet MQTT consumer (Pi registrations/status/events -> Django)
+After=network.target mosquitto.service redis-server.service
+
+[Service]
+User={{ user_name }}
+Group=www-data
+WorkingDirectory={{ django_dir }}
+ExecStart={{ django_dir }}/venv/bin/python manage.py fleet_consumer
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

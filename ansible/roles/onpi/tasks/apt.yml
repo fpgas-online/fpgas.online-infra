@@ -55,7 +55,7 @@
       # the server half is the lldp role). A running Pi only picks this up
       # after a reboot: the NFS root is a read-only lower layer.
       - lldpd
-      # openocd / openfpgaloader: the RP1-PIO builds, below.
+      # openocd / openfpgaloader: the fpgas.online builds, below.
       - fxload
       - openwince-jtag
       - python3-full
@@ -75,31 +75,55 @@
   tags:
     - img
 
-# openFPGALoader and OpenOCD on the Pis come from mithro/rp1-jtag rather than
-# Debian. Both are built against librp1jtag, so on a Pi 5 / CM5 they drive
-# JTAG from the RP1's PIO block instead of bit-banging GPIOs through libgpiod,
-# and the openFPGALoader is new enough to have --read-dna / --read-xadc /
+# openFPGALoader and OpenOCD on the Pis come from fpgas.online-fpga-tools
+# rather than Debian. They carry the fpgas.online patch series: the rp1pio
+# cable (JTAG through the Pi 5 / CM5 RP1 PIO block instead of bit-banging
+# GPIOs through libgpiod -- librp1jtag is linked in statically here, so there
+# is no librp1jtag0 dependency), the netv2 / tt_fpga boards, --flash-info,
+# and an upstream base new enough to have --read-dna / --read-xadc /
 # --read-register (Debian's 0.10.0 has none of them, which is why FPGA DNA
 # could not be read on the welland boards).
 #
-# Both packages declare Provides/Conflicts/Replaces on the Debian package
-# they stand in for, so a root that already has Debian's openocd or
-# openfpgaloader (every root built before this task) is swapped in place:
-# the apt module runs `apt-get -y install` without --no-remove
-# (fail_on_autoremove is false), and apt resolves the Conflicts by removing
-# the stock package in the same transaction. Debian's names must stay out
-# of the "Install packages" list above, or the next run would swap them
-# back.
+# The -git track, not the stable pair (openfpgaloader-fpgasonline /
+# openocd-fpgasonline): every fpgas.online host runs the same lineage, and it
+# is the newest reviewed code -- fpga-tools pins upstream master by commit
+# and bumps the pin daily, so it is not raw-rolling. On trixie it also keeps
+# OpenOCD's linuxgpiod adapter, which the stable build drops.
 #
-# The source is roles/fpgas-apt/tasks/rp1-jtag.yml, which runs under the
+# These replace the older openfpgaloader-rp1pio / openocd-rp1pio from the
+# retired mithro/rp1-jtag. No explicit removal task is needed: each package
+# declares
+#   Conflicts/Replaces: openfpgaloader, openfpgaloader-fpgasonline,
+#                       openfpgaloader-rp1pio
+# (and the openocd equivalents), and the apt module runs `apt-get -y install`
+# without --no-remove (fail_on_autoremove is false), so apt resolves the
+# Conflicts by removing the superseded package in the same transaction.
+# That covers Debian's stock openocd / openfpgaloader too, on every root
+# built before any of this existed. Neither Debian's names nor the -rp1pio
+# names may go in the "Install packages" list above, or the next run would
+# swap them back. librp1jtag0, left orphaned by the -rp1pio removal, is
+# cleaned up by the autoremove task below.
+#
+# state: latest, not present. The "apt update/upgrade" task above is
+# upgrade: true, which is aptitude safe-upgrade (or `apt-get upgrade
+# --with-new-pkgs`) -- it never removes a package, so any future revision of
+# these two whose dependencies are dropped or renamed is silently held back,
+# and `state: present` would then never touch an already-installed version
+# again. The patch-set revision (the ...post<N> suffix) is the whole point of
+# these packages, and a root is rebuilt rarely enough that a stale one is
+# hard to notice, so these two are pinned to the archive's newest rather than
+# to whatever landed first. This does not make the play less deterministic
+# than it already is: the blanket dist-upgrade above has the same property.
+#
+# The source is roles/fpgas-apt/tasks/fpga-tools.yml, which runs under the
 # fpgas-apt tag; this task carries fpgas-apt too so the VM integration test,
 # which skips that tag (issue #49), skips the install along with the source.
-- name: Install the RP1-PIO openFPGALoader and OpenOCD
+- name: Install the fpgas.online openFPGALoader and OpenOCD  # noqa: package-latest
   ansible.builtin.apt:
     name:
-      - openfpgaloader-rp1pio
-      - openocd-rp1pio
-    state: present
+      - openfpgaloader-fpgasonline-git
+      - openocd-fpgasonline-git
+    state: latest
   tags:
     - img
     - rp1-jtag

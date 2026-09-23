@@ -20,21 +20,10 @@
     test -f /proc/sys/fs/binfmt_misc/qemu-arm
   changed_when: false
 
-- name: Mount filesystems for chroot
-  shell: |
-    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
-    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
-    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
-    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
-  changed_when: false
-
-- name: Install policy-rc.d to suppress service starts during apt
-  copy:
-    dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
-    content: |
-      #!/bin/sh
-      exit 101
-    mode: "0755"
+# Mounts, policy-rc.d and the initramfs suppression, shared verbatim with the
+# CI build's chroot (ci-nfsroot.yml) so the two cannot drift.
+- name: Prepare the NFS root chroot for apt
+  ansible.builtin.include_tasks: chroot-prep.yml
 
 - name: Create chroot wrapper shell script
   copy:
