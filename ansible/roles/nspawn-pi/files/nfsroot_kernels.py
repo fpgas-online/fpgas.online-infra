@@ -62,9 +62,9 @@ from pathlib import Path
 # "6.1.0-50-armmp"      -> ((6, 1, 0, 50), "-armmp")
 _VERSION_RE = re.compile(r"^(\d+(?:\.\d+)*)(?:-(\d+))?(.*)$")
 
-# The initramfs images raspi-firmware publishes are named by flavour, and a
-# kernel that has no initramfs cannot netboot: cmdline.txt has no root device
-# without one.
+# What the Pi firmware loads over TFTP: kernel.img / kernel7.img /
+# kernel7l.img / kernel8.img, one per board family, written by
+# raspi-firmware's kernel hook and published by fixpi's `netboot` sync.
 KERNEL_IMAGE_GLOB = "kernel*.img"
 
 # Trees whose contents end up inside every initramfs.  If any of them is newer
