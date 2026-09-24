@@ -373,16 +373,9 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     # Check QEMU started successfully
     time.sleep(2)
     if not pi.is_alive():
-        stdout_data = stderr_data = ""
-        if pi.process:
-            stdout_data, stderr_data = pi.process.communicate(timeout=5)
-            stdout_data = stdout_data.decode(errors="replace") if stdout_data else ""
-            stderr_data = stderr_data.decode(errors="replace") if stderr_data else ""
         print(f"ERROR: Pi QEMU process exited with code {pi.process.returncode if pi.process else 'unknown'}")
-        if stdout_data:
-            print(f"QEMU stdout:\n{stdout_data}")
-        if stderr_data:
-            print(f"QEMU stderr:\n{stderr_data}")
+        if pi.qemu_log.exists():
+            print(f"QEMU output:\n{pi.qemu_log.read_text(errors='replace')}")
         return False
 
     # Monitor serial log for boot milestones

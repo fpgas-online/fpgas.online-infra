@@ -289,7 +289,21 @@ class VMManager:
         self.process: subprocess.Popen | None = None
         self.qga_socket = self.workdir / f"{name}-qga.sock"
         self.serial_log = self.workdir / f"{name}-serial.log"
+        # QEMU's own stdout/stderr. Named to match the *-serial.log* glob
+        # vm-test.yml uploads, so it is in the post-mortem artifact.
+        self.qemu_log = self.workdir / f"{name}-serial.log.qemu"
         self.guest_agent = QemuGuestAgent(self.qga_socket)
+
+    def spawn(self, cmd: list[str]) -> None:
+        """Start the VM process with its output going to self.qemu_log.
+
+        Never subprocess.PIPE: nothing reads a running VM's pipes, so once
+        QEMU has written a pipe buffer's worth (64 KiB) of diagnostics its
+        next write blocks and the whole emulator freezes -- the virtual Pi
+        went silent after ~30 verify-pi tasks ("No route to host").
+        """
+        with open(self.qemu_log, "ab") as log:
+            self.process = subprocess.Popen(cmd, stdout=log, stderr=log)
 
     def boot_server(
         self,
@@ -354,11 +368,7 @@ class VMManager:
             "-serial", f"file:{self.serial_log}",
         ]
         print(f"[{self.name}] Booting server VM (accel={accel})...")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def boot_pi(
         self,
@@ -404,11 +414,7 @@ class VMManager:
         ]
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
         print(f"[{self.name}] QEMU cmd: {' '.join(cmd)}")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def wait_for_guest_agent(self, timeout: int = 180) -> bool:
         """Wait for guest agent to become responsive."""
