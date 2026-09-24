@@ -1,7 +1,7 @@
 ---
 # Predictable NIC names + networkd ownership of the uplink.
 #
-# Everything downstream (vlan-ports' trunk .network, pxe's dnsmasq interface
+# Everything downstream (vlan_ports' trunk .network, pxe's dnsmasq interface
 # binding, the firewall's NAT/forward rules) refers to the two NICs by the
 # names {{ eth_local }} and {{ eth_uplink }}. A fresh Debian install names
 # them enpXsY and runs the uplink under ifupdown, so this role: writes

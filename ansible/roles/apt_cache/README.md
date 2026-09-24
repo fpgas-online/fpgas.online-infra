@@ -1,4 +1,4 @@
-# apt-cache
+# apt_cache
 
 apt-cacher-ng on the gateway, served as `https://apt.<domain_name>`
 (`apt.welland.fpgas.online` on tweed), so that every apt fetch by the Pi NFS
@@ -33,7 +33,7 @@ Runs in the `nbp` play of `site.yml`, after `img` and before `fixpi`.
 | otherwise | `http://<eth_local_address>:3142`: still cached, needs no DNS or certificate |
 
 Clients: this role (Raspbian, Raspberry Pi archive), `fixpi` (the Debian armmp
-source and its keyring), `fpgas-apt` (via `hostvars[groups['nbp'][0]]`), and
+source and its keyring), `fpgas_apt` (via `hostvars[groups['nbp'][0]]`), and
 `pxe` (a dnsmasq `host-record` so running Pis resolve the name to the gateway).
 
 ## Adding a repository

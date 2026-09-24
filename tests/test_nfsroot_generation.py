@@ -1,4 +1,4 @@
-"""Tests for roles/nfsroot-generation, the server half of the stale-root reboot.
+"""Tests for roles/nfsroot_generation, the server half of the stale-root reboot.
 
 At the end of every site.yml run, end.yml decides (through `nfsroot-generation
 end`, from fpgas-online/nfsroot-watchdog) whether to bump the Pi NFS root's
@@ -60,19 +60,19 @@ def make_root(base: Path) -> Path:
 
 PLAYBOOK = """
 # The shape of site.yml's last play (the root chain): the lock first, the
-# tasks that change the root, then the nfsroot-generation role (its main.yml
+# tasks that change the root, then the nfsroot_generation role (its main.yml
 # is end.yml).
 - hosts: nbp
   gather_facts: true
   pre_tasks:
-    - include_role: {name: nfsroot-generation, tasks_from: begin.yml}
+    - include_role: {name: nfsroot_generation, tasks_from: begin.yml}
   tasks:
-    - name: change the root (img / apt-cache / fixpi)
+    - name: change the root (img / apt_cache / fixpi)
       copy: {dest: "{{ nfs_root }}/root/usr/bin/tool", content: "{{ new_tool }}"}
       when: new_tool is defined
     - fail: {msg: simulated failure of a role that changes the root}
       when: fail_run | default(false) | bool
-    - include_role: {name: nfsroot-generation}
+    - include_role: {name: nfsroot_generation}
 """
 
 

@@ -3,7 +3,7 @@
 # It pulls each camera over RTMP from the local nginx-rtmp (the stream the
 # Pis already publish for HLS/DVR) while at least one viewer is watching,
 # so the Pis need no second publish leg. That pull only works because
-# roles/cam/stream-server no longer sets `wait_video on` (see pib.conf.j2:
+# roles/cam/stream_server no longer sets `wait_video on` (see pib.conf.j2:
 # its zero-length dummy audio message is fatal to mediamtx's RTMP client).
 webrtc_mediamtx_version: "1.20.1"
 # sha256 of the release tarballs (checksums.sha256 on the GitHub release).
@@ -15,7 +15,7 @@ webrtc_mediamtx_tarball: "mediamtx_v{{ webrtc_mediamtx_version }}_linux_{{ webrt
 webrtc_mediamtx_url: "https://github.com/bluenviron/mediamtx/releases/download/v{{ webrtc_mediamtx_version }}/{{ webrtc_mediamtx_tarball }}"
 
 # Where the on-demand pull finds the cameras: the nginx-rtmp application
-# of roles/cam/stream-server (pib.conf.j2) on this host. One mediamtx path
+# of roles/cam/stream_server (pib.conf.j2) on this host. One mediamtx path
 # cam/<host> maps onto rtmp://127.0.0.1:<port>/<app>/<host>.
 webrtc_rtmp_source_port: 1935
 webrtc_rtmp_source_app: pib

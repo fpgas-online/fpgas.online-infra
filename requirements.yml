@@ -6,7 +6,7 @@
 collections:
   - name: community.crypto   # openssh_keypair (fixpi)
     version: "3.4.0"
-  - name: ansible.posix      # authorized_key (nspawn-pi, fixpi)
+  - name: ansible.posix      # authorized_key (nspawn_pi, fixpi)
     version: "2.2.2"
   - name: community.general  # django_manage (site role)
     version: "13.4.0"
