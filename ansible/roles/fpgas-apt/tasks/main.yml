@@ -22,6 +22,10 @@
 - name: Add the fpgas.online-fpga-tools apt repository
   ansible.builtin.include_tasks: fpga-tools.yml
 
+# The stale-NFS-root watchdog, which roles/onpi installs.
+- name: Add the nfsroot-watchdog apt repository
+  ansible.builtin.include_tasks: nfsroot-watchdog.yml
+
 # The same two repositories under their names before the apt repository
 # convention (2026-09-24): pubkey.gpg dearmoured to /usr/share/keyrings/
 # fpgas-online.gpg with a dists/<suite> main source in fpgas-online.list, and

@@ -1,7 +1,10 @@
 ---
-# Runs in the nbp play after img (a fresh extract of the pulled image restores
-# its upstream apt sources), so the NFS root's sources are pointed back at this
-# site's cache every time. Design: docs/superpowers/specs/2026-09-08-tweed-apt-cache-design.md
+# The cache service. The NFS root's apt sources are pointed at it by
+# tasks/nfsroot.yml, which site.yml runs right after img extracts the root (a
+# fresh extract restores the image's upstream sources). Not gated on
+# apt_cache_enabled: with the cache disabled it renders the upstream URLs, so
+# turning the cache off really does take it out of the path.
+# Design: docs/superpowers/specs/2026-09-08-tweed-apt-cache-design.md
 - name: Apt cache facts
   ansible.builtin.import_tasks: facts.yml
   tags: [always]
@@ -22,9 +25,3 @@
 - name: Apply apt cache config before any client uses it
   ansible.builtin.meta: flush_handlers
   tags: [apt-cache]
-
-# Not gated on apt_cache_enabled: with the cache disabled these render the
-# upstream URLs, so turning the cache off really does take it out of the path.
-- name: Pi NFS root apt sources
-  tags: [apt-cache]
-  ansible.builtin.import_tasks: nfsroot.yml
