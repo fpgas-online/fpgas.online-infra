@@ -36,10 +36,14 @@
     # The img role's main path pulls the published image; this playbook is
     # what PRODUCES that image, so it runs the raspios download/extract
     # tasks directly.
+    # A warm build (nfsroot_warm, set by nfsroot-build.yml) starts from the
+    # image main last published, already extracted by tests/ci/nfsroot_warm.py;
+    # the roles below converge it to this checkout.
     - name: download and extract the RasPiOS base image
       include_role:
         name: img
         tasks_from: build.yml
+      when: not (nfsroot_warm | default(false) | bool)
       tags: [img]
 
     - name: apply the generic fixpi layer

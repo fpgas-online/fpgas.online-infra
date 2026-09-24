@@ -72,3 +72,10 @@ def test_key_is_stable_and_changes_with_content(tmp_path, monkeypatch):
     a = nfsroot_inputs.key(week="2026-W39")
     assert a == nfsroot_inputs.key(week="2026-W39")
     assert a != nfsroot_inputs.key(week="2026-W40")
+
+
+def test_base_inputs_exist_and_are_image_inputs():
+    for rel in nfsroot_inputs.BASE_INPUTS:
+        assert (REPO / rel).exists(), rel
+        assert covered(rel), f"{rel} picks the base image but is not an image input"
+    assert len(nfsroot_inputs.base_key()) == 20

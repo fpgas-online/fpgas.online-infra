@@ -151,7 +151,9 @@ def build() -> int:
             # What `docker import` on the arm64 build runner recorded.
             "architecture": "arm64",
             "os": "linux",
-            "config": {},
+            # Which RasPiOS base the image descends from (nfsroot_warm.py
+            # converges only an image with this checkout's base key).
+            "config": {"Labels": {nfsroot_inputs.BASE_LABEL: nfsroot_inputs.base_key()}},
             "rootfs": {"type": "layers", "diff_ids": [diff_id]},
         }).encode())
         manifest, manifest_size = put_blob(layout, json.dumps({

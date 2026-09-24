@@ -13,6 +13,11 @@ name: nfsroot build
 # the rolling apt repo between merges.
 on:
   workflow_dispatch:
+    inputs:
+      from_scratch:
+        description: "Build from RasPiOS instead of converging main's latest image"
+        type: boolean
+        default: true
   schedule:
     - cron: "17 2 * * 1"
   workflow_call:
@@ -21,6 +26,10 @@ on:
         description: "Also push this tag (the VM test picks it before the build starts)"
         type: string
         default: ""
+      from_scratch:
+        description: "Build from RasPiOS instead of converging main's latest image"
+        type: boolean
+        default: false
     outputs:
       image:
         description: "GHCR ref of the image this run pushed (dated tag)"
@@ -106,6 +115,19 @@ jobs:
           key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
           restore-keys: nfsroot-debs-
 
+      # PR and push builds converge the image main last published (the roles
+      # are idempotent; their apt runs are then mostly no-ops): ~3 min
+      # instead of ~10. The weekly schedule and a dispatch build from
+      # RasPiOS, so the from-scratch path keeps running and a warm chain is
+      # never more than a week old. See tests/ci/nfsroot_warm.py.
+      - name: Start from main's latest image (warm build)
+        if: >-
+          steps.reuse.outputs.reused != 'true'
+          && github.event_name != 'schedule'
+          && !inputs.from_scratch
+        id: warm
+        run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm
+
       - name: Build the NFS root (same roles as site.yml, chroot connection)
         if: steps.reuse.outputs.reused != 'true'
         working-directory: ansible
@@ -115,6 +137,7 @@ jobs:
           "$(pwd)/../.venv/bin/ansible-playbook"
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
+          -e nfsroot_warm=${{ steps.warm.outputs.warm == 'true' }}
 
       # apt leaves its root-only lock file and partial/ dir in the cache
       # (the save's tar failed on them): keep only the debs, runner-owned.

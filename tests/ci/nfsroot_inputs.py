@@ -53,6 +53,24 @@ INPUTS = [
 ]
 
 
+# Files that choose the RasPiOS image a from-scratch build starts from.
+# A warm build (nfsroot_warm.py) may only converge a published image whose
+# base_key label matches: a changed base must be built from scratch.
+BASE_INPUTS = [
+    "ansible/inventory/group_vars/all/srv.yml",
+    "ansible/inventory-ci-nfsroot/group_vars/all/zz-ci-overrides.yml",
+    "ansible/roles/img/tasks/build.yml",
+]
+BASE_LABEL = "org.fpgas-online.nfsroot.base-key"
+
+
+def base_key() -> str:
+    h = hashlib.sha256()
+    for rel in sorted(BASE_INPUTS):
+        h.update(rel.encode() + b"\0" + (REPO / rel).read_bytes() + b"\0")
+    return h.hexdigest()[:20]
+
+
 def input_files() -> list[str]:
     """Tracked files under INPUTS, sorted (git's view: no stray build output)."""
     out = subprocess.run(
