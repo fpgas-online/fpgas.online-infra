@@ -14,7 +14,7 @@
 # web terminal, which logs in to the Pi with it, so it cannot be a hash. Hash
 # it here on the server with openssl (the NFS root's own python3 would need
 # qemu, and the server's has no crypt module) and write it into the root's
-# /etc/shadow with `chpasswd -e`. The salt is derived from the password, so
+# /etc/shadow as a plain file edit. The salt is derived from the password, so
 # the hash is stable across runs and the tasks are idempotent.
 - name: hash the pi user's password (sha512-crypt, salt derived from it)
   command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
@@ -35,14 +35,15 @@
   tags:
     - pipw
 
-# chpasswd replaces /etc/shadow (new inode). The running Pis mount this root
+# Rewriting /etc/shadow replaces it (new inode). The running Pis mount this root
 # as the lower layer of an overlayroot over NFS, and their sshd keeps the
 # old dentry: after this changes, every one of them closes each SSH
 # connection (key or password) until it is rebooted. Reboot them all.
 - name: set the pi user's password in the NFS root
-  command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "chpasswd -e"
-  args:
-    stdin: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}"
+  ansible.builtin.replace:
+    path: "{{ nfs_root }}/root/etc/shadow"
+    regexp: '^{{ user }}:[^:]*:'
+    replace: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:"
   when: fixpi_pi_pw_current.rc != 0
   register: fixpi_pi_pw_set
   no_log: true

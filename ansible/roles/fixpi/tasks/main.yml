@@ -1,9 +1,9 @@
 ---
 - {include_tasks: manage.yml, tags: [manage, qemu]}
 - {include_tasks: netboot.yml, tags: [cmdline, pibs, netboot, qemu]}
-# Only `sunxi` on the include: with `sunxi-kernel` here too, CI's --skip-tags
-# sunxi-kernel skipped the WHOLE include (no PXE render) and verify failed.
-# The kernel tasks inside carry sunxi-kernel themselves.
+# sunxi-image.yml bakes the armmp kernel into every image (CI build only);
+# sunxi.yml publishes it to TFTP on sites that declare sunxi_boards.
+- {include_tasks: sunxi-image.yml, tags: [sunxi], when: fixpi_image_build | bool}
 - {include_tasks: sunxi.yml, tags: [sunxi], when: sunxi_boards is defined}
 - {include_tasks: userconf.yml, tags: [pipw, keys]}
 - {include_tasks: tweeks.yml, tags: [ispi, hostname, bashrc, fixpi]}

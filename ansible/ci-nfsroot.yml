@@ -168,6 +168,8 @@
         # mithro/rp1-jtag).
         - openfpgaloader-fpgasonline-git
         - openocd-fpgasonline-git
+        # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
+        - linux-image-armmp
       tags: [verify]
 
     - name: assert pi user exists in the root

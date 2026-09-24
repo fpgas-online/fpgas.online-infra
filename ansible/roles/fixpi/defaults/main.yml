@@ -1,4 +1,14 @@
 ---
+# True only in the CI image build (inventory-ci-nfsroot): the tasks that
+# execute inside the ARM root (useradd, apt, dpkg) run there, natively on the
+# arm64 runner. Servers pull the finished image (roles/img) and apply only a
+# file-level site layer on top -- nothing on a server runs ARM code, so no
+# server needs qemu-user-static.
+fixpi_image_build: false
+
+# The Orange Pi (sunxi) kernel baked into every image (tasks/sunxi-image.yml).
+sunxi_kernel_package: linux-image-armmp
+
 # Debian bookworm's own keyring package (Raspbian has none) for the sunxi
 # kernel apt source -- see tasks/sunxi.yml. Version + sha256 from
 # https://deb.debian.org/debian/dists/bookworm/main/binary-all/Packages.gz
