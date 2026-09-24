@@ -9,7 +9,7 @@
 # busybox and regenerates its initramfs images once. It enables its own
 # units. Its apt source comes from roles/fpgas-apt, hence the fpgas-apt tag.
 
-- name: install nfsroot-watchdog
+- name: Install nfsroot-watchdog
   ansible.builtin.apt:
     name: nfsroot-watchdog
     state: latest  # noqa: package-latest -- rolling release, like fpga-tools
@@ -17,7 +17,7 @@
 
 # A conffile the package ships all-commented: replacing it is the intended
 # way to configure it, and dpkg keeps this copy across upgrades.
-- name: nfsroot-watchdog settings for fpgas.online
+- name: Nfsroot-watchdog settings for fpgas.online
   ansible.builtin.template:
     src: nfsroot-watchdog.default.j2
     dest: /etc/default/nfsroot-watchdog

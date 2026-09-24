@@ -1,15 +1,15 @@
 ---
-- name: restart dnsmasq
+- name: Restart dnsmasq
   systemd:
     name: dnsmasq
     # state: restarted
 
-- name: reload nginx
+- name: Reload nginx
   systemd:
     name: nginx
     state: restarted
 
-- name: restart django services
+- name: Restart django services
   systemd:
     name: "{{ item }}"
     state: restarted
@@ -18,12 +18,12 @@
     - daphne
     - uvicorn
 
-- name: restart fleet-consumer
+- name: Restart fleet-consumer
   systemd:
     name: fleet-consumer
     state: restarted
   when: fleet_broker | default(false)
 
-- name: reload systemd
+- name: Reload systemd
   systemd:
     daemon_reload: true

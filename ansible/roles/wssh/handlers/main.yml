@@ -1,14 +1,14 @@
 ---
-- name: reload nginx
+- name: Reload nginx
   systemd:
     name: nginx
     state: reloaded
 
-- name: restart wssh
+- name: Restart wssh
   systemd:
     name: wssh.socket
     state: restarted
 
-- name: reload systemd
+- name: Reload systemd
   systemd:
     daemon_reload: true

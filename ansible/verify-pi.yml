@@ -149,7 +149,7 @@
     # (pi-sw<S>-p<P> -> 10.21.S.P). The old check hardcoded 10.21.1.1 —
     # correct only for the CI VM's sw1p1 test Pi; it failed on every real
     # Pi on any other port (tweed rebuild D1-1, 2026-08-26).
-    - name: derive expected per-port address from hostname
+    - name: Derive expected per-port address from hostname
       set_fact:
         verify_pi_expected_ip: >-
           {{ ansible_hostname
@@ -400,7 +400,7 @@
       when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
       tags: [verify, hw-sunxi]
 
-    - name: sunxi boards declared for this site
+    - name: Sunxi boards declared for this site
       set_fact:
         verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
       tags: [verify, hw-sunxi]
@@ -481,7 +481,7 @@
     # /proc/device-tree/hat/uuid) is built from four little-endian u32 words in
     # reverse word order -- NOT a straight hex dump of the 16 bytes -- hence
     # the python3 formatter.
-    - name: sunxi_boards row for this board
+    - name: Sunxi_boards row for this board
       set_fact:
         verify_pi_sunxi_self: >-
           {{ verify_pi_sunxi
@@ -576,7 +576,7 @@
     # the server runs a broker (fleet_broker), the site layer baked
     # fleet.toml into the root (fixpi/tasks/fleet-site.yml), so a missing
     # file, an inactive agent or a board the server never heard of all fail.
-    - name: fleet settings of this Pi's server
+    - name: Fleet settings of this Pi's server
       set_fact:
         verify_pi_server: "{{ groups['nbp'][0] }}"
         verify_pi_fleet: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"

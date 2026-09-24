@@ -11,7 +11,7 @@
 - hosts: nbp
   gather_facts: false
   tasks:
-    - name: start pulling the Pi NFS root image
+    - name: Start pulling the Pi NFS root image
       include_role:
         name: img
         tasks_from: prefetch.yml
@@ -51,7 +51,7 @@
     # img, apt-cache and fixpi all change the root, and a board must never
     # reboot into it half-built. Tagged always, so a tagged run takes it too.
     # (The background pull started after netif only fills podman's store.)
-    - name: take the Pi NFS root update lock
+    - name: Take the Pi NFS root update lock
       ansible.builtin.include_role:
         name: nfsroot-generation
         tasks_from: begin.yml
@@ -59,20 +59,20 @@
           tags: [always]
       tags: [always]
 
-    - name: extract the pulled Pi NFS root
+    - name: Extract the pulled Pi NFS root
       import_role:
         name: img
       tags: [img]
 
     # A fresh extract restores the image's upstream apt sources; point
     # them back at this site's cache.
-    - name: point the NFS root's apt sources at the site cache
+    - name: Point the NFS root's apt sources at the site cache
       import_role:
         name: apt-cache
         tasks_from: nfsroot.yml
       tags: [apt-cache]
 
-    - name: apply the site layer to the NFS root
+    - name: Apply the site layer to the NFS root
       import_role:
         name: fixpi
       tags: [fixpi]
@@ -82,7 +82,7 @@
     # themselves, one stagger slot apart. If anything above failed, the play
     # has stopped for this host and the lock stays: the boards keep running
     # on the old root instead of rebooting into a half-built one.
-    - name: publish the new NFS root generation and release the lock
+    - name: Publish the new NFS root generation and release the lock
       ansible.builtin.include_role:
         name: nfsroot-generation
         apply:

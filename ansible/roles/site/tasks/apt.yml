@@ -1,6 +1,6 @@
 # apt.yml
 ---
-- name: python and friends
+- name: Python and friends
   apt:
     name:
       - python3-venv

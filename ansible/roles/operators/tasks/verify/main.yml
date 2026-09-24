@@ -1,5 +1,5 @@
 ---
-- name: "verify: operator accounts exist"
+- name: "Verify: operator accounts exist"
   getent:
     database: passwd
     key: "{{ item.name }}"
@@ -7,14 +7,14 @@
   loop_control:
     label: "{{ item.name }}"
 
-- name: "verify: operator sudoers files are valid"
+- name: "Verify: operator sudoers files are valid"
   command: "visudo -cf /etc/sudoers.d/{{ item.name }}"
   changed_when: false
   loop: "{{ operator_accounts }}"
   loop_control:
     label: "{{ item.name }}"
 
-- name: "verify: operator authorized_keys are non-empty"
+- name: "Verify: operator authorized_keys are non-empty"
   stat:
     path: "/home/{{ item.name }}/.ssh/authorized_keys"
   register: operators_v_keys
@@ -22,7 +22,7 @@
   loop_control:
     label: "{{ item.name }}"
 
-- name: "verify: assert operator keys present"
+- name: "Verify: assert operator keys present"
   assert:
     that:
       - item.stat.exists
