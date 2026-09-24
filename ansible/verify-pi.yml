@@ -268,10 +268,11 @@
 
     - name: Ask the staged nfsroot-watchdog what it sees
       command: nfsroot-watchdog status
-      # become for its PATH: the CLI is installed in /usr/sbin, which is not on
-      # the login user's PATH (rc 2 = command not found; moving to /usr/bin
-      # in fpgas-online/nfsroot-watchdog#5)
-      become: true
+      # Packages before nfsroot-watchdog 0.0.post20 install the CLI in
+      # /usr/sbin, off the login user's PATH (rc 2 = command not found);
+      # later ones in /usr/bin. Either way no root is needed.
+      environment:
+        PATH: /usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
       changed_when: false
       register: verify_pi_watchdog_status
       failed_when: false
