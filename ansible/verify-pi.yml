@@ -14,7 +14,12 @@
 
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
-  become: true
+  # Checks run as the login user; only the few that need root say so.
+  # Every sudo costs ~5 s on the TCG-emulated Pi (and real time on a
+  # loaded board), and almost every check here reads world-readable state.
+  become: false
+  # hostname, kernel and architecture are all the checks use.
+  gather_subset: [min]
   tasks:
     # Boot infrastructure
     - name: Check NFS mount present
@@ -85,6 +90,7 @@
     # hash into the NFS root is what makes it usable ("P").
     - name: Check the pi user has a usable password
       command: passwd -S {{ user | default('pi') }}
+      become: true  # reads /etc/shadow
       changed_when: false
       register: verify_pi_passwd
       tags: [verify, services]
@@ -376,6 +382,7 @@
     # i2ctransfer with an explicit address write (i2cget's 1-byte pointer
     # write reads from offset 1: found on hardware). Signature = "R-Pi".
     - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
+      become: true  # /dev/i2c-*
       shell: |
         set -e
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
@@ -414,6 +421,7 @@
       tags: [verify, hw-sunxi]
 
     - name: Read the Pmod HAT product uuid from the ID EEPROM
+      become: true  # /dev/i2c-*
       shell: |
         set -e
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
