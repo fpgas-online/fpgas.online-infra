@@ -308,6 +308,34 @@ def ensure_qemu_rpi() -> tuple[str, str, str]:
     return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
+def server_run(server: VMManager, key_path: Path, cmd: str, timeout: int = 120) -> str:
+    """Run a shell command on the server VM; return rc + stdout + stderr."""
+    ssh = server.wait_for_ssh(port=SSH_PORT, key_path=key_path)
+    try:
+        _in, out, err = ssh.exec_command(cmd, timeout=timeout)
+        rc = out.channel.recv_exit_status()
+        return (f"rc={rc}\n{out.read().decode(errors='replace')}"
+                f"{err.read().decode(errors='replace')}")
+    finally:
+        ssh.close()
+
+
+# Diagnostics for the virtual Pi dropping off the network part-way through
+# verify-pi ("No route to host" after ~30 tasks, reproducible). The Pi's
+# journal goes to its serial console, so the capture shows what the Pi was
+# doing when it went quiet; the server's view is collected on failure.
+PI_JOURNAL_CONSOLE_DROPIN = (
+    "/srv/nfs/rpi/bookworm/root/etc/systemd/journald.conf.d/zz-vm-test-console.conf"
+)
+SERVER_NET_DIAG = (
+    "set -x; ip neigh show 10.21.1.1; ping -c 3 -W 2 10.21.1.1; "
+    "ip neigh show 10.21.1.1; ip -s link show v2101; ip -4 addr show v2101; "
+    "ss -tni dst 10.21.1.1; "
+    "sudo journalctl --no-pager -n 40 -u dnsmasq -u nfs-server; "
+    "sudo dmesg | tail -n 40"
+)
+
+
 def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
@@ -322,6 +350,13 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     started listening on both ports before either VM booted (see main()).
     """
     key_path = workdir / "test_key"
+
+    print("[server] journal-to-console drop-in for the Pi: " + server_run(
+        server, key_path,
+        f"sudo install -D -m 0644 /dev/stdin {PI_JOURNAL_CONSOLE_DROPIN} <<'EOF'\n"
+        "[Journal]\nForwardToConsole=yes\nMaxLevelConsole=info\nEOF\n"
+        f"cat {PI_JOURNAL_CONSOLE_DROPIN}",
+    ))
 
     # Ensure patched QEMU and PXE boot firmware are available
     qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
@@ -422,6 +457,17 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     rc = run_ansible("verify-pi.yml", inventory, "test-pi", extra)
     if rc != 0:
         print(f"ERROR: verify-pi.yml failed with exit code {rc}")
+        print("[server] network view of the Pi at failure:\n"
+              + server_run(server, key_path, SERVER_NET_DIAG))
+        # Does the Pi come back by itself (transient) or stay gone (wedged)?
+        time.sleep(120)
+        print("[server] network view of the Pi 120 s later:\n"
+              + server_run(server, key_path, SERVER_NET_DIAG))
+        text = pi.serial_log.read_text(errors="replace") if pi.serial_log.exists() else ""
+        print(f"[pi] ===== last 200 lines of kernel serial0 ({len(text)} bytes) =====")
+        for line in text.splitlines()[-200:]:
+            print(f"  {line}")
+        print("[pi] ===== end =====")
 
     if args.ssh_to_pi:
         print(f"\nSSH into Pi via ProxyJump:")
