@@ -93,20 +93,6 @@ switches_manage: false
 # is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
 pi_pw: "fpgas-test-pi"
 
-# QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
-# in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
-# involved), so the `ip`/`mac` DHCP host-entry task in
-# ansible/roles/pxe/tasks/test_clients.yml is skipped -- this list only
-# still triggers the ephemeral test SSH key injection into the Pi's
-# authorized_keys, which the harness needs regardless of addressing scheme.
-pxe_test_clients:
-  - name: test-pi
-    sn: "deadbeef"
-    mac: "52:54:00:12:34:56"
-    ip: "10.21.0.128"
-    nfs_root: "/srv/nfs/rpi/bookworm/root"
-    console: "ttyAMA0,115200"
-
 # tinytapeout.fpgas.online in the VM test: the live FPGA slot is the virtual
 # Pi's own port (switch 1 port 1), so the designs API route is exercised as
 # on tweed; the rest are unwired. No public DNS => no certbot.

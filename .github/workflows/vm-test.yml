@@ -85,6 +85,13 @@ jobs:
           echo "qemu-rpi-system-arm $v"
           dpkg --compare-versions "$v" ge "2:0.1+95" \
             || { echo "qemu-rpi-system-arm $v predates the GENET TX freeze fix (rpi-qemu#16)"; exit 1; }
+          # The pxeboot firmware must clear its TFTP prefix when
+          # <serial>/start4.elf is missing, like a real Pi (rpi-qemu#18):
+          # the per-port-VLAN sites serve one boot dir with no serial dirs.
+          p=$(dpkg-query -W -f='${Version}' qemu-rpi-pxeboot)
+          echo "qemu-rpi-pxeboot $p"
+          dpkg --compare-versions "$p" ge "2:0.1+100" \
+            || { echo "qemu-rpi-pxeboot $p predates the TFTP prefix fallback (rpi-qemu#18)"; exit 1; }
 
       - name: Enable KVM (if available)
         run: |
