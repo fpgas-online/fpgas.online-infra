@@ -30,7 +30,7 @@
 - name: install fpgas-switch-setup (fpgas.online-poe[cli]) into its venv
   ansible.builtin.pip:
     name: "fpgas-online-poe[cli] @ git+https://github.com/fpgas-online/fpgas.online-poe.git"
-    virtualenv: "{{ switch_cli_venv }}"
+    virtualenv: "{{ switch_vlans_cli_venv }}"
     virtualenv_command: "python3 -m venv"
     # NOT `latest`: with a direct git URL and an unbumped package version,
     # pip considers the requirement satisfied and silently keeps stale code
@@ -61,7 +61,7 @@
 # reliable changed signal -- rc is not (see Task 6 CLI contract).
 - name: converge switch VLAN config
   command: >-
-    {{ switch_cli_venv }}/bin/fpgas-switch-setup --config /etc/fpgas/switches.yml
+    {{ switch_vlans_cli_venv }}/bin/fpgas-switch-setup --config /etc/fpgas/switches.yml
     --switch {{ item.index }} --apply
   loop: "{{ switches }}"
   loop_control:
