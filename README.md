@@ -144,7 +144,7 @@ differs between test and production.
 sudo install -d -m0755 /etc/apt/keyrings
 curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg | sudo tee /etc/apt/keyrings/rpi-qemu.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
-  | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+  | sudo tee /etc/apt/sources.list.d/rpi-qemu.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
 # Full run (server + Pi + both verify playbooks)

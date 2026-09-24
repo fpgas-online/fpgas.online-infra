@@ -69,17 +69,17 @@ jobs:
             ca-certificates \
             curl
 
-      # rpi-qemu's signed flat repo (its README). The old github.io
-      # dists/ layout is a frozen snapshot at 2:0.1+85, which still has the
-      # GENET TX index-wrap freeze (rpi-qemu#16): the virtual Pi stopped
-      # dead after its 65536th TX descriptor, ~30 tasks into verify-pi.
+      # rpi-qemu's signed flat repo (its README). The version floor keeps
+      # out builds before 2:0.1+95, which have the GENET TX index-wrap
+      # freeze (rpi-qemu#16): the virtual Pi stopped dead after its 65536th
+      # TX descriptor, ~30 tasks into verify-pi.
       - name: Install qemu-rpi packages
         run: |
           install -d -m0755 /etc/apt/keyrings
           curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg -o /etc/apt/keyrings/rpi-qemu.gpg
           echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
-            > /etc/apt/sources.list.d/qemu-rpi.list
-          apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
+            > /etc/apt/sources.list.d/rpi-qemu.list
+          apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/rpi-qemu.list -o Dir::Etc::sourceparts=/dev/null
           apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
           v=$(dpkg-query -W -f='${Version}' qemu-rpi-system-arm)
           echo "qemu-rpi-system-arm $v"
