@@ -107,8 +107,26 @@ def play(tmp_path: Path, *extra_vars: str, check=False):
         cmd += ["-e", v]
     if check:
         cmd.append("--check")
-    env = {**os.environ, "ANSIBLE_ROLES_PATH": str(REPO / "ansible/roles"), "ANSIBLE_NOCOLOR": "1"}
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+    env = {
+        **os.environ,
+        "ANSIBLE_ROLES_PATH": str(REPO / "ansible/roles"),
+        "ANSIBLE_NOCOLOR": "1",
+        # The repo's ansible.cfg sets become = True for production runs.
+        # Tests must never escalate on the machine running them.
+        "ANSIBLE_BECOME": "False",
+    }
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    _assert_nothing_owned_by_others(tmp_path)
+    return r
+
+
+def _assert_nothing_owned_by_others(tmp_path):
+    """Everything the play wrote must belong to the user running the tests:
+    anything else means a task escalated privileges on this machine."""
+    uid = os.getuid()
+    for p in [tmp_path, *tmp_path.rglob("*")]:
+        st = p.lstat()
+        assert st.st_uid == uid, f"{p} is owned by uid {st.st_uid}: a task ran with become"
 
 
 def lock_of(tmp_path):
