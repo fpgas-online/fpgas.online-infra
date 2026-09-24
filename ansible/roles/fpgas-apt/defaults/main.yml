@@ -12,12 +12,15 @@ fpgas_apt_upstream_url: https://fpgas.online/apt
 fpgas_apt_cache_url: "{{ hostvars[groups['nbp'][0]].apt_cache_url | default('') if groups['nbp'] | default([]) else '' }}"
 fpgas_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online') if fpgas_apt_cache_url else fpgas_apt_upstream_url }}"
 fpgas_apt_suite: bookworm
+# fpgas-online/apt's signing key (apt@fpgas.online), published as apt.gpg.
+# tasks/repo.yml refuses any other key.
+fpgas_apt_key_fingerprint: 878EC72910E22EA0E989EAA9BEB0EC3124E538E4
 
 # fpgas-online/fpgas.online-fpga-tools publishes the fpgas.online patch-series
 # builds of openFPGALoader and OpenOCD (roles/onpi installs the -git track,
 # openfpgaloader-fpgasonline-git / openocd-fpgasonline-git; the same source
-# carries the stable pair) -- the rp1pio cable with librp1jtag linked in
-# statically, plus the netv2 / tt_fpga boards and --flash-info, none of which
+# carries the stable pair) -- the rp1pio cable through the shared librp1jtag0
+# it also publishes, plus the netv2 / tt_fpga boards and --flash-info, none of which
 # the retired mithro/rp1-jtag builds carried. One flat apt repository per
 # Debian release (bookworm / trixie / sid, arm64 + armhf) under a GitHub
 # Pages site, signed per suite, so the suite follows the NFS root's release.
@@ -28,17 +31,15 @@ fpgas_apt_suite: bookworm
 # roles/apt-cache/defaults/main.yml); apt-cache's verify fails any NFS root
 # source that bypasses it.
 #
-# The site publishes the key twice: fpgas-online-fpga-tools.asc (armoured)
-# and fpgas-online-fpga-tools.gpg (a binary keyring). The binary one is
+# The site publishes the key twice: fpgas.online-fpga-tools.asc (armoured)
+# and fpgas.online-fpga-tools.gpg (a binary keyring). The binary one is
 # fetched, because bookworm's apt verifies with gpgv, which rejects an
 # armoured keyring as an unsupported filetype and then treats the repository
 # as unsigned (Debian 13's sqv accepts both, which hides the problem there).
-# roles/fpgas-apt/tasks/fpga-tools.yml asserts the format as well as the
+# roles/fpgas-apt/tasks/repo.yml asserts the format as well as the
 # fingerprint, so an upstream change to either fails the build instead of
 # being trusted.
 fpga_tools_apt_upstream_url: https://fpgas.online/fpgas.online-fpga-tools
 fpga_tools_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online-fpga-tools') if fpgas_apt_cache_url else fpga_tools_apt_upstream_url }}"
 fpga_tools_apt_suite: "{{ dist }}"
-fpga_tools_apt_key_name: fpgas-online-fpga-tools.gpg
-fpga_tools_apt_keyring: /etc/apt/keyrings/fpgas-online-fpga-tools.gpg
 fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30

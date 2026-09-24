@@ -95,7 +95,13 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
         str(ANSIBLE_DIR / playbook),
         "-i", str(inventory),
         "--limit", limit,
-        "--ssh-extra-args", "-o StrictHostKeyChecking=accept-new",
+        # Generous connect patience: the TCG-emulated Pi runs the full
+        # image service set (fpgas-cam gstreamer, fpgas-tt, pistat) at
+        # ~1/20th speed right after boot, and default SSH timeouts caught
+        # it mid-thrash ("banner exchange" timeouts in verify-pi).
+        "--ssh-extra-args",
+        "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=120 -o ServerAliveInterval=15",
+        "-e", "ansible_timeout=120",
     ]
     if extra_args:
         cmd.extend(extra_args)
@@ -108,9 +114,14 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
 
 
 def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | None]:
-    """Monitor Pi serial log for boot progress milestones.
+    """Monitor Pi serial log until the firmware hands off to the kernel.
 
     Returns (success, pi_ip) where pi_ip is extracted from DHCP output.
+
+    Success is the kernel handoff, not a getty "login:" prompt: the netbooted
+    image never prints one on the captured console, so waiting for it burned
+    the whole timeout on every run (60 min per VM test) before the SSH wait --
+    which is the real userland-readiness check -- answered at once.
     """
     import re
 
@@ -118,7 +129,6 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
         ("DHCP", "Firmware got network"),
         ("Loading", "TFTP loading files"),
         ("Booting Linux", "Kernel handoff"),
-        ("login:", "System booted"),
     ]
     seen = set()
     pi_ip = None
@@ -144,7 +154,7 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
                 if ip_match:
                     pi_ip = ip_match.group(1)
                     print(f"[pi] Pi IP from DHCP: {pi_ip}")
-            if "login:" in content:
+            if "Booting Linux" in content:
                 return True, pi_ip
         # Check if QEMU process died
         if not pi.is_alive():
@@ -162,6 +172,12 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
     # FAT", not a TFTP kernel load), so treat them as hints only -- the full
     # dumps below are authoritative.
     print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
+    dump_pi_serial_logs(pi)
+    return False, pi_ip
+
+
+def dump_pi_serial_logs(pi: VMManager) -> None:
+    """Print both Pi serial logs in full (kernel serial0, U-Boot serial1)."""
     for label, path in (
         ("kernel serial0", pi.serial_log),
         ("u-boot serial1", Path(str(pi.serial_log) + ".uboot")),
@@ -174,7 +190,6 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
             print(f"[pi] ===== end {label} =====")
         else:
             print(f"[pi] {label} log {path.name} does not exist")
-    return False, pi_ip
 
 
 def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
@@ -218,6 +233,12 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
         inventory = TEST_INVENTORY
         extra = []
 
+    # The server pulls the prebuilt NFS root (issue #34): CI builds the
+    # image from the same checkout in the nfsroot job and passes its ref
+    # here, so the VM test exercises the production pull path with the
+    # PR's own roles baked in.
+    extra.extend(["-e", f"nfsroot_image={args.nfsroot_image}"])
+
     # Set SSH key and become for ansible (test VM uses non-root user)
     extra.extend([
         "-e", f"ansible_ssh_private_key_file={key_path}",
@@ -226,8 +247,8 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
-    # Run site.yml (includes nspawn Pi provisioning)
-    rc = run_ansible("site.yml", inventory, "test-vm,test-pi-nfs", extra)
+    # Run site.yml (server roles; pulls and site-layers the prebuilt NFS root)
+    rc = run_ansible("site.yml", inventory, "test-vm", extra)
     if rc != 0:
         print(f"ERROR: site.yml failed with exit code {rc}")
         if args.keep_vm:
@@ -287,6 +308,31 @@ def ensure_qemu_rpi() -> tuple[str, str, str]:
     return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
+def server_run(server: VMManager, key_path: Path, cmd: str, timeout: int = 120) -> str:
+    """Run a shell command on the server VM; return rc + stdout + stderr."""
+    ssh = server.wait_for_ssh(port=SSH_PORT, key_path=key_path)
+    try:
+        _in, out, err = ssh.exec_command(cmd, timeout=timeout)
+        rc = out.channel.recv_exit_status()
+        return (f"rc={rc}\n{out.read().decode(errors='replace')}"
+                f"{err.read().decode(errors='replace')}")
+    finally:
+        ssh.close()
+
+
+# The server's view of the Pi, printed when verify-pi fails: neighbour entry,
+# ping, VLAN counters, sockets, dnsmasq/nfs journal. It tells a Pi that went
+# silent (qemu-rpi's GENET TX freeze, fixed in rpi-qemu#16) from one that
+# answers but fails a check.
+SERVER_NET_DIAG = (
+    "set -x; ip neigh show 10.21.1.1; ping -c 3 -W 2 10.21.1.1; "
+    "ip neigh show 10.21.1.1; ip -s link show v2101; ip -4 addr show v2101; "
+    "ss -tni dst 10.21.1.1; "
+    "sudo journalctl --no-pager -n 40 -u dnsmasq -u nfs-server; "
+    "sudo dmesg | tail -n 40"
+)
+
+
 def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
@@ -317,22 +363,15 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     # Check QEMU started successfully
     time.sleep(2)
     if not pi.is_alive():
-        stdout_data = stderr_data = ""
-        if pi.process:
-            stdout_data, stderr_data = pi.process.communicate(timeout=5)
-            stdout_data = stdout_data.decode(errors="replace") if stdout_data else ""
-            stderr_data = stderr_data.decode(errors="replace") if stderr_data else ""
         print(f"ERROR: Pi QEMU process exited with code {pi.process.returncode if pi.process else 'unknown'}")
-        if stdout_data:
-            print(f"QEMU stdout:\n{stdout_data}")
-        if stderr_data:
-            print(f"QEMU stderr:\n{stderr_data}")
+        if pi.qemu_log.exists():
+            print(f"QEMU output:\n{pi.qemu_log.read_text(errors='replace')}")
         return False
 
     # Monitor serial log for boot milestones
-    booted, pi_ip = wait_for_pi_boot(pi, timeout=3600)
+    booted, pi_ip = wait_for_pi_boot(pi, timeout=1800)
     if not booted:
-        print("WARNING: Pi did not reach login prompt within timeout.")
+        print("WARNING: Pi firmware did not hand off to the kernel within timeout.")
         # Continue to try SSH anyway
 
     # Use Pi IP from DHCP if available, fall back to expected IP
@@ -344,10 +383,12 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     # Wait for SSH via ProxyJump through server
     proxy = proxy_jump_string("debian", "127.0.0.1", SSH_PORT)
 
+    # SSH is the userland-readiness check (the boot wait above ends at the
+    # kernel handoff), so give it the whole TCG userland boot.
     try:
         ssh = pi.wait_for_ssh(
             host=pi_host, port=22, username="pi",
-            key_path=key_path, proxy_jump=proxy, timeout=900,
+            key_path=key_path, proxy_jump=proxy, timeout=1800,
         )
         # Diagnostic probe: verify-pi.yml runs `become: true` on every task, so
         # slow/failing privilege escalation (e.g. sudo stalling on hostname
@@ -373,6 +414,7 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
         ssh.close()
     except TimeoutError:
         print("ERROR: Pi VM SSH not reachable via ProxyJump.")
+        dump_pi_serial_logs(pi)
         pi.shutdown()
         return False
 
@@ -398,6 +440,13 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     rc = run_ansible("verify-pi.yml", inventory, "test-pi", extra)
     if rc != 0:
         print(f"ERROR: verify-pi.yml failed with exit code {rc}")
+        print("[server] network view of the Pi at failure:\n"
+              + server_run(server, key_path, SERVER_NET_DIAG))
+        text = pi.serial_log.read_text(errors="replace") if pi.serial_log.exists() else ""
+        print(f"[pi] ===== last 200 lines of kernel serial0 ({len(text)} bytes) =====")
+        for line in text.splitlines()[-200:]:
+            print(f"  {line}")
+        print("[pi] ===== end =====")
 
     if args.ssh_to_pi:
         print(f"\nSSH into Pi via ProxyJump:")
@@ -424,10 +473,14 @@ def main():
     parser = argparse.ArgumentParser(description="QEMU VM integration tests for fpgas.online")
     parser.add_argument("--distro", choices=["bookworm", "trixie"], default="bookworm")
     parser.add_argument("--phase", choices=["server", "pi", "all"], default="all")
+    parser.add_argument("--nfsroot-image", type=str, required=True,
+                        help="GHCR ref of the prebuilt Pi NFS root the server pulls "
+                             "(e.g. ghcr.io/fpgas-online/nfsroot:bookworm-armhf); "
+                             "CI passes the image built from the same checkout")
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,hw-camera,hw-fpga,sunxi-kernel,hw-sunxi",
+    parser.add_argument("--skip-tags", type=str, default="cam,hw-camera,hw-fpga,hw-sunxi",
                         help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks and the "
                              "30-minute qemu-emulated sunxi kernel build; the sunxi PXE render is still verified)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")

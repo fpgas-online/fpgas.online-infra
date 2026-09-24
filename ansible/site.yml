@@ -10,8 +10,8 @@
     - {role: switch-vlans, when: switches is defined}
     - nfs
     - img
-    # After img (a fresh extract restores the stock sources.list) and before
-    # fixpi (whose chroot apt runs are the cache's first clients).
+    # After img: a fresh extract of the pulled image restores its upstream
+    # apt sources, which apt-cache points back at this site's cache.
     - apt-cache
     - fixpi
     - pxe
@@ -23,44 +23,7 @@
 # Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
 - import_playbook: web.yml
 
-# Pi NFS root provisioning via nspawn+sshd chroot.
-# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
-# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
-# container is stopped. This bakes all Pi config into the NFS root so Pis
-# boot read-only with everything pre-installed.
-- hosts: nbp
-  tasks:
-    - name: start nspawn+sshd on Pi NFS root
-      include_role:
-        name: nspawn-pi
-        tasks_from: start.yml
-        # Tags on an include_role reach only the include itself; without
-        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
-        # skipped every mount and policy-rc.d task here, and the Pi roles ran
-        # in a chroot with no /proc or /dev/pts.
-        apply:
-          tags: [pi]
-      tags: [pi]
-
-- hosts: pi
-  roles:
-    - role: fpgas-apt
-      tags: [fpgas-apt]
-    - role: cam/pi
-      tags: [cam]
-    - role: onpi
-      tags: [onpi]
-
-- hosts: nbp
-  tasks:
-    - name: stop nspawn+sshd
-      include_role:
-        name: nspawn-pi
-        tasks_from: stop.yml
-        # Tags on an include_role reach only the include itself; without
-        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
-        # skipped every mount and policy-rc.d task here, and the Pi roles ran
-        # in a chroot with no /proc or /dev/pts.
-        apply:
-          tags: [pi]
-      tags: [pi]
+# The Pi NFS root arrives prebuilt from GHCR via the img role (issue #34):
+# CI builds and publishes it (.github/workflows/nfsroot-build.yml), the
+# server pulls and extracts it, and fixpi applies the site layer on top.
+# The old on-server nspawn/chroot provisioning path was removed with it.

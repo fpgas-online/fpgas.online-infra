@@ -1,0 +1,14 @@
+---
+# Overrides of the symlinked production srv.yml values for the CI build.
+# Group_vars files load lexicographically with later files winning, hence
+# the zz- prefix (srv.yml would otherwise take precedence).
+
+# Fetch the base image from our GitHub mirror instead of
+# downloads.raspberrypi.org, which stalls intermittently (2026-09-03: a CI
+# download ran 60 min without completing — three builds lost). Same file,
+# sha256 df9c192d66d35e1ce67acde33a5b5f2b81ff02d2b986ea52f1f6ea211d646a1b;
+# provenance in the release notes. GitHub-to-GitHub transfer in Actions is
+# fast and reliable. New image versions: upload to the release AND bump
+# srv.yml as usual.
+img_host: https://github.com/fpgas-online/apt/releases/download
+img_path: raspios-base
