@@ -1,5 +1,17 @@
 ---
 - hosts: nbp
+  pre_tasks:
+    # Hold the netbooted boards' self-reboot (roles/onpi, stale_root.yml)
+    # from here until end.yml below: fixpi and the pi play both change the
+    # root, and a board must never reboot into it half-built. Tagged always
+    # so a tagged NFS root update (--tags pi,fpgas-apt,onpi,cam) takes it too.
+    - name: take the Pi NFS root update lock
+      ansible.builtin.include_role:
+        name: nfsroot-generation
+        tasks_from: begin.yml
+        apply:
+          tags: [always]
+      tags: [always]
   roles:
     - netif
     - operators
@@ -43,6 +55,14 @@
       tags: [pi]
 
 - hosts: pi
+  pre_tasks:
+    - name: mark the pi play started
+      ansible.builtin.include_role:
+        name: nfsroot-generation
+        tasks_from: pi_started.yml
+        apply:
+          tags: [always]
+      tags: [always]
   roles:
     - role: fpgas-apt
       tags: [fpgas-apt]
@@ -50,6 +70,14 @@
       tags: [cam]
     - role: onpi
       tags: [onpi]
+  post_tasks:
+    - name: mark the pi play finished
+      ansible.builtin.include_role:
+        name: nfsroot-generation
+        tasks_from: pi_done.yml
+        apply:
+          tags: [always]
+      tags: [always]
 
 - hosts: nbp
   tasks:
@@ -64,3 +92,13 @@
         apply:
           tags: [pi]
       tags: [pi]
+
+    # Last: bump the generation if the root changed, then release the lock.
+    # The netbooted boards then reboot themselves, one stagger slot apart.
+    - name: publish the Pi NFS root update
+      ansible.builtin.include_role:
+        name: nfsroot-generation
+        tasks_from: end.yml
+        apply:
+          tags: [always]
+      tags: [always]

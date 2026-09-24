@@ -1,0 +1,27 @@
+---
+# The three paths inside the Pi root that the boards' stale-root checker
+# (roles/onpi, tasks/stale_root.yml) reads through its NFS lower layer.
+# They MUST match roles/onpi/defaults/main.yml.
+nfsroot_generation_file: /etc/fpgas-online/nfsroot-generation
+nfsroot_update_lock: /etc/fpgas-online/nfsroot-update.lock
+nfsroot_fleet_inhibit: /etc/fpgas-online/no-auto-reboot
+
+# Paths (relative to the root) whose changes never reach a running board:
+# build scratch, caches and logs the chroot session itself writes. A change
+# under one of them does not bump the generation. Measured on tweed
+# 2026-09-24: a converge touches exactly these plus real content.
+nfsroot_generation_ignore:
+  - tmp
+  - var/tmp
+  - var/cache
+  - var/log
+  - var/lib/apt/lists
+  - var/lib/swcatalog
+  - root/.ansible
+  - home/pi/.ansible
+  - run
+
+# auto: bump when the run changed anything outside the ignore list.
+# always / never: override, e.g. `-e nfsroot_generation_bump=never` for a
+# converge whose changes the boards should only pick up at their next reboot.
+nfsroot_generation_bump: auto

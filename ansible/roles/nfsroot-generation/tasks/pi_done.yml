@@ -1,0 +1,4 @@
+---
+- name: record that the Pi NFS root play finished
+  ansible.builtin.set_fact:
+    nfsroot_generation_pi_done: true

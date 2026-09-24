@@ -1,0 +1,31 @@
+---
+# Start of a site.yml run: tell the boards the root is about to change.
+#
+# Every netbooted board polls this lock through its NFS lower layer (roles/
+# onpi, fpgas-stale-root-check) and will not reboot while it exists, even if
+# files are already going stale under it: rebooting into a half-updated root
+# is worse than waiting. The lock's ctime is also the reference end.yml
+# compares every file against.
+
+- name: find the Pi NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/etc"
+  register: nfsroot_generation_root
+
+- name: take the Pi NFS root update lock
+  when: nfsroot_generation_root.stat.isdir | default(false)
+  block:
+    - name: create the lock's directory in the Pi NFS root
+      ansible.builtin.file:
+        path: "{{ nfs_root }}/root{{ nfsroot_update_lock | dirname }}"
+        state: directory
+        mode: "0755"
+
+    # force: false -- a lock left behind by a failed run keeps its earlier
+    # start time, so this run's end.yml still sees what that run changed.
+    - name: write the Pi NFS root update lock
+      ansible.builtin.copy:
+        dest: "{{ nfs_root }}/root{{ nfsroot_update_lock }}"
+        content: "{{ ansible_facts.date_time.epoch }} {{ ansible_facts.date_time.iso8601 }} site.yml\n"
+        force: false
+        mode: "0644"
