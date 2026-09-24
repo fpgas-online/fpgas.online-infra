@@ -71,7 +71,7 @@ apt_cache_remaps:
       - apt.fpgas.online
       - fpgas.online/apt
     backend: https://apt.fpgas.online/
-    probe: dists/bookworm/Release
+    probe: bookworm/Release
   # GitHub Pages, flat per-suite repo (clients use
   # /fpgas-online-fpga-tools/<suite>/ ./): fpgas-apt/tasks/fpga-tools.yml.
   # fpgas.online/<repo> is the canonical URL; the github.io one 301s to it.
