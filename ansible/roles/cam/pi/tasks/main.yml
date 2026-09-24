@@ -1,12 +1,12 @@
 ---
-- name: apt update/upgrade
+- name: Apt update/upgrade
   apt:
     # name: "*"
     upgrade: true
     update_cache: true
     cache_valid_time: 86400
 
-- name: install gst packages
+- name: Install gst packages
   apt:
     name:
       - jq
@@ -34,7 +34,7 @@
   tags:
     - cam
 
-- name: enable cam.service
+- name: Enable cam.service
   systemd:
     name: fpgas-cam.service
     enabled: true

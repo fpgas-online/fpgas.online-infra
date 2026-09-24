@@ -13,8 +13,8 @@
   # serving the old ones until restarted (fleet-consumer runs from the same
   # venv; its handler no-ops on hosts without fleet_broker)
   notify:
-    - restart django services
-    - restart fleet-consumer
+    - Restart django services
+    - Restart fleet-consumer
   tags:
     - django
 
@@ -26,7 +26,7 @@
     extra_args: --no-deps
   when: site_poe_package_override is defined
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 

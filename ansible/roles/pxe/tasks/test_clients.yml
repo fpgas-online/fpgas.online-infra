@@ -20,7 +20,7 @@
     line: "dhcp-host={{ item.mac }},{{ item.name }},{{ item.ip }}"
     create: false
   with_items: "{{ pxe_test_clients }}"
-  notify: restart dnsmasq
+  notify: Restart dnsmasq
   when: switches is not defined
   tags:
     - pxe-test

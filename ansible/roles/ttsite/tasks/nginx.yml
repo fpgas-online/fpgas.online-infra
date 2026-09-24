@@ -1,10 +1,10 @@
 ---
-- name: per-board websocket include
+- name: Per-board websocket include
   template:
     src: ws-board.conf.j2
     dest: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
     mode: "0644"
-  notify: reload nginx
+  notify: Reload nginx
 
 - name: ACME webroot
   file:
@@ -12,7 +12,7 @@
     state: directory
     mode: "0755"
 
-- name: check for existing certificate
+- name: Check for existing certificate
   stat:
     path: "/etc/letsencrypt/live/{{ ttsite_domain }}/fullchain.pem"
   register: ttsite_cert
@@ -22,19 +22,19 @@
 # exists.  The cert itself comes from `certbot certonly --webroot` -- the same
 # scheme tweed's other names use (snap certbot, renewals via the webroot) --
 # so certbot never rewrites nginx config behind Ansible's back.
-- name: vhost
+- name: Vhost
   template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
     mode: "0644"
   vars:
     ttsite_cert_exists: "{{ ttsite_cert.stat.exists }}"
-  notify: reload nginx
+  notify: Reload nginx
 
-- name: flush handlers so nginx serves the vhost before certbot
+- name: Flush handlers so nginx serves the vhost before certbot
   meta: flush_handlers
 
-- name: obtain certificate (webroot http-01 via the port-80 vhost)
+- name: Obtain certificate (webroot http-01 via the port-80 vhost)
   command: >-
     certbot certonly --webroot -w /var/www/html -d {{ ttsite_domain }}
     --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
@@ -45,7 +45,7 @@
 
 # Second pass of the two-pass vhost render (noqa: it belongs right after the
 # certificate issues, not deferred to the end of the play as a handler).
-- name: vhost (https, after the certificate was issued)
+- name: Vhost (https, after the certificate was issued)
   template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
@@ -53,4 +53,4 @@
   vars:
     ttsite_cert_exists: true
   when: ttsite_certonly is changed  # noqa: no-handler
-  notify: reload nginx
+  notify: Reload nginx

@@ -43,7 +43,7 @@
     src: templates/nftables.conf.j2
     dest: /etc/nftables.conf
     mode: "0755"
-  notify: reload nftables
+  notify: Reload nftables
   tags:
     nftables
 

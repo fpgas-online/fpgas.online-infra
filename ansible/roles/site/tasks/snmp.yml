@@ -7,7 +7,7 @@
 # switch.mpi_port/switch.nos (maintenance Pi + poe.sh port list). Per-port
 # VLAN hosts (switches defined, e.g. tweed) removed those fields in Task 10
 # and use fpgas-switch-setup instead, so this whole task is skipped there.
-- name: populate /etc/environment
+- name: Populate /etc/environment
   lineinfile:
     dest: "{{ item[0] }}"
     state: present

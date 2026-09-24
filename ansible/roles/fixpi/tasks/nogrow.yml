@@ -1,7 +1,7 @@
 ---
 # dpkg-divert executes inside the ARM root: image build only (the diversions
 # live in the image's dpkg database).
-- name: don't helper resize the root fs
+- name: Don't helper resize the root fs
   when: fixpi_image_build | bool
   command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
   with_items:
@@ -11,7 +11,7 @@
   tags:
     - nogrow
 
-- name: don't resize the root fs
+- name: Don't resize the root fs
   command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
   with_items:
     - "systemd-growfs@.service"
@@ -25,7 +25,7 @@
     - nogrow
 
 #     ./usr/lib/systemd/system/systemd-networkd-persistent-storage.service
-- name: don't manage a swap file
+- name: Don't manage a swap file
   file:
     path: "{{ nfs_root }}/root/{{ item }}"
     state: absent
@@ -35,7 +35,7 @@
   tags:
     - nogrow
 
-- name: don't resize the root fs
+- name: Don't resize the root fs
   file:
     path: "{{ nfs_root }}/root/etc/init.d/resize2fs_once"
     state: absent

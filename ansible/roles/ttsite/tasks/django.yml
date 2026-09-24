@@ -2,7 +2,7 @@
 # ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS are owned by roles/site (they already
 # include ttsite_domain when tt_boards is defined); only the TTSITE_* lines
 # are ours.
-- name: ttsite settings in local_settings.py
+- name: Ttsite settings in local_settings.py
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     regexp: "^{{ item.key }} = "
@@ -14,9 +14,9 @@
   loop_control:
     label: "{{ item.key }}"
   notify:
-    - restart django services
+    - Restart django services
 
-- name: collectstatic (ttsite assets)
+- name: Collectstatic (ttsite assets)
   command: "{{ django_dir }}/venv/bin/python {{ django_dir }}/manage.py collectstatic --noinput"
   args:
     chdir: "{{ django_dir }}"

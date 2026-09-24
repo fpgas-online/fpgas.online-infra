@@ -18,7 +18,7 @@
 # keyring must be too, or every later apt update in the root fails NO_PUBKEY.
 # Fetched through the gateway's apt cache when there is one (the checksum
 # pins the content either way).
-- name: fetch debian-archive-keyring for the armmp kernel source
+- name: Fetch debian-archive-keyring for the armmp kernel source
   get_url:
     url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
     dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
@@ -26,7 +26,7 @@
     mode: "0644"
   tags: [sunxi]
 
-- name: install debian-archive-keyring into the NFS root
+- name: Install debian-archive-keyring into the NFS root
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
@@ -34,14 +34,14 @@
     creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
   tags: [sunxi]
 
-- name: debian armhf apt source (kernel only) in NFS root
+- name: Debian armhf apt source (kernel only) in NFS root
   template:
     src: templates/apt/debian-armmp.sources.j2
     dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/debian-armmp.sources"
     mode: "0644"
   tags: [sunxi]
 
-- name: pin the debian source to the armmp kernel only
+- name: Pin the debian source to the armmp kernel only
   template:
     src: templates/apt/debian-armmp.pref.j2
     dest: "{{ nfs_root }}/root/etc/apt/preferences.d/debian-armmp.pref"
@@ -51,7 +51,7 @@
 # Native on the arm64 runner (it was ~30 min under qemu-user-static when
 # servers built the root). Kernel upgrades arrive through onpi's apt upgrade
 # in the pi play like every other package.
-- name: install the armmp kernel into the NFS root
+- name: Install the armmp kernel into the NFS root
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "apt-get update && apt-get install -y {{ sunxi_kernel_package }}"
@@ -67,7 +67,7 @@
 # pi-sw2-p20/p21 and the 1-1.3.3 board). The modules load only by udev's
 # DT-alias coldplug from the real root (none of them are in the sunxi
 # initramfs), so a root modprobe.d blacklist removes the whole probe path.
-- name: blacklist the sunxi audio codec modules in the NFS root
+- name: Blacklist the sunxi audio codec modules in the NFS root
   copy:
     dest: "{{ nfs_root }}/root/etc/modprobe.d/fpgas-sunxi-no-audio.conf"
     mode: "0644"

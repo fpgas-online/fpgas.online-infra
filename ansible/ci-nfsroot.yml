@@ -19,17 +19,17 @@
     # every chroot apt run 4-10x slower — runner images have shipped one
     # pre-registered (2026-09-03: build ran 40+ min before cancellation,
     # all ARM tasks uniformly slow). Disable it for this boot.
-    - name: list binfmt handlers (diagnostic for future runner-image drift)
+    - name: List binfmt handlers (diagnostic for future runner-image drift)
       command: ls /proc/sys/fs/binfmt_misc
       register: ci_nfsroot_binfmt
       changed_when: false
       failed_when: false  # binfmt_misc not mounted = no handlers = nothing to do
 
-    - name: show binfmt handlers
+    - name: Show binfmt handlers
       debug:
         var: ci_nfsroot_binfmt.stdout_lines
 
-    - name: disable the qemu-arm binfmt handler (shadows native AArch32)
+    - name: Disable the qemu-arm binfmt handler (shadows native AArch32)
       shell: echo -1 > /proc/sys/fs/binfmt_misc/qemu-arm
       when: "'qemu-arm' in ci_nfsroot_binfmt.stdout_lines"
 
@@ -39,14 +39,14 @@
     # A warm build (nfsroot_warm, set by nfsroot-build.yml) starts from the
     # image main last published, already extracted by tests/ci/nfsroot_warm.py;
     # the roles below converge it to this checkout.
-    - name: download and extract the RasPiOS base image
+    - name: Download and extract the RasPiOS base image
       include_role:
         name: img
         tasks_from: build.yml
       when: not (nfsroot_warm | default(false) | bool)
       tags: [img]
 
-    - name: apply the generic fixpi layer
+    - name: Apply the generic fixpi layer
       include_role:
         name: fixpi
 
@@ -86,14 +86,14 @@
     # it (modules, headers, initramfs rebuilds: ~250 MB and a minute of
     # build) although no Pi ever boots it -- the server's fixpi re-syncs the
     # upgraded payload. Sync first, so "served" is what the Pis will boot.
-    - name: sync the upgraded kernel payload before pruning
+    - name: Sync the upgraded kernel payload before pruning
       command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
       tags: [netboot]
 
-    - name: finish the chroot session (kernels, mounts, policy-rc.d)
+    - name: Finish the chroot session (kernels, mounts, policy-rc.d)
       include_role:
         name: nspawn_pi
         tasks_from: stop.yml
@@ -102,7 +102,7 @@
     # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's
     # DNS into the image: point the root at the gateway address both sites
     # use (issue #11 tracks proper resolv handling on the Pis).
-    - name: neutralize build-host resolv.conf in the image
+    - name: Neutralize build-host resolv.conf in the image
       copy:
         content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
         dest: "{{ nfs_root }}/root/etc/resolv.conf"
@@ -113,13 +113,13 @@
     # the Pi roles' apt runs. Keys in the public image would be shared by
     # every consuming site, so strip them; the consuming server's fixpi run
     # generates fresh ones after extraction.
-    - name: find build-generated ssh host keys in the image
+    - name: Find build-generated ssh host keys in the image
       find:
         paths: "{{ nfs_root }}/root/etc/ssh"
         patterns: "ssh_host_*"
       register: ci_nfsroot_host_keys
 
-    - name: remove build-generated ssh host keys from the image
+    - name: Remove build-generated ssh host keys from the image
       file:
         path: "{{ item.path }}"
         state: absent
@@ -133,7 +133,7 @@
     # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
     # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
     # design doc's "ordering is load-bearing" requirement.
-    - name: re-sync kernel+initramfs+DTB payload after chroot apt upgrades
+    - name: Re-sync kernel+initramfs+DTB payload after chroot apt upgrades
       command: >-
         rsync -a --exclude=cmdline.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
@@ -144,7 +144,7 @@
     # tagged if a board family's boot material is missing, so an upstream
     # image or kernel-packaging change cannot brick part of the fleet on
     # the next pull.
-    - name: assert per-model kernel payload present in boot/
+    - name: Assert per-model kernel payload present in boot/
       stat:
         path: "{{ nfs_root }}/boot/{{ item }}"
       register: ci_nfsroot_boot_file
@@ -166,7 +166,7 @@
 
     # dpkg -l exits 0 for a package that is merely known to the database
     # ("rc" after a removal, "un"), so read the status field instead.
-    - name: assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
+    - name: Assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
       command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
       register: ci_nfsroot_pkg_status
       changed_when: false
@@ -186,7 +186,7 @@
         - linux-image-armmp
       tags: [verify]
 
-    - name: assert pi user exists in the root
+    - name: Assert pi user exists in the root
       command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
       changed_when: false
       tags: [verify]
