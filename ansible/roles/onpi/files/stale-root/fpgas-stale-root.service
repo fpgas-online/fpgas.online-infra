@@ -1,0 +1,14 @@
+[Unit]
+Description=Reboot this board if its NFS root has changed underneath it
+Documentation=file:///usr/local/sbin/fpgas-stale-root-check
+# Staged by fpgas-stale-root-arm. Nothing here may come from the NFS root:
+# the whole point is to keep working after the root has gone stale.
+ConditionPathExists=/run/fpgas-stale-root/check
+After=fpgas-stale-root-arm.service
+
+[Service]
+Type=oneshot
+ExecStart=/run/fpgas-stale-root/bin/busybox sh /run/fpgas-stale-root/check
+# The lower is a hard NFS mount: if the server is down the check blocks
+# rather than failing, and must never read that as "stale".
+TimeoutStartSec=5min

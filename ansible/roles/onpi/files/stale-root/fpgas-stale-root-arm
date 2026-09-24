@@ -1,0 +1,55 @@
+#!/bin/sh
+# fpgas-stale-root-arm -- stage the stale-root checker into /run at boot.
+#
+# Runs once per boot, while the NFS root is still consistent with what this
+# board booted. Copies a static busybox, the check script and its config
+# into /run (tmpfs, never paged back out to NFS), and records what the root
+# looked like at boot: the server's generation marker and which probe files
+# exist. From then on fpgas-stale-root.service runs only from /run. See
+# fpgas-stale-root-check for the whole story.
+
+set -eu
+
+STATE=${FPGAS_STALE_ROOT_STATE:-/run/fpgas-stale-root}
+BUSYBOX=${FPGAS_STALE_ROOT_BUSYBOX:-/bin/busybox}
+CHECK=${FPGAS_STALE_ROOT_CHECK:-/usr/local/sbin/fpgas-stale-root-check}
+CONFIG=${FPGAS_STALE_ROOT_CONFIG:-/etc/default/fpgas-stale-root}
+
+# Every applet the check script calls. Nothing else is on its PATH, so a
+# missing one fails loudly here rather than silently falling back to the root.
+APPLETS="sh cat cut date grep head md5sum reboot rm sed stat sync touch wc who"
+
+rm -rf "$STATE"
+mkdir -p "$STATE/bin"
+cp "$BUSYBOX" "$STATE/bin/busybox"
+for a in $APPLETS; do
+	"$STATE/bin/busybox" --list | grep -qxF -e "$a" || {
+		echo "busybox at $BUSYBOX has no '$a' applet" >&2
+		exit 1
+	}
+	ln -s busybox "$STATE/bin/$a"
+done
+cp "$CHECK" "$STATE/check"
+cp "$CONFIG" "$STATE/config"
+
+# shellcheck source=/dev/null
+. "$STATE/config"
+
+if [ -e "$LOWER$GEN_FILE" ]; then
+	head -n 1 "$LOWER$GEN_FILE" >"$STATE/boot-generation"
+else
+	echo none >"$STATE/boot-generation"
+fi
+
+# stat also primes the overlay's dentry cache, which is what later turns a
+# replaced file into ESTALE rather than a silent switch to the new copy.
+: >"$STATE/probes-present"
+for p in $PROBES; do
+	if stat "$ROOT$p" >/dev/null; then
+		echo "$p" >>"$STATE/probes-present"
+	fi
+done
+
+echo "armed: generation '$(cat "$STATE/boot-generation")'," \
+	"slot $("$STATE/bin/sh" "$STATE/check" slot "$(cat "$HOSTNAME_FILE")")," \
+	"probes: $(tr '\n' ' ' <"$STATE/probes-present")"

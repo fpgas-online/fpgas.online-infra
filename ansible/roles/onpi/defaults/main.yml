@@ -1,0 +1,48 @@
+---
+# Stale-NFS-root auto-reboot (tasks/stale_root.yml,
+# files/stale-root/fpgas-stale-root-check has the whole story).
+
+# The three paths the server side writes into the root. They MUST match
+# roles/nfsroot-generation/defaults/main.yml: the two roles run on
+# different hosts (the server vs the nspawn chroot), so neither can read
+# the other's defaults.
+nfsroot_generation_file: /etc/fpgas-online/nfsroot-generation
+nfsroot_update_lock: /etc/fpgas-online/nfsroot-update.lock
+nfsroot_fleet_inhibit: /etc/fpgas-online/no-auto-reboot
+
+# Touch this on a running board to keep it from auto-rebooting (e.g. during
+# a JTAG session). /run is tmpfs, so the pin ends with the next boot.
+stale_root_board_inhibit: /run/fpgas-no-auto-reboot
+
+# Files a root rebuild is known to replace (measured 2026-09-24 on
+# pi-sw2-p33: all three answered ESTALE through the overlay). Only replaced
+# files go stale, so a probe on something the rebuild never touches (e.g.
+# /etc/debian_version) would stay green forever.
+stale_root_probes:
+  - /var/lib/dpkg/status
+  - /home/pi/.ssh/authorized_keys
+  - /root/.ssh/authorized_keys
+  - "{{ nfsroot_generation_file }}"
+
+# Stagger: board slot = (switch - 1) * ports + (port - 1), each slot
+# stale_root_spacing seconds after the previous one; jitter must stay below
+# the spacing or neighbouring slots can overlap. 96 slots x 20 s: a full
+# two-switch site is back within ~33 min, never two boards at once.
+stale_root_ports_per_switch: 48
+stale_root_slots: 96
+stale_root_spacing: 20
+stale_root_jitter: 10
+stale_root_base_delay: 60
+
+# The estale-only trigger (root changed outside site.yml, no generation
+# bump): consecutive stale checks required, and how long the lower root's
+# busiest directories must have been untouched first.
+stale_root_confirm: 2
+stale_root_quiet: 3600
+
+# An update lock older than this is taken to be from an abandoned run.
+stale_root_lock_max_age: 86400
+# How long a scheduled reboot waits for logged-in users.
+stale_root_user_grace: 3600
+# true: log "would reboot" (journal + netconsole) instead of rebooting.
+stale_root_dry_run: false

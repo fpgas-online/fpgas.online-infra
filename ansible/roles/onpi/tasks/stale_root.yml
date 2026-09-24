@@ -1,0 +1,48 @@
+---
+# Reboot a board by itself once the NFS root has changed underneath it.
+# files/stale-root/fpgas-stale-root-check explains the stale-handle problem
+# and the triggers; roles/nfsroot-generation is the server half that marks
+# a finished root update.
+
+# The checker runs from /run under a STATIC busybox, so a later libc
+# upgrade in the root cannot stop it running. Replaces the dynamic busybox
+# (Conflicts/Replaces/Provides: busybox, and ships its own initramfs hook).
+- name: install busybox-static for the stale-root checker
+  ansible.builtin.apt:
+    name: busybox-static
+    state: present
+
+- name: install the stale-root scripts
+  ansible.builtin.copy:
+    src: "stale-root/{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0755"
+  loop:
+    - fpgas-stale-root-arm
+    - fpgas-stale-root-check
+
+- name: stale-root config
+  ansible.builtin.template:
+    src: fpgas-stale-root.conf.j2
+    dest: /etc/default/fpgas-stale-root
+    mode: "0644"
+
+- name: stale-root systemd units
+  ansible.builtin.copy:
+    src: "stale-root/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - fpgas-stale-root-arm.service
+    - fpgas-stale-root.service
+    - fpgas-stale-root.timer
+
+# systemctl enable only writes the [Install] symlinks, which works in the
+# chroot with no systemd running.
+- name: enable the stale-root arm service and timer
+  ansible.builtin.command: "systemctl enable {{ item.unit }}"
+  args:
+    creates: "/etc/systemd/system/{{ item.wants }}/{{ item.unit }}"
+  loop:
+    - {unit: fpgas-stale-root-arm.service, wants: multi-user.target.wants}
+    - {unit: fpgas-stale-root.timer, wants: timers.target.wants}
