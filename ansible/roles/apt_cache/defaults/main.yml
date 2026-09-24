@@ -74,7 +74,7 @@ apt_cache_remaps:
     backend: https://apt.fpgas.online/
     probe: bookworm/Release
   # GitHub Pages, flat per-suite repo (clients use
-  # /fpgas-online-fpga-tools/<suite>/ ./): fpgas-apt/tasks/fpga-tools.yml.
+  # /fpgas-online-fpga-tools/<suite>/ ./): fpgas_apt/tasks/fpga-tools.yml.
   # fpgas.online/<repo> is the canonical URL; the github.io one 301s to it.
   - name: fpgatools
     path: /fpgas-online-fpga-tools
@@ -83,7 +83,7 @@ apt_cache_remaps:
     backend: https://fpgas.online/fpgas.online-fpga-tools/
     probe: bookworm/Release
   # GitHub Pages, flat per-suite repo (clients use
-  # /nfsroot-watchdog/<suite>/ ./): fpgas-apt/tasks/nfsroot-watchdog.yml.
+  # /nfsroot-watchdog/<suite>/ ./): fpgas_apt/tasks/nfsroot-watchdog.yml.
   - name: nfsrootwatchdog
     path: /nfsroot-watchdog
     aliases:

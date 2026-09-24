@@ -291,7 +291,7 @@
       tags: [verify, services, fpgas-apt]
 
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
-    # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
+    # from fpgas.online-fpga-tools (source: roles/fpgas_apt/tasks/
     # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
     # from a third-party apt source under the fpgas-apt tag, so these checks
     # carry it too: a run skipping the tag skips them with the install.
@@ -342,7 +342,7 @@
           usable on this Pi -- see the comment above.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
-    # mithro/rp1-jtag's apt repository is retired (roles/fpgas-apt/tasks/
+    # mithro/rp1-jtag's apt repository is retired (roles/fpgas_apt/tasks/
     # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
     # own nightly upgrade -- once that repository stops serving Packages.
     - name: Assert the retired rp1-jtag apt source is gone
@@ -351,7 +351,7 @@
         fail_msg: >-
           /etc/apt/sources.list.d/rp1-jtag.list is still on the root. mithro/rp1-jtag
           no longer publishes packages, so apt update fails once its repository
-          goes away; roles/fpgas-apt removes it, so the root has not been
+          goes away; roles/fpgas_apt removes it, so the root has not been
           reconverged since.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 

@@ -1,13 +1,13 @@
 ---
 # Reboot a board by itself once the NFS root has changed underneath it:
 # fpgas-online/nfsroot-watchdog, whose README explains the stale-handle
-# problem, the triggers and the stagger. roles/nfsroot-generation is the
+# problem, the triggers and the stagger. roles/nfsroot_generation is the
 # server half that marks a finished root update.
 #
 # The package depends on busybox-static (the watchdog runs from /run under
 # it, so a stale libc cannot stop it), which replaces the root's dynamic
 # busybox and regenerates its initramfs images once. It enables its own
-# units. Its apt source comes from roles/fpgas-apt, hence the fpgas-apt tag.
+# units. Its apt source comes from roles/fpgas_apt, hence the fpgas-apt tag.
 
 - name: install nfsroot-watchdog
   ansible.builtin.apt:

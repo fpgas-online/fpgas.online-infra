@@ -22,7 +22,7 @@ and the 164 MB Debian armmp tree the Orange Pi H3 boards boot) triggered by a
 raspi-firmware point upgrade.
 
 The roles suppress the blanket rebuild for the duration of the chroot session
-(see roles/nspawn-pi/tasks/chroot-prep.yml); this script does the rest:
+(see roles/nspawn_pi/tasks/chroot-prep.yml); this script does the rest:
 
   protect            apt-mark manual the kernels the fleet currently boots
   plan / prune       purge kernel packages that are neither served nor newest

@@ -7,7 +7,7 @@
   roles:
     - site
     - wssh
-    - cam/stream-server
+    - cam/stream_server
     # fleet self-registration broker (fpgas.online-infra#47): guarded so
     # hosts without fleet vars (CI variants, future sites) skip cleanly
     - {role: mqtt, when: fleet_broker | default(false), tags: [mqtt, fleet]}

@@ -40,8 +40,8 @@ INPUTS = [
     # roles ci-nfsroot.yml runs, and files they read from other roles
     "ansible/roles/img",
     "ansible/roles/fixpi",
-    "ansible/roles/nspawn-pi",
-    "ansible/roles/fpgas-apt",
+    "ansible/roles/nspawn_pi",
+    "ansible/roles/fpgas_apt",
     "ansible/roles/cam/pi",
     "ansible/roles/onpi",
     "ansible/roles/ttsite/templates/tt-boards.yaml.j2",

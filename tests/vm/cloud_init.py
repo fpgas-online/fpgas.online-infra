@@ -37,7 +37,7 @@ runcmd:
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf
   # The internal NIC (enp0s3) is the per-port VLAN trunk. It must be owned
-  # SOLELY by systemd-networkd via the vlan-ports role's 30-eth-local.network
+  # SOLELY by systemd-networkd via the vlan_ports role's 30-eth-local.network
   # (which sets its address AND declares VLAN=v2101...), mirroring tweed.
   # Do NOT pre-configure it here: an ifupdown stanza or a lower-numbered
   # /etc/systemd/network/10-enp0s3.network would win over the role's file and

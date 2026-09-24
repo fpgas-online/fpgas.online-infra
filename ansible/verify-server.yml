@@ -56,7 +56,7 @@
     # next one into a two-hour emulated initramfs marathon if nobody looks.
     - name: verify nspawn-pi
       include_role:
-        name: nspawn-pi
+        name: nspawn_pi
         tasks_from: verify/main.yml
       tags: [verify, nspawn-pi]
 
@@ -68,7 +68,7 @@
 
     - name: verify apt-cache
       include_role:
-        name: apt-cache
+        name: apt_cache
         tasks_from: verify/main.yml
       tags: [verify, apt-cache]
 
@@ -169,7 +169,7 @@
 
     # Stale-NFS-root watchdog: the boards' half (nfsroot-watchdog, roles/onpi)
     # must be in the root, the server's half (nfsroot-watchdog-server,
-    # roles/nfsroot-generation) on this host, and a finished site.yml run
+    # roles/nfsroot_generation) on this host, and a finished site.yml run
     # must have released the update lock, or every board holds forever.
     - name: Check nfsroot-watchdog installed in NFS root
       command: dpkg-query --admindir={{ nfs_root }}/root/var/lib/dpkg -W -f=${db:Status-Status} nfsroot-watchdog busybox-static
@@ -344,7 +344,7 @@
 
     - name: verify cam/stream-server
       include_role:
-        name: cam/stream-server
+        name: cam/stream_server
         tasks_from: verify/main.yml
       tags: [verify, cam-stream]
 

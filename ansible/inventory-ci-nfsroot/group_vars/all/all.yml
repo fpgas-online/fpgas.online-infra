@@ -35,5 +35,5 @@ fixpi_generate_host_keys: false
 
 # apt's package cache for the build, outside the root: carried between
 # builds by nfsroot-build.yml's actions/cache, never packed into the image
-# (roles/nspawn-pi/tasks/chroot-prep.yml).
+# (roles/nspawn_pi/tasks/chroot-prep.yml).
 nfsroot_build_deb_cache: /var/cache/nfsroot-debs
