@@ -55,4 +55,4 @@ nfsroot_watchdog_apt_url: "{{ (fpgas_apt_cache_url ~ '/nfsroot-watchdog') if fpg
 nfsroot_watchdog_apt_suite: "{{ dist }}"
 nfsroot_watchdog_apt_key_name: nfsroot-watchdog.gpg
 nfsroot_watchdog_apt_keyring: /etc/apt/keyrings/nfsroot-watchdog.gpg
-nfsroot_watchdog_apt_key_fingerprint: 074C630E86270B5D0F77DB4FF36EAC7E2BFB5D98
+nfsroot_watchdog_apt_key_fingerprint: FC0E4835E563E003D06CF358A105FA0679EC6204
