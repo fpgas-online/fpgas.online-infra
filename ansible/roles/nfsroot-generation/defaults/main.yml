@@ -1,0 +1,26 @@
+---
+# Server half of the stale-NFS-root watchdog: `nfsroot-generation` from the
+# nfsroot-watchdog-server package (fpgas-online/nfsroot-watchdog). Lock,
+# marker and inhibit live at the package's default paths inside the root
+# (/etc/nfsroot-watchdog/{update.lock,generation,inhibit}), which is where
+# the boards' nfsroot-watchdog looks.
+
+# Install the package on the gateway. The tests turn this off and point
+# nfsroot_generation_cmd at a checkout instead.
+nfsroot_generation_install: true
+nfsroot_generation_cmd: nfsroot-generation
+
+# The gateway fetches straight from upstream: its own apt cache serves the
+# Pi root's releases, not the gateway's.
+nfsroot_generation_apt_url: https://fpgas.online/nfsroot-watchdog
+nfsroot_generation_apt_suite: "{{ ansible_facts.distribution_release }}"
+
+# Paths (relative to the root, fnmatch) to ignore on top of the package's
+# defaults (tmp, var/tmp, var/cache, var/log, var/lib/apt/lists,
+# var/lib/swcatalog, root/.ansible, home/*/.ansible, run, proc, sys, dev).
+nfsroot_generation_ignore: []
+
+# auto: bump when the run changed anything outside the ignore list.
+# always / never: override, e.g. `-e nfsroot_generation_bump=never` for a
+# converge whose changes the boards should only pick up at their next reboot.
+nfsroot_generation_bump: auto
