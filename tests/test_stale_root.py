@@ -377,6 +377,30 @@ def test_abandoned_update_lock_is_ignored(board):
 
 
 @needs_busybox
+def test_unreadable_generation_is_not_a_change(board):
+    # e.g. EACCES or EIO on the marker: no evidence the root changed.
+    marker = board.lower / GEN.lstrip("/")
+    board.set_now(T0 + 7200)
+    marker.chmod(0)
+    try:
+        if os.access(marker, os.R_OK):
+            pytest.skip("running as root: cannot make the marker unreadable")
+        out = board.check()
+    finally:
+        marker.chmod(0o644)
+    assert "cannot read" in out
+    assert board.deadline() is None
+
+
+@needs_busybox
+def test_abandoned_lock_is_logged_once(board):
+    board.write_lower(LOCK, f"{T0} x\n")
+    board.set_now(T0 + 86400 + 1)
+    assert "ignoring update lock" in board.check()
+    assert "ignoring update lock" not in board.check()
+
+
+@needs_busybox
 def test_unparseable_lock_still_holds(board):
     board.write_lower(LOCK, "garbage\n")
     board.write_lower(GEN, f"{T0 + 10} x\n")

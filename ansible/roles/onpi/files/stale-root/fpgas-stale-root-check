@@ -159,7 +159,10 @@ if [ "$lock" != none ]; then
 		rm -f "$STATE/estale-count"
 		hold "NFS root update in progress ($LOCK_FILE: $lock)"
 	fi
-	log "ignoring update lock older than ${LOCK_MAX_AGE}s: $lock"
+	if [ ! -e "$STATE/old-lock" ]; then
+		log "ignoring update lock older than ${LOCK_MAX_AGE}s: $lock"
+		touch "$STATE/old-lock"
+	fi
 fi
 
 # --- triggers ----------------------------------------------------------------
@@ -169,6 +172,13 @@ ref=$now
 
 boot_gen=$(cat "$STATE/boot-generation")
 gen=$(read_lower "$GEN_FILE")
+case $gen in
+unreadable:*)
+	# Not evidence of a change: never reboot on an error we cannot place.
+	log "cannot read $GEN_FILE: $gen"
+	gen=$boot_gen
+	;;
+esac
 if [ "$gen" != "$boot_gen" ]; then
 	reason="generation changed: booted with '$boot_gen', root now '$gen'"
 	gen_epoch=${gen%% *}
