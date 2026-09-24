@@ -9,11 +9,12 @@
 # upgrade.
 #
 # Nothing needs it. openfpgaloader-fpgasonline-git / openocd-fpgasonline-git from
-# fpga-tools.yml supersede the -rp1pio packages (same rp1pio cable, librp1jtag
-# linked in statically) and declare Conflicts/Replaces on them, so
-# roles/onpi/tasks/apt.yml swaps them in one transaction and the autoremove
-# task there collects the orphaned librp1jtag0. Nothing on the Pis builds
-# against librp1jtag, so librp1jtag-dev is not wanted either.
+# fpga-tools.yml supersede the -rp1pio packages (same rp1pio cable) and declare
+# Conflicts/Replaces on them, so roles/onpi/tasks/apt.yml swaps them in one
+# transaction. They depend on fpga-tools' own librp1jtag0, whose version sorts
+# above rp1-jtag's 0.0.post87, so an installed librp1jtag0 is upgraded in
+# place rather than orphaned. Nothing on the Pis builds against librp1jtag,
+# so librp1jtag-dev is not wanted.
 #
 # Files rather than apt_repository state=absent: that module only removes a
 # line it can reproduce exactly, and roots set up by hand from the upstream
