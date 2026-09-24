@@ -333,7 +333,11 @@ class VMManager:
             # powered on only once site.yml has converged).
             "-smp", str(os.cpu_count() or 2),
             # Boot disk (overlay on cloud image)
-            "-drive", f"file={overlay},format=qcow2,if=virtio",
+            # cache=unsafe: the VM is thrown away after the run, so guest
+            # flushes need not reach the runner's disk. The deploy writes the
+            # multi-GB Pi root twice (podman store, then the NFS root) and dpkg
+            # fsyncs every package; with host flushes that was minutes of I/O.
+            "-drive", f"file={overlay},format=qcow2,if=virtio,cache=unsafe,discard=unmap",
             # Cloud-init seed ISO
             "-drive", f"file={seed_iso},format=raw,if=virtio",
             # NIC 1: user-mode for SSH from host, and the guest's only uplink.
