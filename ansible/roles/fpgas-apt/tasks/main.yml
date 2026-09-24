@@ -36,6 +36,10 @@
 - name: Add the fpgas.online-fpga-tools apt repository
   ansible.builtin.include_tasks: fpga-tools.yml
 
+# The stale-NFS-root watchdog, which roles/onpi installs.
+- name: Add the nfsroot-watchdog apt repository
+  ansible.builtin.include_tasks: nfsroot-watchdog.yml
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true

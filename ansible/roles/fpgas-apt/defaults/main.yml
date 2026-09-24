@@ -42,3 +42,17 @@ fpga_tools_apt_suite: "{{ dist }}"
 fpga_tools_apt_key_name: fpgas-online-fpga-tools.gpg
 fpga_tools_apt_keyring: /etc/apt/keyrings/fpgas-online-fpga-tools.gpg
 fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30
+
+# fpgas-online/nfsroot-watchdog: the NFS-root stale-handle watchdog
+# (nfsroot-watchdog, installed in the Pi root by roles/onpi) and its server
+# half (nfsroot-watchdog-server, installed on the gateway by
+# roles/nfsroot-generation). Architecture: all, one flat repository per
+# Debian release, published the same way as fpga-tools above: canonical
+# https on the custom domain, through the gateway's apt cache (remap
+# nfsrootwatchdog) when there is one, binary keyring pinned by fingerprint.
+nfsroot_watchdog_apt_upstream_url: https://fpgas.online/nfsroot-watchdog
+nfsroot_watchdog_apt_url: "{{ (fpgas_apt_cache_url ~ '/nfsroot-watchdog') if fpgas_apt_cache_url else nfsroot_watchdog_apt_upstream_url }}"
+nfsroot_watchdog_apt_suite: "{{ dist }}"
+nfsroot_watchdog_apt_key_name: nfsroot-watchdog.gpg
+nfsroot_watchdog_apt_keyring: /etc/apt/keyrings/nfsroot-watchdog.gpg
+nfsroot_watchdog_apt_key_fingerprint: 074C630E86270B5D0F77DB4FF36EAC7E2BFB5D98

@@ -1,0 +1,16 @@
+---
+# Add the fpgas-online/nfsroot-watchdog apt repository. Included by this
+# role for the Pi root (through the gateway's apt cache), and by
+# roles/nfsroot-generation for the gateway itself, which passes its own
+# url/suite.
+- name: Add the nfsroot-watchdog apt repository
+  ansible.builtin.include_tasks: pages-apt-repo.yml
+  vars:
+    pages_apt:
+      name: nfsroot-watchdog
+      url: "{{ nfsroot_watchdog_apt_url }}"
+      suite: "{{ nfsroot_watchdog_apt_suite }}"
+      key_name: "{{ nfsroot_watchdog_apt_key_name }}"
+      keyring: "{{ nfsroot_watchdog_apt_keyring }}"
+      fingerprint: "{{ nfsroot_watchdog_apt_key_fingerprint }}"
+      filename: nfsroot-watchdog
