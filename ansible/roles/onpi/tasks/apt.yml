@@ -78,8 +78,9 @@
 # openFPGALoader and OpenOCD on the Pis come from fpgas.online-fpga-tools
 # rather than Debian. They carry the fpgas.online patch series: the rp1pio
 # cable (JTAG through the Pi 5 / CM5 RP1 PIO block instead of bit-banging
-# GPIOs through libgpiod -- librp1jtag is linked in statically here, so there
-# is no librp1jtag0 dependency), the netv2 / tt_fpga boards, --flash-info,
+# GPIOs through libgpiod, via the shared librp1jtag0 from the same archive,
+# which in turn needs libpio0 from archive.raspberrypi.com on bookworm and
+# trixie), the netv2 / tt_fpga boards, --flash-info,
 # and an upstream base new enough to have --read-dna / --read-xadc /
 # --read-register (Debian's 0.10.0 has none of them, which is why FPGA DNA
 # could not be read on the welland boards).
@@ -101,8 +102,8 @@
 # That covers Debian's stock openocd / openfpgaloader too, on every root
 # built before any of this existed. Neither Debian's names nor the -rp1pio
 # names may go in the "Install packages" list above, or the next run would
-# swap them back. librp1jtag0, left orphaned by the -rp1pio removal, is
-# cleaned up by the autoremove task below.
+# swap them back. librp1jtag0 stays: the new packages depend on it, and
+# fpga-tools' version sorts above rp1-jtag's, so it is upgraded in place.
 #
 # state: latest, not present. The "apt update/upgrade" task above is
 # upgrade: true, which is aptitude safe-upgrade (or `apt-get upgrade
@@ -116,8 +117,8 @@
 # than it already is: the blanket dist-upgrade above has the same property.
 #
 # The source is roles/fpgas-apt/tasks/fpga-tools.yml, which runs under the
-# fpgas-apt tag; this task carries fpgas-apt too so the VM integration test,
-# which skips that tag (issue #49), skips the install along with the source.
+# fpgas-apt tag; this task carries fpgas-apt too so that a run skipping that
+# tag skips the install along with the source.
 - name: Install the fpgas.online openFPGALoader and OpenOCD  # noqa: package-latest
   ansible.builtin.apt:
     name:
