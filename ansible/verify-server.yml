@@ -167,6 +167,40 @@
         fail_msg: "overlayroot not installed in NFS root"
       tags: [verify, nfs-root]
 
+    # Stale-root self-reboot: the boards' checker needs a STATIC busybox
+    # (roles/onpi, stale_root.yml), and a finished site.yml run must have
+    # released the update lock, or every board holds forever
+    # (roles/nfsroot-generation).
+    - name: Check busybox-static installed in NFS root
+      command: dpkg --root={{ nfs_root }}/root -s busybox-static
+      changed_when: false
+      register: verify_busybox_static
+      failed_when: false
+      tags: [verify, nfs-root]
+
+    - name: Assert busybox-static installed in NFS root
+      assert:
+        that:
+          - verify_busybox_static.rc == 0
+          - "'Status: install ok installed' in verify_busybox_static.stdout"
+        fail_msg: "busybox-static not installed in NFS root"
+      tags: [verify, nfs-root]
+
+    - name: Check the NFS root update lock
+      stat:
+        path: "{{ nfs_root }}/root/etc/fpgas-online/nfsroot-update.lock"
+      register: verify_nfsroot_lock
+      tags: [verify, nfs-root]
+
+    - name: Assert the NFS root update lock was released
+      assert:
+        that: not verify_nfsroot_lock.stat.exists
+        fail_msg: >-
+          {{ nfs_root }}/root/etc/fpgas-online/nfsroot-update.lock still
+          exists: the last site.yml run did not finish, and no netbooted
+          board will reboot itself for a stale root until one does.
+      tags: [verify, nfs-root]
+
     - name: Check nfs-common installed in NFS root
       command: dpkg --root={{ nfs_root }}/root -l nfs-common
       changed_when: false

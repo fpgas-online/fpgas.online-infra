@@ -160,6 +160,44 @@
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
 
+    # Stale-NFS-root self-reboot (roles/onpi, stale_root.yml): the arm unit
+    # stages a static busybox and the checker into /run at boot, and the
+    # timer runs it from there. `slot` exercises the staged copy without
+    # making any reboot decision.
+    - name: Check the stale-root arm service and timer are active
+      command: systemctl is-active fpgas-stale-root-arm.service fpgas-stale-root.timer
+      changed_when: false
+      register: verify_pi_stale_root_active
+      failed_when: false
+
+    - name: Assert the stale-root arm service and timer are active
+      assert:
+        that: verify_pi_stale_root_active.stdout_lines == ["active", "active"]
+        fail_msg: >-
+          fpgas-stale-root-arm.service / fpgas-stale-root.timer not active
+          (is-active: {{ verify_pi_stale_root_active.stdout_lines }})
+      tags: [verify, services]
+
+    - name: Run the staged stale-root checker from /run
+      shell: >-
+        env -i /run/fpgas-stale-root/bin/busybox sh
+        /run/fpgas-stale-root/check slot "$(cat /proc/sys/kernel/hostname)"
+      changed_when: false
+      register: verify_pi_stale_root_slot
+      failed_when: false
+
+    - name: Assert the staged stale-root checker runs
+      assert:
+        that:
+          - verify_pi_stale_root_slot.rc == 0
+          - verify_pi_stale_root_slot.stdout is match('^[0-9]+$')
+        fail_msg: >-
+          /run/fpgas-stale-root/check did not run from /run
+          (rc={{ verify_pi_stale_root_slot.rc }},
+          out={{ verify_pi_stale_root_slot.stdout }}
+          err={{ verify_pi_stale_root_slot.stderr }})
+      tags: [verify, services]
+
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
     # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
     # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
