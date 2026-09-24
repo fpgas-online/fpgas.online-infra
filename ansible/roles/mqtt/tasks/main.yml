@@ -5,10 +5,16 @@
 # trust boundary, and the firewall's internal_networks chain already
 # accepts 10.21.0.0/16 so no new rule is needed. sensors2mqtt shares this
 # broker. Everything is guarded by fleet_broker at the play level.
+# update_cache: the server's lists can be weeks old (nothing else on the
+# gateway refreshes them), and an old list names superseded pool files --
+# the first welland converge failed fetching libcjson1 after a security
+# update. Same one-day window as the Pi roles.
 - name: Install mosquitto
   ansible.builtin.apt:
     name: mosquitto
     state: present
+    update_cache: true
+    cache_valid_time: 86400
 
 - name: fleet broker config
   ansible.builtin.template:
