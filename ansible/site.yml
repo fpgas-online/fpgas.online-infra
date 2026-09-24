@@ -77,6 +77,13 @@
         name: fixpi
       tags: [fixpi]
 
+    - name: TFTP serial links for PXE test clients
+      import_role:
+        name: pxe
+        tasks_from: test_client_links.yml
+      when: pxe_test_clients is defined
+      tags: [pxe-test]
+
     # fixpi is the last task that writes into the root: bump the generation
     # if the root changed, then release the lock. The boards then reboot
     # themselves, one stagger slot apart. If anything above failed, the play

@@ -157,6 +157,11 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
                     print(f"[pi] Pi IP from DHCP: {pi_ip}")
             if "Booting Linux" in content:
                 return True, pi_ip
+            # The firmware resets and retries forever when TFTP has no
+            # kernel for it: fail now instead of at the timeout.
+            if content.count("No kernel image found") >= 2:
+                print("[pi] ERROR: the firmware found no kernel over TFTP (twice)")
+                break
         # Check if QEMU process died
         if not pi.is_alive():
             print("[pi] ERROR: QEMU process exited unexpectedly")
