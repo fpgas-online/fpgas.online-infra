@@ -1,6 +1,8 @@
 ---
 img_cache_dir: "/var/cache/pib"
-nfs_root: "/srv/nfs/rpi/{{ dist }}"
+# nfs_root is site config shared by img, fixpi, nfs, nspawn-pi, apt-cache,
+# nfsroot-generation and the verify playbooks: it lives in
+# inventory/group_vars/all/srv.yml, not here.
 
 # The prebuilt Pi NFS root image CI publishes (issue #34). Pin a dated
 # tag in host_vars for reproducible rebuilds; the rolling tag tracks main.
