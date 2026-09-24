@@ -120,7 +120,7 @@
     user: root
     state: present
     key: "{{ lookup('file', '/home/{{ user_name }}/.ssh/id_rsa.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
   tags:
@@ -131,7 +131,7 @@
   ansible.builtin.copy:
     remote_src: true
     src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
-    dest: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    dest: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
     - home/pi
@@ -147,7 +147,7 @@
     user: root
     state: present
     key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
     - home/pi
@@ -157,7 +157,7 @@
 
 - name: set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh"
     recurse: true
     owner: "1000"
     group: "1000"

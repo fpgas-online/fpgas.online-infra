@@ -12,7 +12,7 @@
 
 - name: remove unneeded nginx conf
   file:
-    path: "/etc/nginx/{{item}}"
+    path: "/etc/nginx/{{ item }}"
     state: absent
   with_items:
     - sites-enabled/default

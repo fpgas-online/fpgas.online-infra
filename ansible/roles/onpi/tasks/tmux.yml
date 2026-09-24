@@ -14,8 +14,8 @@
 
 - name:
   copy:
-    src: "files/tmux/{{item}}"
-    dest: "/home/pi/.{{item}}"
+    src: "files/tmux/{{ item }}"
+    dest: "/home/pi/.{{ item }}"
     mode: u+x
   with_items:
     - zshrc

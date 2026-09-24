@@ -137,7 +137,7 @@
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^PI_PW = '
-    line: "PI_PW = '{{pi_pw|b64encode}}'"
+    line: "PI_PW = '{{ pi_pw | b64encode }}'"
   tags:
     - django
 

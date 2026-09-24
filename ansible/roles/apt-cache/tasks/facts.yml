@@ -23,7 +23,5 @@
     apt_cache_url: >-
       {%- if not apt_cache_enabled | bool -%}
       {%- elif apt_cache_cert.stat.exists -%}
-      https://{{ apt_cache_host }}
-      {%- else -%}
-      http://{{ eth_local_address }}:{{ apt_cache_port }}
-      {%- endif -%}
+      https://{{ apt_cache_host }}{%- else -%}
+      http://{{ eth_local_address }}:{{ apt_cache_port }}{%- endif -%}

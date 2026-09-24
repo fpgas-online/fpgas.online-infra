@@ -45,9 +45,9 @@
       - key: mpi_port
         value: "{{ switch.mpi_port }}"
       - key: mpi_ip
-        value: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
+        value: "{{ pib_network }}.{{ 100 + switch.mpi_port }}"
       - key: pi_ports
-        value: "\"{% for pi in switch.nos | default([]) %}{{pi.port}} {% endfor %}\""
+        value: "\"{% for pi in switch.nos | default([]) %}{{ pi.port }} {% endfor %}\""
       - key: pi_dist
         value: "{{ dist }}"
       - key: nfs_pth
