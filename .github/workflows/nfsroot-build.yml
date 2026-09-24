@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     outputs:
-      image: ${{ steps.publish.outputs.image }}
+      image: ${{ steps.reuse.outputs.image || steps.publish.outputs.image }}
     steps:
       - uses: actions/checkout@v6
 
@@ -50,11 +50,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
+      # the build roles, playbook, inventory and tooling, plus the ISO week)
+      # is retagged instead of rebuilt; the steps below then skip. Every
+      # change to an image input gets a fresh build of this checkout.
+      - name: Reuse an image built from the same inputs
+        id: reuse
+        env:
+          NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
+        run: python3 tests/ci/nfsroot_publish.py --reuse
+
       - uses: astral-sh/setup-uv@v5
+        if: steps.reuse.outputs.reused != 'true'
         with:
           python-version: "3.12"
 
       - name: Install ansible and collections
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           uv sync
           uv run ansible-galaxy collection install -r requirements.yml --upgrade
@@ -65,15 +77,18 @@ jobs:
       # image release busts the cache. The dir must be runner-writable for
       # actions/cache's tar restore/save (the download itself runs as root).
       - name: Prepare image cache dir
+        if: steps.reuse.outputs.reused != 'true'
         run: sudo install -d -o "$(id -un)" /var/cache/pib
 
       - name: Cache the RasPiOS base image
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v5
         with:
           path: /var/cache/pib
           key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
 
       - name: Build the NFS root (same roles as site.yml, chroot connection)
+        if: steps.reuse.outputs.reused != 'true'
         working-directory: ansible
         run: >-
           sudo env "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections"
@@ -83,16 +98,19 @@ jobs:
           --skip-tags pipw,keys
 
       - name: Write nfsroot manifest (packages, boot hashes, configs)
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           sudo .venv/bin/python tests/ci/nfsroot_manifest.py \
             /srv/nfs/rpi/bookworm manifest
 
       - uses: actions/upload-artifact@v4
+        if: steps.reuse.outputs.reused != 'true'
         with:
           name: nfsroot-manifest
           path: manifest/
 
       - name: Publish to GHCR
+        if: steps.reuse.outputs.reused != 'true'
         id: publish
         env:
           NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
