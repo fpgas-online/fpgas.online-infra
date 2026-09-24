@@ -20,7 +20,8 @@
   block:
     # Both debs are rolling releases from the fpgas-online apt repo:
     # `latest` so re-running the pi play picks up a newer daemon/demo set.
-    - name: Install fpgas-online-tt + the FPGA demo bitstreams
+    # (noqa: that upgrade on every run is the point, not an accident.)
+    - name: Install fpgas-online-tt + the FPGA demo bitstreams  # noqa: package-latest
       ansible.builtin.apt:
         name:
           - fpgas-online-tt
