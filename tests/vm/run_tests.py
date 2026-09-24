@@ -42,6 +42,9 @@ SSH_PORT = 2222
 # Switch 1, port 1: 2000 + 100*1 + 1 (see ansible/filter_plugins/port_vlans.py).
 # Must match tests/inventory/host_vars/test-vm.yml's `switches:` entry.
 VLAN = 2101
+# The address the per-port DHCP range gives the Pi on that port: test-pi's
+# ansible_host in tests/inventory/test-hosts.
+PI_ADDRESS = "10.21.1.1"
 
 
 def ensure_ansible_collections() -> None:
@@ -382,27 +385,34 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
     """
     key_path = workdir / "test_key"
 
-    # Monitor serial log for boot milestones
-    booted, pi_ip = wait_for_pi_boot(pi, timeout=1800)
+    # Monitor serial log for boot milestones. TFTP and the kernel handoff
+    # take about a minute under TCG; ten is a hung boot, not a slow one.
+    booted, pi_ip = wait_for_pi_boot(pi, timeout=600)
     if not booted:
-        print("WARNING: Pi firmware did not hand off to the kernel within timeout.")
-        # Continue to try SSH anyway
+        print("ERROR: the Pi firmware did not hand off to the kernel.")
+        return False
 
-    # Use Pi IP from DHCP if available, fall back to expected IP
-    # (switch 1, port 1 -- see tests/inventory/host_vars/test-vm.yml's
-    # `switches:` entry and ansible/filter_plugins/port_vlans.py)
-    pi_host = pi_ip or "10.21.1.1"
-    print(f"[pi] Using Pi IP: {pi_host}")
+    # The per-port DHCP range gives the Pi on switch 1 port 1 10.21.1.1
+    # (ansible/filter_plugins/port_vlans.py), which is test-pi's address in
+    # tests/inventory/test-hosts. Anything else is an addressing bug, not a
+    # value to paper over (a -e ansible_host override also retargeted every
+    # task verify-pi delegates to the server).
+    pi_host = PI_ADDRESS
+    if pi_ip != PI_ADDRESS:
+        print(f"ERROR: the Pi got {pi_ip} from DHCP, expected {PI_ADDRESS} (switch 1 port 1)")
+        dump_pi_serial_logs(pi)
+        return False
+    print(f"[pi] Pi IP: {pi_host}")
 
     # Wait for SSH via ProxyJump through server
     proxy = proxy_jump_string("debian", "127.0.0.1", SSH_PORT)
 
     # SSH is the userland-readiness check (the boot wait above ends at the
-    # kernel handoff), so give it the whole TCG userland boot.
+    # kernel handoff). The userland boot takes 1-2 min under TCG.
     try:
         ssh = pi.wait_for_ssh(
             host=pi_host, port=22, username="pi",
-            key_path=key_path, proxy_jump=proxy, timeout=1800,
+            key_path=key_path, proxy_jump=proxy, timeout=600,
         )
         ssh.close()
     except TimeoutError:
@@ -417,12 +427,9 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
         pi.shutdown()
         return False
 
-    # Run verify-pi.yml against the running Pi.
-    # Pass the discovered IP via -e ansible_host=... so it matches the IP that
-    # DHCP actually assigned (may differ from the static reservation due to the
-    # BCM2711 GENET dual-MAC offset in QEMU).
+    # Run verify-pi.yml against the running Pi (test-pi in the inventory).
     inventory = TEST_INVENTORY
-    extra = ["-e", f"ansible_host={pi_host}"]
+    extra = []
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
