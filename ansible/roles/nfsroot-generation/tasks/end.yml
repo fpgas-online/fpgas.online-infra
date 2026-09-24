@@ -1,10 +1,7 @@
 ---
 # End of a site.yml run: if the root changed, bump the generation marker, then
-# release the update lock. Each netbooted board then reboots itself in its
-# own stagger slot (roles/onpi, fpgas-stale-root-check).
-#
-# Order matters: the marker is written while the lock still holds the
-# boards, so no board can see "unlocked" before the new generation.
+# release the update lock (`nfsroot-generation end` does both, marker
+# first). Each netbooted board then reboots itself in its own stagger slot.
 
 - name: find the Pi NFS root
   ansible.builtin.stat:
@@ -14,9 +11,10 @@
 - name: finish the Pi NFS root update
   when: nfsroot_generation_root.stat.isdir | default(false)
   block:
-    # A failed `pi` play leaves nfsroot_generation_pi_done unset. The play
-    # carries on for this (server) host, so without this check it would
-    # publish a half-upgraded root to the whole fleet.
+    # A failed `pi` play leaves nfsroot_generation_pi_done unset. If every pi
+    # host failed, ansible-playbook stops before this play; if one merely
+    # dropped out (end_host, several pi hosts), this play still runs for the
+    # server and must not publish a half-upgraded root to the whole fleet.
     - name: refuse to publish a root whose Pi play did not finish
       ansible.builtin.assert:
         that: >-
@@ -26,55 +24,25 @@
           | rejectattr('nfsroot_generation_pi_done', 'defined')
           | list | length == 0
         fail_msg: >-
-          The pi play started but did not finish. Leaving
-          {{ nfsroot_update_lock }} in place, so the boards keep running on
-          the old root instead of rebooting into a half-built one. Fix and
-          re-run site.yml; its end step publishes both runs' changes.
+          The pi play started but did not finish. Leaving the update lock in
+          place, so the boards keep running on the old root instead of
+          rebooting into a half-built one. Fix and re-run site.yml; its end
+          step publishes both runs' changes.
 
-    - name: list what this run changed in the Pi NFS root
-      ansible.builtin.script:
-        cmd: >-
-          nfsroot_changed.py {{ nfs_root }}/root {{ nfsroot_update_lock }}
-          {% for p in nfsroot_generation_ignore %}--ignore {{ p }} {% endfor %}
-          --ignore {{ nfsroot_update_lock | regex_replace('^/', '') }}
-          --ignore {{ nfsroot_generation_file | regex_replace('^/', '') }}
-          --ignore {{ nfsroot_fleet_inhibit | regex_replace('^/', '') }}
-        executable: python3
-      register: nfsroot_generation_scan
-      changed_when: false
-      check_mode: false
-
-    - name: parse the change scan
-      ansible.builtin.set_fact:
-        nfsroot_generation_changes: "{{ nfsroot_generation_scan.stdout | from_json }}"
+    - name: publish the Pi NFS root update (bump if changed, then unlock)
+      ansible.builtin.command: >-
+        {{ nfsroot_generation_cmd }} end {{ nfs_root }}/root
+        --bump {{ nfsroot_generation_bump | quote }}
+        {% for p in nfsroot_generation_ignore %}--ignore={{ p | quote }} {% endfor %}
+      register: nfsroot_generation_end
+      changed_when: (nfsroot_generation_end.stdout | from_json).bumped
+      when: not ansible_check_mode
 
     - name: show what changed in the Pi NFS root
       ansible.builtin.debug:
         msg: >-
-          {{ nfsroot_generation_changes.reason }}:
-          {{ nfsroot_generation_changes.sample }}
-
-    - name: timestamp for the new generation
-      ansible.builtin.command: date -u '+%s %Y-%m-%dT%H:%M:%SZ'
-      register: nfsroot_generation_now
-      changed_when: false
-      check_mode: false
-
-    # Written with copy, i.e. temp file + rename: a new inode, so the marker
-    # also goes stale through each board's overlay, a second trigger.
-    - name: bump the Pi NFS root generation (the netbooted boards reboot, staggered)
-      ansible.builtin.copy:
-        dest: "{{ nfs_root }}/root{{ nfsroot_generation_file }}"
-        content: >-
-          {{ nfsroot_generation_now.stdout }}
-          {{ nfsroot_generation_changes.reason }}
-        mode: "0644"
-      when: >-
-        nfsroot_generation_bump == 'always'
-        or (nfsroot_generation_bump == 'auto'
-            and nfsroot_generation_changes.bump)
-
-    - name: release the Pi NFS root update lock
-      ansible.builtin.file:
-        path: "{{ nfs_root }}/root{{ nfsroot_update_lock }}"
-        state: absent
+          {{ (nfsroot_generation_end.stdout | from_json).reason }}
+          {{ (nfsroot_generation_end.stdout | from_json).sample }}
+          -> {{ (nfsroot_generation_end.stdout | from_json).generation
+                | default('generation unchanged') }}
+      when: not ansible_check_mode

@@ -1,19 +1,21 @@
-"""Tests for the server half of the stale-root auto-reboot (roles/nfsroot-generation).
+"""Tests for roles/nfsroot-generation, the server half of the stale-root reboot.
 
-At the end of every site.yml run, end.yml decides whether to bump the Pi NFS
-root's generation marker, which makes every netbooted board reboot itself.
-Bumping on a no-op converge reboots the fleet for nothing; bumping after a
-failed pi play reboots it into a half-built root; not bumping after a real
-change leaves boards on stale file handles. So the helper is unit-tested,
-and the real task files are run with ansible-playbook against localhost and
-a throwaway root (connection: local, no become -- nothing here touches the
-machine running the tests beyond tmp_path).
+At the end of every site.yml run, end.yml decides (through `nfsroot-generation
+end`, from fpgas-online/nfsroot-watchdog) whether to bump the Pi NFS root's
+generation marker, which makes every netbooted board reboot itself. Bumping on
+a no-op converge reboots the fleet for nothing; bumping after a failed pi play
+reboots it into a half-built root. The CLI itself is tested in its own repo;
+these run the role's real task files with ansible-playbook against localhost
+and a throwaway root (connection: local, no become -- nothing here touches the
+machine running the tests beyond tmp_path), with nfsroot_generation_cmd
+pointing at a checkout of the CLI:
+
+    NFSROOT_GENERATION=../nfsroot-watchdog/src/nfsroot-generation uv run pytest tests/
 """
 
-import importlib.util
-import json
 import os
 import subprocess
+import sys
 import textwrap
 import time
 from pathlib import Path
@@ -21,115 +23,37 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-ROLE = REPO / "ansible/roles/nfsroot-generation"
-HELPER = ROLE / "files/nfsroot_changed.py"
 
-_spec = importlib.util.spec_from_file_location("nfsroot_changed", HELPER)
-nc = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(nc)
+LOCK = "/etc/nfsroot-watchdog/update.lock"
+GEN = "/etc/nfsroot-watchdog/generation"
 
-LOCK = "/etc/fpgas-online/nfsroot-update.lock"
-GEN = "/etc/fpgas-online/nfsroot-generation"
+
+def _find_cli():
+    env = os.environ.get("NFSROOT_GENERATION")
+    if env:
+        return Path(env).resolve()
+    # A sibling checkout of fpgas-online/nfsroot-watchdog, from the main
+    # checkout or from one of its .worktrees/.
+    for base in (REPO.parent, REPO.parent.parent.parent):
+        cand = base / "nfsroot-watchdog/src/nfsroot-generation"
+        if cand.exists():
+            return cand
+    return None
+
+
+CLI = _find_cli()
+pytestmark = pytest.mark.skipif(
+    CLI is None, reason="set NFSROOT_GENERATION to fpgas-online/nfsroot-watchdog's src/nfsroot-generation"
+)
 
 
 def make_root(base: Path) -> Path:
     root = base / "root"
-    for d in ("etc/fpgas-online", "var/lib/dpkg", "var/cache/apt", "tmp", "usr/bin"):
+    for d in ("etc", "var/lib/dpkg", "var/cache/apt", "tmp", "usr/bin"):
         (root / d).mkdir(parents=True)
     (root / "var/lib/dpkg/status").write_text("Package: x\n")
     (root / "usr/bin/tool").write_text("old\n")
-    (root / "etc/passwd").write_text("pi:x:1000\n")
     return root
-
-
-def take_lock(root: Path):
-    # ctime has ns resolution but the clock tick may be coarser; make sure
-    # anything written after the lock really is newer.
-    time.sleep(0.02)
-    (root / LOCK.lstrip("/")).write_text("1790000000 x site.yml\n")
-    time.sleep(0.02)
-
-
-def run_helper(root: Path, *extra):
-    out = subprocess.run(
-        ["python3", str(HELPER), str(root), LOCK, *extra],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return json.loads(out.stdout)
-
-
-# --- nfsroot_changed.py ------------------------------------------------------
-
-
-def test_nothing_changed(tmp_path):
-    root = make_root(tmp_path)
-    take_lock(root)
-    r = run_helper(root)
-    assert r == {"bump": False, "count": 0, "reason": "nothing changed", "sample": []}
-
-
-def test_replaced_file_is_a_change(tmp_path):
-    root = make_root(tmp_path)
-    take_lock(root)
-    # dpkg's way: write status-new, rename over status (a new inode).
-    new = root / "var/lib/dpkg/status-new"
-    new.write_text("Package: x\nVersion: 2\n")
-    new.replace(root / "var/lib/dpkg/status")
-    r = run_helper(root)
-    assert r["bump"] is True
-    assert r["sample"] == ["/var/lib/dpkg/status"]
-
-
-def test_unpacked_file_with_old_mtime_is_still_a_change(tmp_path):
-    # dpkg unpacks files with the package's own mtime; only ctime is honest.
-    root = make_root(tmp_path)
-    take_lock(root)
-    f = root / "usr/bin/tool"
-    f.write_text("new\n")
-    os.utime(f, (1_000_000_000, 1_000_000_000))
-    assert run_helper(root)["sample"] == ["/usr/bin/tool"]
-
-
-def test_ignored_paths_and_directories_do_not_count(tmp_path):
-    root = make_root(tmp_path)
-    take_lock(root)
-    (root / "var/cache/apt/pkgcache.bin").write_text("x")
-    (root / "tmp/ansible-tmp").mkdir()
-    (root / "tmp/ansible-tmp/x").write_text("x")
-    # a temp file created and removed: only the directory's ctime moves
-    (root / "etc/.tmp").write_text("x")
-    (root / "etc/.tmp").unlink()
-    (root / GEN.lstrip("/")).write_text("previous generation\n")
-    r = run_helper(
-        root, "--ignore", "var/cache", "--ignore", "tmp", "--ignore", GEN.lstrip("/"), "--ignore", LOCK
-    )
-    assert r["bump"] is False, r
-
-
-def test_no_lock_means_bump(tmp_path):
-    root = make_root(tmp_path)
-    r = run_helper(root)
-    assert r["bump"] is True
-    assert r["count"] is None
-
-
-def test_symlink_counts_and_is_not_followed(tmp_path):
-    root = make_root(tmp_path)
-    take_lock(root)
-    (root / "usr/bin/link").symlink_to("/nonexistent/target")
-    assert run_helper(root)["sample"] == ["/usr/bin/link"]
-
-
-def test_sample_is_capped(tmp_path):
-    root = make_root(tmp_path)
-    take_lock(root)
-    for i in range(30):
-        (root / f"usr/bin/f{i}").write_text("x")
-    r = run_helper(root, "--sample", "5")
-    assert r["count"] == 30
-    assert len(r["sample"]) == 5
 
 
 # --- the real task files, run by ansible-playbook ------------------------------
@@ -166,11 +90,13 @@ def play(tmp_path: Path, *extra_vars: str, check=False):
         textwrap.dedent(
             f"""\
             [nbp]
-            server ansible_connection=local ansible_python_interpreter={os.sys.executable}
+            server ansible_connection=local ansible_python_interpreter={sys.executable}
             [pi]
-            chroot ansible_connection=local ansible_python_interpreter={os.sys.executable}
+            chroot ansible_connection=local ansible_python_interpreter={sys.executable}
             [all:vars]
             nfs_root={tmp_path}
+            nfsroot_generation_install=false
+            nfsroot_generation_cmd="{sys.executable} {CLI}"
             """
         )
     )
@@ -209,7 +135,7 @@ def test_play_real_change_bumps_then_unlocks(tmp_path):
     marker = gen_of(tmp_path).read_text()
     epoch = int(marker.split()[0])
     assert abs(epoch - time.time()) < 300
-    assert "1 files changed" in marker
+    assert marker.split(" ", 2)[2].strip() == "1 files changed"
     assert not lock_of(tmp_path).exists()
 
 
