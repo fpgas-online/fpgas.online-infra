@@ -215,6 +215,7 @@
   command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
   args:
     chdir: "{{ django_dir }}"
+  become: true
   become_user: "{{ user_name }}"
   register: site_migrate
   changed_when: "'No migrations to apply' not in site_migrate.stdout"
@@ -225,6 +226,7 @@
   command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
   args:
     chdir: "{{ django_dir }}"
+  become: true
   become_user: "{{ user_name }}"
   register: site_collectstatic
   changed_when: "'0 static files copied' not in site_collectstatic.stdout"
@@ -243,6 +245,7 @@
   command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ fixture_path }}"
   args:
     chdir: "{{ django_dir }}"
+  become: true
   become_user: "{{ user_name }}"
   when: fixture_path is defined
   changed_when: true
