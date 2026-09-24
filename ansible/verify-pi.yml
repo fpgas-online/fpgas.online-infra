@@ -160,6 +160,58 @@
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
 
+    # Stale-NFS-root watchdog (nfsroot-watchdog, roles/onpi stale_root.yml):
+    # the arm unit stages a static busybox and the checker into /run at boot,
+    # and the timer runs it from there. `nfsroot-watchdog status` reads the
+    # staged copy and fails if the arm unit never staged anything (e.g. it
+    # did not recognise the NFS root). Both carry fpgas-apt, like the
+    # package install they check.
+    - name: Check the nfsroot-watchdog arm service and timer are active
+      command: systemctl is-active nfsroot-watchdog-arm.service nfsroot-watchdog.timer
+      changed_when: false
+      register: verify_pi_watchdog_active
+      failed_when: false
+      tags: [verify, services, fpgas-apt]
+
+    # Only read when the assert below fails: the arm unit's own account of
+    # why, which is otherwise only in the Pi's journal.
+    - name: Read the nfsroot-watchdog arm unit's status and journal
+      shell: >-
+        systemctl status --no-pager --lines=0 nfsroot-watchdog-arm.service;
+        journalctl --no-pager -b -u nfsroot-watchdog-arm.service
+      changed_when: false
+      register: verify_pi_watchdog_journal
+      failed_when: false
+      tags: [verify, services, fpgas-apt]
+
+    - name: Assert the nfsroot-watchdog arm service and timer are active
+      assert:
+        that: verify_pi_watchdog_active.stdout_lines == ["active", "active"]
+        fail_msg: >-
+          nfsroot-watchdog-arm.service / nfsroot-watchdog.timer not active
+          (is-active: {{ verify_pi_watchdog_active.stdout_lines }}).
+          Arm unit: {{ verify_pi_watchdog_journal.stdout_lines }}
+      tags: [verify, services, fpgas-apt]
+
+    - name: Ask the staged nfsroot-watchdog what it sees
+      command: nfsroot-watchdog status
+      changed_when: false
+      register: verify_pi_watchdog_status
+      failed_when: false
+      tags: [verify, services, fpgas-apt]
+
+    - name: Assert nfsroot-watchdog is armed on the NFS lower layer
+      assert:
+        that:
+          - verify_pi_watchdog_status.rc == 0
+          - "'NFS root:          /media/root-ro' in verify_pi_watchdog_status.stdout_lines"
+        fail_msg: >-
+          nfsroot-watchdog is not armed on /media/root-ro
+          (rc={{ verify_pi_watchdog_status.rc }},
+          out={{ verify_pi_watchdog_status.stdout }}
+          err={{ verify_pi_watchdog_status.stderr }})
+      tags: [verify, services, fpgas-apt]
+
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
     # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
     # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come

@@ -60,7 +60,7 @@ start with `apt_cache_url`.
 
 ## Operational notes
 
-### Range hazard (GitHub Pages remaps: `fpgasonline`, `fpgatools`, `rp1jtag`)
+### Range hazard (GitHub Pages remaps: `fpgasonline`, `fpgatools`, `nfsrootwatchdog`, `rp1jtag`)
 
 GitHub Pages answers `Range` requests with `200` and the full body. If a
 cached file is shorter than upstream's `Content-Length` but carries the same

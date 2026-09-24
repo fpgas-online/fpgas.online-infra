@@ -1,5 +1,17 @@
 ---
 - hosts: nbp
+  pre_tasks:
+    # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
+    # the root by roles/onpi) from here until nfsroot-generation below:
+    # img, apt-cache and fixpi all change the root, and a board must never
+    # reboot into it half-built. Tagged always, so a tagged run takes it too.
+    - name: take the Pi NFS root update lock
+      ansible.builtin.include_role:
+        name: nfsroot-generation
+        tasks_from: begin.yml
+        apply:
+          tags: [always]
+      tags: [always]
   roles:
     - netif
     - operators
@@ -14,6 +26,12 @@
     # apt sources, which apt-cache points back at this site's cache.
     - apt-cache
     - fixpi
+    # fixpi is the last role that writes into the root: bump the generation
+    # if the root changed, then release the lock. The boards then reboot
+    # themselves, one stagger slot apart. If anything above failed, the play
+    # has stopped for this host and the lock stays: the boards keep running
+    # on the old root instead of rebooting into a half-built one.
+    - {role: nfsroot-generation, tags: [always]}
     - pxe
 
 - hosts: uhubctl
