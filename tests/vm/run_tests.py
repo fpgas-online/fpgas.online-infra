@@ -239,11 +239,9 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # PR's own roles baked in.
     extra.extend(["-e", f"nfsroot_image={args.nfsroot_image}"])
 
-    # Set SSH key and become for ansible (test VM uses non-root user)
-    extra.extend([
-        "-e", f"ansible_ssh_private_key_file={key_path}",
-        "--become",
-    ])
+    # The key and become come from the inventory and ansible.cfg, as in
+    # production (tests/inventory/group_vars/all/controller.yml names the
+    # key generated above).
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
@@ -258,17 +256,18 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
         server.cleanup()
         return None
 
-    # Run verify-server.yml
-    rc = run_ansible("verify-server.yml", inventory, "test-vm", extra)
+    server.ansible_inventory = inventory
+    server.ansible_extra = extra
+    return server
+
+
+def verify_server(args, server: VMManager) -> bool:
+    """Run verify-server.yml against the converged server VM."""
+    rc = run_ansible("verify-server.yml", server.ansible_inventory, "test-vm", server.ansible_extra)
     if rc != 0:
         print(f"ERROR: verify-server.yml failed with exit code {rc}")
-        if args.keep_vm:
-            print(f"VM kept alive. SSH: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
-            return None
-        server.shutdown()
-        server.cleanup()
-        return None
-
+        return False
+    key_path = server.workdir / "test_key"
     if args.ssh_to_server:
         print(f"\nSSH into server: ssh -i {key_path} -p {SSH_PORT} -o StrictHostKeyChecking=no debian@127.0.0.1")
         print("Press Ctrl+C to exit and continue teardown.")
@@ -281,8 +280,7 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
             ])
         except KeyboardInterrupt:
             pass
-
-    return server
+    return True
 
 
 def ensure_qemu_rpi() -> tuple[str, str, str]:
@@ -333,7 +331,31 @@ SERVER_NET_DIAG = (
 )
 
 
-def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
+def start_pi(workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
+    """Power on the virtual Pi: it netboots from the server on its own.
+
+    Started as soon as site.yml has converged -- the point at which a real
+    deploy's boards are PoE-cycled -- so the TCG boot runs alongside
+    verify-server instead of after it.
+    """
+    qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
+    pi = VMManager("pi", workdir)
+    pi.boot_pi(
+        access_port=switch.access_port,
+        qemu_bin=qemu_bin,
+        pxeboot_bin=pxeboot_bin,
+        pxeboot_dtb=pxeboot_dtb,
+    )
+    time.sleep(2)
+    if not pi.is_alive():
+        print(f"ERROR: Pi QEMU process exited with code {pi.process.returncode if pi.process else 'unknown'}")
+        if pi.qemu_log.exists():
+            print(f"QEMU output:\n{pi.qemu_log.read_text(errors='replace')}")
+        return None
+    return pi
+
+
+def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
     Uses qemu-rpi (patched QEMU with GENET ethernet) and qemu-rpi-pxeboot
@@ -347,26 +369,6 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     started listening on both ports before either VM booted (see main()).
     """
     key_path = workdir / "test_key"
-
-    # Ensure patched QEMU and PXE boot firmware are available
-    qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
-
-    # Boot Pi VM — PXE firmware will boot from server (DHCP + TFTP + NFS)
-    pi = VMManager("pi", workdir)
-    pi.boot_pi(
-        access_port=switch.access_port,
-        qemu_bin=qemu_bin,
-        pxeboot_bin=pxeboot_bin,
-        pxeboot_dtb=pxeboot_dtb,
-    )
-
-    # Check QEMU started successfully
-    time.sleep(2)
-    if not pi.is_alive():
-        print(f"ERROR: Pi QEMU process exited with code {pi.process.returncode if pi.process else 'unknown'}")
-        if pi.qemu_log.exists():
-            print(f"QEMU output:\n{pi.qemu_log.read_text(errors='replace')}")
-        return False
 
     # Monitor serial log for boot milestones
     booted, pi_ip = wait_for_pi_boot(pi, timeout=1800)
@@ -429,11 +431,7 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     # DHCP actually assigned (may differ from the static reservation due to the
     # BCM2711 GENET dual-MAC offset in QEMU).
     inventory = TEST_INVENTORY
-    extra = [
-        "-e", f"ansible_ssh_private_key_file={key_path}",
-        "-e", f"ansible_host={pi_host}",
-        "--become",
-    ]
+    extra = ["-e", f"ansible_host={pi_host}"]
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
@@ -472,7 +470,7 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
 def main():
     parser = argparse.ArgumentParser(description="QEMU VM integration tests for fpgas.online")
     parser.add_argument("--distro", choices=["bookworm", "trixie"], default="bookworm")
-    parser.add_argument("--phase", choices=["server", "pi", "all"], default="all")
+    parser.add_argument("--phase", choices=["server", "all"], default="all")
     parser.add_argument("--nfsroot-image", type=str, required=True,
                         help="GHCR ref of the prebuilt Pi NFS root the server pulls "
                              "(e.g. ghcr.io/fpgas-online/nfsroot:bookworm-armhf); "
@@ -480,12 +478,14 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,hw-camera,hw-fpga,hw-sunxi",
-                        help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks and the "
-                             "30-minute qemu-emulated sunxi kernel build; the sunxi PXE render is still verified)")
+    parser.add_argument("--skip-tags", type=str, default="",
+                        help="Comma-separated Ansible tags to skip (debugging only: CI skips nothing, "
+                             "so it runs exactly what a production deploy runs)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
     args = parser.parse_args()
+    # Line-buffered even into a pipe, so CI logs carry true timestamps.
+    sys.stdout.reconfigure(line_buffering=True)
 
     workdir = Path(__file__).parent / "workdir"
     workdir.mkdir(exist_ok=True)
@@ -498,25 +498,34 @@ def main():
     switch.start()
 
     server = None
+    pi = None
     try:
-        if args.phase in ("server", "all"):
-            server = phase_server(args, workdir, switch)
-            if server is None:
-                print("\nSERVER PHASE FAILED")
+        server = phase_server(args, workdir, switch)
+        if server is None:
+            print("\nSERVER PHASE FAILED")
+            sys.exit(1)
+        # The server is converged: power the Pi on now and let it netboot
+        # while verify-server runs (its checks are read-only).
+        if args.phase == "all":
+            pi = start_pi(workdir, switch)
+            if pi is None:
+                print("\nPI PHASE FAILED")
                 sys.exit(1)
-            print("\nSERVER PHASE PASSED")
+        if not verify_server(args, server):
+            print("\nSERVER PHASE FAILED")
+            sys.exit(1)
+        print("\nSERVER PHASE PASSED")
 
-        if args.phase in ("pi", "all"):
-            if server is None:
-                print("ERROR: Pi phase requires a running server VM (use --phase all)")
-                sys.exit(1)
-            success = phase_pi(args, workdir, server, switch)
+        if pi is not None:
+            success = phase_pi(args, workdir, server, pi)
             if not success:
                 print("\nPI PHASE FAILED")
                 sys.exit(1)
             print("\nPI PHASE PASSED")
 
     finally:
+        if pi is not None and pi.is_alive() and not args.keep_vm:
+            pi.shutdown()
         if server and not args.keep_vm:
             server.shutdown()
             server.cleanup()

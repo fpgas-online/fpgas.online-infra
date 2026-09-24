@@ -2,8 +2,11 @@
 # PXE test client support.
 # Only included when pxe_test_clients is defined.
 #
-# Adds DHCP host entries for test clients and injects the test SSH key
-# into the Pi's authorized_keys in the NFS root. All TFTP boot files
+# Adds DHCP host entries for test clients (legacy scheme only) and their
+# TFTP serial links. No key injection: the Pis' authorized_keys are the
+# production ones (fixpi/userconf.yml authorizes the controller key named by
+# ansible_ssh_private_key_file, which the test inventory points at the VM
+# harness's key). All TFTP boot files
 # (kernel, DTB, cmdline.txt, config.txt, initramfs) come from the
 # production fixpi/netboot.yml setup — no test-specific overrides.
 
@@ -39,27 +42,5 @@
     state: link
     force: true
   with_items: "{{ pxe_test_clients }}"
-  tags:
-    - pxe-test
-
-- name: Ensure Pi .ssh directory exists in NFS root
-  file:
-    path: "{{ nfs_root }}/root/home/{{ user }}/.ssh"
-    state: directory
-    mode: "0700"
-    owner: "1000"
-    group: "1000"
-  when: ansible_ssh_private_key_file is defined
-  tags:
-    - pxe-test
-
-- name: Add test SSH key to Pi authorized_keys in NFS root
-  copy:
-    content: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}\n"
-    dest: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
-    mode: "0600"
-    owner: "1000"
-    group: "1000"
-  when: ansible_ssh_private_key_file is defined
   tags:
     - pxe-test
