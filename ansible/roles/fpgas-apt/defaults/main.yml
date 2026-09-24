@@ -23,7 +23,10 @@ fpgas_apt_suite: bookworm
 # Pages site, signed per suite, so the suite follows the NFS root's release.
 # The URL is the canonical https one on the custom domain: the
 # fpgas-online.github.io project page 301s to http://fpgas.online/<repo>,
-# which apt will not follow.
+# which apt will not follow. Like fpgas_apt_url, clients go through the
+# gateway's apt cache when there is one (remap fpgatools in
+# roles/apt-cache/defaults/main.yml); apt-cache's verify fails any NFS root
+# source that bypasses it.
 #
 # The site publishes the key twice: fpgas-online-fpga-tools.asc (armoured)
 # and fpgas-online-fpga-tools.gpg (a binary keyring). The binary one is
@@ -33,7 +36,8 @@ fpgas_apt_suite: bookworm
 # roles/fpgas-apt/tasks/fpga-tools.yml asserts the format as well as the
 # fingerprint, so an upstream change to either fails the build instead of
 # being trusted.
-fpga_tools_apt_url: https://fpgas.online/fpgas.online-fpga-tools
+fpga_tools_apt_upstream_url: https://fpgas.online/fpgas.online-fpga-tools
+fpga_tools_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online-fpga-tools') if fpgas_apt_cache_url else fpga_tools_apt_upstream_url }}"
 fpga_tools_apt_suite: "{{ dist }}"
 fpga_tools_apt_key_name: fpgas-online-fpga-tools.gpg
 fpga_tools_apt_keyring: /etc/apt/keyrings/fpgas-online-fpga-tools.gpg
