@@ -115,4 +115,9 @@ jobs:
         id: publish
         env:
           NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
-        run: uv run tests/ci/nfsroot_publish.py
+        run: |
+          # skopeo pushes the zstd OCI layout nfsroot_publish.py writes
+          # (both ship on the runner images; installed if one ever does not)
+          command -v skopeo && command -v zstd \
+            || { sudo apt-get update && sudo apt-get install -y skopeo zstd; }
+          uv run tests/ci/nfsroot_publish.py

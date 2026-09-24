@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Package the built Pi NFS root tree as a single-layer OCI image and push
-it to GHCR (issue #34, design doc
+"""Package the built Pi NFS root tree as a single-layer (zstd) OCI image and
+push it to GHCR (issue #34, design doc
 docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
 
 The image filesystem holds top-level boot/ and root/ directories mirroring
@@ -24,10 +24,14 @@ Run after ansible/ci-nfsroot.yml on the runner (needs sudo for tar to read
 the root-owned tree, and a docker login to ghcr.io).
 """
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
+from pathlib import Path
 
 import nfsroot_inputs
 
@@ -90,41 +94,97 @@ def reuse() -> int:
     return 0
 
 
-def build() -> int:
-    dated, inputs, others = tags()
+def pack_layer(layout: Path) -> tuple[str, str, int, int]:
+    """Tar the root into a zstd layer blob in the OCI layout.
 
+    Returns (layer digest, diff_id, compressed size, uncompressed size).
+    zstd runs on every core; `docker push` compressed the 4.7 GB tar with
+    single-threaded gzip (~3 min), and a gzip layer also decompresses on
+    one core on every server that pulls it.
+    """
+    blobs = layout / "blobs" / "sha256"
+    blobs.mkdir(parents=True)
+    staging = layout / "layer.tar.zst"
     tar = subprocess.Popen(
         ["sudo", "tar", "-C", NFSROOT, "--numeric-owner", "--xattrs",
          "-c", "boot", "root"],
         stdout=subprocess.PIPE,
     )
-    run(["docker", "import", "-", dated], stdin=tar.stdout)
-    tar.stdout.close()
-    if tar.wait() != 0:
-        raise RuntimeError("tar of the nfsroot tree failed")
+    with open(staging, "wb") as out:
+        zstd = subprocess.Popen(["zstd", "-T0", "-3", "-q", "-c"],
+                                stdin=subprocess.PIPE, stdout=out)
+        diff = hashlib.sha256()
+        raw = 0
+        while chunk := tar.stdout.read(8 << 20):
+            diff.update(chunk)
+            raw += len(chunk)
+            zstd.stdin.write(chunk)
+        zstd.stdin.close()
+        if tar.wait() != 0 or zstd.wait() != 0:
+            raise RuntimeError("packing the nfsroot tree failed")
+    digest = sha256_file(staging)
+    staging.rename(blobs / digest)
+    return f"sha256:{digest}", f"sha256:{diff.hexdigest()}", (blobs / digest).stat().st_size, raw
 
-    size = int(
-        run(
-            ["docker", "image", "inspect", "--format", "{{.Size}}", dated],
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    )
-    run(["docker", "push", dated])
-    # The layer is in the registry now, so every further tag is a
-    # manifest-only push. inputs-<key> goes last: a later run that finds it
-    # (and reuses the image) never sees a half-published set of tags.
-    pushed = [dated]
-    for t in others + [inputs]:
-        run(["docker", "tag", dated, t])
-        run(["docker", "push", t])
-        pushed.append(t)
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(8 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def put_blob(layout: Path, data: bytes) -> tuple[str, int]:
+    digest = hashlib.sha256(data).hexdigest()
+    (layout / "blobs" / "sha256" / digest).write_bytes(data)
+    return f"sha256:{digest}", len(data)
+
+
+def build() -> int:
+    dated, inputs, others = tags()
+
+    with tempfile.TemporaryDirectory(dir=os.environ.get("RUNNER_TEMP")) as tmp:
+        layout = Path(tmp) / "oci"
+        layer, diff_id, layer_size, raw_size = pack_layer(layout)
+        config, config_size = put_blob(layout, json.dumps({
+            # What `docker import` on the arm64 build runner recorded.
+            "architecture": "arm64",
+            "os": "linux",
+            "config": {},
+            "rootfs": {"type": "layers", "diff_ids": [diff_id]},
+        }).encode())
+        manifest, manifest_size = put_blob(layout, json.dumps({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"mediaType": "application/vnd.oci.image.config.v1+json",
+                       "digest": config, "size": config_size},
+            "layers": [{"mediaType": "application/vnd.oci.image.layer.v1.tar+zstd",
+                        "digest": layer, "size": layer_size}],
+        }).encode())
+        (layout / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}')
+        (layout / "index.json").write_text(json.dumps({
+            "schemaVersion": 2,
+            "manifests": [{"mediaType": "application/vnd.oci.image.manifest.v1+json",
+                           "digest": manifest, "size": manifest_size,
+                           "annotations": {"org.opencontainers.image.ref.name": "nfsroot"}}],
+        }))
+        # skopeo reads the `docker login` credentials. The layer is uploaded
+        # once; every further tag is a manifest-only copy. inputs-<key> goes
+        # last: a later run that finds it (and reuses the image) never sees a
+        # half-published set of tags.
+        pushed = []
+        for t in [dated] + others + [inputs]:
+            run(["skopeo", "copy", "--preserve-digests",
+                 f"oci:{layout}:nfsroot", f"docker://{t}"])
+            pushed.append(t)
 
     # The dated tag is this build's identity: downstream jobs (the VM test)
     # consume it via the workflow_call output.
     write_outputs(image=dated)
     summary(["## nfsroot published", "",
-             f"- size: {size / 1e9:.2f} GB uncompressed"]
+             f"- size: {raw_size / 1e9:.2f} GB uncompressed, "
+             f"{layer_size / 1e9:.2f} GB zstd"]
             + [f"- `{tag}`" for tag in pushed])
     return 0
 
