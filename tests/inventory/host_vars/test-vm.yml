@@ -128,6 +128,18 @@ sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
 sunxi_boards:
   - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 2, usb: "1-1.2.2", host: pi-sw1-p9}
 
+# Authoritative DNS for a delegated zone, and the off-net resolver allowed to
+# query it (tweed: fpgas.welland.mithis.com on eth-uplink for ten64 at
+# 10.99.21.1). The same dnsmasq auth-zone/auth-server and nftables rules
+# render and load here, on the VM's uplink with QEMU's user-net gateway as
+# the delegating resolver.
+dnsmasq_auth_zone: fpgas.test.fpgas.online
+dnsmasq_auth_glue: gw.fpgas.test.fpgas.online
+dnsmasq_auth_subnet: 10.21.0.0/16
+dnsmasq_auth_interface: enp0s2
+firewall_dns_query_sources:
+  - 10.0.2.2
+
 # WebRTC/WHEP (roles/cam/webrtc): converge + verify in CI. The advertised
 # candidate is the TEST-NET uplink address; no browser reaches it in CI.
 webrtc_media_port: 8189
