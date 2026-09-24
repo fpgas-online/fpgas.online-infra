@@ -240,8 +240,8 @@ Two details keep the shortcuts honest:
      [`ansible.cfg`](../ansible.cfg);
    - the roles [`img`](../ansible/roles/img/),
      [`fixpi`](../ansible/roles/fixpi/),
-     [`nspawn-pi`](../ansible/roles/nspawn-pi/),
-     [`fpgas-apt`](../ansible/roles/fpgas-apt/),
+     [`nspawn_pi`](../ansible/roles/nspawn_pi/),
+     [`fpgas_apt`](../ansible/roles/fpgas_apt/),
      [`cam/pi`](../ansible/roles/cam/pi/) and
      [`onpi`](../ansible/roles/onpi/);
    - the TT catalogue template;
@@ -308,21 +308,21 @@ connection
    `fixpi_image_build: true`
    ([`all.yml`](../ansible/inventory-ci-nfsroot/group_vars/all/all.yml)).
 4. **Prepares the chroot** with
-   [`nspawn-pi/tasks/chroot-prep.yml`](../ansible/roles/nspawn-pi/tasks/chroot-prep.yml):
+   [`nspawn_pi/tasks/chroot-prep.yml`](../ansible/roles/nspawn_pi/tasks/chroot-prep.yml):
    - mounts `/proc`, `/sys`, `/dev` and friends;
    - adds a `policy-rc.d` so no services start;
    - holds initramfs rebuilds until the end;
    - sets dpkg `force-unsafe-io` and pauses man-db;
    - bind-mounts the deb cache over `/var/cache/apt/archives`.
 5. **Runs the Pi roles against the chroot:**
-   [`fpgas-apt`](../ansible/roles/fpgas-apt/),
+   [`fpgas_apt`](../ansible/roles/fpgas_apt/),
    [`cam/pi`](../ansible/roles/cam/pi/) and
    [`onpi`](../ansible/roles/onpi/).
 6. **Syncs the kernel payload, then cleans up.** It first syncs the
    upgraded kernel payload into `boot/`, so the pruner keeps what the Pis
-   will really boot. Then [`nspawn-pi/tasks/stop.yml`](../ansible/roles/nspawn-pi/tasks/stop.yml)
+   will really boot. Then [`nspawn_pi/tasks/stop.yml`](../ansible/roles/nspawn_pi/tasks/stop.yml)
    rebuilds stale initramfs images in parallel
-   ([`nfsroot_kernels.py`](../ansible/roles/nspawn-pi/files/nfsroot_kernels.py)),
+   ([`nfsroot_kernels.py`](../ansible/roles/nspawn_pi/files/nfsroot_kernels.py)),
    prunes superseded kernels and unmounts everything.
 7. **Makes the image site-agnostic and finishes `boot/`.** It points
    `resolv.conf` at the site gateway and deletes any SSH host keys that
@@ -430,15 +430,15 @@ in production. The plays run in this order:
 |---|---|---|---|
 | 1 | [`netif`](../ansible/roles/netif/) | renames the fresh VM's `enp0s2`/`enp0s3` to `eth-uplink`/`eth-local` by MAC address, moves the uplink onto a static systemd-networkd config and **reboots**: the path a newly installed tweed takes | 33 s (the reboot is 24 s) |
 | 2 | [`img/tasks/prefetch.yml`](../ansible/roles/img/tasks/prefetch.yml) | installs podman and rsync, refreshing the apt lists first, because a fresh server has none. Then starts `podman pull` **in the background** | 13 s |
-| 3 | [`operators`](../ansible/roles/operators/), [`jump`](../ansible/roles/jump/), [`lldp`](../ansible/roles/lldp/), [`firewall`](../ansible/roles/firewall/), [`vlan-ports`](../ansible/roles/vlan-ports/), [`switch-vlans`](../ansible/roles/switch-vlans/), [`nfs`](../ansible/roles/nfs/), [`apt-cache`](../ansible/roles/apt-cache/), [`pxe`](../ansible/roles/pxe/) | real apt and pip installs on a fresh OS. `pxe` (dnsmasq DHCP/TFTP) comes before the web tier, because the site role drops config into `/etc/dnsmasq.d` | 154 s |
+| 3 | [`operators`](../ansible/roles/operators/), [`jump`](../ansible/roles/jump/), [`lldp`](../ansible/roles/lldp/), [`firewall`](../ansible/roles/firewall/), [`vlan_ports`](../ansible/roles/vlan_ports/), [`switch_vlans`](../ansible/roles/switch_vlans/), [`nfs`](../ansible/roles/nfs/), [`apt_cache`](../ansible/roles/apt_cache/), [`pxe`](../ansible/roles/pxe/) | real apt and pip installs on a fresh OS. `pxe` (dnsmasq DHCP/TFTP) comes before the web tier, because the site role drops config into `/etc/dnsmasq.d` | 154 s |
 | 4 | [`uhubctl`](../ansible/roles/uhubctl/) | no hosts, same as production | 0 s |
-| 5 | [`web.yml`](../ansible/web.yml) | [`site`](../ansible/roles/site/) (Django), [`wssh`](../ansible/roles/wssh/) (web terminal), [`cam/stream-server`](../ansible/roles/cam/stream-server/), [`mqtt`](../ansible/roles/mqtt/) (fleet broker), [`cam/webrtc`](../ansible/roles/cam/webrtc/), [`ttsite`](../ansible/roles/ttsite/) (tinytapeout) | 173 s |
+| 5 | [`web.yml`](../ansible/web.yml) | [`site`](../ansible/roles/site/) (Django), [`wssh`](../ansible/roles/wssh/) (web terminal), [`cam/stream_server`](../ansible/roles/cam/stream_server/), [`mqtt`](../ansible/roles/mqtt/) (fleet broker), [`cam/webrtc`](../ansible/roles/cam/webrtc/), [`ttsite`](../ansible/roles/ttsite/) (tinytapeout) | 173 s |
 | 6 | NFS root (last play) | see below | 129 s |
 
 The last play does this, in order:
 
 1. **Takes the NFS root update lock**
-   ([`nfsroot-generation/begin.yml`](../ansible/roles/nfsroot-generation/tasks/begin.yml)),
+   ([`nfsroot_generation/begin.yml`](../ansible/roles/nfsroot_generation/tasks/begin.yml)),
    so booted boards never reboot into a half-built root
    ([PR #97](https://github.com/fpgas-online/fpgas.online-infra/pull/97)).
 2. **Unpacks the image**
@@ -447,7 +447,7 @@ The last play does this, in order:
    `podman pull`. Then `podman image mount` + `rsync -aHAX --delete` copy
    the image into `/srv/nfs/rpi/bookworm` (43 s).
 3. **Points the root's apt at the site's cache**
-   ([`apt-cache/tasks/nfsroot.yml`](../ansible/roles/apt-cache/tasks/nfsroot.yml)).
+   ([`apt_cache/tasks/nfsroot.yml`](../ansible/roles/apt_cache/tasks/nfsroot.yml)).
 4. **Applies the site layer** ([`fixpi`](../ansible/roles/fixpi/)):
    - the `pi` password and SSH keys, plus SSH host keys;
    - [`fleet.toml`](../ansible/roles/fixpi/tasks/fleet-site.yml);
@@ -455,7 +455,7 @@ The last play does this, in order:
    - `pistat_host`;
    - the Orange Pi DTBs.
 5. **Publishes the new root generation and releases the lock**
-   ([`nfsroot-generation`](../ansible/roles/nfsroot-generation/)).
+   ([`nfsroot_generation`](../ansible/roles/nfsroot_generation/)).
 
 Result: `ok=326 changed=180 failed=0 skipped=39` in 8 min 22 s. The 39
 skips are tasks whose `when:` condition is false on this host, such as
@@ -632,7 +632,7 @@ The costliest single tasks in `site.yml` are:
 
 - `img : rsync boot/ and root/` 43 s;
 - `site : python and friends` 42 s;
-- `switch-vlans : install venv/git prerequisites` 34 s;
+- `switch_vlans : install venv/git prerequisites` 34 s;
 - the netif reboot 24 s;
 - the Django site install 14 s.
 
