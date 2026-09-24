@@ -10,6 +10,16 @@
 - name: install nfsroot-generation on the gateway
   when: nfsroot_generation_install | bool
   block:
+    # This is the first task of site.yml, so on a freshly installed gateway
+    # nothing has installed gpg yet; pages-apt-repo.yml needs it to check
+    # the key's fingerprint.
+    - name: install what the pinned-key apt source needs on the gateway
+      ansible.builtin.apt:
+        name: [gnupg, ca-certificates]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
     - name: add the nfsroot-watchdog apt repository on the gateway
       ansible.builtin.include_role:
         name: fpgas-apt
