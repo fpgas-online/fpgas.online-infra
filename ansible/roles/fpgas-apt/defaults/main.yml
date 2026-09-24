@@ -19,8 +19,8 @@ fpgas_apt_key_fingerprint: 878EC72910E22EA0E989EAA9BEB0EC3124E538E4
 # fpgas-online/fpgas.online-fpga-tools publishes the fpgas.online patch-series
 # builds of openFPGALoader and OpenOCD (roles/onpi installs the -git track,
 # openfpgaloader-fpgasonline-git / openocd-fpgasonline-git; the same source
-# carries the stable pair) -- the rp1pio cable with librp1jtag linked in
-# statically, plus the netv2 / tt_fpga boards and --flash-info, none of which
+# carries the stable pair) -- the rp1pio cable through the shared librp1jtag0
+# it also publishes, plus the netv2 / tt_fpga boards and --flash-info, none of which
 # the retired mithro/rp1-jtag builds carried. One flat apt repository per
 # Debian release (bookworm / trixie / sid, arm64 + armhf) under a GitHub
 # Pages site, signed per suite, so the suite follows the NFS root's release.
