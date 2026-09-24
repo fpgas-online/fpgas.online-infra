@@ -136,7 +136,7 @@ sunxi_boards:
 dnsmasq_auth_zone: fpgas.test.fpgas.online
 dnsmasq_auth_glue: gw.fpgas.test.fpgas.online
 dnsmasq_auth_subnet: 10.21.0.0/16
-dnsmasq_auth_interface: enp0s2
+dnsmasq_auth_interface: eth-uplink
 firewall_dns_query_sources:
   - 10.0.2.2
 
