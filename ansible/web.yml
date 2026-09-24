@@ -17,6 +17,6 @@
     # (and the CI test-vm) define it.
     - {role: cam/webrtc, when: webrtc_additional_hosts is defined}
     # ttsite deploys INTO the site role's Django install (manage.py, venv),
-    # so it carries the django tag as well: `--skip-tags django` (the VM test's
-    # default) must skip it too, or it fails on a host with no Django deploy.
+    # so it carries the django tag as well: `--skip-tags django` must skip it
+    # too, or it fails on a host with no Django deploy.
     - {role: ttsite, when: tt_boards is defined, tags: [django, ttsite]}
