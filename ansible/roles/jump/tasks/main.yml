@@ -1,13 +1,13 @@
 ---
 # Restricted jump account (see defaults/main.yml for what and why).
 
-- name: install ssh-import-id
+- name: Install ssh-import-id
   apt:
     name: ssh-import-id
   tags:
     - jump
 
-- name: create the jump account with a restricted shell
+- name: Create the jump account with a restricted shell
   user:
     name: "{{ jump_user }}"
     shell: "{{ jump_shell }}"
@@ -20,7 +20,7 @@
 # rbash refuses to change PATH after login, so the only commands the account
 # can run are what ~/bin holds, and .bash_profile points PATH there and
 # nowhere else.
-- name: restricted command directory
+- name: Restricted command directory
   file:
     path: "{{ jump_home }}/bin"
     state: directory
@@ -30,7 +30,7 @@
   tags:
     - jump
 
-- name: expose only the allowed commands
+- name: Expose only the allowed commands
   file:
     src: "{{ item }}"
     dest: "{{ jump_home }}/bin/{{ item | basename }}"
@@ -41,7 +41,7 @@
   tags:
     - jump
 
-- name: lock PATH to the restricted directory
+- name: Lock PATH to the restricted directory
   copy:
     content: "export PATH={{ jump_home }}/bin\n"
     dest: "{{ jump_home }}/.bash_profile"
@@ -51,7 +51,7 @@
   tags:
     - jump
 
-- name: ssh directory
+- name: Ssh directory
   file:
     path: "{{ jump_home }}/.ssh"
     state: directory
@@ -63,7 +63,7 @@
 
 # The Pis' host keys change whenever the NFS root is rebuilt; the jump
 # account only ever hops onward, so accept new keys and keep them per host.
-- name: accept new Pi host keys when hopping onward
+- name: Accept new Pi host keys when hopping onward
   copy:
     content: |
       Host *
@@ -76,7 +76,7 @@
   tags:
     - jump
 
-- name: authorize the static operator keys
+- name: Authorize the static operator keys
   ansible.posix.authorized_key:
     user: "{{ jump_user }}"
     state: present
@@ -89,7 +89,7 @@
 
 # Same tolerance as the operators role: a GitHub outage must not fail the
 # converge, but the assert below refuses to leave the account key-less.
-- name: import the shared ssh ids from GitHub / Launchpad
+- name: Import the shared ssh ids from GitHub / Launchpad
   command: "ssh-import-id {{ jump_ssh_import_ids | join(' ') }}"
   become: true
   become_user: "{{ jump_user }}"
@@ -99,7 +99,7 @@
   tags:
     - jump
 
-- name: check the jump account has authorized_keys
+- name: Check the jump account has authorized_keys
   stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"
   register: jump_authkeys
@@ -108,7 +108,7 @@
 
 # Only when the inventory configures keys: the CI VM sets both lists empty
 # (no network), and a key-less account is unusable rather than unsafe.
-- name: assert the jump account has at least one key
+- name: Assert the jump account has at least one key
   assert:
     that:
       - jump_authkeys.stat.exists
@@ -119,7 +119,7 @@
     - jump
 
 # Belt and braces: the account must never gain sudo.
-- name: no sudoers entry for the jump account
+- name: No sudoers entry for the jump account
   file:
     path: "/etc/sudoers.d/{{ jump_user }}"
     state: absent
@@ -129,7 +129,7 @@
 # rbash + .bash_profile only restrict login shells; `ssh jump 'cmd'` runs a
 # non-login shell with the default PATH. sshd's ForceCommand routes every
 # command through a wrapper that allows only ssh/ssh-keyscan (see files/).
-- name: install the jump command wrapper
+- name: Install the jump command wrapper
   copy:
     src: jump-shell
     dest: /usr/local/bin/jump-shell
@@ -139,7 +139,7 @@
   tags:
     - jump
 
-- name: sshd drop-in for the jump account
+- name: Sshd drop-in for the jump account
   copy:
     content: |
       # Restricted jump account (fpgas.online-infra roles/jump).
@@ -157,11 +157,11 @@
     owner: root
     group: root
     mode: "0644"
-  notify: reload sshd
+  notify: Reload sshd
   tags:
     - jump
 
-- name: sshd configuration is still valid
+- name: Sshd configuration is still valid
   command: /usr/sbin/sshd -t
   changed_when: false
   tags:

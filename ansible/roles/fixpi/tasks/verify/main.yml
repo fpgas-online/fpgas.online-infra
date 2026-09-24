@@ -66,7 +66,7 @@
     fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"
 
 # --- Orange Pi (sunxi) netboot files (fixpi/tasks/sunxi.yml) ---
-- name: read the sunxi PXE config
+- name: Read the sunxi PXE config
   slurp:
     src: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
   register: fixpi_verify_sunxi_pxe
@@ -82,7 +82,7 @@
 
 # Every image carries the armmp kernel (fixpi/sunxi-image.yml, CI build),
 # so a site with sunxi_boards must have published it.
-- name: sunxi kernel payload present in tftp
+- name: Sunxi kernel payload present in tftp
   stat:
     path: "{{ tftp_root }}/sunxi/{{ item }}"
   register: fixpi_verify_sunxi_payload

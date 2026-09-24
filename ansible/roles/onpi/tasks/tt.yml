@@ -5,7 +5,7 @@
 # for one, and only an `fpga` board gets the demos synced onto it.
 # tt_boards lives on the build host (the Pi "host" is the CI build's
 # chroot), so read it from the first nbp host's vars.
-- name: tt_boards from the server host
+- name: Tt_boards from the server host
   set_fact:
     tt_boards: "{{ hostvars[groups['nbp'][0]].tt_boards }}"
   when: tt_boards is not defined and hostvars[groups['nbp'][0]].tt_boards is defined
@@ -29,7 +29,7 @@
         update_cache: true
         cache_valid_time: 600
 
-    - name: create /etc/fpgas-online
+    - name: Create /etc/fpgas-online
       ansible.builtin.file:
         path: /etc/fpgas-online
         state: directory
@@ -38,13 +38,13 @@
 - name: Tiny Tapeout site catalogue (when this site has TT boards)
   when: tt_boards is defined
   block:
-    - name: bake tt-boards.yaml into the Pi root
+    - name: Bake tt-boards.yaml into the Pi root
       ansible.builtin.template:
         src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
         dest: /etc/fpgas-online/tt-boards.yaml
         mode: "0644"
 
-    - name: enable fpgas-tt.service
+    - name: Enable fpgas-tt.service
       ansible.builtin.systemd:
         name: fpgas-tt.service
         enabled: true

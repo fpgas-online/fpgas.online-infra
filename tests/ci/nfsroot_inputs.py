@@ -19,6 +19,7 @@ usage: nfsroot_inputs.py            print the key
        nfsroot_inputs.py --list     print the files that feed it
 """
 import hashlib
+import re
 import subprocess
 import sys
 import time
@@ -53,20 +54,58 @@ INPUTS = [
 ]
 
 
-# Files that choose the RasPiOS image a from-scratch build starts from.
-# A warm build (nfsroot_warm.py) may only converge a published image whose
+# What chooses the RasPiOS image a from-scratch build starts from: the
+# image file (named by these variables, rendered from the group_vars below,
+# later files winning) and the tasks that download and unpack it. A warm
+# build (nfsroot_warm.py) may only converge a published image whose
 # base_key label matches: a changed base must be built from scratch.
-BASE_INPUTS = [
+#
+# Only the image's identity counts, not the whole of srv.yml: an edit to
+# any other variable there (tftp_root, say) is an ordinary image input that
+# a warm build converges, instead of a ~10 min from-scratch build. img_host
+# is left out too: it names a mirror of the same file.
+BASE_VARS = ["dist", "img_path", "img_name", "zip_name"]
+BASE_VAR_FILES = [
     "ansible/inventory/group_vars/all/srv.yml",
     "ansible/inventory-ci-nfsroot/group_vars/all/zz-ci-overrides.yml",
-    "ansible/roles/img/tasks/build.yml",
 ]
+BASE_FILES = [
+    "ansible/roles/img/tasks/build.yml",
+    "ansible/roles/img/files/img2files.sh",
+]
+BASE_INPUTS = BASE_VAR_FILES + BASE_FILES
 BASE_LABEL = "org.fpgas-online.nfsroot.base-key"
+
+_TOP_LEVEL_VAR = re.compile(r"^([A-Za-z_]\w*):\s*(.*?)\s*$")
+_JINJA_REF = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def base_vars() -> dict[str, str]:
+    """BASE_VARS as the build sees them: the image file it downloads.
+
+    The group_vars files hold flat `name: value` scalars with `{{ name }}`
+    references (read without PyYAML: the workflow runs this with the
+    runner's bare python3).
+    """
+    raw: dict[str, str] = {}
+    for rel in BASE_VAR_FILES:
+        for line in (REPO / rel).read_text().splitlines():
+            if m := _TOP_LEVEL_VAR.match(line):
+                raw[m.group(1)] = m.group(2).strip("\"'")
+
+    def render(name: str, depth: int = 0) -> str:
+        if name not in raw or depth > 10:
+            raise KeyError(f"cannot resolve {name} from {BASE_VAR_FILES}")
+        return _JINJA_REF.sub(lambda m: render(m.group(1), depth + 1), raw[name])
+
+    return {name: render(name) for name in BASE_VARS}
 
 
 def base_key() -> str:
     h = hashlib.sha256()
-    for rel in sorted(BASE_INPUTS):
+    for name, value in sorted(base_vars().items()):
+        h.update(f"{name}={value}".encode() + b"\0")
+    for rel in sorted(BASE_FILES):
         h.update(rel.encode() + b"\0" + (REPO / rel).read_bytes() + b"\0")
     return h.hexdigest()[:20]
 

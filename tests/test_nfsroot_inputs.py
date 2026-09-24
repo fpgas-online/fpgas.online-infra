@@ -79,3 +79,55 @@ def test_base_inputs_exist_and_are_image_inputs():
         assert (REPO / rel).exists(), rel
         assert covered(rel), f"{rel} picks the base image but is not an image input"
     assert len(nfsroot_inputs.base_key()) == 20
+
+
+def test_base_vars_name_the_downloaded_image():
+    """The rendered values are the file img/tasks/build.yml downloads."""
+    got = nfsroot_inputs.base_vars()
+    groups = [yaml.safe_load((REPO / rel).read_text()) or {}
+              for rel in nfsroot_inputs.BASE_VAR_FILES]
+    srv = {k: v for g in groups for k, v in g.items()}
+    date = str(srv["dir_date"])
+    assert got["dist"] == srv["dist"]
+    assert got["img_path"] == srv["img_path"].replace("{{dir_date}}", date)
+    assert got["img_name"] == f"{date}-raspios-{srv['dist']}-armhf-lite.img"
+    assert got["zip_name"] == got["img_name"] + ".xz"
+    assert not any("{{" in v for v in got.values()), got
+
+
+def test_base_vars_cover_build_yml():
+    """Every variable the download/extract tasks use is a base var (or a
+    mirror/path the image does not depend on)."""
+    used = set(re.findall(r"\{\{\s*(\w+)\s*\}\}",
+                          (REPO / "ansible/roles/img/tasks/build.yml").read_text()))
+    not_identity = {"img_host", "cache_dir", "nfs_root"}
+    missing = used - set(nfsroot_inputs.BASE_VARS) - not_identity
+    assert not missing, f"build.yml uses {missing}, which base_key() ignores"
+
+
+def test_base_key_ignores_unrelated_srv_vars(monkeypatch):
+    before = nfsroot_inputs.base_key()
+    real = nfsroot_inputs.Path.read_text
+
+    def edited(self, *a, **kw):
+        text = real(self, *a, **kw)
+        if self.name == "srv.yml":
+            text += "\ntftp_root: /somewhere/else\nimg_host: https://mirror.invalid\n"
+        return text
+
+    monkeypatch.setattr(nfsroot_inputs.Path, "read_text", edited)
+    assert nfsroot_inputs.base_key() == before
+
+
+def test_base_key_changes_with_the_image(monkeypatch):
+    before = nfsroot_inputs.base_key()
+    real = nfsroot_inputs.Path.read_text
+
+    def bumped(self, *a, **kw):
+        text = real(self, *a, **kw)
+        if self.name == "srv.yml":
+            text += "\ndir_date: 2099-01-01\n"
+        return text
+
+    monkeypatch.setattr(nfsroot_inputs.Path, "read_text", bumped)
+    assert nfsroot_inputs.base_key() != before

@@ -1,20 +1,20 @@
 ---
-- name: restart network-manager
+- name: Restart network-manager
   systemd:
     name: NetworkManager
     state: restarted
 
-- name: restart networking
+- name: Restart networking
   systemd:
     name: networking
     state: restarted
 
-- name: restart dnsmasq
+- name: Restart dnsmasq
   systemd:
     name: dnsmasq
     state: restarted
 
-- name: restart chrony
+- name: Restart chrony
   systemd:
     name: chrony
     state: restarted

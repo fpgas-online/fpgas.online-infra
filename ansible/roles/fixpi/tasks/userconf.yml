@@ -1,10 +1,10 @@
 ---
-- name: create issue.d dir
+- name: Create issue.d dir
   file:
     path: "{{ nfs_root }}/root/etc/issue.d"
     state: directory
 
-- name: display IP, pw and things on console
+- name: Display IP, pw and things on console
   copy:
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
@@ -16,7 +16,7 @@
 # qemu, and the server's has no crypt module) and write it into the root's
 # /etc/shadow as a plain file edit. The salt is derived from the password, so
 # the hash is stable across runs and the tasks are idempotent.
-- name: hash the pi user's password (sha512-crypt, salt derived from it)
+- name: Hash the pi user's password (sha512-crypt, salt derived from it)
   command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
     stdin: "{{ pi_pw }}"
@@ -26,7 +26,7 @@
   tags:
     - pipw
 
-- name: check whether the NFS root already carries that hash
+- name: Check whether the NFS root already carries that hash
   command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
   register: fixpi_pi_pw_current
   changed_when: false
@@ -39,7 +39,7 @@
 # as the lower layer of an overlayroot over NFS, and their sshd keeps the
 # old dentry: after this changes, every one of them closes each SSH
 # connection (key or password) until it is rebooted. Reboot them all.
-- name: set the pi user's password in the NFS root
+- name: Set the pi user's password in the NFS root
   ansible.builtin.replace:
     path: "{{ nfs_root }}/root/etc/shadow"
     regexp: '^{{ user }}:[^:]*:'
@@ -50,7 +50,7 @@
   tags:
     - pipw
 
-- name: reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
+- name: Reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
   debug:
     msg: >-
       {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
@@ -63,7 +63,7 @@
 # boot/userconf.txt is masked in the NFS root (netboot.yml), and password.txt
 # was only ever a marker. userconf.txt holds the plaintext password in the
 # TFTP-served boot dir, so make sure it is gone.
-- name: remove userconf.txt and the password marker
+- name: Remove userconf.txt and the password marker
   file:
     path: "{{ item }}"
     state: absent
@@ -73,18 +73,18 @@
   tags:
     - pipw
 
-- name: enable sshd
+- name: Enable sshd
   file:
     path: "{{ nfs_root }}/boot/ssh"
     state: touch
 
-- name: get fixed sshswitch
+- name: Get fixed sshswitch
   get_url:
     url: "https://raw.githubusercontent.com/RPi-Distro/raspberrypi-sys-mods/{{ dist }}/debian/raspberrypi-sys-mods.sshswitch.service"
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/sshswitch.service"
   when: false
 
-- name: sshd password settings
+- name: Sshd password settings
   copy:
     src: "files/etc/ssh/sshd_config.d/password.conf"
     dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/password.conf"
@@ -96,7 +96,7 @@
   tags:
     - keys
 
-- name: create .ssh dirs
+- name: Create .ssh dirs
   file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
@@ -155,7 +155,7 @@
   tags:
     - keys
 
-- name: set perms (use numeric UID — pi user is UID 1000 on RPi OS)
+- name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
     path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh"
     recurse: true
