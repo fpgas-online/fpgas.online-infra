@@ -9,12 +9,16 @@
 # The loop retries like pull.yml does (img_pull_retries/img_pull_delay):
 # the VM test starts before the image it pulls has been published.
 
+# The first apt install in site.yml (right after netif), so it refreshes
+# the package lists: a freshly installed server may have none yet.
 - name: Install podman and rsync
   apt:
     name:
       - podman
       - rsync
     install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: Start pulling the nfsroot image in the background
   shell: |
