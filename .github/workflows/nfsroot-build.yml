@@ -3,14 +3,14 @@
 # Runs the same Ansible roles as site.yml's build path against a chroot on
 # an arm64 runner (native AArch32, spike PR #40), verifies per-model boot
 # material, and pushes ghcr.io/fpgas-online/nfsroot (rolling tag only from
-# main; dated pinnable tag always). Weekly cron picks up new debs from the
-# rolling apt repo.
+# main; dated pinnable tag always). Scheduled runs keep main's image current
+# with the package repositories (see `on.schedule`).
 name: nfsroot build
 
 # No push trigger: every push/PR builds via the VM test workflow, which
 # calls this one and then boots the freshly built image (workflow_call
-# output `image` = the dated tag). The weekly cron picks up new debs from
-# the rolling apt repo between merges.
+# output `image` = the dated tag). The schedules below rebuild main's image
+# between merges, so it picks up new debs from the package repositories.
 on:
   workflow_dispatch:
     inputs:
@@ -18,8 +18,14 @@ on:
         description: "Build from RasPiOS instead of converging main's latest image"
         type: boolean
         default: true
+  # Hourly: a warm build of main (~5 min), so the rolling tag -- what
+  # production pulls -- is never more than an hour behind the package
+  # repositories. Daily: a build from scratch (~10 min), which proves the
+  # clean build still works and drops anything a chain of warm builds has
+  # left behind. SCRATCH_CRON below must match the daily entry.
   schedule:
-    - cron: "17 2 * * 1"
+    - cron: "47 * * * *"
+    - cron: "17 2 * * *"
   workflow_call:
     inputs:
       extra_tag:
@@ -38,6 +44,9 @@ on:
 permissions:
   contents: read
   packages: write
+
+env:
+  SCRATCH_CRON: "17 2 * * *"
 
 concurrency:
   group: nfsroot-build-${{ github.ref }}-${{ github.workflow }}
@@ -60,7 +69,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
-      # the build roles, playbook, inventory and tooling, plus the ISO week)
+      # the build roles, playbook, inventory and tooling, plus the UTC hour)
       # is retagged instead of rebuilt; the steps below then skip. Every
       # change to an image input gets a fresh build of this checkout.
       - name: Reuse an image built from the same inputs
@@ -98,7 +107,7 @@ jobs:
         id: cachedirs
         run: |
           sudo install -d -o "$(id -un)" /var/cache/pib /var/cache/nfsroot-debs
-          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the RasPiOS base image
         if: steps.reuse.outputs.reused != 'true'
@@ -109,28 +118,29 @@ jobs:
 
       # apt's downloads from earlier builds (inventory-ci-nfsroot's
       # nfsroot_build_deb_cache, bind-mounted into the root during the
-      # build and never packed into the image). One entry per ISO week,
+      # build and never packed into the image). One entry per UTC day,
       # seeded from the newest earlier one, so it tracks the archive without
-      # a GB-sized entry per run crowding out the other caches. apt checks
-      # every deb against the signed indexes: a stale one is re-downloaded.
+      # a GB-sized entry (~760 MB) per run crowding out the other caches in
+      # the repo's cache quota. apt checks every deb against the signed
+      # indexes: a stale one is re-downloaded.
       - name: Restore the build's deb cache
         if: steps.reuse.outputs.reused != 'true'
         id: debcache
         uses: actions/cache/restore@v5
         with:
           path: /var/cache/nfsroot-debs
-          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.day }}
           restore-keys: nfsroot-debs-
 
       # PR and push builds converge the image main last published (the roles
       # are idempotent; their apt runs are then mostly no-ops): ~3 min
-      # instead of ~10. The weekly schedule and a dispatch build from
+      # instead of ~10. The daily schedule and a dispatch build from
       # RasPiOS, so the from-scratch path keeps running and a warm chain is
-      # never more than a week old. See tests/ci/nfsroot_warm.py.
+      # never more than a day old. See tests/ci/nfsroot_warm.py.
       - name: Start from main's latest image (warm build)
         if: >-
           steps.reuse.outputs.reused != 'true'
-          && github.event_name != 'schedule'
+          && github.event.schedule != env.SCRATCH_CRON
           && !inputs.from_scratch
         id: warm
         run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm
@@ -160,7 +170,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /var/cache/nfsroot-debs
-          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.day }}
 
       - name: Write nfsroot manifest (packages, boot hashes, configs)
         if: steps.reuse.outputs.reused != 'true'
