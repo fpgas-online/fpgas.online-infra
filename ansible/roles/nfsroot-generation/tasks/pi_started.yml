@@ -1,6 +1,0 @@
----
-# First task of the `pi` play: end.yml refuses to release the update lock if
-# the play started but never reached pi_done.yml.
-- name: record that the Pi NFS root play started
-  ansible.builtin.set_fact:
-    nfsroot_generation_pi_started: true

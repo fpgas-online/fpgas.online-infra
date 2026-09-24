@@ -3,8 +3,8 @@
 # (fpgas-online-tt-demos, /usr/share/fpgas-tt/demos) baked into the shared Pi
 # NFS root: every Pi runs the daemon; a Pi without a /dev/ttboard just waits
 # for one, and only an `fpga` board gets the demos synced onto it.
-# tt_boards lives on the server host (the Pi "host" is the nspawn chroot on
-# that server), so read it from the first nbp host's vars.
+# tt_boards lives on the build host (the Pi "host" is the CI build's
+# chroot), so read it from the first nbp host's vars.
 - name: tt_boards from the server host
   set_fact:
     tt_boards: "{{ hostvars[groups['nbp'][0]].tt_boards }}"

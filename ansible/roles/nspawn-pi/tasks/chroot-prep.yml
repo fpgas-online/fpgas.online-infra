@@ -1,10 +1,9 @@
 ---
 # Make the Pi NFS root safe and cheap to run apt against from outside.
 #
-# Shared by the production path (start.yml, systemd-nspawn + sshd + qemu
-# user emulation on the server) and the CI build (ci-nfsroot.yml, the chroot
-# connection plugin on a native arm64 runner), so both get identical chroot
-# semantics and neither can drift.
+# Used by the CI image build (ci-nfsroot.yml, the chroot connection plugin on
+# a native arm64 runner) -- the only place anything executes inside the ARM
+# root. Servers pull the finished image (roles/img) and never chroot into it.
 
 - name: Copy the kernel maintenance helper to the server
   ansible.builtin.copy:

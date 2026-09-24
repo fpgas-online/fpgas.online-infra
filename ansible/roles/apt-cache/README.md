@@ -85,7 +85,7 @@ https backend through a proxy with CONNECT, and ten64's acng refuses it
 The facts are tagged `always`, so `--tags fixpi` or `--tags pi` still see
 `apt_cache_url`. But the `pi` play reads it from the gateway host, so a run
 limited to the `pi` host alone (without `fpgas.online`) falls back to the
-upstream URL and rewrites `fpgas-online.list` back to upstream. Include the
+upstream URL and rewrites `apt.list` back to upstream. Include the
 gateway in the limit: `--limit fpgas.online,pi`.
 
 ### The cache is on the rebuild path

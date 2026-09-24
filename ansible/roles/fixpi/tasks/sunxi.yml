@@ -1,61 +1,13 @@
 ---
-# Orange Pi H3 (sunxi) support for the SHARED Pi NFS root: a Debian armmp
-# kernel baked into the root + its boot payload published under
-# <tftp_root>/sunxi/ for U-Boot's distro-boot PXE. Only runs on hosts that
-# declare sunxi_boards (multi-host guard rule). Spec:
+# Orange Pi H3 (sunxi) netboot, per site: publish the armmp kernel the image
+# carries (sunxi-image.yml, CI build) under <tftp_root>/sunxi/ for U-Boot's
+# distro-boot PXE. File work only. Only runs on hosts that declare
+# sunxi_boards (multi-host guard rule). Spec:
 # docs/superpowers/specs/2026-08-28-orange-pi-netboot-design.md
 #
 # Safe for the Pi fleet: Raspbian's z50-raspi-firmware kernel hook prints
 # "Unsupported kernel version (6.1.0-50-armmp) - skipping setup" and leaves
 # /boot/firmware alone (verified 2026-08-28 in the spike).
-
-# Raspbian does not carry debian-archive-keyring, so fetch Debian's own
-# bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
-# into the root; it provides the Signed-By keyring the source below names.
-# Tagged sunxi only (not sunxi-kernel): whenever that source is written the
-# keyring must be too, or every later apt update in the root fails NO_PUBKEY.
-# Fetched through the gateway's apt cache when there is one (the checksum
-# pins the content either way).
-- name: fetch debian-archive-keyring for the armmp kernel source
-  get_url:
-    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
-    dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
-    checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
-    mode: "0644"
-  tags: [sunxi]
-
-- name: install debian-archive-keyring into the NFS root
-  command: >-
-    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
-  args:
-    creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
-  tags: [sunxi]
-
-- name: debian armhf apt source (kernel only) in NFS root
-  template:
-    src: templates/apt/debian-armmp.sources.j2
-    dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/debian-armmp.sources"
-    mode: "0644"
-  tags: [sunxi]
-
-- name: pin the debian source to the armmp kernel only
-  template:
-    src: templates/apt/debian-armmp.pref.j2
-    dest: "{{ nfs_root }}/root/etc/apt/preferences.d/debian-armmp.pref"
-    mode: "0644"
-  tags: [sunxi]
-
-# ~30 min under qemu-user-static (update-initramfs with MODULES=most), hence
-# the creates guard and the sunxi-kernel tag CI skips. Kernel upgrades arrive
-# through onpi's apt upgrade in the pi play like every other package.
-- name: install the armmp kernel into the NFS root
-  command: >-
-    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "apt-get update && apt-get install -y {{ sunxi_kernel_package }}"
-  args:
-    creates: "{{ nfs_root }}/root/boot/vmlinuz-*-armmp"
-  tags: [sunxi, sunxi-kernel]
 
 - name: find the installed armmp kernel
   find:
@@ -134,26 +86,4 @@
     src: templates/boot/default-arm-sunxi.j2
     dest: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
     mode: "0644"
-  tags: [sunxi]
-
-# The H3 boards have no audio use, and the sun4i-codec probe has crashed three
-# different boards: a jump through an uninitialised DAI set_fmt pointer during
-# deferred probe ("Internal error: Oops: 80000005", PC = garbage, LR =
-# snd_soc_dai_set_fmt+0x34 [snd_soc_core], Workqueue deferred_probe_work_func,
-# ~25 s into boot -- captured 2026-09-02 on the USB gadget consoles of
-# pi-sw2-p20/p21 and the 1-1.3.3 board). The modules load only by udev's
-# DT-alias coldplug from the real root (none of them are in the sunxi
-# initramfs), so a root modprobe.d blacklist removes the whole probe path.
-- name: blacklist the sunxi audio codec modules in the NFS root
-  copy:
-    dest: "{{ nfs_root }}/root/etc/modprobe.d/fpgas-sunxi-no-audio.conf"
-    mode: "0644"
-    content: |
-      # fpgas.online (fixpi/sunxi.yml): the Orange Pi H3 boards are headless
-      # rack nodes; the sun4i-codec deferred probe has caused boot-time kernel
-      # Oopses (docs/hardware/2026-08-28-orange-pi-h3-boards.md). No board
-      # uses audio, so keep the whole codec stack unloadable-by-alias.
-      blacklist sun4i_codec
-      blacklist sun8i_codec_analog
-      blacklist sun8i_adda_pr_regmap
   tags: [sunxi]

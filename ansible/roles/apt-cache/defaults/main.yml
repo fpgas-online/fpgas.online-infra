@@ -72,7 +72,7 @@ apt_cache_remaps:
       - apt.fpgas.online
       - fpgas.online/apt
     backend: https://apt.fpgas.online/
-    probe: dists/bookworm/Release
+    probe: bookworm/Release
   # GitHub Pages, flat per-suite repo (clients use
   # /fpgas-online-fpga-tools/<suite>/ ./): fpgas-apt/tasks/fpga-tools.yml.
   # fpgas.online/<repo> is the canonical URL; the github.io one 301s to it.
@@ -107,3 +107,10 @@ apt_cache_stock_paths:
   - /debian-security
 apt_cache_stock_probes:
   - /debian/dists/bookworm/Release
+
+# Stock Debian archives the pulled NFS root image may name (fixpi's armmp
+# source): acng serves them under its built-in debrep/secdeb remaps, i.e. the
+# paths in apt_cache_stock_paths. Used by tasks/nfsroot.yml's rewrite.
+apt_cache_nfsroot_stock_prefixes:
+  - {prefix: deb.debian.org/debian, path: /debian}
+  - {prefix: security.debian.org/debian-security, path: /debian-security}

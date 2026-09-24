@@ -1,10 +1,10 @@
 ---
 - hosts: nbp
   pre_tasks:
-    # Hold the netbooted boards' self-reboot (roles/onpi, stale_root.yml)
-    # from here until end.yml below: fixpi and the pi play both change the
-    # root, and a board must never reboot into it half-built. Tagged always
-    # so a tagged NFS root update (--tags pi,fpgas-apt,onpi,cam) takes it too.
+    # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
+    # the root by roles/onpi) from here until nfsroot-generation below:
+    # img, apt-cache and fixpi all change the root, and a board must never
+    # reboot into it half-built. Tagged always, so a tagged run takes it too.
     - name: take the Pi NFS root update lock
       ansible.builtin.include_role:
         name: nfsroot-generation
@@ -22,10 +22,16 @@
     - {role: switch-vlans, when: switches is defined}
     - nfs
     - img
-    # After img (a fresh extract restores the stock sources.list) and before
-    # fixpi (whose chroot apt runs are the cache's first clients).
+    # After img: a fresh extract of the pulled image restores its upstream
+    # apt sources, which apt-cache points back at this site's cache.
     - apt-cache
     - fixpi
+    # fixpi is the last role that writes into the root: bump the generation
+    # if the root changed, then release the lock. The boards then reboot
+    # themselves, one stagger slot apart. If anything above failed, the play
+    # has stopped for this host and the lock stays: the boards keep running
+    # on the old root instead of rebooting into a half-built one.
+    - {role: nfsroot-generation, tags: [always]}
     - pxe
 
 - hosts: uhubctl
@@ -35,70 +41,7 @@
 # Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
 - import_playbook: web.yml
 
-# Pi NFS root provisioning via nspawn+sshd chroot.
-# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
-# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
-# container is stopped. This bakes all Pi config into the NFS root so Pis
-# boot read-only with everything pre-installed.
-- hosts: nbp
-  tasks:
-    - name: start nspawn+sshd on Pi NFS root
-      include_role:
-        name: nspawn-pi
-        tasks_from: start.yml
-        # Tags on an include_role reach only the include itself; without
-        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
-        # skipped every mount and policy-rc.d task here, and the Pi roles ran
-        # in a chroot with no /proc or /dev/pts.
-        apply:
-          tags: [pi]
-      tags: [pi]
-
-- hosts: pi
-  pre_tasks:
-    - name: mark the pi play started
-      ansible.builtin.include_role:
-        name: nfsroot-generation
-        tasks_from: pi_started.yml
-        apply:
-          tags: [always]
-      tags: [always]
-  roles:
-    - role: fpgas-apt
-      tags: [fpgas-apt]
-    - role: cam/pi
-      tags: [cam]
-    - role: onpi
-      tags: [onpi]
-  post_tasks:
-    - name: mark the pi play finished
-      ansible.builtin.include_role:
-        name: nfsroot-generation
-        tasks_from: pi_done.yml
-        apply:
-          tags: [always]
-      tags: [always]
-
-- hosts: nbp
-  tasks:
-    - name: stop nspawn+sshd
-      include_role:
-        name: nspawn-pi
-        tasks_from: stop.yml
-        # Tags on an include_role reach only the include itself; without
-        # apply, `--tags pi,fpgas-apt,onpi` (the documented NFS root update)
-        # skipped every mount and policy-rc.d task here, and the Pi roles ran
-        # in a chroot with no /proc or /dev/pts.
-        apply:
-          tags: [pi]
-      tags: [pi]
-
-    # Last: bump the generation if the root changed, then release the lock.
-    # The netbooted boards then reboot themselves, one stagger slot apart.
-    - name: publish the Pi NFS root update
-      ansible.builtin.include_role:
-        name: nfsroot-generation
-        tasks_from: end.yml
-        apply:
-          tags: [always]
-      tags: [always]
+# The Pi NFS root arrives prebuilt from GHCR via the img role (issue #34):
+# CI builds and publishes it (.github/workflows/nfsroot-build.yml), the
+# server pulls and extracts it, and fixpi applies the site layer on top.
+# The old on-server nspawn/chroot provisioning path was removed with it.

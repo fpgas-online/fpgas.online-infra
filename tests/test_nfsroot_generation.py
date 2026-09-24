@@ -3,7 +3,7 @@
 At the end of every site.yml run, end.yml decides (through `nfsroot-generation
 end`, from fpgas-online/nfsroot-watchdog) whether to bump the Pi NFS root's
 generation marker, which makes every netbooted board reboot itself. Bumping on
-a no-op converge reboots the fleet for nothing; bumping after a failed pi play
+a no-op converge reboots the fleet for nothing; bumping after a failed run
 reboots it into a half-built root. The CLI itself is tested in its own repo;
 these run the role's real task files with ansible-playbook against localhost
 and a throwaway root (connection: local, no become -- nothing here touches the
@@ -59,28 +59,19 @@ def make_root(base: Path) -> Path:
 # --- the real task files, run by ansible-playbook ------------------------------
 
 PLAYBOOK = """
+# The shape of site.yml's first play: the lock in pre_tasks, the roles that
+# change the root, then the nfsroot-generation role (its main.yml is end.yml).
 - hosts: nbp
   gather_facts: true
-  tasks:
+  pre_tasks:
     - include_role: {name: nfsroot-generation, tasks_from: begin.yml}
-
-- hosts: pi
-  gather_facts: false
   tasks:
-    - include_role: {name: nfsroot-generation, tasks_from: pi_started.yml}
-    - name: change the root
+    - name: change the root (img / apt-cache / fixpi)
       copy: {dest: "{{ nfs_root }}/root/usr/bin/tool", content: "{{ new_tool }}"}
       when: new_tool is defined
-    - fail: {msg: simulated pi play failure}
-      when: fail_pi | default(false) | bool
-    - meta: end_host
-      when: end_pi | default(false) | bool
-    - include_role: {name: nfsroot-generation, tasks_from: pi_done.yml}
-
-- hosts: nbp
-  gather_facts: true
-  tasks:
-    - include_role: {name: nfsroot-generation, tasks_from: end.yml}
+    - fail: {msg: simulated failure of a role that changes the root}
+      when: fail_run | default(false) | bool
+    - include_role: {name: nfsroot-generation}
 """
 
 
@@ -91,8 +82,6 @@ def play(tmp_path: Path, *extra_vars: str, check=False):
             f"""\
             [nbp]
             server ansible_connection=local ansible_python_interpreter={sys.executable}
-            [pi]
-            chroot ansible_connection=local ansible_python_interpreter={sys.executable}
             [all:vars]
             nfs_root={tmp_path}
             nfsroot_generation_install=false
@@ -157,11 +146,11 @@ def test_play_real_change_bumps_then_unlocks(tmp_path):
     assert not lock_of(tmp_path).exists()
 
 
-def test_play_failed_pi_play_keeps_the_lock_and_does_not_bump(tmp_path):
+def test_play_failed_run_keeps_the_lock_and_does_not_bump(tmp_path):
     make_root(tmp_path)
-    r = play(tmp_path, "new_tool=v2", "fail_pi=true")
+    r = play(tmp_path, "new_tool=v2", "fail_run=true")
     assert r.returncode != 0
-    # Every pi host failed, so ansible-playbook stops before the last play.
+    # The play stopped for the server at the failing role, before the end step.
     assert "publish" not in r.stdout
     assert lock_of(tmp_path).exists()
     assert not gen_of(tmp_path).exists()
@@ -173,17 +162,6 @@ def test_play_failed_pi_play_keeps_the_lock_and_does_not_bump(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert "1 files changed" in gen_of(tmp_path).read_text()
     assert first_lock.startswith("1") and not lock_of(tmp_path).exists()
-
-
-def test_play_unfinished_pi_play_is_caught_by_end(tmp_path):
-    # A pi play that stops without failing (end_host, or one of several pi
-    # hosts dropping out) lets the last play run; end.yml must refuse.
-    make_root(tmp_path)
-    r = play(tmp_path, "new_tool=v2", "end_pi=true")
-    assert r.returncode != 0
-    assert "did not finish" in r.stdout
-    assert lock_of(tmp_path).exists()
-    assert not gen_of(tmp_path).exists()
 
 
 def test_play_bump_never_and_always(tmp_path):

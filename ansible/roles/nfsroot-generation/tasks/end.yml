@@ -11,24 +11,6 @@
 - name: finish the Pi NFS root update
   when: nfsroot_generation_root.stat.isdir | default(false)
   block:
-    # A failed `pi` play leaves nfsroot_generation_pi_done unset. If every pi
-    # host failed, ansible-playbook stops before this play; if one merely
-    # dropped out (end_host, several pi hosts), this play still runs for the
-    # server and must not publish a half-upgraded root to the whole fleet.
-    - name: refuse to publish a root whose Pi play did not finish
-      ansible.builtin.assert:
-        that: >-
-          groups['pi'] | default([])
-          | map('extract', hostvars)
-          | selectattr('nfsroot_generation_pi_started', 'defined')
-          | rejectattr('nfsroot_generation_pi_done', 'defined')
-          | list | length == 0
-        fail_msg: >-
-          The pi play started but did not finish. Leaving the update lock in
-          place, so the boards keep running on the old root instead of
-          rebooting into a half-built one. Fix and re-run site.yml; its end
-          step publishes both runs' changes.
-
     - name: publish the Pi NFS root update (bump if changed, then unlock)
       ansible.builtin.command: >-
         {{ nfsroot_generation_cmd }} end {{ nfs_root }}/root

@@ -19,11 +19,11 @@ one-board-at-a-time PoE cycle after every root update.
 
 | where | what |
 |-------|------|
-| `site.yml`, first task (`tasks/begin.yml`, tagged `always`) | installs `nfsroot-watchdog-server` on the gateway, then `nfsroot-generation begin <root>`: the update lock at `/etc/nfsroot-watchdog/update.lock` |
-| `pi` play (`pi_started.yml` / `pi_done.yml`) | facts that `end.yml` checks |
-| `site.yml`, last task (`tasks/end.yml`) | refuses if the pi play did not finish; otherwise `nfsroot-generation end <root>`, which bumps `/etc/nfsroot-watchdog/generation` if any file changed (ctime scan), then removes the lock |
-| `roles/fpgas-apt` | the package's apt source, through the gateway's apt cache (remap `nfsrootwatchdog`) for the Pi root, key pinned by fingerprint |
-| `roles/onpi`, `tasks/stale_root.yml` | installs `nfsroot-watchdog` in the Pi root and writes `/etc/default/nfsroot-watchdog`: fpgas.online's probe files (including both `authorized_keys`) and the switch-placement stagger |
+| `site.yml` nbp play, `pre_tasks` (`tasks/begin.yml`, tagged `always`) | installs `nfsroot-watchdog-server` on the gateway, then `nfsroot-generation begin <root>`: the update lock at `/etc/nfsroot-watchdog/update.lock` |
+| `img`, `apt-cache`, `fixpi` | the only things that change the root on the gateway: img rsyncs the CI-built image into it (excluding `/etc/nfsroot-watchdog/`, so a pull never deletes the lock, the marker or the fleet inhibit), apt-cache rewrites its apt sources, fixpi applies the site layer |
+| `site.yml` nbp play, the `nfsroot-generation` role right after `fixpi` (`tasks/end.yml`) | `nfsroot-generation end <root>`: bumps `/etc/nfsroot-watchdog/generation` if any file changed (ctime scan), then removes the lock. If a role before it failed, the play has stopped and the lock stays |
+| `roles/fpgas-apt` (`tasks/nfsroot-watchdog.yml`, via the shared `tasks/repo.yml`) | the package's apt source: through the gateway's apt cache (remap `nfsrootwatchdog`) for the Pi root, upstream for the gateway, key pinned by fingerprint |
+| `roles/onpi`, `tasks/stale_root.yml` (in the CI image build) | installs `nfsroot-watchdog` in the root and writes `/etc/default/nfsroot-watchdog`: fpgas.online's probe files (including both `authorized_keys`) and the switch-placement stagger |
 
 The stagger is `SLOT_SED='s/^pi-sw([0-9]+)-p([0-9]+)$/\1 \2/'`, stride 48,
 base 49, so slot = (switch − 1) × 48 + (port − 1). Each board reboots at
@@ -65,8 +65,8 @@ hours.
 Boards only get the watchdog by booting a root that contains it. After the
 first `site.yml` run that carries this role, every board still needs one last
 manual PoE cycle (one board at a time, as before). From then on they handle
-themselves. Installing the package swaps the root's dynamic `busybox` for
-`busybox-static` and regenerates its initramfs images once.
+themselves. Installing the package (in the CI image build) swaps the root's
+dynamic `busybox` for `busybox-static`.
 
 ## Interaction with the fleet watchdog (infra #88, not yet enabled)
 

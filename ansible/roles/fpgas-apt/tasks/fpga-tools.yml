@@ -4,8 +4,8 @@
 # Debian's openocd / openfpgaloader (and in place of the older
 # openfpgaloader-rp1pio / openocd-rp1pio from the retired mithro/rp1-jtag).
 #
-# The key handling (binary keyring, pinned fingerprint, staged fetch) is
-# shared with the other Pages repositories: pages-apt-repo.yml.
+# Fetched, pinned, format-checked and installed by tasks/repo.yml under the
+# repository's name, fpgas.online-fpga-tools (key, keyring and source).
 #
 # These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
 # tag the whole role), which is also what the VM integration test skips
@@ -13,14 +13,10 @@
 # checks for these packages carry fpgas-apt too, so skipping the source
 # skips everything that needs it.
 
-- name: Add the fpgas.online-fpga-tools apt repository
-  ansible.builtin.include_tasks: pages-apt-repo.yml
+- name: Add the fpgas.online-fpga-tools apt repository (tasks/repo.yml)
+  ansible.builtin.include_tasks: repo.yml
   vars:
-    pages_apt:
-      name: fpgas.online-fpga-tools
-      url: "{{ fpga_tools_apt_url }}"
-      suite: "{{ fpga_tools_apt_suite }}"
-      key_name: "{{ fpga_tools_apt_key_name }}"
-      keyring: "{{ fpga_tools_apt_keyring }}"
-      fingerprint: "{{ fpga_tools_apt_key_fingerprint }}"
-      filename: fpgas-online-fpga-tools
+    repo_name: fpgas.online-fpga-tools
+    repo_url: "{{ fpga_tools_apt_url }}"
+    repo_suite: "{{ fpga_tools_apt_suite }}"
+    repo_key_fingerprint: "{{ fpga_tools_apt_key_fingerprint }}"

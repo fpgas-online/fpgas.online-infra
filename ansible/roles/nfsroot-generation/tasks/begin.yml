@@ -11,7 +11,7 @@
   when: nfsroot_generation_install | bool
   block:
     # This is the first task of site.yml, so on a freshly installed gateway
-    # nothing has installed gpg yet; pages-apt-repo.yml needs it to check
+    # nothing has installed gpg yet; fpgas-apt's repo.yml needs it to check
     # the key's fingerprint.
     - name: install what the pinned-key apt source needs on the gateway
       ansible.builtin.apt:

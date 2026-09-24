@@ -12,9 +12,10 @@ ansible_python_interpreter: /usr/bin/python3
 # rewrites it after extraction (phase 3).
 domain_name: fpgas.online
 
-# The arm64 runners execute the armhf root natively (spike, PR #40); see
-# the comment in roles/fixpi/tasks/manage.yml.
-fixpi_install_qemu: false
+# This inventory IS the image build: run fixpi's tasks that execute inside
+# the ARM root (natively -- the arm64 runners run armhf userland directly,
+# spike PR #40). See roles/fixpi/defaults/main.yml.
+fixpi_image_build: true
 
 # fixpi/tweeks.yml's trailing tasks (tio, dialout, pici checkout, getty
 # mask) configure the build HOST for boot-spew monitoring, not the root —
