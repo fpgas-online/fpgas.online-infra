@@ -16,6 +16,6 @@
   ansible.builtin.include_tasks: repo.yml
   vars:
     repo_name: fpgas.online-fpga-tools
-    repo_url: "{{ fpga_tools_apt_url }}"
-    repo_suite: "{{ fpga_tools_apt_suite }}"
-    repo_key_fingerprint: "{{ fpga_tools_apt_key_fingerprint }}"
+    repo_url: "{{ fpgas_apt_fpga_tools_url }}"
+    repo_suite: "{{ fpgas_apt_fpga_tools_suite }}"
+    repo_key_fingerprint: "{{ fpgas_apt_fpga_tools_key_fingerprint }}"
