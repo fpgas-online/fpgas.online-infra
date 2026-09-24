@@ -27,8 +27,11 @@ one-board-at-a-time PoE cycle after every root update.
 
 The stagger is `SLOT_SED='s/^pi-sw([0-9]+)-p([0-9]+)$/\1 \2/'`, stride 48,
 base 49, so slot = (switch − 1) × 48 + (port − 1). Each board reboots at
-`generation time + 60 s + slot × 20 s`. No two boards on a site share a slot,
-and a two-switch site is done within about 33 minutes.
+`generation time + 420 s + slot × 20 s`. No two boards on a site share a slot,
+and a two-switch site is done within about 40 minutes. At least five minutes
+before its reboot, each board broadcasts a warning, with how to stop it, to
+its console, every logged-in terminal (including the web terminal), the
+journal and the kernel log.
 
 ## Operating it
 
