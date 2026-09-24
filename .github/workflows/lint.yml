@@ -25,3 +25,18 @@ jobs:
         continue-on-error: true
         working-directory: ansible
         run: ansible-lint
+
+  # The harness and CI tooling's unit tests (tests/test_*.py), e.g. the
+  # guard that the image's inputs key covers every file the build reads.
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Run the unit tests
+        run: uv run pytest -q tests
