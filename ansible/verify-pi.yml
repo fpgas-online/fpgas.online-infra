@@ -526,10 +526,18 @@
       when: verify_pi_udc.matched > 0
       tags: [verify, hw-usb-gadget]
 
-    # Fleet agent (fpgas.online-infra#47). Two gates: the unit ships in the
-    # fleet-enabled fpgas-online-setup-pi deb (the rolling apt repo may
-    # still carry a pre-fleet build) and only runs where the server baked
-    # /etc/fpgas-online/fleet.toml into the NFS root (ConditionPathExists).
+    # Fleet self-registration (fpgas.online-infra#47): the Pi must not just
+    # run the agent but actually register with this site's server. Wherever
+    # the server runs a broker (fleet_broker), the site layer baked
+    # fleet.toml into the root (fixpi/tasks/fleet-site.yml), so a missing
+    # file, an inactive agent or a board the server never heard of all fail.
+    - name: fleet settings of this Pi's server
+      set_fact:
+        verify_pi_server: "{{ groups['nbp'][0] }}"
+        verify_pi_fleet: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+      tags: [verify, fleet]
+
     - name: Check the fleet agent unit and config are present
       stat:
         path: "{{ item }}"
@@ -537,19 +545,58 @@
       loop:
         - /usr/lib/systemd/system/fpgas-fleet-agent.service
         - /etc/fpgas-online/fleet.toml
+      when: verify_pi_fleet | default(false)
       tags: [verify, fleet]
 
-    - name: Check the fleet agent is active
-      command: systemctl is-active fpgas-fleet-agent.service
+    - name: Assert the fleet agent unit and config are present
+      assert:
+        that: item.stat.exists
+        fail_msg: "{{ item.item }} missing on the Pi -- the fleet agent cannot run"
+      loop: "{{ verify_pi_fleet_files.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: verify_pi_fleet | default(false)
+      tags: [verify, fleet]
+
+    - name: Read the Pi's identity (serial, boot id) and agent state
+      shell: |
+        set -e
+        awk -F': *' '/^Serial/ {print $2}' /proc/cpuinfo
+        cat /proc/sys/kernel/random/boot_id
+        systemctl is-active fpgas-fleet-agent.service
       changed_when: false
-      register: verify_pi_fleet_agent
-      failed_when: false
-      when: verify_pi_fleet_files.results | map(attribute='stat.exists') | list == [true, true]
+      register: verify_pi_identity
+      when: verify_pi_fleet | default(false)
       tags: [verify, fleet]
 
     - name: Assert the fleet agent is active
       assert:
-        that: verify_pi_fleet_agent.stdout == "active"
-        fail_msg: "fpgas-fleet-agent.service is not active (got: {{ verify_pi_fleet_agent.stdout }})"
-      when: verify_pi_fleet_files.results | map(attribute='stat.exists') | list == [true, true]
+        that:
+          - verify_pi_identity.stdout_lines | length == 3
+          - verify_pi_identity.stdout_lines[0] | length > 0
+          - verify_pi_identity.stdout_lines[2] == "active"
+        fail_msg: "fleet agent state on the Pi: {{ verify_pi_identity.stdout_lines }}"
+      when: verify_pi_fleet | default(false)
+      tags: [verify, fleet]
+
+    # Ask the server's Django app (gunicorn's socket, as site verify does)
+    # for this board's fleet page: it must exist, show the board online and
+    # carry the boot id of the boot running now -- i.e. this boot registered.
+    - name: Server has registered this Pi in the fleet
+      command: >-
+        curl --silent --show-error --fail
+        --unix-socket /run/gunicorn.sock
+        --header 'Host: {{ hostvars[verify_pi_server].domain_name }}'
+        http://localhost/fleet/{{ verify_pi_identity.stdout_lines[0] }}/
+      delegate_to: "{{ verify_pi_server }}"
+      become: true
+      changed_when: false
+      register: verify_pi_fleet_page
+      until: >-
+        verify_pi_fleet_page.rc == 0
+        and 'badge online' in verify_pi_fleet_page.stdout
+        and verify_pi_identity.stdout_lines[1] in verify_pi_fleet_page.stdout
+      retries: 24
+      delay: 5
+      when: verify_pi_fleet | default(false)
       tags: [verify, fleet]

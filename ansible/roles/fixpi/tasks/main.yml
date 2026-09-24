@@ -10,3 +10,5 @@
 - {include_tasks: nogrow.yml, tags: [fixpi, nogrow]}
 # Server-side TT site catalogue (pull-mode roots never see onpi/tt.yml).
 - {include_tasks: tt-site.yml, tags: [tt], when: tt_boards is defined}
+# Server-side fleet agent config (same reason).
+- {include_tasks: fleet-site.yml, tags: [fleet], when: fleet_broker | default(false)}
