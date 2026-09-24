@@ -1,15 +1,19 @@
 ---
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
-eth_uplink_static: false
-eth_uplink_static_address: 203.0.113.1  # TEST-NET-3 (RFC 5737)
-# QEMU net0 (user-mode NAT, cloud-init/ifupdown DHCP) is the VM's uplink;
-# the netif role must not rename it or move it to networkd under the
-# harness's SSH session. Names already match the kernel's, so no reboot.
-eth_uplink: enp0s2
-uplink_manage: false
+# Named, owned and addressed like tweed's (static, networkd, eth-uplink /
+# eth-local): the netif role renames the fresh VM's enp0s2/enp0s3 by MAC,
+# moves the uplink off ifupdown and reboots once -- the path a new tweed
+# takes. QEMU user-net's addressing is fixed: the guest is 10.0.2.15/24,
+# the gateway 10.0.2.2 and its DNS proxy 10.0.2.3.
+eth_uplink: eth-uplink
+eth_uplink_static: true
+eth_uplink_static_address: 10.0.2.15
+eth_uplink_static_netmask: 24
+eth_uplink_static_gateway: 10.0.2.2
+eth_uplink_dns_server: 10.0.2.3
 
-eth_local: enp0s3
+eth_local: eth-local
 eth_local_mac_address: "52:54:00:aa:bb:02"
 eth_local_address: 10.21.0.1
 # /16, not /24: in the per-port VLAN scheme the local net is the whole
@@ -132,7 +136,7 @@ sunxi_boards:
 dnsmasq_auth_zone: fpgas.test.fpgas.online
 dnsmasq_auth_glue: gw.fpgas.test.fpgas.online
 dnsmasq_auth_subnet: 10.21.0.0/16
-dnsmasq_auth_interface: enp0s2
+dnsmasq_auth_interface: eth-uplink
 firewall_dns_query_sources:
   - 10.0.2.2
 
