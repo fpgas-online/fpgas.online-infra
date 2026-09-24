@@ -19,10 +19,10 @@
     cmd: >-
       /usr/local/sbin/nfsroot-kernels
       --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
-      check --max-trees {{ nfsroot_max_kernel_trees }}
-  register: nspawn_kernel_check
+      check --max-trees {{ nspawn_pi_max_kernel_trees }}
+  register: nspawn_pi_kernel_check_result
   changed_when: false
 
 - name: Report the NFS root kernel set
   ansible.builtin.debug:
-    msg: "{{ nspawn_kernel_check.stdout_lines + nspawn_kernel_check.stderr_lines }}"
+    msg: "{{ nspawn_pi_kernel_check_result.stdout_lines + nspawn_pi_kernel_check_result.stderr_lines }}"
