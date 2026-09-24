@@ -50,12 +50,15 @@
   tags:
     - pipw
 
+# Inline, not a handler (noqa): a handler only runs if the rest of the play
+# succeeds, and this warning must not be lost when the shadow was replaced
+# and a later task then fails.
 - name: reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
   debug:
     msg: >-
       {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
       now refuses SSH until rebooted: PoE-cycle their switch ports.
-  when: fixpi_pi_pw_set is changed
+  when: fixpi_pi_pw_set is changed  # noqa: no-handler
   tags:
     - pipw
 
