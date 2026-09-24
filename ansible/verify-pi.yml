@@ -61,6 +61,7 @@
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
+          acorn_report = read("/run/fpgas-online/acorn-verify.json")
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -80,6 +81,9 @@
               "cam": run("systemctl", "is-enabled", "fpgas-cam"),
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
+              "acorn_enabled": run("systemctl", "is-enabled", "fpgas-acorn-verify.service"),
+              "acorn_report": ({"content": base64.b64encode(acorn_report).decode()}
+                               if acorn_report is not None else {"msg": "not readable or missing"}),
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
               "dt_model": ({"content": base64.b64encode(model).decode()} if model is not None else {}),
               "model": {"rc": 0 if model is not None else 1,
@@ -116,6 +120,8 @@
         verify_pi_cam: "{{ verify_pi_state.cam }}"
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
+        verify_pi_acorn_enabled: "{{ verify_pi_state.acorn_enabled }}"
+        verify_pi_acorn_report: "{{ verify_pi_state.acorn_report }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
         verify_pi_model: "{{ verify_pi_state.model }}"
@@ -384,14 +390,8 @@
     # The Acorn boot check (roles/onpi/tasks/acorn.yml). Installed and enabled on every Pi: that part is
     # software and carries fpgas-apt like its install. What it found is hardware (hw-fpga): "pass" is an
     # Acorn running the pinned release's operational build with both flash slots matching it, "none" is a
-    # Pi with no FPGA on PCIe. Anything else is a board that is not right, and says why.
-    - name: Check the Acorn boot check is installed and enabled
-      command: systemctl is-enabled fpgas-acorn-verify.service
-      changed_when: false
-      failed_when: false
-      register: verify_pi_acorn_enabled
-      tags: [verify, acorn, fpgas-apt]
-
+    # Pi with no FPGA on PCIe. Anything else is a board that is not right, and says why. The collector
+    # reads both the unit's state and the report (written 0644 by the root service, so no become).
     - name: Assert the Acorn boot check is enabled
       assert:
         that: verify_pi_acorn_enabled.stdout == "enabled"
@@ -400,13 +400,6 @@
           ({{ verify_pi_acorn_enabled.stderr }}) -- fpgas-online-acorn-tools is not in the NFS root, or
           roles/onpi/tasks/acorn.yml has not run against it
       tags: [verify, acorn, fpgas-apt]
-
-    - name: Read what the Acorn boot check found this boot
-      slurp:
-        src: /run/fpgas-online/acorn-verify.json
-      register: verify_pi_acorn_report
-      failed_when: false
-      tags: [verify, acorn, hw-fpga]
 
     - name: Assert the Acorn boot check passed (or found no FPGA)
       vars:
