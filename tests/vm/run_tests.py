@@ -14,6 +14,9 @@ import sys
 import time
 from pathlib import Path
 
+import paramiko
+import yaml
+
 from tests.vm.cloud_init import create_seed_iso
 from tests.vm.network import proxy_jump_string
 from tests.vm.vswitch import AccessPortSwitch
@@ -27,6 +30,7 @@ from tests.vm.vm_manager import (
     find_pxeboot_firmware,
     find_qemu_rpi_binary,
     generate_ssh_keypair,
+    open_proxied_socket,
 )
 
 REPO_ROOT = Path(__file__).parent.parent.parent
@@ -47,6 +51,41 @@ def ensure_ansible_collections() -> None:
         check=True,
         stdin=subprocess.DEVNULL,
     )
+
+
+def pi_password_from_inventory() -> str:
+    """The pi user's password the test inventory provisions (pi_pw)."""
+    host_vars = TEST_INVENTORY.parent / "host_vars" / "test-vm.yml"
+    with open(host_vars) as f:
+        return yaml.safe_load(f)["pi_pw"]
+
+
+def pi_password_login_works(host: str, password: str, key_path: Path, proxy_jump: str) -> bool:
+    """Log in to the Pi as `pi` with the shared password, as the web terminal does.
+
+    webssh (roles/wssh) has no key for the Pi: the board page's iframe URL
+    carries the password and paramiko authenticates with it. The key login
+    above says nothing about that path -- useradd creates the account with
+    its password locked, and only fixpi/userconf.yml writing the hash into
+    the NFS root makes it usable.
+    """
+    sock = open_proxied_socket(proxy_jump, key_path, host, 22)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            host, port=22, username="pi", password=password,
+            look_for_keys=False, allow_agent=False,
+            timeout=5, auth_timeout=10, sock=sock,
+        )
+    except paramiko.ssh_exception.AuthenticationException as exc:
+        print(f"[pi] password login as pi FAILED: {exc}")
+        return False
+    _in, out, _err = client.exec_command("id -un", timeout=30)
+    who = out.read().decode(errors="replace").strip()
+    client.close()
+    print(f"[pi] password login as pi OK (id -un: {who})")
+    return who == "pi"
 
 
 def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str] | None = None) -> int:
@@ -349,6 +388,12 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
         pi.shutdown()
         return False
 
+    # The web terminal's login path: password, no key (see the docstring).
+    if not pi_password_login_works(pi_host, pi_password_from_inventory(), key_path, proxy):
+        print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
+        pi.shutdown()
+        return False
+
     # Run verify-pi.yml against the running Pi.
     # Pass the discovered IP via -e ansible_host=... so it matches the IP that
     # DHCP actually assigned (may differ from the static reservation due to the
@@ -398,7 +443,7 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="cam,fpgas-apt,hw-camera,hw-fpga,sunxi-kernel,hw-sunxi",
+    parser.add_argument("--skip-tags", type=str, default="cam,hw-camera,hw-fpga,sunxi-kernel,hw-sunxi",
                         help="Comma-separated Ansible tags to skip (default skips hardware-dependent checks and the "
                              "30-minute qemu-emulated sunxi kernel build; the sunxi PXE render is still verified)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")

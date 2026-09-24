@@ -63,6 +63,33 @@
     fail_msg: "GET /fpgas/ via /run/gunicorn.sock returned HTTP {{ site_http_probe.stdout }}"
   tags: [verify, django]
 
+# --- under-construction banner ----------------------------------------------
+# The banner is a line in local_settings.py, which nothing else validates: a
+# host that silently lost it would keep serving pages that look fine. Assert
+# the rendered page agrees with site_under_construction in BOTH directions, so
+# this also proves ps1 is not showing a banner pointing at itself.
+# Sec-Fetch-Dest: document because the middleware only banners top-level
+# navigations -- curl sends no such header, and absent is treated as top level,
+# but sending it keeps the probe honest about what it is asking for.
+
+- name: Fetch /fpgas/ to check the under-construction banner
+  command: >-
+    curl -s --unix-socket /run/gunicorn.sock
+    -H 'Host: {{ domain_name }}' -H 'Sec-Fetch-Dest: document'
+    http://localhost/fpgas/
+  changed_when: false
+  register: site_v_banner
+  tags: [verify, django]
+
+- name: Assert the under-construction banner matches site_under_construction
+  assert:
+    that: ('Under construction!' in site_v_banner.stdout) == (site_under_construction | bool)
+    fail_msg: >-
+      site_under_construction is {{ site_under_construction | bool }} but the banner is
+      {{ 'present' if 'Under construction!' in site_v_banner.stdout else 'absent' }}
+      on GET /fpgas/. Check UNDER_CONSTRUCTION in {{ django_dir }}/pib/local_settings.py.
+  tags: [verify, django]
+
 # --- TLS reachability on BOTH address families ------------------------------
 # welland.fpgas.online spent a week serving the tinytapeout certificate to every
 # IPv6 client because its vhost had `listen 443 ssl` but no `listen [::]:443
@@ -116,3 +143,45 @@
     fail_msg: >-
       TLS over IPv6 for {{ domain_name }} did not serve its own certificate.
       s_client said: {{ site_v_v6cert.stdout_lines | select('search', '^(subject|issuer)=') | join('; ') | default('no certificate', true) }}
+
+# Fleet self-registration (fpgas.online-infra#47): broker + consumer +
+# pages, only on hosts that opted in via fleet_broker.
+- name: Check the fleet broker and consumer are active
+  command: systemctl is-active {{ item }}
+  changed_when: false
+  register: site_v_fleet_services
+  loop: [mosquitto.service, fleet-consumer.service]
+  failed_when: false
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+- name: Assert the fleet broker and consumer are active
+  assert:
+    that: item.stdout == "active"
+    fail_msg: "{{ item.item }} is not active (got: {{ item.stdout }})"
+  loop: "{{ site_v_fleet_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+# Straight to gunicorn's socket: proves Django serves the fleet pages
+# without depending on TLS/SNI details already asserted above.
+- name: GET /fleet/ from the app server
+  command: >-
+    curl --silent --output /dev/null --write-out '%{http_code}'
+    --unix-socket /run/gunicorn.sock
+    --header 'Host: {{ domain_name }}'
+    http://localhost/fleet/
+  changed_when: false
+  register: site_v_fleet_page
+  failed_when: false
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]
+
+- name: Assert /fleet/ returns 200
+  assert:
+    that: site_v_fleet_page.stdout == "200"
+    fail_msg: "GET /fleet/ returned {{ site_v_fleet_page.stdout }}, expected 200"
+  when: fleet_broker | default(false)
+  tags: [verify, fleet]

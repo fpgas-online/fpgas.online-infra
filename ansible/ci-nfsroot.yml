@@ -47,27 +47,17 @@
         name: fixpi
 
 # The chroot connection plugin does not provide the API filesystems the Pi
-# roles' apt runs need (posix_openpt wants /dev/pts). Give the chroot the
-# API-filesystem mounts + a policy-rc.d that suppresses service starts,
-# the standard chroot-apt environment.
+# roles' apt runs need (posix_openpt wants /dev/pts). chroot-prep.yml gives
+# the chroot its API-filesystem mounts, a policy-rc.d that suppresses service
+# starts, the initramfs suppression and the served-kernel protection; the
+# image build is the only place anything runs inside the ARM root.
 - hosts: nbp
   become: true
   tasks:
-    - name: Mount filesystems for chroot
-      shell: |
-        mountpoint -q "{{ nfs_root }}/root/proc" || mount --bind /proc "{{ nfs_root }}/root/proc"
-        mountpoint -q "{{ nfs_root }}/root/sys" || mount --bind /sys "{{ nfs_root }}/root/sys"
-        mountpoint -q "{{ nfs_root }}/root/dev" || mount --bind /dev "{{ nfs_root }}/root/dev"
-        mountpoint -q "{{ nfs_root }}/root/dev/pts" || mount --bind /dev/pts "{{ nfs_root }}/root/dev/pts"
-      changed_when: false
-
-    - name: Install policy-rc.d to suppress service starts during apt
-      copy:
-        dest: "{{ nfs_root }}/root/usr/sbin/policy-rc.d"
-        content: |
-          #!/bin/sh
-          exit 101
-        mode: "0755"
+    - name: Prepare the NFS root chroot for apt
+      include_role:
+        name: nspawn-pi
+        tasks_from: chroot-prep.yml
 
 - hosts: pi
   roles:
@@ -81,20 +71,18 @@
 - hosts: nbp
   become: true
   tasks:
-    # Unmount the API filesystems and drop policy-rc.d BEFORE the payload
-    # sync and packaging: a still-mounted /dev must never be tarred into
-    # the image.
-    - name: Unmount chroot bind mounts
-      shell: |
-        for d in dev/pts dev sys proc; do
-          mountpoint -q "{{ nfs_root }}/root/$d" && umount "{{ nfs_root }}/root/$d" || true
-        done
-      changed_when: false
-
-    - name: Remove policy-rc.d
-      file:
-        path: "{{ nfs_root }}/root/usr/sbin/policy-rc.d"
-        state: absent
+    # Lift the initramfs suppression, rebuild any initramfs the chroot apt
+    # runs left stale (before the payload re-sync below picks them up), then
+    # unmount the API filesystems and drop policy-rc.d BEFORE packaging: a
+    # still-mounted /dev must never be tarred into the image.
+    #
+    # Kernel pruning is a no-op here by design: it keeps what boot/ currently
+    # serves, and in a one-shot build boot/ still holds the stock image's
+    # payload, so nothing is identified as superseded and nothing is purged.
+    - name: finish the chroot session (kernels, mounts, policy-rc.d)
+      include_role:
+        name: nspawn-pi
+        tasks_from: stop.yml
 
     # The chroot apt runs resolved names through the build host's
     # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's
@@ -124,6 +112,7 @@
       loop: "{{ ci_nfsroot_host_keys.files }}"
       loop_control:
         label: "{{ item.path }}"
+
     # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
     # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
     # -- leaving boot/ stale in a one-shot build: the exact mismatched
@@ -161,14 +150,24 @@
         - overlays
       tags: [verify]
 
+    # dpkg -l exits 0 for a package that is merely known to the database
+    # ("rc" after a removal, "un"), so read the status field instead.
     - name: assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
-      command: dpkg --root={{ nfs_root }}/root -l {{ item }}
+      command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
+      register: ci_nfsroot_pkg_status
       changed_when: false
+      failed_when: ci_nfsroot_pkg_status.stdout != 'install ok installed'
       loop:
         - overlayroot
         - nfs-common
         - fpgas-online-setup-pi
         - fpgas-online-cam
+        # roles/onpi/tasks/apt.yml: the fpgas.online patch-series builds from
+        # fpgas.online-fpga-tools stand in for Debian's openfpgaloader /
+        # openocd (and for the superseded -rp1pio builds from
+        # mithro/rp1-jtag).
+        - openfpgaloader-fpgasonline-git
+        - openocd-fpgasonline-git
       tags: [verify]
 
     - name: assert pi user exists in the root

@@ -16,6 +16,12 @@
         tasks_from: verify/main.yml
       tags: [verify, operators]
 
+    - name: verify jump
+      include_role:
+        name: jump
+        tasks_from: verify/main.yml
+      tags: [verify, jump]
+
     - name: verify lldp
       include_role:
         name: lldp
@@ -46,15 +52,29 @@
         tasks_from: verify/main.yml
       tags: [verify, fixpi]
 
+    # The NFS root's kernel set, which grows between rebuilds and turns the
+    # next one into a two-hour emulated initramfs marathon if nobody looks.
+    - name: verify nspawn-pi
+      include_role:
+        name: nspawn-pi
+        tasks_from: verify/main.yml
+      tags: [verify, nspawn-pi]
+
     - name: verify pxe
       include_role:
         name: pxe
         tasks_from: verify/main.yml
       tags: [verify, pxe]
 
+    - name: verify apt-cache
+      include_role:
+        name: apt-cache
+        tasks_from: verify/main.yml
+      tags: [verify, apt-cache]
+
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
-    # (ps1.fpgas.online, slf.sytes.net, CI test-vm) don't have per-port
+    # (ps1.fpgas.online, CI test-vm) don't have per-port
     # networkd/dnsmasq/nft config, so these are skipped there.
     - name: Check networkctl list for a per-port VLAN interface
       command: networkctl list
@@ -258,3 +278,10 @@
         name: cam/stream-server
         tasks_from: verify/main.yml
       tags: [verify, cam-stream]
+
+    - name: verify cam/webrtc
+      include_role:
+        name: cam/webrtc
+        tasks_from: verify/main.yml
+      when: webrtc_additional_hosts is defined
+      tags: [verify, cam-webrtc]

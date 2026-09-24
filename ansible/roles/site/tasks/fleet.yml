@@ -1,0 +1,18 @@
+---
+# Fleet self-registration consumer (fpgas.online-infra#47): a management
+# command that subscribes to the site broker and ingests registrations,
+# status beats and boot events into the fleet app. Included from main.yml
+# guarded by fleet_broker.
+- name: fleet-consumer systemd unit
+  template:
+    src: templates/fleet-consumer.service.j2
+    dest: /etc/systemd/system/fleet-consumer.service
+    mode: "0644"
+  notify: restart fleet-consumer
+
+- name: enable fleet-consumer
+  systemd:
+    service: fleet-consumer.service
+    daemon_reload: true
+    enabled: true
+    state: started

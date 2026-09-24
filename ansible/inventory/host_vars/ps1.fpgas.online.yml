@@ -27,7 +27,16 @@ room_name: catwalk
 domain_name: ps1.fpgas.online
 letsencrypt_account_email: carl@NextDayVideo.com
 
+# No apt cache on ps1 yet (roles/apt-cache): it would need its own
+# apt.ps1.fpgas.online DNS record and certificate, and this host is still on
+# the legacy MAC-table network scheme. Clients keep their upstream URLs.
+apt_cache_enabled: false
+
 fixture_path: ps1.fpgas.online.json
+
+# Fleet self-registration (fpgas.online-infra#47); topics fpgas/ps1/pi/...
+fleet_broker: true
+fleet_site: ps1
 
 tt06_dev_id: usb-MicroPython_Board_in_FS_mode_de640cb1d3975a26-if00
 

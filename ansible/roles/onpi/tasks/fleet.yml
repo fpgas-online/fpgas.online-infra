@@ -1,0 +1,46 @@
+---
+# Fleet self-registration agent config (fpgas.online-infra#47), baked into
+# the shared Pi NFS root. The fpgas-fleet-agent unit ships in the
+# fpgas-online-setup-pi deb and is gated on this file existing
+# (ConditionPathExists), so hosts whose server has no fleet vars boot
+# exactly as before.
+#
+# fleet_* live on the server host (the Pi "host" is the nspawn chroot on
+# that server), so read them from the first nbp host -- same pattern as
+# tt_boards in tt.yml.
+- name: fleet vars from the server host
+  set_fact:
+    fleet_broker: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"
+    fleet_site: "{{ hostvars[groups['nbp'][0]].fleet_site | default('') }}"
+    fleet_broker_address: "{{ hostvars[groups['nbp'][0]].eth_local_address | default('10.21.0.1') }}"
+  when: fleet_broker is not defined
+
+- name: fleet agent config
+  when: fleet_broker | default(false)
+  block:
+    - name: create /etc/fpgas-online
+      ansible.builtin.file:
+        path: /etc/fpgas-online
+        state: directory
+        mode: "0755"
+
+    - name: bake fleet.toml into the Pi root
+      ansible.builtin.template:
+        src: fleet.toml.j2
+        dest: /etc/fpgas-online/fleet.toml
+        mode: "0644"
+
+    # failed_when: false -- the rolling apt repo may still carry a
+    # pre-fleet deb without these units (same tolerance as pistat.yml)
+    - name: enable the fleet agent and boot-stage event units
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+      failed_when: false
+      loop:
+        - fpgas-fleet-agent.service
+        - fpgas-fleet-event@network-online.service
+        - fpgas-fleet-event@time-synced.service
+        - fpgas-fleet-event@ssh-up.service
+        - fpgas-fleet-event@cam-streaming.service
+        - fpgas-fleet-event@tt-daemon-up.service

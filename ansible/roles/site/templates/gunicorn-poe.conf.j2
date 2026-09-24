@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# PoE control (snmp_switch in fpgas-online-poe) on a per-port-VLAN host: the
+# switch topology comes from the file switch-vlans renders, the write
+# community for each switch from the vault.  Secrets live here, not in
+# /etc/environment, so the file is root-only.
+[Service]
+Environment=FPGAS_SWITCHES_CONFIG=/etc/fpgas/switches.yml
+{% for sw in switches if sw.snmp_rw_community is defined %}
+Environment=FPGAS_SWITCH_COMMUNITY_{{ sw.index }}={{ sw.snmp_rw_community }}
+{% endfor %}
