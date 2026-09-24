@@ -49,9 +49,11 @@ PI_ADDRESS = "10.21.1.1"
 
 def ensure_ansible_collections() -> None:
     """Install required Ansible collections if not already present."""
+    # Pinned versions (requirements.yml): a no-op when they are already
+    # installed (CI caches them), no --upgrade re-download on every run.
     subprocess.run(
         ["uv", "run", "ansible-galaxy", "collection", "install",
-         "-r", str(Path(__file__).resolve().parents[2] / "requirements.yml"), "--upgrade"],
+         "-r", str(Path(__file__).resolve().parents[2] / "requirements.yml")],
         check=True,
         stdin=subprocess.DEVNULL,
     )

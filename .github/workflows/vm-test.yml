@@ -107,6 +107,14 @@ jobs:
       - name: Install Python dependencies
         run: uv sync
 
+      # The pinned collections (requirements.yml); the harness installs any
+      # that are missing (it took 46 s to download them all on every run).
+      - name: Cache Ansible collections
+        uses: actions/cache@v5
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-${{ hashFiles('requirements.yml') }}
+
       - name: Cache VM images
         uses: actions/cache@v5
         with:

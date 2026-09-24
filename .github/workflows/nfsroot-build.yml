@@ -75,11 +75,18 @@ jobs:
           python-version: "3.12"
           enable-cache: true
 
+      - name: Cache Ansible collections
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/cache@v5
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-arm-${{ hashFiles('requirements.yml') }}
+
       - name: Install ansible and collections
         if: steps.reuse.outputs.reused != 'true'
         run: |
           uv sync
-          uv run ansible-galaxy collection install -r requirements.yml --upgrade
+          uv run ansible-galaxy collection install -r requirements.yml
 
       # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
       # 524 MB image vs the usual 16 s). Cache the download; the img role's
