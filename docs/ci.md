@@ -609,6 +609,7 @@ waits for.
 | [36059301016](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36059301016) | [PR #105](https://github.com/fpgas-online/fpgas.online-infra/pull/105), reused | | | **799 s (13:19)** |
 | [36056167899](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899) | [PR #104](https://github.com/fpgas-online/fpgas.online-infra/pull/104), **warm** image build | [293 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899/job/107823962630) | [688 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899/job/107823962068) (after waiting 65 s for a runner) | **753 s (12:33)** |
 | [36052538261](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261) | a PR before #104–#106, **scratch** image build | [563 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717) | [986 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379397) (waited 181 s for the image) | **989 s (16:29)** |
+| [36071974623](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36071974623) | [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108), **scratch** image build (current `main` plus #108) | 620 s | 1000 s (waited 265 s for the image) | **1003 s (16:43)** |
 | [36063159621](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621) | Lint | | [46 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901) | **50 s** |
 
 ### 5.2 Where the 12 minutes go (reuse case, [run 36063159932](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932/job/107846650469))
@@ -641,7 +642,7 @@ The costliest single tasks in `site.yml` are:
 |---|---|---|
 | nothing in `INPUTS` (server roles, web tier, `tests/vm`, docs) | reuse | ~12½–13½ min |
 | a Pi role, `ci-nfsroot.yml`, `uv.lock`, … (or it's the first run of a new ISO week) | warm | ~12½–13½ min: the build finishes before the server needs the image |
-| the RasPiOS base | scratch | **~16½ min** (measured once, [run 36052538261](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261)): over the 15-minute target, because the server waits ~3 min for the image. On `main` today, any edit to [`srv.yml`](../ansible/inventory/group_vars/all/srv.yml) or [`zz-ci-overrides.yml`](../ansible/inventory-ci-nfsroot/group_vars/all/zz-ci-overrides.yml) counts as a base change. [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108) narrows that to the image's identity |
+| the RasPiOS base | scratch | **~16½–17 min** (measured twice: [16:29](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261), [16:43](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36071974623)): over the 15-minute target, because the server waits ~3 min for the image. On `main` today, any edit to [`srv.yml`](../ansible/inventory/group_vars/all/srv.yml) or [`zz-ci-overrides.yml`](../ansible/inventory-ci-nfsroot/group_vars/all/zz-ci-overrides.yml) counts as a base change. [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108) narrows that to the image's identity |
 
 ---
 
