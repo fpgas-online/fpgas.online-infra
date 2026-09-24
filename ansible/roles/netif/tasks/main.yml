@@ -38,7 +38,7 @@
   when:
     - item.mac | length > 0
     - item.name != eth_local or eth_local_mac_address is defined
-    - item.name != eth_uplink or uplink_manage
+    - item.name != eth_uplink or netif_uplink_manage
   tags: [netif]
 
 - name: uplink network (systemd-networkd)
@@ -47,7 +47,7 @@
     dest: "/etc/systemd/network/30-{{ eth_uplink }}.network"
     mode: "0644"
   notify: reload networkd
-  when: uplink_manage
+  when: netif_uplink_manage
   tags: [netif]
 
 - name: static resolv.conf (networkd without systemd-resolved)
@@ -56,14 +56,14 @@
     dest: /etc/resolv.conf
     mode: "0644"
     follow: false
-  when: uplink_manage and eth_uplink_dns_server is defined
+  when: netif_uplink_manage and eth_uplink_dns_server is defined
   tags: [netif]
 
 - name: is the host running ifupdown
   stat:
     path: /etc/network/interfaces
   register: netif_ifupdown
-  when: uplink_manage
+  when: netif_uplink_manage
   tags: [netif]
 
 # A host installed without ifupdown (networkd only) has nothing to take.
@@ -73,7 +73,7 @@
     # comment out: auto|allow-hotplug|iface <uplink by old or new name> ...
     regexp: '^(\s*)(auto|allow-hotplug|iface)(\s+)({{ ([eth_uplink, netif_uplink_cur] | reject("equalto", "") | map("regex_escape") | join("|")) }})(\s|$)'
     replace: '\1#\2\3\4\5'
-  when: uplink_manage and netif_ifupdown.stat.exists
+  when: netif_uplink_manage and netif_ifupdown.stat.exists
   tags: [netif]
 
 - name: enable systemd-networkd
@@ -89,12 +89,12 @@
     reboot_timeout: 600
   when:
     - netif_allow_reboot
-    - (netif_local_cur != eth_local) or (uplink_manage and netif_uplink_cur != eth_uplink)
+    - (netif_local_cur != eth_local) or (netif_uplink_manage and netif_uplink_cur != eth_uplink)
   tags: [netif]
 
 - name: re-gather facts after rename
   setup:
   when:
     - netif_allow_reboot
-    - (netif_local_cur != eth_local) or (uplink_manage and netif_uplink_cur != eth_uplink)
+    - (netif_local_cur != eth_local) or (netif_uplink_manage and netif_uplink_cur != eth_uplink)
   tags: [netif]
