@@ -4,10 +4,28 @@
 # the chroot) leaves packages half-configured, and apt then refuses to do
 # anything until dpkg has finished them. Do that first, so the role can
 # always be re-run to repair the root.
+#
+# Only when there is something to finish: dpkg --configure -a rewrites
+# /var/lib/dpkg/status (a new inode) even when it has nothing to do, and
+# every running board then gets ESTALE for it -- and the run bumps the
+# root's generation, rebooting the fleet (roles/nfsroot-generation), for a
+# converge that changed nothing. The grep is read-only; so is `dpkg --audit`,
+# but that also lists permanent oddities (missing md5sums) and would never
+# come back empty.
+- name: look for interrupted dpkg work
+  ansible.builtin.shell: |
+    grep -qE '^Status: [^ ]+ [^ ]+ (half-installed|unpacked|half-configured|triggers-awaited|triggers-pending)$' /var/lib/dpkg/status && echo pending-packages
+    [ -n "$(ls -A /var/lib/dpkg/updates)" ] && echo pending-journal
+    exit 0
+  register: onpi_dpkg_pending
+  changed_when: false
+  check_mode: false
+
 - name: finish any interrupted dpkg configuration
   command: dpkg --configure -a
   register: onpi_dpkg_configure
   changed_when: onpi_dpkg_configure.stdout | trim | length > 0
+  when: onpi_dpkg_pending.stdout | trim | length > 0
 
 - name: apt update/upgrade
   apt:
