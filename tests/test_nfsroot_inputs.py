@@ -69,9 +69,13 @@ def test_inputs_exist():
 
 
 def test_key_is_stable_and_changes_with_content(tmp_path, monkeypatch):
-    a = nfsroot_inputs.key(week="2026-W39")
-    assert a == nfsroot_inputs.key(week="2026-W39")
-    assert a != nfsroot_inputs.key(week="2026-W40")
+    a = nfsroot_inputs.key("2026-09-25T01")
+    assert a == nfsroot_inputs.key("2026-09-25T01")
+    assert a != nfsroot_inputs.key("2026-09-25T02")
+
+
+def test_period_is_the_utc_hour():
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d", nfsroot_inputs.period())
 
 
 def test_base_inputs_exist_and_are_image_inputs():

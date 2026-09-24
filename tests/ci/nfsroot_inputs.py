@@ -9,8 +9,9 @@ serve on the day. nfsroot-build.yml tags every image it pushes with
 PR that touches no image input boots exactly the image main would, and one
 that does touch an input always gets a fresh build of its own checkout.
 
-The key includes the ISO week, so an unchanged checkout still rebuilds at
-least weekly and picks up new debs (the same cadence as the weekly cron).
+The key includes the UTC hour, so an unchanged checkout still rebuilds at
+least hourly and picks up new debs (the same cadence as nfsroot-build.yml's
+hourly schedule, whose image the later runs of that hour then reuse).
 
 tests/test_nfsroot_inputs.py fails if ci-nfsroot.yml starts using a role,
 or a role starts reading another role's files, that INPUTS does not cover.
@@ -119,9 +120,14 @@ def input_files() -> list[str]:
     return sorted(p for p in out.split("\0") if p)
 
 
-def key(week: str | None = None) -> str:
+def period() -> str:
+    """The current UTC hour: how long an image counts as fresh."""
+    return time.strftime("%Y-%m-%dT%H", time.gmtime())
+
+
+def key(period_: str | None = None) -> str:
     h = hashlib.sha256()
-    h.update((week or time.strftime("%G-W%V", time.gmtime())).encode() + b"\0")
+    h.update((period_ or period()).encode() + b"\0")
     for rel in input_files():
         path = REPO / rel
         h.update(rel.encode() + b"\0")
