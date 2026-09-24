@@ -67,100 +67,12 @@
     - bashrc
     - fixpi
 
-# Disable the onboard radios in the read-only netboot image. Because config.txt
-# is served from the (read-only) TFTP root, these lines are re-applied on every
-# boot: a user with root can bring a radio up for the life of a session, but the
-# change never survives a reboot. On Pi 5 (BCM2712) the firmware auto-remaps
-# disable-wifi -> disable-wifi-pi5 and disable-bt -> disable-bt-pi5 via
-# overlay_map.dtb, so the same two lines disable both radios on Pi 4 and Pi 5.
-#   disable-wifi:  Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
-#   disable-bt:    Pi 4 disables &bt, Pi 5 disables &bluetooth
-- name: config.txt disable onboard Wi-Fi and Bluetooth, enable uart
-  ansible.builtin.lineinfile:
-    dest: "{{ nfs_root }}/boot/config.txt"
-    line: "{{ item }}"
-  with_items:
-    - dtoverlay=disable-wifi
-    - dtoverlay=disable-bt
-    - enable_uart=1
-    - uart_2ndstage=1
-  tags:
-    - fixpi
-
-# Write-protect the bootloader EEPROM. The EEPROM (SPI flash) is the one piece
-# of per-board state that a netbooted Pi does NOT revert on reboot, so it is the
-# only place a root user could leave a persistent change (reflash the bootloader,
-# change BOOT_ORDER, etc). eeprom_write_protect=1 tells the bootloader to set the
-# SPI flash Write Status Register to protect the whole device, which blocks
-# rpi-eeprom-update / rpi-eeprom-config from writing it.
-#
-#   Pi 5 (BCM2712): /WP is pulled low by default, so configuring the Write Status
-#     Register makes the protection hardware-enforced immediately -- even root
-#     cannot clear it without physically bridging TP14<->TP1. This is a real,
-#     tamper-resistant lock.
-#   Pi 4 (BCM2711): /WP (TP5) is NOT asserted by default, so this blocks the
-#     standard tooling but a determined root user could still clear the Write
-#     Status Register. Pull TP5 low to make it hardware-enforced.
-#
-# To legitimately update an EEPROM later: set eeprom_write_protect=0 in the
-# served config.txt, reboot the board, flash, then restore =1. See
-# docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md
-- name: config.txt write-protect the bootloader EEPROM
-  ansible.builtin.lineinfile:
-    dest: "{{ nfs_root }}/boot/config.txt"
-    line: eeprom_write_protect=1
-  tags:
-    - fixpi
-
-# The block above frees the 40-pin header UART on Pi 0-4 only, and does so as a
-# side effect: disable-bt.dtbo is compatible="brcm,bcm2835" and its fragment@1
-# targets `uart0` with status="okay" + uart0_pins.  On a Pi 5 the firmware
-# resolves the same `dtoverlay=disable-bt` to disable-bt-pi5.dtbo
-# (compatible="brcm,bcm2712"), whose only fragment targets `bluetooth` -- it
-# never touches uart0.  bcm2712-rpi-5-b.dtb ships the RP1 header UART
-# (/axi/pcie@1000120000/rp1/serial@30000, alias serial0) as status="disabled",
-# so on every Pi 5 it stays off and /dev/ttyAMA0 never appears.  That is the
-# whole reason the Acorn CLE-215+ hosts have no serial link to their FPGA
-# (fpgas.online-test-designs docs/hardware/acorn-pinmap.md wires the Acorn's P2
-# connector to GPIO14/15 and expects /dev/ttyAMA0 at 115200).
-#
-# `cmdline=` is not cosmetic.  Enabling uart0 makes the firmware resolve
-# `console=serial0` to ttyAMA0 -- putting the kernel console, and the getty
-# systemd's generator derives from it, directly onto the FPGA's UART.  A design
-# driving K2 then feeds the console garbage that SysRq reads as reboot/crash
-# (see the acorn-pinmap.md warning).  Pinning the Pi 5s to their dedicated
-# debug UART keeps the console off the FPGA AND leaves ttyAMA0 unclaimed.
-- name: config.txt enable the 40-pin header UART on Pi 5
-  ansible.builtin.blockinfile:
-    dest: "{{ nfs_root }}/boot/config.txt"
-    marker: "# {mark} ANSIBLE MANAGED BLOCK: pi5 header uart"
-    block: |
-      [pi5]
-      dtoverlay=uart0-pi5
-      cmdline=cmdline-pi5.txt
-      [all]
-  tags:
-    - fixpi
-    - cmdline
-# USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
-# USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
-# in peripheral mode a laptop on that port gets the kernel log + a getty.
-# Only these models: their USB-A ports hang off separate controllers (VL805 /
-# RP1), so nothing is lost, whereas on a Pi 3 or Zero dwc2 IS the only USB
-# (Ethernet on the 3B+ included). Fleet nodes are PoE-powered, so the USB-C
-# port is free. Orange Pi H3 boards need nothing here (musb autoloads).
-- name: config.txt dwc2 peripheral mode on Pi 4 / Pi 5 (USB gadget console)
-  ansible.builtin.blockinfile:
-    dest: "{{ nfs_root }}/boot/config.txt"
-    marker: "# {mark} ANSIBLE MANAGED BLOCK: usb gadget console"
-    block: |
-      [pi4]
-      dtoverlay=dwc2,dr_mode=peripheral
-      [pi5]
-      dtoverlay=dwc2,dr_mode=peripheral
-      [all]
-  tags:
-    - fixpi
+# NOTE: the netboot config.txt is no longer edited here. It is rendered as a
+# single owned file from fixpi/templates/boot/config.txt.j2 (stock RpiOS snapshot
+# + fpgas.online managed settings) by the render task in netboot.yml, and guarded
+# against upstream drift by the "stock config.txt drift" assertion there. Add or
+# change any config.txt setting in that template, not with a task here.
+# See docs/superpowers/specs/2026-09-02-config-txt-single-owner-design.md
 
 # the rest of these tasks config the server to monitor client boot spew.
 # They touch the build host, not the NFS root, so the CI nfsroot build

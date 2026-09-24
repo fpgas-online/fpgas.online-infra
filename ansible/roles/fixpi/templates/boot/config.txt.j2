@@ -1,97 +1,59 @@
-# For more options and information see
-# http://rpf.io/configtxt
-# Some settings may impact device functionality. See link above for details
+{{ lookup('file', 'boot/config.txt.stock') }}
 
-# uncomment if you get no picture on HDMI for a default "safe" mode
-#hdmi_safe=1
+# =====================================================================
+# fpgas.online managed settings
+# ---------------------------------------------------------------------
+# This file (fixpi/templates/boot/config.txt.j2) is the SINGLE OWNER of
+# the netboot config.txt. Everything above this line is the stock RpiOS
+# config.txt, tracked verbatim in fixpi/files/boot/config.txt.stock and
+# guarded by the "stock config.txt drift" assertion in netboot.yml — if
+# the pinned RpiOS image ships a changed config.txt the build FAILS until
+# the snapshot and this file are reconciled. Everything below is ours.
+# Do NOT modify config.txt from any other task; add settings here.
+# See docs/superpowers/runbooks/2026-09-02-config-txt-single-owner.md
+# =====================================================================
 
-# uncomment the following to adjust overscan. Use positive numbers if console
-# goes off screen, and negative if there is too much border
-#overscan_left=16
-#overscan_right=16
-#overscan_top=16
-#overscan_bottom=16
-
-# uncomment to force a console size. By default it will be display's size minus
-# overscan.
-#framebuffer_width=1280
-#framebuffer_height=720
-
-# uncomment if hdmi display is not detected and composite is being output
-#hdmi_force_hotplug=1
-
-# uncomment to force a specific HDMI mode (this will force VGA)
-#hdmi_group=1
-#hdmi_mode=1
-
-# uncomment to force a HDMI mode rather than DVI. This can make audio work in
-# DMT (computer monitor) modes
-#hdmi_drive=2
-
-# uncomment to increase signal to HDMI, if you have interference, blanking, or
-# no display
-#config_hdmi_boost=4
-
-# uncomment for composite PAL
-#sdtv_mode=2
-
-#uncomment to overclock the arm. 700 MHz is the default.
-#arm_freq=800
-
-# Uncomment some or all of these to enable the optional hardware interfaces
-#dtparam=i2c_arm=on
-#dtparam=i2s=on
-#dtparam=spi=on
-
-# Uncomment this to enable infrared communication.
-#dtoverlay=gpio-ir,gpio_pin=17
-#dtoverlay=gpio-ir-tx,gpio_pin=18
-
-# Additional overlays and parameters are documented /boot/overlays/README
-
-# Enable audio (loads snd_bcm2835)
-# dtparam=audio=on
-
-# Automatically load overlays for detected cameras
-camera_auto_detect=1
-
-# Automatically load overlays for detected DSI displays
-display_auto_detect=1
-
-# Enable DRM VC4 V3D driver
-dtoverlay=vc4-kms-v3d
-max_framebuffers=2
-
-# Disable compensation for displays with overscan
-disable_overscan=1
-
-[cm4]
-# Enable host mode on the 2711 built-in XHCI USB controller.
-# This line should be removed if the legacy DWC2 controller is required
-# (e.g. for USB device mode) or if USB support is not required.
-otg_mode=1
-
-[all]
-
-[pi4]
-# Run as fast as firmware / board allows
-# arm_boost=1
-
-[all]
-# Switch the CPU from ARMv7 into ARMv8 (aarch64) mode
-# leave this off - Pici does not need 64,
-# and maybe it keeps the pi from getting cranky and not booting.
-# arm_64bit=1
-
-# Automatically load initramfs files, if found
-auto_initramfs=1
-
-# core_freq=250
-# gpu_mem=64
-
+# --- Disable the onboard radios; enable UART + 2nd-stage boot logging ---
+# config.txt is served read-only from the TFTP root, so these re-apply on
+# every boot: a root user can bring a radio up for one session, but it never
+# survives a reboot, and the default is disabled. On Pi 5 (BCM2712) the
+# firmware auto-remaps disable-wifi -> disable-wifi-pi5 and disable-bt ->
+# disable-bt-pi5 via overlay_map.dtb, so one line each covers Pi 4 and Pi 5.
+#   disable-wifi: Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
+#   disable-bt:   Pi 4 disables &bt, Pi 5 disables &bluetooth
+dtoverlay=disable-wifi
+dtoverlay=disable-bt
 enable_uart=1
 uart_2ndstage=1
-dtoverlay=disable-bt
 
-# sha256=1 tells start.elf (i think, may be a pi4 only thing?) to print the hashes of every file it loads
-sha256=1
+# --- Write-protect the bootloader EEPROM ---
+# The SPI-flash EEPROM is the one piece of per-board state a netbooted Pi does
+# NOT revert on reboot, so it is the only place a root user could leave a
+# persistent change. eeprom_write_protect=1 sets the flash Write Status
+# Register to block rpi-eeprom-update/config. Pi 5: /WP is pulled low by
+# default so this is hardware-enforced immediately (undo needs bridging
+# TP14<->TP1); Pi 4: /WP (TP5) is not asserted by default, so ground TP5 to make
+# it hardware-enforced. To update an EEPROM later, set =0, reboot, flash, restore.
+# See docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md
+eeprom_write_protect=1
+
+# --- USB gadget console: dwc2 peripheral mode on OTG-capable boards ---
+[pi4]
+dtoverlay=dwc2,dr_mode=peripheral
+[pi5]
+dtoverlay=dwc2,dr_mode=peripheral
+
+# --- Pi 5 40-pin header UART on its own dedicated debug console ---
+# disable-bt frees the header UART on Pi 0-4 as a side effect, but disable-bt-pi5
+# never touches uart0, and bcm2712-rpi-5-b.dtb ships the RP1 header UART
+# (alias serial0) disabled -- so /dev/ttyAMA0 never appears without uart0-pi5.
+# cmdline=cmdline-pi5.txt is not cosmetic: enabling uart0 makes the firmware
+# resolve console=serial0 to ttyAMA0, putting the kernel console (and a getty)
+# on the FPGA's UART where SysRq reads garbage as reboot/crash. Pinning the Pi 5s
+# to their dedicated debug UART keeps the console off the FPGA and ttyAMA0 free.
+# See fpgas.online-test-designs docs/hardware/acorn-pinmap.md
+[pi5]
+dtoverlay=uart0-pi5
+cmdline=cmdline-pi5.txt
+
+[all]
