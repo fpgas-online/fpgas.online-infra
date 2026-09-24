@@ -3,14 +3,14 @@
   getent:
     database: passwd
     key: "{{ item.name }}"
-  loop: "{{ operator_accounts }}"
+  loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
 
 - name: "verify: operator sudoers files are valid"
   command: "visudo -cf /etc/sudoers.d/{{ item.name }}"
   changed_when: false
-  loop: "{{ operator_accounts }}"
+  loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
 
@@ -18,7 +18,7 @@
   stat:
     path: "/home/{{ item.name }}/.ssh/authorized_keys"
   register: operators_v_keys
-  loop: "{{ operator_accounts }}"
+  loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
 
