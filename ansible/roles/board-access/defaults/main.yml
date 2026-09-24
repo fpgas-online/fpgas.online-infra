@@ -1,0 +1,49 @@
+---
+# =============================================================================
+# TEMPORARY PIN -- this installs the gateway service from the
+# fpgas.online-gw repo's `impl-api` PR branch (fpgas-online/fpgas.online-gw
+# PR #1, developed in parallel with this role).  Flip `@impl-api` to `@main`
+# (or drop the ref) when that PR merges -- called out in this PR's body.
+# =============================================================================
+boardaccess_pip_spec: "fpgas-online-gw @ git+https://github.com/fpgas-online/fpgas.online-gw.git@impl-api"
+
+gw_user: fpgas-gw
+gw_home: /srv/gw
+gw_venv: /srv/gw/venv
+gw_wssh_venv: /srv/gw/wssh-venv
+
+# The service listens on localhost only; nginx is in front of it.
+gw_port: 8090
+# Gateway-local webssh; 8889 so a co-located roles/wssh instance keeps 8888.
+gw_wssh_port: 8889
+
+# Site identity.  Real values come from inventory (the split-prep branch adds
+# site_id/gw_domain_name to group_vars); the defaults keep this role green
+# standalone on inventories that predate those vars.
+gw_site_id: "{{ site_id | default('site') }}"
+gw_site_name: "{{ site_name | default(gw_site_id) }}"
+gw_site_location: "{{ site_location | default('') }}"
+gw_site_timezone: "{{ site_timezone | default(time_zone | default('UTC')) }}"
+
+# Public name of this gateway (nginx vhost, absolute URLs in API responses).
+gw_domain: "{{ gw_domain_name | default('gw.' + domain_name) }}"
+gw_public_base: "https://{{ gw_domain }}"
+
+# Pi addressing and daemon port -- identical derivation to roles/ttsite:
+# Pi = <gw_pi_network>.<switch>.<port> (legacy flat net = switch 0 / port 1xx).
+gw_pi_network: "10.21"
+gw_daemon_port: 8765
+gw_ws_read_timeout: 3600s
+gw_boards_path: /etc/fpgas-online/tt-boards.yaml
+gw_redis_url: redis://127.0.0.1:6379/0
+
+# Let's Encrypt via `certbot certonly --webroot` (same pattern as roles/ttsite).
+# CI sets false (no public DNS) and the vhost stays plain HTTP.
+gw_certbot: true
+
+# API bearer tokens written to gw-secrets.yaml as {name, token} pairs.  This
+# default is a CLEARLY FAKE value so CI and fresh hosts converge; real tokens
+# are generated at deploy time, vaulted per-host (vault_gw_tokens) and wired
+# up in inventory as:  gw_tokens: "{{ vault_gw_tokens }}"
+gw_tokens:
+  - {name: ci, token: "ci-fake-token-do-not-use"}

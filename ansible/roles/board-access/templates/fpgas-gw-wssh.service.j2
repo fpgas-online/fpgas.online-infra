@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+[Unit]
+Description=fpgas.online gateway web SSH terminal (webssh on 127.0.0.1:{{ gw_wssh_port }})
+After=network.target
+
+[Service]
+User={{ gw_user }}
+Group={{ gw_user }}
+ExecStart={{ gw_wssh_venv }}/bin/wssh \
+              --address=127.0.0.1 \
+              --port={{ gw_wssh_port }} \
+              --xheaders=True \
+              --fbidhttp=False
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

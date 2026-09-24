@@ -1,0 +1,13 @@
+# {{ ansible_managed }} -- per-board WebSocket bridges to the Pi daemons (fpgas-tt :{{ gw_daemon_port }})
+{% for b in tt_boards | default([]) if (b.port is defined and b.port is not none and (b.enabled | default(true))) %}
+location = /ws/board/{{ b.slug }}/serial {
+    proxy_pass http://{{ gw_pi_network }}.{{ b.switch | default(1) }}.{{ b.port }}:{{ gw_daemon_port }}/serial;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout {{ gw_ws_read_timeout }};
+    proxy_send_timeout {{ gw_ws_read_timeout }};
+    proxy_buffering off;
+}
+{% endfor %}
