@@ -52,6 +52,16 @@
           || mount --bind "{{ nfsroot_build_deb_cache }}" "{{ nspawn_root }}/var/cache/apt/archives"
       changed_when: false
 
+# man-db rebuilds its index on every apt run that touches a man page
+# (dozens of runs in a build, slow on ARM). Its trigger checks this flag
+# file; stop.yml puts it back, so the booted root behaves as shipped.
+- name: Pause man-db's index rebuilds during the build
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ nspawn_root }}/var/lib/man-db/auto-update
+         {{ nspawn_root }}/var/lib/man-db/auto-update.fpgas-build
+    removes: "{{ nspawn_root }}/var/lib/man-db/auto-update"
+
 - name: Install policy-rc.d to suppress service starts during apt
   ansible.builtin.copy:
     dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
