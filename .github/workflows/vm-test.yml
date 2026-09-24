@@ -47,14 +47,25 @@ jobs:
             cloud-image-utils \
             systemd-container \
             openssh-client \
-            ca-certificates
+            ca-certificates \
+            curl
 
+      # rpi-qemu's signed flat repo (its README). The old github.io
+      # dists/ layout is a frozen snapshot at 2:0.1+85, which still has the
+      # GENET TX index-wrap freeze (rpi-qemu#16): the virtual Pi stopped
+      # dead after its 65536th TX descriptor, ~30 tasks into verify-pi.
       - name: Install qemu-rpi packages
         run: |
-          echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
+          install -d -m0755 /etc/apt/keyrings
+          curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg -o /etc/apt/keyrings/rpi-qemu.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
             > /etc/apt/sources.list.d/qemu-rpi.list
           apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
           apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
+          v=$(dpkg-query -W -f='${Version}' qemu-rpi-system-arm)
+          echo "qemu-rpi-system-arm $v"
+          dpkg --compare-versions "$v" ge "2:0.1+95" \
+            || { echo "qemu-rpi-system-arm $v predates the GENET TX freeze fix (rpi-qemu#16)"; exit 1; }
 
       - name: Enable KVM (if available)
         run: |

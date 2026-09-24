@@ -45,9 +45,9 @@ def find_qemu_rpi_binary() -> str:
 
     raise FileNotFoundError(
         f"{QEMU_RPI_SYSTEM_BIN} not found. Install via:\n"
-        f"  APT: echo 'deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main' "
-        f"| sudo tee /etc/apt/sources.list.d/qemu-rpi.list && sudo apt update && "
-        f"sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
+        f"  APT: add the signed repo from https://fpgas.online/rpi-qemu/ "
+        f"(deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./), "
+        f"then: sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
         f"  Or download static binary: gh release download -R {QEMU_RPI_REPO} "
         f"-p '{QEMU_RPI_STATIC_ASSET}' -D {IMAGES_DIR}"
     )
