@@ -1,0 +1,29 @@
+---
+# Start downloading the Pi NFS root image in the background, early in
+# site.yml, so the multi-GB pull overlaps the server roles instead of
+# holding them up. pull.yml (run later, where the root is extracted) waits
+# for this job, then runs its own `podman pull`, which is the authoritative
+# one: it finds the image already local and fails the play if the pull
+# really failed.
+#
+# The loop retries like pull.yml does (img_pull_retries/img_pull_delay):
+# the VM test starts before the image it pulls has been published.
+
+- name: Install podman and rsync
+  apt:
+    name:
+      - podman
+      - rsync
+    install_recommends: false
+
+- name: Start pulling the nfsroot image in the background
+  shell: |
+    for attempt in $(seq {{ img_pull_retries | int + 1 }}); do
+      podman pull --quiet {{ nfsroot_image }} && exit 0
+      sleep {{ img_pull_delay }}
+    done
+    exit 1
+  async: "{{ (img_pull_retries | int + 1) * (img_pull_delay | int + 300) }}"
+  poll: 0
+  register: img_prefetch
+  changed_when: false

@@ -18,6 +18,19 @@
   tags:
     - img
 
+# prefetch.yml started the download early in site.yml; wait for it here.
+# Its outcome is not trusted: the pull below is what must succeed.
+- name: Wait for the background pull started by prefetch.yml
+  async_status:
+    jid: "{{ img_prefetch.ansible_job_id }}"
+  register: img_prefetch_job
+  until: img_prefetch_job.finished
+  retries: "{{ ((img_pull_retries | int + 1) * (img_pull_delay | int + 300)) // 5 }}"
+  delay: 5
+  when: img_prefetch.ansible_job_id is defined
+  tags:
+    - img
+
 - name: Pull the nfsroot image
   command: podman pull {{ nfsroot_image }}
   register: img_pull
