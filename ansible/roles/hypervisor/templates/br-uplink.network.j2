@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+[Match]
+Name=br-uplink
+
+[Link]
+RequiredForOnline=yes
+
+[Network]
+Description=Uplink bridge / transit to ten64 (host management + VM uplinks)
+{% if hypervisor_uplink_dns_server is defined %}
+DNS={{ hypervisor_uplink_dns_server }}
+{% endif %}
+
+[Address]
+Address={{ hypervisor_uplink_address }}
+{% if hypervisor_uplink_address6 is defined %}
+
+[Address]
+Address={{ hypervisor_uplink_address6 }}
+{% endif %}
+
+[Route]
+Gateway={{ hypervisor_uplink_gateway }}
+{% if hypervisor_uplink_gateway6 is defined %}
+
+[Route]
+Gateway={{ hypervisor_uplink_gateway6 }}
+{% endif %}

@@ -1,0 +1,10 @@
+---
+# Hypervisor tier (Phase 3 of the tweed split; PR contract 07 §Hypervisor).
+# NOT imported by site.yml — inert until run explicitly at cut-over:
+#   uv run ansible-playbook ansible/hypervisor.yml --limit tweed-hv
+# Runbook: docs/superpowers/runbooks/2026-09-02-tweed-hypervisor-cutover.md
+- hosts: hypervisors
+  roles:
+    - hypervisor
+    - operators
+    - lldp

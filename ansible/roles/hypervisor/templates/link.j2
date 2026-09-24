@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# MAC-matched name for {{ item.name }} (Type=ether keeps VLAN children and
+# libvirt tap devices, which carry different MACs anyway, from matching).
+[Match]
+MACAddress={{ item.mac | lower }}
+Type=ether
+
+[Link]
+Name={{ item.name }}

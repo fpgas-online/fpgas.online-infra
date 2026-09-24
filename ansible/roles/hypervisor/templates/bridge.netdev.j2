@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[NetDev]
+Name={{ item.name }}
+Kind=bridge
+{% if item.mtu is defined %}
+# Trunk MTU: tagged VLAN frames from the gw VM are 1504 bytes of L2 payload
+# (see roles/vlan-ports eth-local.network.j2 for the full explanation).
+MTUBytes={{ item.mtu }}
+{% endif %}
+
+[Bridge]
+# Plain learning bridge: the FPGA VLANs stay tagged all the way into the gw
+# VM (which runs the vlan-ports scheme exactly as bare-metal tweed did), so
+# no VLAN filtering here; STP off — two-port bridge, no loops possible, and
+# STP would eat 30 s of Pi DHCP time at every carrier bounce.
+STP=no
+VLANFiltering=no
