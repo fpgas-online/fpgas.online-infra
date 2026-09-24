@@ -76,9 +76,19 @@
     # unmount the API filesystems and drop policy-rc.d BEFORE packaging: a
     # still-mounted /dev must never be tarred into the image.
     #
-    # Kernel pruning is a no-op here by design: it keeps what boot/ currently
-    # serves, and in a one-shot build boot/ still holds the stock image's
-    # payload, so nothing is identified as superseded and nothing is purged.
+    # The pruner keeps what boot/ serves plus the newest kernel per flavour.
+    # boot/ still held the stock image's payload here, so the image's
+    # original 6.6.31 kernel set counted as served and every image carried
+    # it (modules, headers, initramfs rebuilds: ~250 MB and a minute of
+    # build) although no Pi ever boots it -- the server's fixpi re-syncs the
+    # upgraded payload. Sync first, so "served" is what the Pis will boot.
+    - name: sync the upgraded kernel payload before pruning
+      command: >-
+        rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+      tags: [netboot]
+
     - name: finish the chroot session (kernels, mounts, policy-rc.d)
       include_role:
         name: nspawn-pi
