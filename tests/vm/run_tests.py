@@ -320,23 +320,10 @@ def server_run(server: VMManager, key_path: Path, cmd: str, timeout: int = 120) 
         ssh.close()
 
 
-# Diagnostics for the virtual Pi dropping off the network part-way through
-# verify-pi ("No route to host" after ~30 tasks, reproducible). The Pi's
-# journal goes to its serial console, so the capture shows what the Pi was
-# doing when it went quiet; the server's view is collected on failure.
-PI_JOURNAL_CONSOLE_DROPIN = (
-    "/srv/nfs/rpi/bookworm/root/etc/systemd/journald.conf.d/zz-vm-test-console.conf"
-)
-PI_MEMORY_PROBE = """free -m
-sudo -n tee /run/vmprobe.sh > /dev/null <<'EOF'
-while :; do
-  echo "VMPROBE $(cut -d' ' -f1-3 /proc/loadavg)" \\
-    $(grep -E '^(MemAvailable|MemFree|Shmem|Cached|Committed_AS):' /proc/meminfo | tr -s ' ')
-  sleep 10
-done
-EOF
-sudo -n setsid sh /run/vmprobe.sh > /dev/console 2>&1 < /dev/null &
-echo probe started"""
+# The server's view of the Pi, printed when verify-pi fails: neighbour entry,
+# ping, VLAN counters, sockets, dnsmasq/nfs journal. It tells a Pi that went
+# silent (qemu-rpi's GENET TX freeze, fixed in rpi-qemu#16) from one that
+# answers but fails a check.
 SERVER_NET_DIAG = (
     "set -x; ip neigh show 10.21.1.1; ping -c 3 -W 2 10.21.1.1; "
     "ip neigh show 10.21.1.1; ip -s link show v2101; ip -4 addr show v2101; "
@@ -360,13 +347,6 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     started listening on both ports before either VM booted (see main()).
     """
     key_path = workdir / "test_key"
-
-    print("[server] journal-to-console drop-in for the Pi: " + server_run(
-        server, key_path,
-        f"sudo install -D -m 0644 /dev/stdin {PI_JOURNAL_CONSOLE_DROPIN} <<'EOF'\n"
-        "[Journal]\nForwardToConsole=yes\nMaxLevelConsole=info\nEOF\n"
-        f"cat {PI_JOURNAL_CONSOLE_DROPIN}",
-    ))
 
     # Ensure patched QEMU and PXE boot firmware are available
     qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
@@ -422,11 +402,6 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
             ("/etc/resolv.conf", "cat /etc/resolv.conf"),
             ("resolve self", "getent hosts $(hostname) || echo '(no result)'"),
             ("sudo -n timing", "time sudo -n true 2>&1 || echo 'sudo rc='$?"),
-            # Diagnostics: the Pi has frozen (no console output, no ARP)
-            # while logind created the 23rd login session in every recent
-            # run. Log memory/load to the serial console every 10 s so the
-            # capture shows the trajectory up to the freeze.
-            ("memory probe", PI_MEMORY_PROBE),
         ]:
             try:
                 _in, _out, _err = ssh.exec_command(cmd, timeout=30)
@@ -466,10 +441,6 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     if rc != 0:
         print(f"ERROR: verify-pi.yml failed with exit code {rc}")
         print("[server] network view of the Pi at failure:\n"
-              + server_run(server, key_path, SERVER_NET_DIAG))
-        # Does the Pi come back by itself (transient) or stay gone (wedged)?
-        time.sleep(120)
-        print("[server] network view of the Pi 120 s later:\n"
               + server_run(server, key_path, SERVER_NET_DIAG))
         text = pi.serial_log.read_text(errors="replace") if pi.serial_log.exists() else ""
         print(f"[pi] ===== last 200 lines of kernel serial0 ({len(text)} bytes) =====")

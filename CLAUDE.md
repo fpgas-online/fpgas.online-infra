@@ -115,8 +115,10 @@ uv run tests/vm/run_tests.py --phase server --keep-vm \
 ```
 
 With KVM (used automatically when `/dev/kvm` is available) the server phase
-is minutes; the Pi phase remains ~1 h of aarch64 TCG — ARM guests cannot be
-KVM-accelerated on x86 hosts.
+is ~20 min (most of it the web tier's pip installs and the image pull); the
+Pi phase is ~5-10 min of aarch64 TCG (ARM guests cannot be KVM-accelerated
+on x86 hosts): boot to SSH, then verify-pi. The harness waits for the kernel
+handoff and then SSH -- not a serial `login:` prompt, which never appears.
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
 push to `main` and on PRs. Serial logs are uploaded as an artifact on every run
