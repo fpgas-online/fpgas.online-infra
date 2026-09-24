@@ -124,7 +124,8 @@ systems. It boots a Debian server VM, applies the same `site.yml` used on real s
 PXE-boots a virtual Raspberry Pi from the resulting setup using patched QEMU from
 [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838 GENET
 ethernet emulation on `raspi4b`), and runs both verify playbooks. Only the inventory
-differs between test and production.
+differs between test and production. [docs/ci.md](docs/ci.md) walks through every CI
+step, what it does and how long it takes.
 
 **What the end-to-end test covers:**
 
