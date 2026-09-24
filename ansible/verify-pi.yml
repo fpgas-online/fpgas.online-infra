@@ -18,8 +18,10 @@
   # Every sudo costs ~5 s on the TCG-emulated Pi (and real time on a
   # loaded board), and almost every check here reads world-readable state.
   become: false
-  # hostname, kernel and architecture are all the checks use.
-  gather_subset: [min]
+  # hostname, kernel and architecture are all the facts the checks use: the
+  # collector below reports them, instead of a separate fact-gathering call
+  # (16 s on the TCG-emulated Pi).
+  gather_facts: false
   tasks:
     # One remote call gathers everything the checks below read (each task on
     # the TCG-emulated Pi costs seconds of module start-up; on a real board it
@@ -58,6 +60,7 @@
           boot_id = (read("/proc/sys/kernel/random/boot_id") or b"").decode().strip()
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
+          uname = os.uname()
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -68,6 +71,8 @@
               "overlayroot": run("dpkg", "-l", "overlayroot"),
               "lldpd": run("dpkg", "-l", "lldpd"),
               "lldpd_active": run("systemctl", "is-active", "lldpd"),
+              "watchdog_active": run("systemctl", "is-active", "nfsroot-watchdog-arm.service",
+                                     "nfsroot-watchdog.timer"),
               "fpgatools": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
                                "openfpgaloader-fpgasonline-git", "openocd-fpgasonline-git"),
               "cables": run("openFPGALoader", "--list-cables"),
@@ -88,6 +93,8 @@
                   dict(exists(p), item=p) for p in ("/usr/lib/systemd/system/fpgas-fleet-agent.service",
                                                    "/etc/fpgas-online/fleet.toml")]},
               "identity": {"rc": 0, "stdout_lines": [serial, boot_id, fleet_agent["stdout"]]},
+              "facts": {"hostname": uname.nodename.split(".")[0], "kernel": uname.release,
+                        "architecture": uname.machine},
           }))
       tags: [always]
 
@@ -102,6 +109,7 @@
         verify_pi_overlayroot: "{{ verify_pi_state.overlayroot }}"
         verify_pi_lldpd: "{{ verify_pi_state.lldpd }}"
         verify_pi_lldpd_active: "{{ verify_pi_state.lldpd_active }}"
+        verify_pi_watchdog_active: "{{ verify_pi_state.watchdog_active }}"
         verify_pi_fpgatools: "{{ verify_pi_state.fpgatools }}"
         verify_pi_cables: "{{ verify_pi_state.cables }}"
         verify_pi_rp1jtag_list: "{{ verify_pi_state.rp1jtag_list }}"
@@ -117,6 +125,9 @@
         verify_pi_usb_console: "{{ verify_pi_state.usb_console }}"
         verify_pi_fleet_files: "{{ verify_pi_state.fleet_files }}"
         verify_pi_identity: "{{ verify_pi_state.identity }}"
+        ansible_hostname: "{{ verify_pi_state.facts.hostname }}"
+        ansible_kernel: "{{ verify_pi_state.facts.kernel }}"
+        ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
       vars:
         verify_pi_state: "{{ verify_pi_collected.stdout | from_json }}"
       tags: [always]
@@ -232,22 +243,18 @@
     # staged copy and fails if the arm unit never staged anything (e.g. it
     # did not recognise the NFS root). Both carry fpgas-apt, like the
     # package install they check.
-    - name: Check the nfsroot-watchdog arm service and timer are active
-      command: systemctl is-active nfsroot-watchdog-arm.service nfsroot-watchdog.timer
-      changed_when: false
-      register: verify_pi_watchdog_active
-      failed_when: false
-      tags: [verify, services, fpgas-apt]
-
-    # Only read when the assert below fails: the arm unit's own account of
-    # why, which is otherwise only in the Pi's journal.
+    # (is-active comes from the collector.) Only when the assert below is
+    # about to fail: the arm unit's own account of why, which is otherwise
+    # only in the Pi's journal (root: the system journal).
     - name: Read the nfsroot-watchdog arm unit's status and journal
       shell: >-
         systemctl status --no-pager --lines=0 nfsroot-watchdog-arm.service;
         journalctl --no-pager -b -u nfsroot-watchdog-arm.service
+      become: true
       changed_when: false
       register: verify_pi_watchdog_journal
       failed_when: false
+      when: verify_pi_watchdog_active.stdout_lines != ["active", "active"]
       tags: [verify, services, fpgas-apt]
 
     - name: Assert the nfsroot-watchdog arm service and timer are active
@@ -256,11 +263,12 @@
         fail_msg: >-
           nfsroot-watchdog-arm.service / nfsroot-watchdog.timer not active
           (is-active: {{ verify_pi_watchdog_active.stdout_lines }}).
-          Arm unit: {{ verify_pi_watchdog_journal.stdout_lines }}
+          Arm unit: {{ verify_pi_watchdog_journal.stdout_lines | default([]) }}
       tags: [verify, services, fpgas-apt]
 
     - name: Ask the staged nfsroot-watchdog what it sees
       command: nfsroot-watchdog status
+      become: true  # the staged checker under /run is root's
       changed_when: false
       register: verify_pi_watchdog_status
       failed_when: false
