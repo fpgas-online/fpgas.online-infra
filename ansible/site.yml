@@ -24,6 +24,10 @@
     - {role: switch-vlans, when: switches is defined}
     - nfs
     - apt-cache
+    # dnsmasq (DHCP/TFTP) before the web tier: site's pistat drops its
+    # config into /etc/dnsmasq.d. It serves the root's boot/ dir, which nfs
+    # has created (empty on a fresh server) and the last play fills.
+    - pxe
 
 - hosts: uhubctl
   roles:
@@ -54,11 +58,6 @@
       import_role:
         name: fixpi
       tags: [fixpi]
-
-    - name: publish the NFS root for netboot
-      import_role:
-        name: pxe
-      tags: [pxe]
 
 # The Pi NFS root arrives prebuilt from GHCR via the img role (issue #34):
 # CI builds and publishes it (.github/workflows/nfsroot-build.yml), the
