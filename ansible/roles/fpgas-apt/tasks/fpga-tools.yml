@@ -86,8 +86,13 @@
     remote_src: true
     mode: '0644'
 
+# The whole file, not apt_repository, for the reason main.yml gives for
+# fpgas-online.list: apt_repository only adds lines. The 2026-09-24 welland
+# converge moved this source from upstream to the gateway's apt cache and
+# left both lines in the file, the upstream one bypassing the cache.
+# main.yml's "Update apt cache" follows.
 - name: Add fpgas.online-fpga-tools apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by={{ fpga_tools_apt_keyring }}] {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_suite }}/ ./"
-    state: present
-    filename: fpgas-online-fpga-tools
+  ansible.builtin.copy:
+    content: "deb [signed-by={{ fpga_tools_apt_keyring }}] {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_suite }}/ ./\n"
+    dest: /etc/apt/sources.list.d/fpgas-online-fpga-tools.list
+    mode: '0644'
