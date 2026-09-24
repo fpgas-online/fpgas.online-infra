@@ -196,11 +196,13 @@
     state: absent
   when: fixpi_server_monitor | default(true)
 
+# tio, to watch a Pi's serial console from the server. (Debian's ansible
+# was installed here too, for running the Pi roles on the server; the root
+# now arrives prebuilt, so nothing on the server runs ansible.)
 - name: install packages on server
   apt:
     name:
       - tio
-      - ansible
   when: fixpi_server_monitor | default(true)
 
 - name: let tio connect to the tty and see pi boot messages
@@ -220,20 +222,6 @@
   when: fixpi_server_monitor | default(true)
   tags:
     - ispi
-
-- name: Git checkout this repo for safer 2 hour onpi
-  ansible.builtin.git:
-    repo: 'https://github.com/CarlFK/pici.git'
-    dest: "/home/{{ user_name }}/pici"
-    depth: 1
-    single_branch: true
-    accept_hostkey: true
-    force: true
-  when: fixpi_server_monitor | default(true)
-  # args:
-  # creates: "/home/{{ user_name }}/pici"
-
-# ssh-keyscan -H remote_host.com >> /etc/ssh/ssh_known_hosts
 
 # ifupdown is unused on the netbooted root (kernel ip=dhcp + NetworkManager):
 # networking.service fails on every Pi and ifupdown-pre.service (udevadm
