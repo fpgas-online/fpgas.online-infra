@@ -32,3 +32,8 @@ tt_install: true
 # extraction (fixpi/netboot.yml fires when the keys are absent), and
 # ci-nfsroot.yml strips any that an openssh postinst creates mid-build.
 fixpi_generate_host_keys: false
+
+# apt's package cache for the build, outside the root: carried between
+# builds by nfsroot-build.yml's actions/cache, never packed into the image
+# (roles/nspawn-pi/tasks/chroot-prep.yml).
+nfsroot_build_deb_cache: /var/cache/nfsroot-debs

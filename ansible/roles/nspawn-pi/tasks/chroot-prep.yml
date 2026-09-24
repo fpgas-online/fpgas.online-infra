@@ -28,6 +28,30 @@
       force-unsafe-io
     mode: "0644"
 
+# The CI image build keeps apt's downloaded packages OUTSIDE the root
+# (nfsroot_build_deb_cache, a runner directory that actions/cache carries
+# between builds): a rebuild installs from local debs instead of
+# downloading them again, and the image no longer ships the debs of every
+# package it installed to every server and every Pi.
+- name: Keep apt's package cache outside the root
+  when: nfsroot_build_deb_cache is defined
+  block:
+    - name: Create the build's deb cache and the root's archives dir
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ nfsroot_build_deb_cache }}"
+        - "{{ nfsroot_build_deb_cache }}/partial"
+        - "{{ nspawn_root }}/var/cache/apt/archives"
+
+    - name: Bind-mount the build's deb cache over the root's archives
+      ansible.builtin.shell: |
+        mountpoint -q "{{ nspawn_root }}/var/cache/apt/archives" \
+          || mount --bind "{{ nfsroot_build_deb_cache }}" "{{ nspawn_root }}/var/cache/apt/archives"
+      changed_when: false
+
 - name: Install policy-rc.d to suppress service starts during apt
   ansible.builtin.copy:
     dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"

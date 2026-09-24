@@ -22,6 +22,9 @@
     umount "{{ nspawn_root }}/dev" 2>/dev/null || true
     umount "{{ nspawn_root }}/sys" 2>/dev/null || true
     umount "{{ nspawn_root }}/proc" 2>/dev/null || true
+    if mountpoint -q "{{ nspawn_root }}/var/cache/apt/archives"; then
+      umount "{{ nspawn_root }}/var/cache/apt/archives"
+    fi
   changed_when: false
 
 - name: Remove policy-rc.d

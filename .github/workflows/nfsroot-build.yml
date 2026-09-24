@@ -79,7 +79,10 @@ jobs:
       # actions/cache's tar restore/save (the download itself runs as root).
       - name: Prepare image cache dir
         if: steps.reuse.outputs.reused != 'true'
-        run: sudo install -d -o "$(id -un)" /var/cache/pib
+        id: cachedirs
+        run: |
+          sudo install -d -o "$(id -un)" /var/cache/pib /var/cache/nfsroot-debs
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the RasPiOS base image
         if: steps.reuse.outputs.reused != 'true'
@@ -87,6 +90,21 @@ jobs:
         with:
           path: /var/cache/pib
           key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
+
+      # apt's downloads from earlier builds (inventory-ci-nfsroot's
+      # nfsroot_build_deb_cache, bind-mounted into the root during the
+      # build and never packed into the image). One entry per ISO week,
+      # seeded from the newest earlier one, so it tracks the archive without
+      # a GB-sized entry per run crowding out the other caches. apt checks
+      # every deb against the signed indexes: a stale one is re-downloaded.
+      - name: Restore the build's deb cache
+        if: steps.reuse.outputs.reused != 'true'
+        id: debcache
+        uses: actions/cache/restore@v5
+        with:
+          path: /var/cache/nfsroot-debs
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
+          restore-keys: nfsroot-debs-
 
       - name: Build the NFS root (same roles as site.yml, chroot connection)
         if: steps.reuse.outputs.reused != 'true'
@@ -97,6 +115,13 @@ jobs:
           "$(pwd)/../.venv/bin/ansible-playbook"
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
+
+      - name: Save the build's deb cache
+        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /var/cache/nfsroot-debs
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
 
       - name: Write nfsroot manifest (packages, boot hashes, configs)
         if: steps.reuse.outputs.reused != 'true'
