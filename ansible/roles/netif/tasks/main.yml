@@ -59,13 +59,21 @@
   when: uplink_manage and eth_uplink_dns_server is defined
   tags: [netif]
 
+- name: is the host running ifupdown
+  stat:
+    path: /etc/network/interfaces
+  register: netif_ifupdown
+  when: uplink_manage
+  tags: [netif]
+
+# A host installed without ifupdown (networkd only) has nothing to take.
 - name: take the uplink away from ifupdown
   replace:
     path: /etc/network/interfaces
     # comment out: auto|allow-hotplug|iface <uplink by old or new name> ...
     regexp: '^(\s*)(auto|allow-hotplug|iface)(\s+)({{ ([eth_uplink, netif_uplink_cur] | reject("equalto", "") | map("regex_escape") | join("|")) }})(\s|$)'
     replace: '\1#\2\3\4\5'
-  when: uplink_manage
+  when: uplink_manage and netif_ifupdown.stat.exists
   tags: [netif]
 
 - name: enable systemd-networkd

@@ -60,9 +60,26 @@ local-hostname: {hostname}
         md_path = Path(tmpdir) / "meta-data"
         ud_path.write_text(user_data)
         md_path.write_text(meta_data)
+        nc_path = Path(tmpdir) / "network-config"
+        # First-boot uplink: DHCP on the kernel's name for the NIC, as a
+        # fresh install's own config would be (tweed's d-i install: ifupdown
+        # on its enpXsY name). Matched by NAME, not by MAC (cloud-init's
+        # default): the netif role renames the NIC to eth-uplink and gives it
+        # tweed's static networkd config, and this must then stop matching.
+        nc_path.write_text(
+            "version: 2\n"
+            "ethernets:\n"
+            "  enp0s2:\n"
+            "    dhcp4: true\n"
+            # netplan otherwise makes systemd-networkd-wait-online wait for
+            # enp0s2 -- which after the rename never appears: a 2-minute
+            # stall on the reboot (tweed's installer config has no such hook).
+            "    optional: true\n"
+        )
 
         subprocess.run(
-            ["cloud-localds", str(output_path), str(ud_path), str(md_path)],
+            ["cloud-localds", "--network-config", str(nc_path),
+             str(output_path), str(ud_path), str(md_path)],
             check=True,
             capture_output=True,
         )
