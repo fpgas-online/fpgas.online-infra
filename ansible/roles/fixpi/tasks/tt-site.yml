@@ -6,19 +6,19 @@
 # service enablement (issue #34 phase 3). The fpgas-online-tt debs
 # themselves are generic and already baked into the image (tt_install).
 
-- name: create /etc/fpgas-online in the NFS root
+- name: Create /etc/fpgas-online in the NFS root
   file:
     path: "{{ nfs_root }}/root/etc/fpgas-online"
     state: directory
     mode: "0755"
 
-- name: bake tt-boards.yaml into the NFS root
+- name: Bake tt-boards.yaml into the NFS root
   template:
     src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
     dest: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"
     mode: "0644"
 
-- name: enable fpgas-tt.service in the NFS root
+- name: Enable fpgas-tt.service in the NFS root
   file:
     src: /lib/systemd/system/fpgas-tt.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-tt.service"

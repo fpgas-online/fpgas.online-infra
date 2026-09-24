@@ -3,15 +3,15 @@
 # release the update lock (`nfsroot-generation end` does both, marker
 # first). Each netbooted board then reboots itself in its own stagger slot.
 
-- name: find the Pi NFS root
+- name: Find the Pi NFS root
   ansible.builtin.stat:
     path: "{{ nfs_root }}/root/etc"
   register: nfsroot_generation_root
 
-- name: finish the Pi NFS root update
+- name: Finish the Pi NFS root update
   when: nfsroot_generation_root.stat.isdir | default(false)
   block:
-    - name: publish the Pi NFS root update (bump if changed, then unlock)
+    - name: Publish the Pi NFS root update (bump if changed, then unlock)
       ansible.builtin.command: >-
         {{ nfsroot_generation_cmd }} end {{ nfs_root }}/root
         --bump {{ nfsroot_generation_bump | quote }}
@@ -20,7 +20,7 @@
       changed_when: (nfsroot_generation_end.stdout | from_json).bumped
       when: not ansible_check_mode
 
-    - name: show what changed in the Pi NFS root
+    - name: Show what changed in the Pi NFS root
       ansible.builtin.debug:
         msg: >-
           {{ (nfsroot_generation_end.stdout | from_json).reason }}

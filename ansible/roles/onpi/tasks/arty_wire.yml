@@ -1,5 +1,5 @@
 ---
-- name: arty_wire
+- name: Arty_wire
   copy:
     src: "files/is_wire/{{ item }}"
     dest: "/usr/local/bin/{{ item }}"
@@ -9,15 +9,15 @@
   tags:
     - ia
 
-- name: install systemd arty_wire service
+- name: Install systemd arty_wire service
   copy:
     src: files/is_wire/arty_wire.service
     dest: /etc/systemd/system/arty_wire.service
-  notify: reload-systemd
+  notify: Reload-systemd
   tags:
     - ia
 
-- name: enable arty_wire.service
+- name: Enable arty_wire.service
   systemd:
     name: arty_wire.service
     enabled: true

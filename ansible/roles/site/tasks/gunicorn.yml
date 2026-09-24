@@ -1,24 +1,24 @@
 # gunicorn (uvicorn worker) behind /run/gunicorn.sock; pip install is in
 # fpgas-online-site.yml.
 ---
-- name: copy gunicorn socket file to /etc/systemd/system/gunicorn.socket
+- name: Copy gunicorn socket file to /etc/systemd/system/gunicorn.socket
   template:
     src: templates/gunicorn.socket.j2
     dest: /etc/systemd/system/gunicorn.socket
-  notify: restart django services
+  notify: Restart django services
 
-- name: copy gunicorn systemd file to /etc/systemd/system/gunicorn.service
+- name: Copy gunicorn systemd file to /etc/systemd/system/gunicorn.service
   template:
     src: templates/gunicorn.service.j2
     dest: /etc/systemd/system/gunicorn.service
-  notify: restart django services
+  notify: Restart django services
   tags:
     - django
 
 # The PoE views (fpgas-online-poe's snmp_switch, served by gunicorn) find the
 # per-port-VLAN switches through environment variables; see the template.
 # Hosts on the legacy single-switch scheme get theirs from snmp.yml instead.
-- name: gunicorn drop-in directory
+- name: Gunicorn drop-in directory
   file:
     path: /etc/systemd/system/gunicorn.service.d
     state: directory
@@ -28,7 +28,7 @@
     - django
     - snmp
 
-- name: tell gunicorn where the per-port-VLAN switches are (PoE control)
+- name: Tell gunicorn where the per-port-VLAN switches are (PoE control)
   template:
     src: templates/gunicorn-poe.conf.j2
     dest: /etc/systemd/system/gunicorn.service.d/poe.conf
@@ -36,20 +36,20 @@
   when: switches is defined
   no_log: true
   notify:
-    - reload systemd
-    - restart django services
+    - Reload systemd
+    - Restart django services
   tags:
     - django
     - snmp
 
-- name: no per-port-VLAN switch drop-in on a legacy-scheme host
+- name: No per-port-VLAN switch drop-in on a legacy-scheme host
   file:
     path: /etc/systemd/system/gunicorn.service.d/poe.conf
     state: absent
   when: switches is not defined
   notify:
-    - reload systemd
-    - restart django services
+    - Reload systemd
+    - Restart django services
   tags:
     - django
     - snmp

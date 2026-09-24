@@ -1,16 +1,16 @@
 ---
-- name: create tftp root directory
+- name: Create tftp root directory
   file:
     path: /srv/tftp
     state: directory
 
-- name: link bootcode.bin in tftp root because pi netboot not too smart.
+- name: Link bootcode.bin in tftp root because pi netboot not too smart.
   file:
     src: "{{ nfs_root }}/boot/bootcode.bin"
     dest: "/srv/tftp/bootcode.bin"
     state: link
 
-- name: link pi serial-num to boot dir, cuz that is how it works.
+- name: Link pi serial-num to boot dir, cuz that is how it works.
   file:
     src: "{{ nfs_root }}/boot"
     dest: "/srv/tftp/{{ item.sn }}"
@@ -22,7 +22,7 @@
   tags:
     - pibs
 
-- name: save the original config.txt, cmdline.txt, fstab
+- name: Save the original config.txt, cmdline.txt, fstab
   command: mv "{{ nfs_root }}/{{ item }}" "{{ nfs_root }}/{{ item }}.org"
   args:
     removes: "{{ nfs_root }}/{{ item }}"
@@ -39,7 +39,7 @@
 # roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
 # cmdline.txt. It exists so enabling the Pi 5 header UART does not drag the
 # kernel console onto the FPGA's serial pins -- see the comment on that task.
-- name: replace cmdline with netbootie versions
+- name: Replace cmdline with netbootie versions
   template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
@@ -50,7 +50,7 @@
     - cmdline
     - netboot
 
-- name: fstab - replace local fs to nfs
+- name: Fstab - replace local fs to nfs
   template:
     src: "templates/etc/{{ item }}.j2"
     dest: "{{ nfs_root }}/root/etc/{{ item }}"
@@ -64,7 +64,7 @@
 # cmdline.txt.j2 no longer puts a kernel console there, and this disables
 # SysRq so any stray bytes the FPGA drives onto that line can never be
 # parsed as reboot/crash/poweroff. See files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
-- name: disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
+- name: Disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
   copy:
     src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
     dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
@@ -74,7 +74,7 @@
 
 # Image build only (defaults/main.yml fixpi_image_build): useradd executes
 # inside the ARM root. ci-nfsroot.yml asserts the user is in the image.
-- name: create pi user in NFS root if missing
+- name: Create pi user in NFS root if missing
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
@@ -92,7 +92,7 @@
 # -- sudo ignores sudoers.d files that are group/world-writable. Matches the
 # RPi OS convention (/etc/sudoers.d/010_<user>-nopasswd) and is production-valid
 # for a headless appliance the pi user administers.
-- name: grant the pi user passwordless sudo in the NFS root
+- name: Grant the pi user passwordless sudo in the NFS root
   copy:
     content: "{{ user }} ALL=(ALL) NOPASSWD: ALL\n"
     dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ user }}-nopasswd"
@@ -105,7 +105,7 @@
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
 # stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
 # verify-pi.yml reports the Pi UNREACHABLE. See the unit file's own comment.
-- name: install self-hostname script in NFS root
+- name: Install self-hostname script in NFS root
   copy:
     src: files/fpgas-hostname-hosts.sh
     dest: "{{ nfs_root }}/root/usr/local/sbin/fpgas-hostname-hosts.sh"
@@ -114,7 +114,7 @@
     - netboot
     - qemu
 
-- name: install self-hostname /etc/hosts service in NFS root
+- name: Install self-hostname /etc/hosts service in NFS root
   copy:
     src: files/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-hostname-hosts.service"
@@ -123,7 +123,7 @@
     - netboot
     - qemu
 
-- name: enable self-hostname /etc/hosts service in NFS root
+- name: Enable self-hostname /etc/hosts service in NFS root
   file:
     src: /etc/systemd/system/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-hostname-hosts.service"
@@ -142,7 +142,7 @@
 # point of view on a Pi and useless once it boots; resolved keeps the real
 # upstream list in /run/systemd/resolve/resolv.conf. (Pis rewrite this file
 # from DHCP at boot anyway.)
-- name: check for systemd-resolved's upstream resolv.conf
+- name: Check for systemd-resolved's upstream resolv.conf
   stat:
     path: /run/systemd/resolve/resolv.conf
   register: fixpi_resolved_upstream
@@ -150,7 +150,7 @@
   tags:
     - netboot
 
-- name: ensure DNS resolution works in chroot
+- name: Ensure DNS resolution works in chroot
   when: fixpi_image_build | bool
   copy:
     remote_src: true
@@ -164,7 +164,7 @@
 # does not reliably consume the DHCP ntp-server option under dhcpcd, so
 # without this every Pi's clock sits on the fake-hwclock date (C2-2). The
 # server side (chrony + dhcp-option) lives in the pxe role.
-- name: create timesyncd.conf.d in NFS root
+- name: Create timesyncd.conf.d in NFS root
   file:
     path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
     state: directory
@@ -172,7 +172,7 @@
   tags:
     - netboot
 
-- name: point Pi timesyncd at the server
+- name: Point Pi timesyncd at the server
   copy:
     content: |
       [Time]
@@ -183,7 +183,7 @@
     - netboot
 
 # Image build only; ci-nfsroot.yml asserts both packages are in the image.
-- name: install nfs-common into pi's fs
+- name: Install nfs-common into pi's fs
   when: fixpi_image_build | bool
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
@@ -201,7 +201,7 @@
 # modules) — producing nondeterministic Pi boot failures: panic-hangs,
 # boot loops, half-booted systems with sshd never up (tweed rebuild C1-3,
 # 2026-08-25). Sync the whole payload; cmdline.txt/config.txt stay ours.
-- name: sync matched kernel+initramfs+DTB payload from root/boot/firmware
+- name: Sync matched kernel+initramfs+DTB payload from root/boot/firmware
   ansible.posix.synchronize:
     src: "{{ nfs_root }}/root/boot/firmware/"
     dest: "{{ nfs_root }}/boot/"
@@ -219,7 +219,7 @@
 # looks for /boot/firmware/ssh. But /boot/firmware is mounted noauto in our
 # fstab, so sshswitch never finds the file. Enable ssh.service unconditionally
 # here since we always want remote access on the Pi.
-- name: enable ssh.service in NFS root
+- name: Enable ssh.service in NFS root
   file:
     src: /lib/systemd/system/ssh.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/ssh.service"
@@ -233,7 +233,7 @@
 # takes minutes per key (RSA is slowest), delaying sshd startup and blocking
 # all Pi test automation. We pre-generate keys in the next task so ssh.service
 # has valid host keys to use immediately.
-- name: disable regenerate_ssh_host_keys.service in NFS root
+- name: Disable regenerate_ssh_host_keys.service in NFS root
   file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/regenerate_ssh_host_keys.service"
     state: absent
@@ -252,7 +252,7 @@
 # wizard must never run -- mask it, same rationale as disabling
 # regenerate_ssh_host_keys.service above. Not QEMU-specific: a real headless Pi
 # (no display/keyboard) netbooting this NFS root would hang on it identically.
-- name: mask userconfig.service (first-boot wizard) in NFS root
+- name: Mask userconfig.service (first-boot wizard) in NFS root
   file:
     src: /dev/null
     dest: "{{ nfs_root }}/root/etc/systemd/system/userconfig.service"
@@ -270,7 +270,7 @@
 # #34): keys baked into the published image would be shared by every
 # consuming site, so each server generates its own after extraction (this
 # same task, which fires whenever the keys are absent).
-- name: check if SSH host keys already exist in NFS root
+- name: Check if SSH host keys already exist in NFS root
   stat:
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
@@ -279,7 +279,7 @@
     - netboot
     - qemu
 
-- name: pre-generate SSH host keys in NFS root
+- name: Pre-generate SSH host keys in NFS root
   command: >-
     ssh-keygen -q -N "" -t {{ item.type }}
     -f {{ nfs_root }}/root/etc/ssh/ssh_host_{{ item.type }}_key

@@ -4,11 +4,11 @@
 # {{ user_name }} and must be able to write db.sqlite3 and STATIC_ROOT.
 # The service account the app servers run as. It used to exist only because
 # fixpi (generating its ssh key) ran first; the site owns its own user.
-- name: site service user
+- name: Site service user
   ansible.builtin.user:
     name: "{{ user_name }}"
 
-- name: site directories
+- name: Site directories
   file:
     path: "{{ item }}"
     state: directory
@@ -26,14 +26,14 @@
 # the fpgas-online-site wheel; {{ django_dir }}/pib shadows it on sys.path so
 # gunicorn/daphne/manage.py pick up THIS copy (plus local_settings.py, which
 # only the lineinfile tasks below ever touch).
-- name: locate the installed pib project package
+- name: Locate the installed pib project package
   command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
   register: site_pib_pkg
   changed_when: false
   tags:
     - django
 
-- name: install Django project files from the wheel
+- name: Install Django project files from the wheel
   copy:
     src: "{{ site_pib_pkg.stdout }}/{{ item }}"
     dest: "{{ django_dir }}/pib/{{ item }}"
@@ -47,11 +47,11 @@
     - urls.py
     - asgi.py
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 
-- name: create local_settings.py if missing (never overwritten)
+- name: Create local_settings.py if missing (never overwritten)
   copy:
     dest: "{{ django_dir }}/pib/local_settings.py"
     content: "# site-local Django settings, lines managed by fpgas.online-infra (roles/site, roles/ttsite)\n"
@@ -65,7 +65,7 @@
 # The wheel ships Django's insecure dev SECRET_KEY and DEBUG=True; production
 # settings come from local_settings.py. The key is generated once per host
 # (kept out of the inventory) and never rotated by Ansible.
-- name: generate a SECRET_KEY once
+- name: Generate a SECRET_KEY once
   shell: >-
     umask 077 && {{ django_dir }}/venv/bin/python -c
     "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
@@ -74,7 +74,7 @@
   tags:
     - django
 
-- name: read the SECRET_KEY
+- name: Read the SECRET_KEY
   slurp:
     src: "{{ django_dir }}/.secret_key"
   register: site_secret_key
@@ -95,14 +95,14 @@
     label: "{{ item.key }}"
   no_log: "{{ item.key == 'SECRET_KEY' }}"
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 
 # Every name the site answers on: the uplink address, the primary web name,
 # its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
 # tinytapeout.fpgas.online host when this server carries TT boards.
-- name: site_web_hosts
+- name: Site_web_hosts
   set_fact:
     site_web_hosts: >-
       {{ ([eth_uplink_static_address, domain_name] + (streaming_frontend_aliases | default([]))
@@ -117,7 +117,7 @@
     regexp: '^ALLOWED_HOSTS = '
     line: "ALLOWED_HOSTS = {{ site_web_hosts | to_json }}"
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 
@@ -128,11 +128,11 @@
     regexp: '^CSRF_TRUSTED_ORIGINS = '
     line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 
-- name: pass the pi's user pw
+- name: Pass the pi's user pw
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
@@ -141,7 +141,7 @@
   tags:
     - django
 
-- name: sites's domain name
+- name: Sites's domain name
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
@@ -160,7 +160,7 @@
     line: "FLEET_MQTT = {'host': '{{ eth_local_address }}', 'port': 1883}"
   when: fleet_broker | default(false)
   notify:
-    - restart fleet-consumer
+    - Restart fleet-consumer
   tags:
     - django
 
@@ -168,18 +168,18 @@
 # pointing visitors there. Written on EVERY host rather than only the ones that
 # want it, so a host that is switched back gets an explicit False rather than
 # keeping a stale True that nothing would ever remove.
-- name: under-construction banner
+- name: Under-construction banner
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^UNDER_CONSTRUCTION = '
     line: "UNDER_CONSTRUCTION = {{ 'True' if site_under_construction | bool else 'False' }}"
   notify:
-    - restart django services
+    - Restart django services
   tags:
     - django
 
-- name: set static dir
+- name: Set static dir
   lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
@@ -188,7 +188,7 @@
   tags:
     - django
 
-- name: manage.py
+- name: Manage.py
   copy:
     dest: "{{ django_dir }}/manage.py"
     owner: "{{ user_name }}"

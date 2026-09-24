@@ -10,12 +10,12 @@
     name: mosquitto
     state: present
 
-- name: fleet broker config
+- name: Fleet broker config
   ansible.builtin.template:
     src: fpgas-fleet.conf.j2
     dest: /etc/mosquitto/conf.d/fpgas-fleet.conf
     mode: "0644"
-  notify: restart mosquitto
+  notify: Restart mosquitto
 
 - name: Enable mosquitto
   ansible.builtin.systemd:

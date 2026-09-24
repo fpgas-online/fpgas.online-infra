@@ -1,5 +1,5 @@
 ---
-- name: tt-boards.yaml present
+- name: Tt-boards.yaml present
   stat:
     path: "{{ ttsite_boards_path }}"
   register: ttsite_v_boards
@@ -9,7 +9,7 @@
     that: ttsite_v_boards.stat.exists
     fail_msg: "{{ ttsite_boards_path }} missing"
 
-- name: vhost present
+- name: Vhost present
   stat:
     path: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
   register: ttsite_v_vhost
@@ -19,13 +19,13 @@
     that: ttsite_v_vhost.stat.exists
     fail_msg: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf missing"
 
-- name: count ws-boards locations
+- name: Count ws-boards locations
   command: grep -c "location = /ws/board/" "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
   register: ttsite_v_ws
   changed_when: false
   failed_when: false
 
-- name: live boards
+- name: Live boards
   set_fact:
     ttsite_v_live: "{{ tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | rejectattr('enabled', 'defined') | list
                        + tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | selectattr('enabled', 'defined') | selectattr('enabled') | list }}"
@@ -35,11 +35,11 @@
     that: (ttsite_v_ws.stdout | int) == (ttsite_v_live | length)
     fail_msg: "ws-boards include has {{ ttsite_v_ws.stdout }} locations, expected {{ ttsite_v_live | length }}"
 
-- name: nginx config valid
+- name: Nginx config valid
   command: nginx -t
   changed_when: false
 
-- name: landing page answers on the TT host
+- name: Landing page answers on the TT host
   uri:
     url: "http://127.0.0.1/"
     headers:
@@ -53,7 +53,7 @@
     that: "'Tiny Tapeout' in (ttsite_v_index.content | default('')) or ttsite_v_index.status in [301, 302]"
     fail_msg: "tinytapeout landing page did not render"
 
-- name: embed bundle present when pinned
+- name: Embed bundle present when pinned
   stat:
     path: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}/tt-commander-embed.js"
   register: ttsite_v_embed
@@ -65,7 +65,7 @@
     fail_msg: "Commander embed bundle {{ tt_commander_embed_version }} not unpacked"
   when: tt_commander_embed_version | length > 0
 
-- name: legacy embed bundle present when pinned
+- name: Legacy embed bundle present when pinned
   stat:
     path: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}/tt-commander-embed.js"
   register: ttsite_v_legacy_embed
@@ -77,11 +77,11 @@
     fail_msg: "legacy Commander embed bundle {{ tt_commander_legacy_embed_version }} not unpacked"
   when: tt_commander_legacy_embed_version | length > 0
 
-- name: live fpga boards
+- name: Live fpga boards
   set_fact:
     ttsite_v_fpga_boards: "{{ ttsite_v_live | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'fpga') | list }}"
 
-- name: first live fpga board slug ('' when none)
+- name: First live fpga board slug ('' when none)
   set_fact:
     ttsite_v_fpga: "{{ ttsite_v_fpga_boards[0].slug if ttsite_v_fpga_boards | length > 0 else '' }}"
 
@@ -89,7 +89,7 @@
 # the daemon answered; 502 = Django reached no daemon but the route exists and
 # answers JSON. Skipped when no live fpga board is defined (the VM inventory
 # has none wired, so this only runs in production).
-- name: designs API answers on the TT host
+- name: Designs API answers on the TT host
   uri:
     url: "http://127.0.0.1/api/board/{{ ttsite_v_fpga }}/designs"
     headers:

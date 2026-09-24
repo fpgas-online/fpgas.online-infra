@@ -1,6 +1,6 @@
 ---
 # pip install is in fpgas-online-site.yml.
-- name: copy uvicorn systemd file to /etc/systemd/system/uvicorn.service
+- name: Copy uvicorn systemd file to /etc/systemd/system/uvicorn.service
   template:
     src: templates/uvicorn.service.j2
     dest: /etc/systemd/system/uvicorn.service

@@ -5,7 +5,7 @@
 # stay inert until a site's server writes that file -- fixpi/tasks/fleet-site.yml,
 # the per-site layer applied after the image is pulled (the image itself is
 # built in CI without any site vars).
-- name: enable the fleet agent and boot-stage event units
+- name: Enable the fleet agent and boot-stage event units
   ansible.builtin.systemd:
     name: "{{ item }}"
     enabled: true

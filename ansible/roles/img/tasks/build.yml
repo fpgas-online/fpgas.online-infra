@@ -13,7 +13,7 @@
   tags:
     - img
 
-- name: create pib cache dir
+- name: Create pib cache dir
   file:
     path: "{{ cache_dir }}"
     state: directory
@@ -27,7 +27,7 @@
   tags:
     - img
 
-- name: extract files from raspios.img.xz
+- name: Extract files from raspios.img.xz
   script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
   args:
     chdir: "{{ cache_dir }}"

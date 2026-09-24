@@ -97,13 +97,13 @@
 # server for that socket and hands out its certificate regardless of SNI.
 # Nothing in CI noticed, so assert it here rather than in a comment.
 
-- name: nginx vhosts that terminate TLS on IPv4
+- name: Nginx vhosts that terminate TLS on IPv4
   shell: "grep -lE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
   changed_when: false
   failed_when: false
   register: site_v_tls4
 
-- name: nginx vhosts that terminate TLS on IPv6
+- name: Nginx vhosts that terminate TLS on IPv6
   shell: "grep -lE '^[[:space:]]*listen[[:space:]]+\\[::\\]:443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
   changed_when: false
   failed_when: false
@@ -118,7 +118,7 @@
       -- clients reaching this host over IPv6 will be served some other vhost's
       certificate. Add `listen [::]:443 ssl;` beside `listen 443 ssl;`.
 
-- name: listening sockets
+- name: Listening sockets
   command: ss -H -ltn
   changed_when: false
   register: site_v_listeners
@@ -131,7 +131,7 @@
 # End to end: shake hands over IPv6 with this host's own SNI and check which
 # certificate comes back. s_client prints "subject=CN=..." on stdout, so no
 # second openssl process and no discarded stderr.
-- name: certificate served over IPv6 for {{ domain_name }}
+- name: Certificate served over IPv6 for {{ domain_name }}
   shell: "openssl s_client -6 -connect [::1]:443 -servername {{ domain_name }} < /dev/null"
   changed_when: false
   failed_when: false
