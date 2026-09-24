@@ -401,6 +401,23 @@ def test_abandoned_lock_is_logged_once(board):
 
 
 @needs_busybox
+def test_stale_lock_or_inhibit_still_holds(board):
+    # A lock the lower answers ESTALE for is not an absent lock.
+    board.write_lower(LOCK, f"{T0} x\n")
+    board.write_lower(GEN, f"{T0 + 10} x\n")
+    board.set_now(T0 + 100)
+    lock = str(board.lower / LOCK.lstrip("/"))
+    board.stale(lock)
+    assert "update in progress" in board.check()
+    assert board.deadline() is None
+
+    (board.lower / LOCK.lstrip("/")).unlink()
+    inhibit = board.lower / "etc/fpgas-online/no-auto-reboot"
+    board.stale(str(inhibit))  # stale, and not even there as a file
+    assert "fleet inhibit" in board.check()
+
+
+@needs_busybox
 def test_unparseable_lock_still_holds(board):
     board.write_lower(LOCK, "garbage\n")
     board.write_lower(GEN, f"{T0 + 10} x\n")

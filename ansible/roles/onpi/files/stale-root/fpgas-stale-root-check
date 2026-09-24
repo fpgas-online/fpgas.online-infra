@@ -109,11 +109,25 @@ hold() {
 	exit 0
 }
 
-# First field of a lower-root file ("<epoch> ..."), "none" if absent,
+# Does a lower-root file exist? Only a genuine ENOENT says no: `[ -e ]` would
+# also say no for ESTALE, and a lock or inhibit that is merely unreadable
+# must still hold.
+lower_exists() {
+	if out=$(stat -c %i "$LOWER$1" 2>&1); then
+		return 0
+	fi
+	case $out in
+	*"No such file"*) return 1 ;;
+	esac
+	log "treating $1 as present: $out"
+	return 0
+}
+
+# First line of a lower-root file ("<epoch> ..."), "none" if absent,
 # "estale" if the lower itself answers ESTALE.
 read_lower() {
 	f=$LOWER$1
-	if [ ! -e "$f" ]; then
+	if ! lower_exists "$1"; then
 		echo none
 		return
 	fi
@@ -145,7 +159,7 @@ plausible_epoch() {
 if [ -e "$BOARD_INHIBIT" ]; then
 	hold "board inhibit $BOARD_INHIBIT exists"
 fi
-if [ -e "$LOWER$FLEET_INHIBIT" ]; then
+if lower_exists "$FLEET_INHIBIT"; then
 	hold "fleet inhibit $FLEET_INHIBIT exists in the NFS root"
 fi
 
