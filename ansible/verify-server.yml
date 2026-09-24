@@ -167,28 +167,42 @@
         fail_msg: "overlayroot not installed in NFS root"
       tags: [verify, nfs-root]
 
-    # Stale-root self-reboot: the boards' checker needs a STATIC busybox
-    # (roles/onpi, stale_root.yml), and a finished site.yml run must have
-    # released the update lock, or every board holds forever
-    # (roles/nfsroot-generation).
-    - name: Check busybox-static installed in NFS root
-      command: dpkg --root={{ nfs_root }}/root -s busybox-static
+    # Stale-NFS-root watchdog: the boards' half (nfsroot-watchdog, roles/onpi)
+    # must be in the root, the server's half (nfsroot-watchdog-server,
+    # roles/nfsroot-generation) on this host, and a finished site.yml run
+    # must have released the update lock, or every board holds forever.
+    - name: Check nfsroot-watchdog installed in NFS root
+      command: dpkg-query --admindir={{ nfs_root }}/root/var/lib/dpkg -W -f=${db:Status-Status} nfsroot-watchdog busybox-static
       changed_when: false
-      register: verify_busybox_static
+      register: verify_nfsroot_watchdog
+      failed_when: false
+      tags: [verify, nfs-root, fpgas-apt]
+
+    - name: Assert nfsroot-watchdog installed in NFS root
+      assert:
+        that: verify_nfsroot_watchdog.stdout == "installedinstalled"
+        fail_msg: >-
+          nfsroot-watchdog and busybox-static not both installed in the NFS
+          root (got {{ verify_nfsroot_watchdog.stdout }}, rc
+          {{ verify_nfsroot_watchdog.rc }}: {{ verify_nfsroot_watchdog.stderr }})
+      tags: [verify, nfs-root, fpgas-apt]
+
+    - name: Check nfsroot-watchdog-server installed on the server
+      command: dpkg-query -W -f=${db:Status-Status} nfsroot-watchdog-server
+      changed_when: false
+      register: verify_nfsroot_watchdog_server
       failed_when: false
       tags: [verify, nfs-root]
 
-    - name: Assert busybox-static installed in NFS root
+    - name: Assert nfsroot-watchdog-server installed on the server
       assert:
-        that:
-          - verify_busybox_static.rc == 0
-          - "'Status: install ok installed' in verify_busybox_static.stdout"
-        fail_msg: "busybox-static not installed in NFS root"
+        that: verify_nfsroot_watchdog_server.stdout == "installed"
+        fail_msg: "nfsroot-watchdog-server is not installed ({{ verify_nfsroot_watchdog_server.stderr }})"
       tags: [verify, nfs-root]
 
     - name: Check the NFS root update lock
       stat:
-        path: "{{ nfs_root }}/root/etc/fpgas-online/nfsroot-update.lock"
+        path: "{{ nfs_root }}/root/etc/nfsroot-watchdog/update.lock"
       register: verify_nfsroot_lock
       tags: [verify, nfs-root]
 
@@ -196,9 +210,9 @@
       assert:
         that: not verify_nfsroot_lock.stat.exists
         fail_msg: >-
-          {{ nfs_root }}/root/etc/fpgas-online/nfsroot-update.lock still
-          exists: the last site.yml run did not finish, and no netbooted
-          board will reboot itself for a stale root until one does.
+          {{ nfs_root }}/root/etc/nfsroot-watchdog/update.lock still exists:
+          the last site.yml run did not finish, and no netbooted board will
+          reboot itself for a stale root until one does.
       tags: [verify, nfs-root]
 
     - name: Check nfs-common installed in NFS root

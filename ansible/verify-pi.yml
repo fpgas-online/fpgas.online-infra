@@ -160,43 +160,45 @@
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
 
-    # Stale-NFS-root self-reboot (roles/onpi, stale_root.yml): the arm unit
-    # stages a static busybox and the checker into /run at boot, and the
-    # timer runs it from there. `slot` exercises the staged copy without
-    # making any reboot decision.
-    - name: Check the stale-root arm service and timer are active
-      command: systemctl is-active fpgas-stale-root-arm.service fpgas-stale-root.timer
+    # Stale-NFS-root watchdog (nfsroot-watchdog, roles/onpi stale_root.yml):
+    # the arm unit stages a static busybox and the checker into /run at boot,
+    # and the timer runs it from there. `nfsroot-watchdog status` reads the
+    # staged copy and fails if the arm unit never staged anything (e.g. it
+    # did not recognise the NFS root). Both carry fpgas-apt, like the
+    # package install they check.
+    - name: Check the nfsroot-watchdog arm service and timer are active
+      command: systemctl is-active nfsroot-watchdog-arm.service nfsroot-watchdog.timer
       changed_when: false
-      register: verify_pi_stale_root_active
+      register: verify_pi_watchdog_active
       failed_when: false
+      tags: [verify, services, fpgas-apt]
 
-    - name: Assert the stale-root arm service and timer are active
+    - name: Assert the nfsroot-watchdog arm service and timer are active
       assert:
-        that: verify_pi_stale_root_active.stdout_lines == ["active", "active"]
+        that: verify_pi_watchdog_active.stdout_lines == ["active", "active"]
         fail_msg: >-
-          fpgas-stale-root-arm.service / fpgas-stale-root.timer not active
-          (is-active: {{ verify_pi_stale_root_active.stdout_lines }})
-      tags: [verify, services]
+          nfsroot-watchdog-arm.service / nfsroot-watchdog.timer not active
+          (is-active: {{ verify_pi_watchdog_active.stdout_lines }})
+      tags: [verify, services, fpgas-apt]
 
-    - name: Run the staged stale-root checker from /run
-      shell: >-
-        env -i /run/fpgas-stale-root/bin/busybox sh
-        /run/fpgas-stale-root/check slot "$(cat /proc/sys/kernel/hostname)"
+    - name: Ask the staged nfsroot-watchdog what it sees
+      command: nfsroot-watchdog status
       changed_when: false
-      register: verify_pi_stale_root_slot
+      register: verify_pi_watchdog_status
       failed_when: false
+      tags: [verify, services, fpgas-apt]
 
-    - name: Assert the staged stale-root checker runs
+    - name: Assert nfsroot-watchdog is armed on the NFS lower layer
       assert:
         that:
-          - verify_pi_stale_root_slot.rc == 0
-          - verify_pi_stale_root_slot.stdout is match('^[0-9]+$')
+          - verify_pi_watchdog_status.rc == 0
+          - "'NFS root:          /media/root-ro' in verify_pi_watchdog_status.stdout_lines"
         fail_msg: >-
-          /run/fpgas-stale-root/check did not run from /run
-          (rc={{ verify_pi_stale_root_slot.rc }},
-          out={{ verify_pi_stale_root_slot.stdout }}
-          err={{ verify_pi_stale_root_slot.stderr }})
-      tags: [verify, services]
+          nfsroot-watchdog is not armed on /media/root-ro
+          (rc={{ verify_pi_watchdog_status.rc }},
+          out={{ verify_pi_watchdog_status.stdout }}
+          err={{ verify_pi_watchdog_status.stderr }})
+      tags: [verify, services, fpgas-apt]
 
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
     # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
