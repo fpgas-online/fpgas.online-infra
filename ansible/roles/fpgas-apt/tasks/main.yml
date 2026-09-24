@@ -1,30 +1,16 @@
 ---
 # Add the fpgas.online apt repository to hosts that need fpgas-online deb packages.
 
-# The published key is ASCII-armoured; apt on the Raspbian NFS root rejected
-# it as a signed-by keyring (NO_PUBKEY, issue #13), so dearmour it into a
-# binary keyring.  The .asc copy is kept only as the change detector.
-- name: Fetch fpgas.online apt signing key (armoured)
-  ansible.builtin.get_url:
-    url: "{{ fpgas_apt_url }}/pubkey.gpg"
-    dest: /usr/share/keyrings/fpgas-online.asc
-    mode: '0644'
-  register: fpgas_apt_key
-
-- name: Dearmour fpgas.online apt signing key
-  ansible.builtin.command:
-    cmd: gpg --batch --yes --dearmor -o /usr/share/keyrings/fpgas-online.gpg /usr/share/keyrings/fpgas-online.asc
-  when: fpgas_apt_key.changed
-
-# The whole file, not apt_repository: apt_repository only adds lines, so a
-# URL change (upstream -> the gateway's apt cache, or back) would leave the
-# old line behind and apt would keep fetching straight from upstream too.
-# Owning the file also drops any pre-custom-domain github.io line.
-- name: Fpgas.online apt repository
-  ansible.builtin.copy:
-    content: "deb [signed-by=/usr/share/keyrings/fpgas-online.gpg] {{ fpgas_apt_url }} {{ fpgas_apt_suite }} main\n"
-    dest: /etc/apt/sources.list.d/fpgas-online.list
-    mode: '0644'
+# fpgas-online/apt: the platform's own packages (fpgas-online-setup-pi, -cam,
+# -tt, ...). Key, keyring and source are all named after the repository,
+# "apt" (docs/conventions.md in mithro/apt-repo-action); tasks/repo.yml.
+- name: Add the fpgas.online apt repository
+  ansible.builtin.include_tasks: repo.yml
+  vars:
+    repo_name: apt
+    repo_url: "{{ fpgas_apt_url }}"
+    repo_suite: "{{ fpgas_apt_suite }}"
+    repo_key_fingerprint: "{{ fpgas_apt_key_fingerprint }}"
 
 # mithro/rp1-jtag no longer publishes packages and its apt repository is
 # going away; roots that still carry it would fail `apt update` below.
@@ -35,6 +21,23 @@
 # the rp1-jtag ones in roles/onpi/tasks/apt.yml.
 - name: Add the fpgas.online-fpga-tools apt repository
   ansible.builtin.include_tasks: fpga-tools.yml
+
+# The same two repositories under their names before the apt repository
+# convention (2026-09-24): pubkey.gpg dearmoured to /usr/share/keyrings/
+# fpgas-online.gpg with a dists/<suite> main source in fpgas-online.list, and
+# fpgas-online-fpga-tools.{gpg,list}. Removed after the renamed ones above are
+# written; the old dists/ archive stops being served once every root moved.
+- name: Remove the pre-convention fpgas.online apt sources and keyrings
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/fpgas-online.list
+    - /usr/share/keyrings/fpgas-online.gpg
+    - /usr/share/keyrings/fpgas-online.asc
+    - /etc/apt/sources.list.d/fpgas-online-fpga-tools.list
+    - /etc/apt/keyrings/fpgas-online-fpga-tools.gpg
+    - /etc/apt/keyrings/fpgas-online-fpga-tools.gpg.fetched
 
 - name: Update apt cache
   ansible.builtin.apt:

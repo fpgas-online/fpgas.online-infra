@@ -108,9 +108,14 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
 
 
 def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | None]:
-    """Monitor Pi serial log for boot progress milestones.
+    """Monitor Pi serial log until the firmware hands off to the kernel.
 
     Returns (success, pi_ip) where pi_ip is extracted from DHCP output.
+
+    Success is the kernel handoff, not a getty "login:" prompt: the netbooted
+    image never prints one on the captured console, so waiting for it burned
+    the whole timeout on every run (60 min per VM test) before the SSH wait --
+    which is the real userland-readiness check -- answered at once.
     """
     import re
 
@@ -118,7 +123,6 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
         ("DHCP", "Firmware got network"),
         ("Loading", "TFTP loading files"),
         ("Booting Linux", "Kernel handoff"),
-        ("login:", "System booted"),
     ]
     seen = set()
     pi_ip = None
@@ -144,7 +148,7 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
                 if ip_match:
                     pi_ip = ip_match.group(1)
                     print(f"[pi] Pi IP from DHCP: {pi_ip}")
-            if "login:" in content:
+            if "Booting Linux" in content:
                 return True, pi_ip
         # Check if QEMU process died
         if not pi.is_alive():
@@ -162,6 +166,12 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
     # FAT", not a TFTP kernel load), so treat them as hints only -- the full
     # dumps below are authoritative.
     print(f"[pi] Boot milestones seen: {[m for m, _ in milestones if m in seen]}")
+    dump_pi_serial_logs(pi)
+    return False, pi_ip
+
+
+def dump_pi_serial_logs(pi: VMManager) -> None:
+    """Print both Pi serial logs in full (kernel serial0, U-Boot serial1)."""
     for label, path in (
         ("kernel serial0", pi.serial_log),
         ("u-boot serial1", Path(str(pi.serial_log) + ".uboot")),
@@ -174,7 +184,6 @@ def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | Non
             print(f"[pi] ===== end {label} =====")
         else:
             print(f"[pi] {label} log {path.name} does not exist")
-    return False, pi_ip
 
 
 def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
@@ -330,9 +339,9 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
         return False
 
     # Monitor serial log for boot milestones
-    booted, pi_ip = wait_for_pi_boot(pi, timeout=3600)
+    booted, pi_ip = wait_for_pi_boot(pi, timeout=1800)
     if not booted:
-        print("WARNING: Pi did not reach login prompt within timeout.")
+        print("WARNING: Pi firmware did not hand off to the kernel within timeout.")
         # Continue to try SSH anyway
 
     # Use Pi IP from DHCP if available, fall back to expected IP
@@ -344,10 +353,12 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     # Wait for SSH via ProxyJump through server
     proxy = proxy_jump_string("debian", "127.0.0.1", SSH_PORT)
 
+    # SSH is the userland-readiness check (the boot wait above ends at the
+    # kernel handoff), so give it the whole TCG userland boot.
     try:
         ssh = pi.wait_for_ssh(
             host=pi_host, port=22, username="pi",
-            key_path=key_path, proxy_jump=proxy, timeout=900,
+            key_path=key_path, proxy_jump=proxy, timeout=1800,
         )
         # Diagnostic probe: verify-pi.yml runs `become: true` on every task, so
         # slow/failing privilege escalation (e.g. sudo stalling on hostname
@@ -373,6 +384,7 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
         ssh.close()
     except TimeoutError:
         print("ERROR: Pi VM SSH not reachable via ProxyJump.")
+        dump_pi_serial_logs(pi)
         pi.shutdown()
         return False
 
