@@ -1,48 +1,25 @@
 ---
-# Reboot a board by itself once the NFS root has changed underneath it.
-# files/stale-root/fpgas-stale-root-check explains the stale-handle problem
-# and the triggers; roles/nfsroot-generation is the server half that marks
-# a finished root update.
+# Reboot a board by itself once the NFS root has changed underneath it:
+# fpgas-online/nfsroot-watchdog, whose README explains the stale-handle
+# problem, the triggers and the stagger. roles/nfsroot-generation is the
+# server half that marks a finished root update.
+#
+# The package depends on busybox-static (the watchdog runs from /run under
+# it, so a stale libc cannot stop it), which replaces the root's dynamic
+# busybox and regenerates its initramfs images once. It enables its own
+# units. Its apt source comes from roles/fpgas-apt, hence the fpgas-apt tag.
 
-# The checker runs from /run under a STATIC busybox, so a later libc
-# upgrade in the root cannot stop it running. Replaces the dynamic busybox
-# (Conflicts/Replaces/Provides: busybox, and ships its own initramfs hook).
-- name: install busybox-static for the stale-root checker
+- name: install nfsroot-watchdog
   ansible.builtin.apt:
-    name: busybox-static
-    state: present
+    name: nfsroot-watchdog
+    state: latest  # noqa: package-latest -- rolling release, like fpga-tools
+  tags: [fpgas-apt]
 
-- name: install the stale-root scripts
-  ansible.builtin.copy:
-    src: "stale-root/{{ item }}"
-    dest: "/usr/local/sbin/{{ item }}"
-    mode: "0755"
-  loop:
-    - fpgas-stale-root-arm
-    - fpgas-stale-root-check
-
-- name: stale-root config
+# A conffile the package ships all-commented: replacing it is the intended
+# way to configure it, and dpkg keeps this copy across upgrades.
+- name: nfsroot-watchdog settings for fpgas.online
   ansible.builtin.template:
-    src: fpgas-stale-root.conf.j2
-    dest: /etc/default/fpgas-stale-root
+    src: nfsroot-watchdog.default.j2
+    dest: /etc/default/nfsroot-watchdog
     mode: "0644"
-
-- name: stale-root systemd units
-  ansible.builtin.copy:
-    src: "stale-root/{{ item }}"
-    dest: "/etc/systemd/system/{{ item }}"
-    mode: "0644"
-  loop:
-    - fpgas-stale-root-arm.service
-    - fpgas-stale-root.service
-    - fpgas-stale-root.timer
-
-# systemctl enable only writes the [Install] symlinks, which works in the
-# chroot with no systemd running.
-- name: enable the stale-root arm service and timer
-  ansible.builtin.command: "systemctl enable {{ item.unit }}"
-  args:
-    creates: "/etc/systemd/system/{{ item.wants }}/{{ item.unit }}"
-  loop:
-    - {unit: fpgas-stale-root-arm.service, wants: multi-user.target.wants}
-    - {unit: fpgas-stale-root.timer, wants: timers.target.wants}
+  tags: [fpgas-apt]
