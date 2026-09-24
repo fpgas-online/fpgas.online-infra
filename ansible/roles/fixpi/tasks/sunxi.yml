@@ -12,6 +12,8 @@
 # Raspbian does not carry debian-archive-keyring, so fetch Debian's own
 # bookworm build of it (sha256 from the bookworm Packages index) and dpkg it
 # into the root; it provides the Signed-By keyring the source below names.
+# Tagged sunxi only (not sunxi-kernel): whenever that source is written the
+# keyring must be too, or every later apt update in the root fails NO_PUBKEY.
 # Fetched through the gateway's apt cache when there is one (the checksum
 # pins the content either way).
 - name: fetch debian-archive-keyring for the armmp kernel source
@@ -20,7 +22,7 @@
     dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
     checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
     mode: "0644"
-  tags: [sunxi, sunxi-kernel]
+  tags: [sunxi]
 
 - name: install debian-archive-keyring into the NFS root
   command: >-
@@ -28,7 +30,7 @@
     "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
   args:
     creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
-  tags: [sunxi, sunxi-kernel]
+  tags: [sunxi]
 
 - name: debian armhf apt source (kernel only) in NFS root
   template:
