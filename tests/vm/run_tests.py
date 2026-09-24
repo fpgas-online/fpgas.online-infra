@@ -327,6 +327,16 @@ def server_run(server: VMManager, key_path: Path, cmd: str, timeout: int = 120) 
 PI_JOURNAL_CONSOLE_DROPIN = (
     "/srv/nfs/rpi/bookworm/root/etc/systemd/journald.conf.d/zz-vm-test-console.conf"
 )
+PI_MEMORY_PROBE = """free -m
+sudo -n tee /run/vmprobe.sh > /dev/null <<'EOF'
+while :; do
+  echo "VMPROBE $(cut -d' ' -f1-3 /proc/loadavg)" \\
+    $(grep -E '^(MemAvailable|MemFree|Shmem|Cached|Committed_AS):' /proc/meminfo | tr -s ' ')
+  sleep 10
+done
+EOF
+sudo -n setsid sh /run/vmprobe.sh > /dev/console 2>&1 < /dev/null &
+echo probe started"""
 SERVER_NET_DIAG = (
     "set -x; ip neigh show 10.21.1.1; ping -c 3 -W 2 10.21.1.1; "
     "ip neigh show 10.21.1.1; ip -s link show v2101; ip -4 addr show v2101; "
@@ -412,6 +422,11 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
             ("/etc/resolv.conf", "cat /etc/resolv.conf"),
             ("resolve self", "getent hosts $(hostname) || echo '(no result)'"),
             ("sudo -n timing", "time sudo -n true 2>&1 || echo 'sudo rc='$?"),
+            # Diagnostics: the Pi has frozen (no console output, no ARP)
+            # while logind created the 23rd login session in every recent
+            # run. Log memory/load to the serial console every 10 s so the
+            # capture shows the trajectory up to the freeze.
+            ("memory probe", PI_MEMORY_PROBE),
         ]:
             try:
                 _in, _out, _err = ssh.exec_command(cmd, timeout=30)
