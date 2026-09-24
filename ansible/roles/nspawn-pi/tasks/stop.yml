@@ -28,3 +28,8 @@
   file:
     path: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
     state: absent
+
+- name: Remove the build-time dpkg unsafe-io setting
+  file:
+    path: "{{ nspawn_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    state: absent

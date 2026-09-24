@@ -64,6 +64,7 @@ jobs:
         if: steps.reuse.outputs.reused != 'true'
         with:
           python-version: "3.12"
+          enable-cache: true
 
       - name: Install ansible and collections
         if: steps.reuse.outputs.reused != 'true'

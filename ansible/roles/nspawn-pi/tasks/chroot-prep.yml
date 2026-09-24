@@ -19,6 +19,15 @@
     mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
   changed_when: false
 
+# The root is packed into an image and discarded if the build fails, so
+# dpkg's per-file fsyncs buy nothing here; stop.yml removes this again.
+- name: Let dpkg skip fsync during the build
+  ansible.builtin.copy:
+    dest: "{{ nspawn_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    content: |
+      force-unsafe-io
+    mode: "0644"
+
 - name: Install policy-rc.d to suppress service starts during apt
   ansible.builtin.copy:
     dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
@@ -74,7 +83,13 @@
 # 2026-09-23. Marking the served kernels manual makes autoremove leave them
 # alone; which kernel that is follows the TFTP payload, so the `netboot` tag
 # still owns fleet kernel changes. Must run BEFORE the Pi roles' apt runs.
+# An image build starts from the pristine RasPiOS image and no board boots
+# it until it is published, so there is nothing to protect: protecting here
+# pinned the base image's kernels (served before the upgrade) as manually
+# installed, and every image carried a second, dead kernel set -- modules,
+# headers and initramfs images, ~250 MB, rebuilt on every build.
 - name: Protect the kernels the TFTP payload serves from autoremove
+  when: not (fixpi_image_build | default(false) | bool)
   ansible.builtin.command:
     cmd: >-
       /usr/local/sbin/nfsroot-kernels
