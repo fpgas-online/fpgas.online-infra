@@ -21,9 +21,12 @@
     cache_valid_time: 3600
 
 - name: Start pulling the nfsroot image in the background
+  # Retries only the errors img_pull_retryable names, like pull.yml.
   shell: |
     for attempt in $(seq {{ img_pull_retries | int + 1 }}); do
-      podman pull --quiet {{ nfsroot_image }} && exit 0
+      err=$(podman pull --quiet {{ nfsroot_image }} 2>&1 >/dev/null) && exit 0
+      echo "$err" >&2
+      echo "$err" | grep -Eq {{ img_pull_retryable | quote }} || exit 1
       sleep {{ img_pull_delay }}
     done
     exit 1

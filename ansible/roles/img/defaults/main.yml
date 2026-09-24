@@ -10,3 +10,9 @@ nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 # it starts before the image it pulls has been pushed.
 img_pull_retries: 3
 img_pull_delay: 20
+# Only these pull errors are retried: the tag not pushed yet, and network or
+# registry hiccups. Anything else -- an image this host cannot run, an auth
+# failure -- fails the pull at once instead of after every retry (a 45-min
+# wait in the VM test, whose retries cover a still-running image build).
+img_pull_retryable: >-
+  manifest unknown|timeout|timed out|connection reset|connection refused|EOF|TLS handshake|50[0-9] |too many requests
