@@ -22,6 +22,7 @@ from tests.vm.network import proxy_jump_string
 from tests.vm.vswitch import AccessPortSwitch
 from tests.vm.vm_manager import (
     DEBIAN_CLOUD_URL,
+    DEBIAN_RELEASES,
     IMAGES_DIR,
     VMManager,
     create_overlay,
@@ -195,8 +196,9 @@ def dump_pi_serial_logs(pi: VMManager) -> None:
 def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     """Run the server phase: boot VM, apply roles, verify."""
     dist = args.distro
-    image_url = DEBIAN_CLOUD_URL.format(dist=dist)
-    image_path = IMAGES_DIR / "debian-12-genericcloud-amd64.qcow2"
+    num = DEBIAN_RELEASES[dist]
+    image_url = DEBIAN_CLOUD_URL.format(dist=dist, num=num)
+    image_path = IMAGES_DIR / f"debian-{num}-genericcloud-amd64.qcow2"
 
     # Ensure Ansible collections are installed
     ensure_ansible_collections()
@@ -469,7 +471,8 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="QEMU VM integration tests for fpgas.online")
-    parser.add_argument("--distro", choices=["bookworm", "trixie"], default="bookworm")
+    # tweed runs Debian 13 (trixie): test the server OS production runs.
+    parser.add_argument("--distro", choices=["bookworm", "trixie"], default="trixie")
     parser.add_argument("--phase", choices=["server", "all"], default="all")
     parser.add_argument("--nfsroot-image", type=str, required=True,
                         help="GHCR ref of the prebuilt Pi NFS root the server pulls "
