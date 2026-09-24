@@ -1,0 +1,88 @@
+---
+# Pull the prebuilt Pi NFS root from GHCR (issue #34). The image is
+# produced by .github/workflows/nfsroot-build.yml; the site layer (fixpi
+# userconf, ssh host keys, tt catalogue, per-site config) is applied on
+# top by the roles that run after img in site.yml.
+#
+# Extraction rsyncs --delete into the live NFS export, so only run it with
+# the fleet powered off or between boots — the same constraint a full
+# rebuild has today (a changed root under a running Pi means stale NFS
+# handles). A re-run with an unchanged image digest skips extraction.
+
+- name: Install podman and rsync
+  apt:
+    name:
+      - podman
+      - rsync
+    install_recommends: false
+  tags:
+    - img
+
+- name: Pull the nfsroot image
+  command: podman pull {{ nfsroot_image }}
+  register: img_pull
+  until: img_pull.rc == 0
+  retries: "{{ img_pull_retries }}"
+  delay: "{{ img_pull_delay }}"
+  changed_when: false
+  tags:
+    - img
+
+- name: Read the pulled image digest
+  command: >-
+    podman image inspect --format {% raw %}{{.Digest}}{% endraw %}
+    {{ nfsroot_image }}
+  register: img_digest
+  changed_when: false
+  tags:
+    - img
+
+- name: Read the extraction stamp
+  command: cat {{ nfs_root }}/.image-digest
+  register: img_stamp
+  failed_when: false
+  changed_when: false
+  tags:
+    - img
+
+- name: create the NFS root directory
+  file:
+    path: "{{ nfs_root }}"
+    state: directory
+  tags:
+    - img
+
+- name: Extract the nfsroot image
+  when: img_stamp.stdout | default('') != img_digest.stdout
+  tags:
+    - img
+  block:
+    - name: mount the image
+      command: podman image mount {{ nfsroot_image }}
+      register: img_mnt
+
+    # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
+    # fpgas-online/nfsroot-watchdog (update.lock, generation, inhibit). They
+    # are never in the image and must survive a pull: deleting generation
+    # mid-run would make every board see a change and start rebooting,
+    # deleting update.lock drops the hold, and deleting inhibit silently undoes
+    # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
+    - name: rsync boot/ and root/ from the image
+      command: >-
+        rsync -aHAX --delete --numeric-ids
+        {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
+        {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
+      loop:
+        - boot
+        - root
+
+    - name: record the extraction stamp
+      copy:
+        content: "{{ img_digest.stdout }}\n"
+        dest: "{{ nfs_root }}/.image-digest"
+        mode: "0644"
+  always:
+    - name: unmount the image
+      command: podman image umount {{ nfsroot_image }}
+      failed_when: false
+      changed_when: false

@@ -347,7 +347,6 @@ vault_ansible_ssh_private_key: !vault |
 # the SHARED NFS root with the Debian armmp kernel that fixpi/sunxi.yml bakes
 # in. Network identity is the ordinary per-port one (pi-sw2-p<port>).
 # Mapping verified 2026-08-28: docs/hardware/2026-08-28-orange-pi-h3-boards.md
-sunxi_kernel_package: linux-image-armmp   # Debian bookworm metapackage (6.1.0-x-armmp)
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
 # Each row = one PHYSICAL board (identified by the stable fields) and where it
 # is currently plugged in (the placement fields, which change on recabling):
