@@ -59,8 +59,9 @@ def make_root(base: Path) -> Path:
 # --- the real task files, run by ansible-playbook ------------------------------
 
 PLAYBOOK = """
-# The shape of site.yml's first play: the lock in pre_tasks, the roles that
-# change the root, then the nfsroot-generation role (its main.yml is end.yml).
+# The shape of site.yml's last play (the root chain): the lock first, the
+# tasks that change the root, then the nfsroot-generation role (its main.yml
+# is end.yml).
 - hosts: nbp
   gather_facts: true
   pre_tasks:

@@ -1,8 +1,15 @@
 ---
-# Ansible collections the playbooks need. Install with:
-#   uv run ansible-galaxy collection install -r requirements.yml --upgrade
+# Ansible collections the playbooks need, pinned so every deploy (tweed's
+# and CI's) runs the same module code; bump deliberately. Install with:
+#   uv run ansible-galaxy collection install -r requirements.yml
 # (tests/vm/run_tests.py does this automatically.)
 collections:
   - name: community.crypto   # openssh_keypair (fixpi)
+    version: "3.4.0"
   - name: ansible.posix      # authorized_key (nspawn-pi, fixpi)
+    version: "2.2.2"
   - name: community.general  # django_manage (site role)
+    version: "13.4.0"
+  # community.general's dependency, pinned so the resolution is reproducible
+  - name: community.library_inventory_filtering_v1
+    version: "1.1.5"

@@ -254,6 +254,27 @@
         fail_msg: "Pi authorized_keys not found at {{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
       tags: [verify, nfs-root]
 
+    # The site layer fixpi applies on top of the pulled image (the image has
+    # no site identity): without these the Pis boot but never register with
+    # this site's fleet broker, or run no TT catalogue.
+    - name: Check the site layer's files in the NFS root
+      stat:
+        path: "{{ nfs_root }}/root/etc/fpgas-online/{{ item }}"
+      register: verify_site_layer
+      loop: >-
+        {{ (['fleet.toml'] if fleet_broker | default(false) else [])
+           + (['tt-boards.yaml'] if tt_boards is defined else []) }}
+      tags: [verify, nfs-root]
+
+    - name: Assert the site layer's files are in the NFS root
+      assert:
+        that: item.stat.exists
+        fail_msg: "{{ nfs_root }}/root/etc/fpgas-online/{{ item.item }} missing -- fixpi's site layer did not run"
+      loop: "{{ verify_site_layer.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      tags: [verify, nfs-root]
+
     # The onboard radios must be disabled in the read-only netboot image so the
     # setting is re-applied on every boot (see fixpi/tasks/tweeks.yml). On Pi 5
     # the firmware auto-remaps disable-wifi -> disable-wifi-pi5.

@@ -2,6 +2,12 @@
 ---
 # Directories are owned by the service user: gunicorn/daphne/uvicorn run as
 # {{ user_name }} and must be able to write db.sqlite3 and STATIC_ROOT.
+# The service account the app servers run as. It used to exist only because
+# fixpi (generating its ssh key) ran first; the site owns its own user.
+- name: site service user
+  ansible.builtin.user:
+    name: "{{ user_name }}"
+
 - name: site directories
   file:
     path: "{{ item }}"

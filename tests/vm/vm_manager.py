@@ -12,7 +12,9 @@ import paramiko
 
 
 IMAGES_DIR = Path(__file__).parent / "images"
-DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-amd64.qcow2"
+# Debian release number per codename, for the cloud image file names.
+DEBIAN_RELEASES = {"bookworm": 12, "trixie": 13}
+DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-{num}-genericcloud-amd64.qcow2"
 # rpi-qemu package constants
 QEMU_RPI_REPO = "fpgas-online/rpi-qemu"
 QEMU_RPI_STATIC_ASSET = "qemu-rpi-static-linux-amd64.tar.gz"
@@ -311,7 +313,7 @@ class VMManager:
         seed_iso: Path,
         ssh_port: int = 2222,
         trunk_port: int = 12345,
-        memory: int = 2048,
+        memory: int = 8192,
     ) -> None:
         """Boot the x86_64 server VM with two NICs + guest agent.
 
@@ -327,9 +329,15 @@ class VMManager:
             "-machine", f"q35,accel={accel}",
             "-cpu", cpu,
             "-m", str(memory),
-            "-smp", "2",
+            # Every host CPU: nothing else runs during the deploy (the Pi is
+            # powered on only once site.yml has converged).
+            "-smp", str(os.cpu_count() or 2),
             # Boot disk (overlay on cloud image)
-            "-drive", f"file={overlay},format=qcow2,if=virtio",
+            # cache=unsafe: the VM is thrown away after the run, so guest
+            # flushes need not reach the runner's disk. The deploy writes the
+            # multi-GB Pi root twice (podman store, then the NFS root) and dpkg
+            # fsyncs every package; with host flushes that was minutes of I/O.
+            "-drive", f"file={overlay},format=qcow2,if=virtio,cache=unsafe,discard=unmap",
             # Cloud-init seed ISO
             "-drive", f"file={seed_iso},format=raw,if=virtio",
             # NIC 1: user-mode for SSH from host, and the guest's only uplink.

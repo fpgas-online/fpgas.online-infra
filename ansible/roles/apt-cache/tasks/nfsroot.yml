@@ -29,16 +29,36 @@
   register: apt_cache_nfsroot_sources
   when: apt_cache_url | length > 0
 
+# One module call for every file and prefix (a replace loop over the
+# files x prefixes product was 27 s of round trips): the same regex, applied
+# to each file in the same order. Prints the files it changed.
 - name: Point the NFS root's other apt sources at the cache
-  ansible.builtin.replace:
-    path: "{{ item.0.path }}"
-    regexp: "https?://{{ item.1.prefix | regex_escape }}(?=/|\\s|$)"
-    replace: "{{ apt_cache_url }}{{ item.1.path }}"
-  loop: "{{ apt_cache_nfsroot_sources.files | default([]) | product(apt_cache_nfsroot_prefixes) | list }}"
-  loop_control:
-    label: "{{ item.0.path | basename }}: {{ item.1.prefix }}"
-  when: apt_cache_url | length > 0
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', '-c', apt_cache_nfsroot_rewrite, apt_cache_nfsroot_prefixes | to_json, apt_cache_url]
+         + (apt_cache_nfsroot_sources.files | default([]) | map(attribute='path') | sort) }}
+  register: apt_cache_nfsroot_rewritten
+  changed_when: apt_cache_nfsroot_rewritten.stdout | from_json | length > 0
+  when:
+    - apt_cache_url | length > 0
+    - apt_cache_nfsroot_sources.files | default([]) | length > 0
   vars:
+    apt_cache_nfsroot_rewrite: |
+      import json, re, sys
+      prefixes, cache, paths = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3:]
+      changed = []
+      for path in paths:
+          with open(path) as f:
+              text = f.read()
+          new = text
+          for p in prefixes:
+              new = re.sub(r"https?://" + re.escape(p["prefix"]) + r"(?=/|\s|$)",
+                           lambda _m, p=p: cache + p["path"], new)
+          if new != text:
+              with open(path, "w") as f:
+                  f.write(new)
+              changed.append(path)
+      print(json.dumps(changed))
     # Each remap's backend (scheme and trailing slash dropped) and aliases,
     # mapped to its cache path. A prefix naming the cache's own host is left
     # out so an already-rewritten URL can never be rewritten twice.

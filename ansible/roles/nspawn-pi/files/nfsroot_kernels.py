@@ -49,6 +49,7 @@ the computed set, so a dependency of a meta-package can never be dragged out.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import fnmatch
 import hashlib
 import json
@@ -465,30 +466,43 @@ def cmd_refresh_initramfs(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("nfsroot-kernels: would rebuild " + " ".join(stale))
         return 0
-    for version in stale:
-        initrd = nfs_root / "root" / "boot" / f"initrd.img-{version}"
-        mode = "-u" if initrd.is_file() else "-c"
-        print(f"nfsroot-kernels: rebuilding initramfs for {version} ({mode})")
-        result = subprocess.run(
-            [
-                "chroot",
-                str(nfs_root / "root"),
-                "update-initramfs",
-                mode,
-                "-k",
-                version,
-            ],
-            check=False,
-            env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"),
+    # One kernel per core: each update-initramfs -k <version> writes only
+    # that version's image and works in its own temporary directory, and
+    # mkinitramfs is single-threaded (a CI build rebuilt five one after
+    # another, ~65 s on a 4-core runner).
+    results = run_initramfs_builds(nfs_root, stale)
+    failed = [version for version, rc in results if rc != 0]
+    if failed:
+        print(
+            "nfsroot-kernels: ERROR update-initramfs failed for " + " ".join(failed),
+            file=sys.stderr,
         )
-        if result.returncode != 0:
-            print(
-                f"nfsroot-kernels: ERROR update-initramfs failed for {version}",
-                file=sys.stderr,
-            )
-            return result.returncode
+        return next(rc for _version, rc in results if rc != 0)
     print("nfsroot-kernels: rebuilt " + " ".join(stale))
     return 0
+
+
+def run_initramfs_builds(nfs_root: Path, versions: list[str]) -> list[tuple[str, int]]:
+    """Rebuild each version's initramfs, in parallel; (version, rc) in order."""
+
+    def build(version: str) -> tuple[str, int, str]:
+        initrd = nfs_root / "root" / "boot" / f"initrd.img-{version}"
+        mode = "-u" if initrd.is_file() else "-c"
+        result = subprocess.run(
+            ["chroot", str(nfs_root / "root"), "update-initramfs", mode, "-k", version],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=dict(os.environ, DEBIAN_FRONTEND="noninteractive"),
+        )
+        return version, result.returncode, f"({mode}) {result.stdout}{result.stderr}"
+
+    workers = max(1, min(len(versions), os.cpu_count() or 1))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        done = list(pool.map(build, versions))
+    for version, rc, output in done:
+        print(f"nfsroot-kernels: rebuilt initramfs for {version} {output}".rstrip())
+    return [(version, rc) for version, rc, _output in done]
 
 
 def cmd_check(args: argparse.Namespace) -> int:
