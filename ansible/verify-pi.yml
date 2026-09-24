@@ -9,8 +9,8 @@
 #   # a live Pi by address (the static inventory has no per-Pi hosts):
 #   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
-# Hardware-dependent checks are tagged so they can be skipped:
-#   --skip-tags hw-camera,hw-fpga
+# Checks are tagged (hw-camera, hw-fpga, hw-sunxi, fleet, ...) for running a
+# subset by hand; the VM test runs them all.
 
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
@@ -294,8 +294,7 @@
     # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
     # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
     # from a third-party apt source under the fpgas-apt tag, so these checks
-    # carry it too and are skipped alongside the install (the VM test runs
-    # --skip-tags fpgas-apt).
+    # carry it too: a run skipping the tag skips them with the install.
     #
     # SCOPE OF THESE TWO CHECKS -- they are about the software on the root,
     # not about JTAG working. Together they prove exactly:
@@ -368,7 +367,7 @@
     # The demos check is fpga-specific (hw-fpga). The daemon comes from the
     # fpgas.online apt repo, so onpi includes tt.yml with tags [tt, fpgas-apt];
     # the service checks carry fpgas-apt too, and are skipped alongside the
-    # install (the VM test runs with --skip-tags fpgas-apt).
+    # install by a run that skips the tag.
     - name: Assert fpgas-tt service enabled
       assert:
         that: verify_pi_tt.stdout == "enabled"

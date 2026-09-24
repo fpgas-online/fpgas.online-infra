@@ -7,11 +7,10 @@
 # Fetched, pinned, format-checked and installed by tasks/repo.yml under the
 # repository's name, fpgas.online-fpga-tools (key, keyring and source).
 #
-# These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
-# tag the whole role), which is also what the VM integration test skips
-# (tests/vm/run_tests.py, issue #49). The onpi install and the verify-pi
-# checks for these packages carry fpgas-apt too, so skipping the source
-# skips everything that needs it.
+# These tasks run under the role's fpgas-apt tag (ci-nfsroot.yml tags the
+# whole role). The onpi install and the verify-pi checks for these packages
+# carry fpgas-apt too, so a run that skips the tag skips everything that
+# needs the source. (The VM test skips nothing.)
 
 - name: Add the fpgas.online-fpga-tools apt repository (tasks/repo.yml)
   ansible.builtin.include_tasks: repo.yml

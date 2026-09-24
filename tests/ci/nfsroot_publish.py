@@ -16,9 +16,9 @@ The image filesystem holds top-level boot/ and root/ directories mirroring
     inputs (nfsroot_inputs.py), which later runs look up to reuse it
 
 `--reuse` publishes the same tags without building: when an image for this
-checkout's inputs key already exists it is retagged in the registry
-(docker buildx imagetools: manifests only, no layer is pulled or pushed),
-and the `reused` step output says whether that happened.
+checkout's inputs key already exists its manifest is copied to them
+(skopeo, preserving digests: no layer is pulled or pushed), and the
+`reused` step output says whether that happened.
 
 Run after ansible/ci-nfsroot.yml on the runner (needs sudo for tar to read
 the root-owned tree, and a docker login to ghcr.io).
@@ -60,6 +60,23 @@ def tags() -> tuple[str, str, list[str]]:
     return dated, inputs, others
 
 
+MANIFEST = "application/vnd.oci.image.manifest.v1+json"
+
+
+def assert_plain_manifest(tag: str) -> None:
+    """Fail unless the tag is a single image manifest, not an index.
+
+    The servers are amd64 and the image is arm64: podman pulls a plain
+    manifest whatever its architecture, but refuses an index with no amd64
+    entry.
+    """
+    raw = run(["skopeo", "inspect", "--raw", f"docker://{tag}"],
+              capture_output=True, text=True, check=True).stdout
+    media = json.loads(raw).get("mediaType")
+    if media != MANIFEST:
+        raise RuntimeError(f"{tag} is a {media}, not a single image manifest")
+
+
 def write_outputs(**values):
     if out := os.environ.get("GITHUB_OUTPUT"):
         with open(out, "a") as f:
@@ -84,10 +101,17 @@ def reuse() -> int:
         print(f"{inputs} does not exist: this run builds the image", flush=True)
         write_outputs(reused="false")
         return 0
-    cmd = ["docker", "buildx", "imagetools", "create"]
+    # Copy the single-platform manifest itself to each tag (the layers are
+    # already in the registry, so only the manifest moves). Not `docker
+    # buildx imagetools create`: that wraps it in an OCI index listing only
+    # linux/arm64, which amd64 servers' `podman pull` then refuses ("no
+    # image found in image index for architecture amd64") -- it did exactly
+    # that to the rolling tag on the first main run that reused an image.
     for t in [dated] + others:
-        cmd += ["--tag", t]
-    run(cmd + [inputs])
+        run(["skopeo", "copy", "--preserve-digests", f"docker://{inputs}", f"docker://{t}"],
+            check=True)
+    for t in [dated] + others:
+        assert_plain_manifest(t)
     write_outputs(reused="true", image=dated)
     summary(["## nfsroot reused (no image input changed)", "",
              f"- from `{inputs}`"] + [f"- `{t}`" for t in [dated] + others])
@@ -180,6 +204,9 @@ def build() -> int:
             run(["skopeo", "copy", "--preserve-digests",
                  f"oci:{layout}:nfsroot", f"docker://{t}"])
             pushed.append(t)
+
+    for t in pushed:
+        assert_plain_manifest(t)
 
     # The dated tag is this build's identity: downstream jobs (the VM test)
     # consume it via the workflow_call output.
