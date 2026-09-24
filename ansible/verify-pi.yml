@@ -268,7 +268,10 @@
 
     - name: Ask the staged nfsroot-watchdog what it sees
       command: nfsroot-watchdog status
-      become: true  # the staged checker under /run is root's
+      # become for its PATH: the CLI is installed in /usr/sbin, which is not on
+      # the login user's PATH (rc 2 = command not found; moving to /usr/bin
+      # in fpgas-online/nfsroot-watchdog#5)
+      become: true
       changed_when: false
       register: verify_pi_watchdog_status
       failed_when: false
