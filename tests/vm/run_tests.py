@@ -213,17 +213,22 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     server = VMManager("server", workdir)
     server.boot_server(overlay, seed_iso, ssh_port=SSH_PORT, trunk_port=switch.trunk_port)
 
-    if not server.wait_for_guest_agent(timeout=180):
-        print("ERROR: Server VM guest agent did not respond.")
-        print(f"Serial log: {server.serial_log}")
-        server.shutdown()
-        return None
-
+    # SSH, then cloud-init's first boot finished (its runcmd sets up DNS and
+    # the trunk NIC) before any role runs.
     try:
-        ssh = server.wait_for_ssh(port=SSH_PORT, key_path=key_path)
+        ssh = server.wait_for_ssh(port=SSH_PORT, key_path=key_path, timeout=300)
+        _in, out, _err = ssh.exec_command("cloud-init status --wait", timeout=600)
+        status = out.read().decode(errors="replace").strip()
+        rc = out.channel.recv_exit_status()
         ssh.close()
     except TimeoutError:
         print("ERROR: Server VM SSH did not become available.")
+        print(f"Serial log: {server.serial_log}")
+        server.shutdown()
+        return None
+    print(f"[server] cloud-init: {status} (rc={rc})")
+    if rc != 0:
+        print(f"ERROR: cloud-init did not finish cleanly. Serial log: {server.serial_log}")
         server.shutdown()
         return None
 
