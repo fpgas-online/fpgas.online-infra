@@ -4,17 +4,8 @@
 # Debian's openocd / openfpgaloader (and in place of the older
 # openfpgaloader-rp1pio / openocd-rp1pio from the retired mithro/rp1-jtag).
 #
-# The key is fetched as the BINARY keyring the site publishes
-# (fpgas-online-fpga-tools.gpg, not the armoured .asc beside it), so there is
-# nothing to dearmour. The format is asserted, not assumed: bookworm's apt
-# verifies with gpgv, which rejects an armoured keyring as an unsupported
-# filetype and then treats the repository as unsigned, and apt never
-# re-fetches a keyring that is already on disk.
-#
-# It is fetched to a staging path and only copied to the path signed-by
-# points at once both asserts have passed, so a rotated or re-armoured key
-# never reaches a path apt trusts -- including on a root that already carries
-# the sources.list.d line from an earlier run.
+# Fetched, pinned, format-checked and installed by tasks/repo.yml under the
+# repository's name, fpgas.online-fpga-tools (key, keyring and source).
 #
 # These tasks run under the role's fpgas-apt tag (site.yml / ci-nfsroot.yml
 # tag the whole role), which is also what the VM integration test skips
@@ -22,72 +13,10 @@
 # checks for these packages carry fpgas-apt too, so skipping the source
 # skips everything that needs it.
 
-- name: Ensure /etc/apt/keyrings exists
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: '0755'
-
-# get_url fails on any non-2xx, so a retired repo is a hard error rather than
-# a silent empty keyring -- worth saying because this host answers a 404 with
-# a full HTML error page, not an empty body. A 200 that is not a keyring at
-# all still fails: gpg --show-keys exits non-zero on it, and the assert below
-# catches a keyring that parses but is the wrong one.
-- name: Fetch fpgas.online-fpga-tools apt signing key (binary, not armoured)
-  ansible.builtin.get_url:
-    url: "{{ fpga_tools_apt_url }}/{{ fpga_tools_apt_key_name }}"
-    dest: "{{ fpga_tools_apt_keyring }}.fetched"
-    mode: '0644'
-
-- name: Read the fetched fpgas.online-fpga-tools key's fingerprint
-  ansible.builtin.command:
-    cmd: gpg --batch --with-colons --show-keys {{ fpga_tools_apt_keyring }}.fetched
-  register: fpga_tools_apt_key_info
-  changed_when: false
-
-- name: Assert the fpgas.online-fpga-tools key is the pinned one
-  ansible.builtin.assert:
-    # The first fpr: record is the primary key's (subkeys follow their pub).
-    that: >-
-      (fpga_tools_apt_key_info.stdout_lines
-       | select('match', '^fpr:')
-       | map('regex_replace', '[^0-9A-F]', '')
-       | first | default('')) == fpga_tools_apt_key_fingerprint
-    fail_msg: >-
-      {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_key_name }} is not signed by
-      the pinned primary key {{ fpga_tools_apt_key_fingerprint }}
-      (got {{ fpga_tools_apt_key_info.stdout_lines | select('match', '^fpr:') | list }}).
-      If fpgas.online-fpga-tools rotated its signing key, update
-      fpga_tools_apt_key_fingerprint in roles/fpgas-apt/defaults/main.yml.
-
-# gpg --show-keys above reads armour and binary alike, so it cannot catch an
-# armoured file. Armour always starts "-----BEGIN"; a binary keyring starts
-# with a packet tag byte, which is never 0x2d ('-').
-- name: Read the first byte of the fetched fpgas.online-fpga-tools key
-  ansible.builtin.command:
-    cmd: od -An -tx1 -N1 {{ fpga_tools_apt_keyring }}.fetched
-  register: fpga_tools_apt_key_first_byte
-  changed_when: false
-
-- name: Assert the fpgas.online-fpga-tools key is a binary keyring, not armour
-  ansible.builtin.assert:
-    that: fpga_tools_apt_key_first_byte.stdout | trim not in ['', '2d']
-    fail_msg: >-
-      {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_key_name }} is ASCII-armoured
-      (first byte {{ fpga_tools_apt_key_first_byte.stdout | trim }}). gpgv, which
-      apt uses on bookworm, rejects an armoured signed-by keyring and treats
-      the repository as unsigned. Fetch the binary keyring, or dearmour it
-      before it is installed.
-
-- name: Install the fpgas.online-fpga-tools keyring
-  ansible.builtin.copy:
-    src: "{{ fpga_tools_apt_keyring }}.fetched"
-    dest: "{{ fpga_tools_apt_keyring }}"
-    remote_src: true
-    mode: '0644'
-
-- name: Add fpgas.online-fpga-tools apt repository
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by={{ fpga_tools_apt_keyring }}] {{ fpga_tools_apt_url }}/{{ fpga_tools_apt_suite }}/ ./"
-    state: present
-    filename: fpgas-online-fpga-tools
+- name: Add the fpgas.online-fpga-tools apt repository (tasks/repo.yml)
+  ansible.builtin.include_tasks: repo.yml
+  vars:
+    repo_name: fpgas.online-fpga-tools
+    repo_url: "{{ fpga_tools_apt_url }}"
+    repo_suite: "{{ fpga_tools_apt_suite }}"
+    repo_key_fingerprint: "{{ fpga_tools_apt_key_fingerprint }}"
