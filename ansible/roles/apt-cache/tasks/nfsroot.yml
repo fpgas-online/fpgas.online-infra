@@ -1,9 +1,8 @@
 ---
-# The NFS root's two stock sources (from the RPi OS image) now belong to this
-# role, rendered from apt_cache_url (upstream URLs when the cache is disabled). The other sources are
-# owned by the roles that add them and derive their URL from apt_cache_url
-# too: fixpi (debian-armmp.sources) and fpgas-apt (fpgas-online.list).
-# verify/main.yml asserts that EVERY source in the root goes through the cache.
+# The NFS root's two stock sources (from the RPi OS image) belong to this
+# role, rendered from apt_cache_url (upstream URLs when the cache is disabled);
+# the rest are rewritten below. verify/main.yml asserts that EVERY source in
+# the root goes through the cache.
 - name: Raspbian source in the NFS root
   ansible.builtin.template:
     src: sources.list.j2
@@ -15,3 +14,41 @@
     src: raspi.list.j2
     dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/raspi.list"
     mode: "0644"
+
+# Every other source in the root arrives in the CI-built image (roles/img)
+# with its upstream URL: the image is shared by every site, while the cache
+# URL is per site. Point each one at this site's cache with a plain text
+# rewrite -- the server never runs apt inside the ARM root. The prefixes are
+# the remaps' backends and aliases plus the stock Debian archives, so a new
+# source is covered as soon as its repo has a remap, and verify/main.yml
+# still fails the run on any source left bypassing the cache.
+- name: Find the NFS root's other apt sources
+  ansible.builtin.find:
+    paths: "{{ nfs_root }}/root/etc/apt/sources.list.d"
+    patterns: ["*.list", "*.sources"]
+  register: apt_cache_nfsroot_sources
+  when: apt_cache_url | length > 0
+
+- name: Point the NFS root's other apt sources at the cache
+  ansible.builtin.replace:
+    path: "{{ item.0.path }}"
+    regexp: "https?://{{ item.1.prefix | regex_escape }}(?=/|\\s|$)"
+    replace: "{{ apt_cache_url }}{{ item.1.path }}"
+  loop: "{{ apt_cache_nfsroot_sources.files | default([]) | product(apt_cache_nfsroot_prefixes) | list }}"
+  loop_control:
+    label: "{{ item.0.path | basename }}: {{ item.1.prefix }}"
+  when: apt_cache_url | length > 0
+  vars:
+    # Each remap's backend (scheme and trailing slash dropped) and aliases,
+    # mapped to its cache path. A prefix naming the cache's own host is left
+    # out so an already-rewritten URL can never be rewritten twice.
+    apt_cache_nfsroot_prefixes: >-
+      {%- set out = [] -%}
+      {%- for r in apt_cache_remaps -%}
+      {%-   for p in [r.backend | regex_replace('^[a-z]+://', '') | regex_replace('/$', '')] + r.aliases -%}
+      {%-     if p.split('/')[0] != apt_cache_host -%}
+      {%-       set _ = out.append({'prefix': p, 'path': r.path}) -%}
+      {%-     endif -%}
+      {%-   endfor -%}
+      {%- endfor -%}
+      {{ out + apt_cache_nfsroot_stock_prefixes }}

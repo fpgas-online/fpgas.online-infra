@@ -5,7 +5,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # nfsroot-pull is in the list so PRs stacked on the phase-3 branch get
+    # full CI; harmless once that branch is gone.
+    branches: [main, nfsroot-pull]
   workflow_dispatch:
 
 concurrency:
@@ -13,8 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Build the Pi NFS root image from THIS checkout and publish it (dated
+  # tag, plus ci-<run_id>; rolling tag only on main). The VM test below
+  # pulls exactly this image, so a PR's role changes are baked into the
+  # root its own virtual Pi boots. ~15 min on a native-AArch32 arm64
+  # runner (issue #34).
+  nfsroot:
+    uses: ./.github/workflows/nfsroot-build.yml
+    with:
+      extra_tag: ci-${{ github.run_id }}
+    permissions:
+      contents: read
+      packages: write
+
   vm-test:
     name: Server + Pi PXE Boot
+    # No `needs: nfsroot`: the two jobs run concurrently. The server phase
+    # spends its first minutes on roles that do not touch the root, and
+    # the img role's pull retries (tests/inventory/host_vars/test-vm.yml)
+    # until the build above has pushed ci-<run_id>.
     runs-on: ubuntu-latest
     # Run inside a Debian trixie container so qemu-rpi-system-arm (built
     # for trixie) can be installed via APT. The package depends on
@@ -47,14 +66,25 @@ jobs:
             cloud-image-utils \
             systemd-container \
             openssh-client \
-            ca-certificates
+            ca-certificates \
+            curl
 
+      # rpi-qemu's signed flat repo (its README). The old github.io
+      # dists/ layout is a frozen snapshot at 2:0.1+85, which still has the
+      # GENET TX index-wrap freeze (rpi-qemu#16): the virtual Pi stopped
+      # dead after its 65536th TX descriptor, ~30 tasks into verify-pi.
       - name: Install qemu-rpi packages
         run: |
-          echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
+          install -d -m0755 /etc/apt/keyrings
+          curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg -o /etc/apt/keyrings/rpi-qemu.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
             > /etc/apt/sources.list.d/qemu-rpi.list
           apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/qemu-rpi.list -o Dir::Etc::sourceparts=/dev/null
           apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
+          v=$(dpkg-query -W -f='${Version}' qemu-rpi-system-arm)
+          echo "qemu-rpi-system-arm $v"
+          dpkg --compare-versions "$v" ge "2:0.1+95" \
+            || { echo "qemu-rpi-system-arm $v predates the GENET TX freeze fix (rpi-qemu#16)"; exit 1; }
 
       - name: Enable KVM (if available)
         run: |
@@ -77,12 +107,26 @@ jobs:
           key: vm-images-bookworm-v2
 
       - name: Run VM integration tests (server + Pi PXE boot)
-        run: uv run tests/vm/run_tests.py --phase all
+        env:
+          NFSROOT_IMAGE: ghcr.io/fpgas-online/nfsroot:ci-${{ github.run_id }}
+        run: uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE"
+
+      # Belt and braces with the artifact below: on a failure, put the log
+      # tails straight into the job log — a crashed teardown has produced
+      # runs where the artifact upload "succeeded" with nothing matching
+      # (if-no-files-found: ignore masks it).
+      - name: Show serial log tails
+        if: failure()
+        run: |
+          for f in tests/vm/workdir/*-serial.log*; do
+            echo "===== $f ====="
+            tail -n 200 "$f" || true
+          done
 
       - name: Upload serial logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: serial-logs
-          path: tests/vm/workdir/*-serial.log
+          path: tests/vm/workdir/*-serial.log*
           if-no-files-found: ignore

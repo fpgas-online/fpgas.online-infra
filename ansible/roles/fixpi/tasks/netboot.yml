@@ -72,10 +72,13 @@
     - cmdline
     - netboot
 
+# Image build only (defaults/main.yml fixpi_image_build): useradd executes
+# inside the ARM root. ci-nfsroot.yml asserts the user is in the image.
 - name: create pi user in NFS root if missing
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
+  when: fixpi_image_build | bool
   tags:
     - netboot
     - qemu
@@ -143,10 +146,12 @@
   stat:
     path: /run/systemd/resolve/resolv.conf
   register: fixpi_resolved_upstream
+  when: fixpi_image_build | bool
   tags:
     - netboot
 
 - name: ensure DNS resolution works in chroot
+  when: fixpi_image_build | bool
   copy:
     remote_src: true
     src: "{{ '/run/systemd/resolve/resolv.conf' if fixpi_resolved_upstream.stat.exists else '/etc/resolv.conf' }}"
@@ -177,7 +182,9 @@
   tags:
     - netboot
 
+# Image build only; ci-nfsroot.yml asserts both packages are in the image.
 - name: install nfs-common into pi's fs
+  when: fixpi_image_build | bool
   command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
   with_items:
     - "apt update"

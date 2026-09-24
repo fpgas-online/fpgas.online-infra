@@ -1,5 +1,8 @@
 ---
+# dpkg-divert executes inside the ARM root: image build only (the diversions
+# live in the image's dpkg database).
 - name: don't helper resize the root fs
+  when: fixpi_image_build | bool
   command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
   with_items:
     - "/var/lib/systemd/deb-systemd-helper-enabled/rpi-resize.service.dsh-also"

@@ -45,9 +45,9 @@ def find_qemu_rpi_binary() -> str:
 
     raise FileNotFoundError(
         f"{QEMU_RPI_SYSTEM_BIN} not found. Install via:\n"
-        f"  APT: echo 'deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main' "
-        f"| sudo tee /etc/apt/sources.list.d/qemu-rpi.list && sudo apt update && "
-        f"sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
+        f"  APT: add the signed repo from https://fpgas.online/rpi-qemu/ "
+        f"(deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./), "
+        f"then: sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
         f"  Or download static binary: gh release download -R {QEMU_RPI_REPO} "
         f"-p '{QEMU_RPI_STATIC_ASSET}' -D {IMAGES_DIR}"
     )
@@ -289,7 +289,21 @@ class VMManager:
         self.process: subprocess.Popen | None = None
         self.qga_socket = self.workdir / f"{name}-qga.sock"
         self.serial_log = self.workdir / f"{name}-serial.log"
+        # QEMU's own stdout/stderr. Named to match the *-serial.log* glob
+        # vm-test.yml uploads, so it is in the post-mortem artifact.
+        self.qemu_log = self.workdir / f"{name}-serial.log.qemu"
         self.guest_agent = QemuGuestAgent(self.qga_socket)
+
+    def spawn(self, cmd: list[str]) -> None:
+        """Start the VM process with its output going to self.qemu_log.
+
+        Never subprocess.PIPE: nothing reads a running VM's pipes, so once
+        QEMU has written a pipe buffer's worth (64 KiB) of diagnostics its
+        next write blocks and the whole emulator freezes -- the virtual Pi
+        went silent after ~30 verify-pi tasks ("No route to host").
+        """
+        with open(self.qemu_log, "ab") as log:
+            self.process = subprocess.Popen(cmd, stdout=log, stderr=log)
 
     def boot_server(
         self,
@@ -354,11 +368,7 @@ class VMManager:
             "-serial", f"file:{self.serial_log}",
         ]
         print(f"[{self.name}] Booting server VM (accel={accel})...")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def boot_pi(
         self,
@@ -404,11 +414,7 @@ class VMManager:
         ]
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
         print(f"[{self.name}] QEMU cmd: {' '.join(cmd)}")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def wait_for_guest_agent(self, timeout: int = 180) -> bool:
         """Wait for guest agent to become responsive."""
@@ -492,8 +498,13 @@ class VMManager:
             self.process.wait(timeout=10)
 
     def cleanup(self) -> None:
-        """Remove temporary files (overlays, seed ISOs, keys, sockets)."""
-        for pattern in ["*.qcow2", "*.iso", "*.sock", "*-serial.log"]:
+        """Remove temporary files (overlays, seed ISOs, keys, sockets).
+
+        Serial logs are deliberately NOT removed: they are the post-mortem
+        evidence CI uploads (vm-test.yml), and cleanup on a failure path
+        used to destroy them before the upload step could run.
+        """
+        for pattern in ["*.qcow2", "*.iso", "*.sock"]:
             for f in self.workdir.glob(pattern):
                 f.unlink(missing_ok=True)
 

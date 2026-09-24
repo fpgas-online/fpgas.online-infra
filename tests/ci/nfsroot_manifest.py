@@ -25,8 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Never descend into these under root/: API mounts may be live on a server
-# (nspawn binds), and caches/logs/lists are pure noise between two builds.
+# Never descend into these under root/: API mounts may be live on a build
+# host (chroot binds), and caches/logs/lists are pure noise between builds.
 ROOT_EXCLUDES = {
     "proc", "sys", "dev", "run", "tmp",
     "var/cache", "var/log", "var/backups", "var/lib/apt/lists",
