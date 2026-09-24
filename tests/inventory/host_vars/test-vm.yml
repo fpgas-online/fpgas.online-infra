@@ -119,6 +119,11 @@ tt_boards:
   - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
 tt_commander_embed_version: ""
+# The VM test runs concurrently with the nfsroot build that produces the
+# image it pulls (.github/workflows/vm-test.yml): wait up to 45 min for it.
+img_pull_retries: 90
+img_pull_delay: 30
+
 # Orange Pi netboot rendering (fixpi/sunxi.yml): publishes the armmp kernel
 # the pulled image carries (baked in by the CI build, fixpi/sunxi-image.yml).
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb

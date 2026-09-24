@@ -16,6 +16,11 @@ on:
   schedule:
     - cron: "17 2 * * 1"
   workflow_call:
+    inputs:
+      extra_tag:
+        description: "Also push this tag (the VM test picks it before the build starts)"
+        type: string
+        default: ""
     outputs:
       image:
         description: "GHCR ref of the image this run pushed (dated tag)"
@@ -89,4 +94,6 @@ jobs:
 
       - name: Publish to GHCR
         id: publish
+        env:
+          NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
         run: uv run tests/ci/nfsroot_publish.py

@@ -20,6 +20,10 @@
 
 - name: Pull the nfsroot image
   command: podman pull {{ nfsroot_image }}
+  register: img_pull
+  until: img_pull.rc == 0
+  retries: "{{ img_pull_retries }}"
+  delay: "{{ img_pull_delay }}"
   changed_when: false
   tags:
     - img

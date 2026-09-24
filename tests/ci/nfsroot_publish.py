@@ -9,6 +9,9 @@ The image filesystem holds top-level boot/ and root/ directories mirroring
   - <dist>-armhf-YYYYMMDD-<sha7>   always (pinnable; production references
     this in host_vars so a rebuild is reproducible)
   - <dist>-armhf                   rolling, only from main
+  - $NFSROOT_EXTRA_TAG             when set: a tag the caller chose before
+    the build started (the VM test polls for ci-<run_id> so it can run its
+    server phase while this build is still going)
 
 Run after ansible/ci-nfsroot.yml on the runner (needs sudo for tar to read
 the root-owned tree, and a docker login to ghcr.io).
@@ -56,6 +59,11 @@ def main():
     )
     run(["docker", "push", dated_tag])
     pushed = [dated_tag]
+    if extra := os.environ.get("NFSROOT_EXTRA_TAG"):
+        extra_tag = f"{IMAGE}:{extra}"
+        run(["docker", "tag", dated_tag, extra_tag])
+        run(["docker", "push", extra_tag])
+        pushed.append(extra_tag)
     if on_main:
         run(["docker", "tag", dated_tag, rolling_tag])
         run(["docker", "push", rolling_tag])

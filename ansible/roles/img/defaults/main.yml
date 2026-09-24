@@ -5,3 +5,8 @@ nfs_root: "/srv/nfs/rpi/{{ dist }}"
 # The prebuilt Pi NFS root image CI publishes (issue #34). Pin a dated
 # tag in host_vars for reproducible rebuilds; the rolling tag tracks main.
 nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf
+
+# Retries for a failed pull (registry hiccups). The VM test raises these:
+# it starts before the image it pulls has been pushed.
+img_pull_retries: 3
+img_pull_delay: 20
