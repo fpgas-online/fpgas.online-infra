@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-HELPER = REPO / "ansible/roles/nspawn-pi/files/nfsroot_kernels.py"
+HELPER = REPO / "ansible/roles/nspawn_pi/files/nfsroot_kernels.py"
 
 _spec = importlib.util.spec_from_file_location("nfsroot_kernels", HELPER)
 nk = importlib.util.module_from_spec(_spec)

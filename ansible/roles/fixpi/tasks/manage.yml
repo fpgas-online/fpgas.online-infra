@@ -1,5 +1,5 @@
 ---
-- name: install scripts to manage pi states
+- name: Install scripts to manage pi states
   copy:
     src: "scripts/{{ item }}"
     dest: "/usr/local/sbin/{{ item }}"
@@ -12,6 +12,6 @@
     - manage
     - qemu
 
-- name: put the pi boot system into maintenance mode
+- name: Put the pi boot system into maintenance mode
   command: maintenance.sh
   when: false

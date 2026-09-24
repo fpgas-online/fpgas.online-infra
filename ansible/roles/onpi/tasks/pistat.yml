@@ -1,8 +1,8 @@
-- name: systemd pistat_ssh.service
+- name: Systemd pistat_ssh.service
   template:
     src: "files/{{ item }}.service"
     dest: "/etc/systemd/system/{{ item }}.service"
-  notify: reload-systemd
+  notify: Reload-systemd
   with_items:
     - pistat_ssh
     - pistat_cam
@@ -11,7 +11,7 @@
   tags:
     - pistat
 
-- name: enable pistat services
+- name: Enable pistat services
   systemd:
     name: "{{ item }}"
     enabled: true

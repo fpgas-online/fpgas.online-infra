@@ -1,0 +1,133 @@
+---
+# Make the Pi NFS root safe and cheap to run apt against from outside.
+#
+# Used by the CI image build (ci-nfsroot.yml, the chroot connection plugin on
+# a native arm64 runner) -- the only place anything executes inside the ARM
+# root. Servers pull the finished image (roles/img) and never chroot into it.
+
+- name: Copy the kernel maintenance helper to the server
+  ansible.builtin.copy:
+    src: nfsroot_kernels.py
+    dest: /usr/local/sbin/nfsroot-kernels
+    mode: "0755"
+
+- name: Mount filesystems for chroot
+  ansible.builtin.shell: |
+    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
+    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
+    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
+    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
+  changed_when: false
+
+# The root is packed into an image and discarded if the build fails, so
+# dpkg's per-file fsyncs buy nothing here; stop.yml removes this again.
+- name: Let dpkg skip fsync during the build
+  ansible.builtin.copy:
+    dest: "{{ nspawn_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    content: |
+      force-unsafe-io
+    mode: "0644"
+
+# The CI image build keeps apt's downloaded packages OUTSIDE the root
+# (nfsroot_build_deb_cache, a runner directory that actions/cache carries
+# between builds): a rebuild installs from local debs instead of
+# downloading them again, and the image no longer ships the debs of every
+# package it installed to every server and every Pi.
+- name: Keep apt's package cache outside the root
+  when: nfsroot_build_deb_cache is defined
+  block:
+    - name: Create the build's deb cache and the root's archives dir
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ nfsroot_build_deb_cache }}"
+        - "{{ nfsroot_build_deb_cache }}/partial"
+        - "{{ nspawn_root }}/var/cache/apt/archives"
+
+    - name: Bind-mount the build's deb cache over the root's archives
+      ansible.builtin.shell: |
+        mountpoint -q "{{ nspawn_root }}/var/cache/apt/archives" \
+          || mount --bind "{{ nfsroot_build_deb_cache }}" "{{ nspawn_root }}/var/cache/apt/archives"
+      changed_when: false
+
+# man-db rebuilds its index on every apt run that touches a man page
+# (dozens of runs in a build, slow on ARM). Its trigger checks this flag
+# file; stop.yml puts it back, so the booted root behaves as shipped.
+- name: Pause man-db's index rebuilds during the build
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ nspawn_root }}/var/lib/man-db/auto-update
+         {{ nspawn_root }}/var/lib/man-db/auto-update.fpgas-build
+    removes: "{{ nspawn_root }}/var/lib/man-db/auto-update"
+
+- name: Install policy-rc.d to suppress service starts during apt
+  ansible.builtin.copy:
+    dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
+    content: |
+      #!/bin/sh
+      exit 101
+    mode: "0755"
+
+# Raspbian ships update_initramfs=all, which makes a *bare* `update-initramfs
+# -u` rebuild an initramfs for EVERY installed kernel.  raspi-firmware's
+# postinst runs exactly that on each of its own upgrades, so on tweed
+# 2026-09-23 a raspi-firmware point release rebuilt eight initramfs images
+# (four 6.12.96 flavours, three 6.12.109, plus the 164 MB Debian armmp tree)
+# inside the armhf chroot under qemu-user-static: `cam/pi : apt update/upgrade`
+# took 6232 s of the 1 h 53 m run, and produced images nothing had changed.
+#
+# `no` stops only that blanket rebuild.  The kernel postinst hook
+# (/etc/kernel/postinst.d/initramfs-tools) calls `update-initramfs -c -k
+# $version`, and create mode does not consult this setting -- so a newly
+# installed kernel still gets its initramfs, and raspi-firmware still copies
+# it into /boot/firmware.  Anything that went stale without a new kernel is
+# rebuilt once at the end of the session, by exactly the versions that need it
+# (nspawn_pi/tasks/kernels.yml).
+- name: Suppress blanket initramfs regeneration during the chroot apt runs
+  when: nfsroot_suppress_initramfs | default(true)
+  block:
+    # Stashed rather than rewritten from a template so stop.yml can put back
+    # the distro's own bytes, whatever they are.
+    - name: Stash the root's update-initramfs.conf
+      ansible.builtin.command:
+        cmd: >-
+          mv {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf
+             {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
+        removes: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf"
+        creates: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
+
+    - name: Write the build-time update-initramfs.conf
+      ansible.builtin.copy:
+        dest: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf"
+        content: |
+          # Written by fpgas.online-infra roles/nspawn_pi/tasks/chroot-prep.yml
+          # for the duration of a chroot provisioning session; stop.yml restores
+          # the distro file from update-initramfs.conf.fpgas-build.  See that
+          # task's comment for why a blanket rebuild is never wanted here.
+          update_initramfs=no
+          backup_initramfs=no
+        mode: "0644"
+
+# Every kernel in this root arrives as an automatic dependency of a meta
+# package, so `apt-get autoremove` (roles/onpi/tasks/apt.yml, every pass)
+# deletes the one the fleet is actually booting as soon as the meta package
+# moves on -- that is what emptied the four 6.6.31 module trees on tweed on
+# 2026-09-23. Marking the served kernels manual makes autoremove leave them
+# alone; which kernel that is follows the TFTP payload, so the `netboot` tag
+# still owns fleet kernel changes. Must run BEFORE the Pi roles' apt runs.
+# An image build starts from the pristine RasPiOS image and no board boots
+# it until it is published, so there is nothing to protect: protecting here
+# pinned the base image's kernels (served before the upgrade) as manually
+# installed, and every image carried a second, dead kernel set -- modules,
+# headers and initramfs images, ~250 MB, rebuilt on every build.
+- name: Protect the kernels the TFTP payload serves from autoremove
+  when: not (fixpi_image_build | default(false) | bool)
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/sbin/nfsroot-kernels
+      --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
+      protect
+  register: nspawn_kernel_protect
+  changed_when: "'set to manually installed' in nspawn_kernel_protect.stdout"

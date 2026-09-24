@@ -1,0 +1,48 @@
+---
+# Start of a site.yml run: tell the boards the root is about to change.
+#
+# Every netbooted board polls this lock through its NFS lower layer
+# (nfsroot-watchdog, installed by roles/onpi) and will not reboot while it
+# exists, even if files are already going stale under it: rebooting into a
+# half-updated root is worse than waiting. The lock's ctime is also what
+# end.yml measures every file against.
+
+- name: Install nfsroot-generation on the gateway
+  when: nfsroot_generation_install | bool
+  block:
+    # This is the first task of site.yml, so on a freshly installed gateway
+    # nothing has installed gpg yet; fpgas_apt's repo.yml needs it to check
+    # the key's fingerprint.
+    - name: Install what the pinned-key apt source needs on the gateway
+      ansible.builtin.apt:
+        name: [gnupg, ca-certificates]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Add the nfsroot-watchdog apt repository on the gateway
+      ansible.builtin.include_role:
+        name: fpgas_apt
+        tasks_from: nfsroot-watchdog.yml
+      vars:
+        nfsroot_watchdog_apt_url: "{{ nfsroot_generation_apt_url }}"
+        nfsroot_watchdog_apt_suite: "{{ nfsroot_generation_apt_suite }}"
+
+    - name: Install nfsroot-watchdog-server
+      ansible.builtin.apt:
+        name: nfsroot-watchdog-server
+        state: latest  # noqa: package-latest -- rolling release
+        update_cache: true
+
+- name: Find the Pi NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/etc"
+  register: nfsroot_generation_root
+
+# Keeps an existing lock: one left behind by a failed run keeps its earlier
+# start time, so this run's end step still sees what that run changed.
+- name: Take the Pi NFS root update lock
+  ansible.builtin.command: "{{ nfsroot_generation_cmd }} begin {{ nfs_root }}/root --label site.yml"
+  register: nfsroot_generation_begin
+  changed_when: (nfsroot_generation_begin.stdout | from_json).taken
+  when: nfsroot_generation_root.stat.isdir | default(false)

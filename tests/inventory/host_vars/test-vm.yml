@@ -21,7 +21,7 @@ eth_local_address: 10.21.0.1
 # 10.21.1.1), which fall outside 10.21.0.0/24. This netmask feeds the NFS
 # export (roles/nfs/templates/exports.j2) and the camera publish ACL, both
 # of which must admit every port's Pi. The eth-local trunk interface address
-# itself stays /24 (hardcoded in vlan-ports/templates/eth-local.network.j2).
+# itself stays /24 (hardcoded in vlan_ports/templates/eth-local.network.j2).
 eth_local_netmask: 16
 # dhcp_range intentionally absent: this host defines `switches` (per-port
 # addressing), so dnsmasq-base.conf.j2 skips the bare pool range and every
@@ -80,7 +80,7 @@ switch:
 
 # Single switch, one access port -- the VM harness's AccessPortSwitch(2101)
 # emulates switch 1 port 1 (see tests/vm/vswitch.py, tests/vm/run_tests.py).
-# switches_manage: false skips only the SNMP converge step of the switch-vlans
+# switches_manage: false skips only the SNMP converge step of the switch_vlans
 # role (no real switch here); the CLI install + config render still run.
 switches:
   - index: 1
@@ -115,8 +115,10 @@ tt_commander_legacy_embed_version: "0.1.0"
 tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
 # The VM test runs concurrently with the nfsroot build that produces the
 # image it pulls (.github/workflows/vm-test.yml): wait up to 45 min for it.
-img_pull_retries: 90
-img_pull_delay: 30
+# Polled every 10 s: when the build is on the critical path (a from-scratch
+# build), every second between its push and the pull is added to the run.
+img_pull_retries: 270
+img_pull_delay: 10
 
 # Orange Pi netboot rendering (fixpi/sunxi.yml): publishes the armmp kernel
 # the pulled image carries (baked in by the CI build, fixpi/sunxi-image.yml).

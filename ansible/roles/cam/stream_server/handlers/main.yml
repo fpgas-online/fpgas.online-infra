@@ -1,0 +1,17 @@
+---
+- name: Reload nginx
+  systemd:
+    name: nginx
+    state: reloaded
+
+- name: Restart nginx
+  systemd:
+    name: nginx
+    state: restarted
+
+- name: Reload-systemd
+  systemd:
+    daemon_reload: true
+
+- name: Mount all
+  ansible.builtin.command: mount -a

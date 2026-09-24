@@ -149,7 +149,7 @@
     # (pi-sw<S>-p<P> -> 10.21.S.P). The old check hardcoded 10.21.1.1 —
     # correct only for the CI VM's sw1p1 test Pi; it failed on every real
     # Pi on any other port (tweed rebuild D1-1, 2026-08-26).
-    - name: derive expected per-port address from hostname
+    - name: Derive expected per-port address from hostname
       set_fact:
         verify_pi_expected_ip: >-
           {{ ansible_hostname
@@ -291,7 +291,7 @@
       tags: [verify, services, fpgas-apt]
 
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
-    # from fpgas.online-fpga-tools (source: roles/fpgas-apt/tasks/
+    # from fpgas.online-fpga-tools (source: roles/fpgas_apt/tasks/
     # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
     # from a third-party apt source under the fpgas-apt tag, so these checks
     # carry it too: a run skipping the tag skips them with the install.
@@ -342,7 +342,7 @@
           usable on this Pi -- see the comment above.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
-    # mithro/rp1-jtag's apt repository is retired (roles/fpgas-apt/tasks/
+    # mithro/rp1-jtag's apt repository is retired (roles/fpgas_apt/tasks/
     # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
     # own nightly upgrade -- once that repository stops serving Packages.
     - name: Assert the retired rp1-jtag apt source is gone
@@ -351,7 +351,7 @@
         fail_msg: >-
           /etc/apt/sources.list.d/rp1-jtag.list is still on the root. mithro/rp1-jtag
           no longer publishes packages, so apt update fails once its repository
-          goes away; roles/fpgas-apt removes it, so the root has not been
+          goes away; roles/fpgas_apt removes it, so the root has not been
           reconverged since.
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
@@ -400,7 +400,7 @@
       when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
       tags: [verify, hw-sunxi]
 
-    - name: sunxi boards declared for this site
+    - name: Sunxi boards declared for this site
       set_fact:
         verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
       tags: [verify, hw-sunxi]
@@ -481,7 +481,7 @@
     # /proc/device-tree/hat/uuid) is built from four little-endian u32 words in
     # reverse word order -- NOT a straight hex dump of the 16 bytes -- hence
     # the python3 formatter.
-    - name: sunxi_boards row for this board
+    - name: Sunxi_boards row for this board
       set_fact:
         verify_pi_sunxi_self: >-
           {{ verify_pi_sunxi
@@ -576,7 +576,7 @@
     # the server runs a broker (fleet_broker), the site layer baked
     # fleet.toml into the root (fixpi/tasks/fleet-site.yml), so a missing
     # file, an inactive agent or a board the server never heard of all fail.
-    - name: fleet settings of this Pi's server
+    - name: Fleet settings of this Pi's server
       set_fact:
         verify_pi_server: "{{ groups['nbp'][0] }}"
         verify_pi_fleet: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"

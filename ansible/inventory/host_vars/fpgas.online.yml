@@ -25,7 +25,7 @@ eth_uplink_static_gateway6: 2404:e80:a137:9921::1
 eth_uplink_dns_server: 10.99.21.1
 
 # The internal NIC (MAC eth_local_mac_address) is renamed to "eth-local" by a
-# MAC-matched systemd .link file on tweed. The vlan-ports / pxe / firewall
+# MAC-matched systemd .link file on tweed. The vlan_ports / pxe / firewall
 # templates reference this interface by the eth_local variable (not a hardcoded
 # name) so the same roles work in the QEMU VM test, where the interface is
 # enp0s3 (see tests/inventory/host_vars/test-vm.yml).
@@ -37,7 +37,7 @@ eth_local_address: 10.21.0.1
 # 10.21.1.1), which fall outside 10.21.0.0/24. This netmask feeds the NFS
 # export (roles/nfs/templates/exports.j2) and the camera publish ACL, both
 # of which must admit every port's Pi. The eth-local trunk interface address
-# itself stays /24 (hardcoded in vlan-ports/templates/eth-local.network.j2).
+# itself stays /24 (hardcoded in vlan_ports/templates/eth-local.network.j2).
 eth_local_netmask: 16
 # dhcp_range intentionally absent: this host defines `switches` (per-port
 # addressing), so dnsmasq-base.conf.j2 skips the bare pool range and every
@@ -55,7 +55,7 @@ pib_domain: fpgas.welland.mithis.com
 # prototype time (Task 14).
 #
 # snmp_rw_community: per-switch SNMP write community consumed by the
-# switch-vlans role (env FPGAS_SWITCH_COMMUNITY -> fpgas-switch-setup). The
+# switch_vlans role (env FPGAS_SWITCH_COMMUNITY -> fpgas-switch-setup). The
 # s3300 and the GSM7252PS use DIFFERENT community strings, so each switch
 # gets its own vault var -- never write a real community string in
 # plaintext here, this repo is public. Defined (vaulted) below:

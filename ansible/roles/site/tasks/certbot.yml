@@ -71,16 +71,16 @@
 # in place by `certbot --nginx`.  It carries the same server_name as the vhost
 # below, so it has to go before the new file is written or nginx logs
 # "conflicting server name" and keeps serving the stale IPv4-only block.
-- name: remove the legacy certbot-managed vhost
+- name: Remove the legacy certbot-managed vhost
   file:
     path: "/etc/nginx/sites-enabled/{{ domain_name }}-https.conf"
     state: absent
-  notify: reload nginx
+  notify: Reload nginx
   tags: le
 
 # Rendered at most twice: plain-http first (so http-01 can be answered from
 # /var/www/html), then again with the https server once the certificate exists.
-- name: vhost
+- name: Vhost
   template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ domain_name }}.conf"
@@ -89,14 +89,14 @@
     site_cert_exists: "{{ site_cert.stat.exists }}"
     site_ssl_options_exists: "{{ site_ssl_options.stat.exists }}"
     site_ssl_dhparams_exists: "{{ site_ssl_dhparams.stat.exists }}"
-  notify: reload nginx
+  notify: Reload nginx
   tags: le
 
-- name: flush handlers so nginx serves the vhost before certbot
+- name: Flush handlers so nginx serves the vhost before certbot
   meta: flush_handlers
   tags: le
 
-- name: obtain certificate (webroot http-01 via the port-80 vhost)
+- name: Obtain certificate (webroot http-01 via the port-80 vhost)
   command: >-
     certbot certonly --webroot -w /var/www/html -d {{ domain_name }}
     --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
@@ -106,7 +106,7 @@
   register: site_certonly
   tags: le
 
-- name: vhost (https, after the certificate was issued)
+- name: Vhost (https, after the certificate was issued)
   template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ domain_name }}.conf"
@@ -116,7 +116,7 @@
     site_ssl_options_exists: "{{ site_ssl_options.stat.exists }}"
     site_ssl_dhparams_exists: "{{ site_ssl_dhparams.stat.exists }}"
   when: site_certonly is changed
-  notify: reload nginx
+  notify: Reload nginx
   tags: le
 
 # --- migrate a lineage created by the old `certbot --nginx` -----------------
