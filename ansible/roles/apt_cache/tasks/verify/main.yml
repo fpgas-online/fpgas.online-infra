@@ -1,5 +1,5 @@
 ---
-# Verify the gateway apt cache (roles/apt-cache). Everything is skipped on a
+# Verify the gateway apt cache (roles/apt_cache). Everything is skipped on a
 # host with apt_cache_enabled: false.
 - name: Apt cache facts
   ansible.builtin.import_tasks: facts.yml
