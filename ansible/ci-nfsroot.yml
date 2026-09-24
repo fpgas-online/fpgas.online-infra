@@ -60,12 +60,12 @@
   tasks:
     - name: Prepare the NFS root chroot for apt
       include_role:
-        name: nspawn-pi
+        name: nspawn_pi
         tasks_from: chroot-prep.yml
 
 - hosts: pi
   roles:
-    - role: fpgas-apt
+    - role: fpgas_apt
       tags: [fpgas-apt]
     - role: cam/pi
       tags: [cam]
@@ -95,7 +95,7 @@
 
     - name: Finish the chroot session (kernels, mounts, policy-rc.d)
       include_role:
-        name: nspawn-pi
+        name: nspawn_pi
         tasks_from: stop.yml
 
     # The chroot apt runs resolved names through the build host's

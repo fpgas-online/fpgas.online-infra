@@ -51,7 +51,7 @@
       key {{ repo_key_fingerprint }}
       (got {{ fpgas_apt_repo_key_info.stdout_lines | select('match', '^fpr:') | list }}).
       If {{ repo_name }} rotated its signing key, update its fingerprint in
-      roles/fpgas-apt/defaults/main.yml.
+      roles/fpgas_apt/defaults/main.yml.
 
 # gpg --show-keys above reads armour and binary alike, so it cannot catch an
 # armoured file. Armour always starts "-----BEGIN"; a binary keyring starts

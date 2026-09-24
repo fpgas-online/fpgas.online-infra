@@ -8,7 +8,7 @@
 # Only when there is something to finish: dpkg --configure -a rewrites
 # /var/lib/dpkg/status (a new inode) even when it has nothing to do, and
 # every running board then gets ESTALE for it -- and the run bumps the
-# root's generation, rebooting the fleet (roles/nfsroot-generation), for a
+# root's generation, rebooting the fleet (roles/nfsroot_generation), for a
 # converge that changed nothing. The grep is read-only; so is `dpkg --audit`,
 # but that also lists permanent oddities (missing md5sums) and would never
 # come back empty.
@@ -134,7 +134,7 @@
 # to whatever landed first. This does not make the play less deterministic
 # than it already is: the blanket dist-upgrade above has the same property.
 #
-# The source is roles/fpgas-apt/tasks/fpga-tools.yml, which runs under the
+# The source is roles/fpgas_apt/tasks/fpga-tools.yml, which runs under the
 # fpgas-apt tag; this task carries fpgas-apt too so that a run skipping that
 # tag skips the install along with the source.
 - name: Install the fpgas.online openFPGALoader and OpenOCD  # noqa: package-latest
