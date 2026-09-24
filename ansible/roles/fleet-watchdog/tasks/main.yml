@@ -1,0 +1,164 @@
+---
+# Runs in the nbp play AFTER pxe: this role writes into the Pi NFS root, and
+# img (fresh image extract) and fixpi (authorized_keys) both run earlier in
+# that play. Running before them would have the key wiped by the next extract.
+
+- name: create the watchdog service account
+  user:
+    name: "{{ fleet_watchdog_user }}"
+    home: "{{ fleet_watchdog_home }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: true
+  tags: [fleet-watchdog]
+
+- name: lock down the watchdog home
+  file:
+    path: "{{ fleet_watchdog_home }}"
+    state: directory
+    owner: "{{ fleet_watchdog_user }}"
+    group: "{{ fleet_watchdog_user }}"
+    mode: "0700"
+  tags: [fleet-watchdog]
+
+# Idempotent: openssh_keypair regenerates only if the key is missing or the
+# type changed. Never pass force=true here -- a new key would lock the service
+# out until the next NFS root update and fleet cycle.
+- name: generate the watchdog ssh key
+  community.crypto.openssh_keypair:
+    path: "{{ fleet_watchdog_home }}/id_ed25519"
+    type: ed25519
+    owner: "{{ fleet_watchdog_user }}"
+    group: "{{ fleet_watchdog_user }}"
+    mode: "0600"
+  register: fleet_watchdog_key
+  tags: [fleet-watchdog]
+
+# Additive: authorized_key appends, so the videoteam and controller keys that
+# fixpi installs survive. The Orange Pi boards on sw2 18-24 share this root,
+# so this authorises the watchdog on them too.
+#
+# `user:` is resolved against THIS host's passwd file even though `path:`
+# points into the NFS root, and this host has its own `pi` account (the
+# restricted jump account, roles/jump). Using it would chown the fleet's
+# authorized_keys to the gateway's UID, and sshd's StrictModes then ignores
+# the file on every board. `root` always exists and needs no lookup; the
+# ownership is put right by the next task. manage_dir: false stops the module
+# touching the .ssh directory, but note it still chowns the FILE regardless,
+# which is why the next task is not optional.
+- name: authorise the watchdog key for pi in the NFS root
+  ansible.posix.authorized_key:
+    user: root
+    state: present
+    key: "{{ fleet_watchdog_key.public_key }}"
+    path: "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
+    manage_dir: false
+  tags: [fleet-watchdog]
+
+# Numeric IDs, matching roles/fixpi: the Pi's `pi` user is UID/GID 1000 in
+# the NFS root, and no name on this host maps to it.
+- name: restore the NFS root's pi ownership on the ssh files
+  file:
+    path: "{{ item }}"
+    owner: "1000"
+    group: "1000"
+  loop:
+    - "{{ nfs_root }}/root/home/pi/.ssh"
+    - "{{ nfs_root }}/root/home/pi/.ssh/authorized_keys"
+  tags: [fleet-watchdog]
+
+# fixpi generates the NFS root's host keys earlier in this play, so the file
+# should exist. Check rather than assume: a missing key must degrade to "the
+# watchdog cannot start" and not abort the whole converge, which would leave
+# the server half-provisioned over a service that ships disabled anyway.
+- name: check the NFS root has an ssh host key
+  stat:
+    path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key.pub"
+  register: fleet_watchdog_host_key_stat
+  tags: [fleet-watchdog]
+
+- name: warn when the NFS root has no ssh host key
+  debug:
+    msg: >-
+      WARNING: {{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key.pub is missing,
+      so no known_hosts can be pinned and the watchdog cannot verify any board.
+      Leaving fleet_watchdog_enabled off until fixpi has generated it. This is
+      only a warning because the service ships disabled; the assert below turns
+      it into a hard failure the moment fleet_watchdog_enabled is true.
+  when: not fleet_watchdog_host_key_stat.stat.exists
+  tags: [fleet-watchdog]
+
+- name: read the NFS root's ssh host key
+  slurp:
+    src: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key.pub"
+  register: fleet_watchdog_host_key
+  when: fleet_watchdog_host_key_stat.stat.exists
+  tags: [fleet-watchdog]
+
+# Every netbooted board serves the NFS root's single host key, so one pinned
+# entry covers the fleet. Pinning matters: with StrictHostKeyChecking=yes a
+# changed root key makes every probe fail, which trips the circuit breaker
+# instead of power-cycling 35 healthy boards.
+- name: install the pinned known_hosts
+  template:
+    src: known_hosts.j2
+    dest: "{{ fleet_watchdog_home }}/known_hosts"
+    owner: "{{ fleet_watchdog_user }}"
+    group: "{{ fleet_watchdog_user }}"
+    mode: "0644"
+  when: fleet_watchdog_host_key_stat.stat.exists
+  tags: [fleet-watchdog]
+
+- name: refuse to enable the watchdog without a pinned host key
+  assert:
+    that:
+      - fleet_watchdog_host_key_stat.stat.exists
+    fail_msg: >-
+      fleet_watchdog_enabled is true but the NFS root has no ssh host key to
+      pin. Every probe would fail. Run the pi provisioning first.
+  when: fleet_watchdog_enabled
+  tags: [fleet-watchdog]
+
+- name: create /etc/fpgas directory
+  file:
+    path: /etc/fpgas
+    state: directory
+    mode: "0755"
+  tags: [fleet-watchdog]
+
+- name: install the watchdog config
+  template:
+    src: watchdog.yml.j2
+    dest: "{{ fleet_watchdog_config_file }}"
+    mode: "0644"
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+- name: install the watchdog environment file
+  template:
+    src: watchdog.env.j2
+    dest: "{{ fleet_watchdog_env_file }}"
+    owner: "{{ fleet_watchdog_user }}"
+    group: "{{ fleet_watchdog_user }}"
+    mode: "0600"
+  no_log: true
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+- name: install the watchdog systemd unit
+  template:
+    src: fleet-watchdog.service.j2
+    dest: /etc/systemd/system/fleet-watchdog.service
+    mode: "0644"
+  notify: restart fleet-watchdog
+  tags: [fleet-watchdog]
+
+# Enabled state follows fleet_watchdog_enabled in both directions, so turning
+# the flag off is a real off switch and not just "stop notifying".
+- name: set the watchdog service state
+  systemd:
+    name: fleet-watchdog
+    daemon_reload: true
+    enabled: "{{ fleet_watchdog_enabled }}"
+    state: "{{ 'started' if fleet_watchdog_enabled else 'stopped' }}"
+  tags: [fleet-watchdog]

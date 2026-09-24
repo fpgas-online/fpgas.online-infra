@@ -15,6 +15,9 @@
     - apt-cache
     - fixpi
     - pxe
+    # After pxe: this role writes the watchdog key into the Pi NFS root, so it
+    # must run after img (fresh extract) and fixpi (authorized_keys).
+    - {role: fleet-watchdog, when: switches is defined}
 
 - hosts: uhubctl
   roles:
