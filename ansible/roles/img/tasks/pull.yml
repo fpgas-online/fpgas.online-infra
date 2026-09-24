@@ -61,9 +61,16 @@
       command: podman image mount {{ nfsroot_image }}
       register: img_mnt
 
+    # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
+    # fpgas-online/nfsroot-watchdog (update.lock, generation, inhibit). They
+    # are never in the image and must survive a pull: deleting generation
+    # mid-run would make every board see a change and start rebooting,
+    # deleting update.lock drops the hold, and deleting inhibit silently undoes
+    # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
     - name: rsync boot/ and root/ from the image
       command: >-
         rsync -aHAX --delete --numeric-ids
+        {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
       loop:
         - boot
