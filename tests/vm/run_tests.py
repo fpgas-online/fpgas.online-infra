@@ -9,6 +9,7 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 """
 
 import argparse
+import concurrent.futures
 import subprocess
 import sys
 import time
@@ -94,8 +95,13 @@ def pi_password_login_works(host: str, password: str, key_path: Path, proxy_jump
     return who == "pi"
 
 
-def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str] | None = None) -> int:
-    """Run an ansible-playbook command and return exit code."""
+def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str] | None = None,
+                log_path: Path | None = None) -> int:
+    """Run an ansible-playbook command and return exit code.
+
+    With log_path the output goes to that file instead of stdout: used for a
+    playbook that runs alongside another one, printed once it has finished.
+    """
     cmd = [
         "uv", "run", "ansible-playbook",
         str(ANSIBLE_DIR / playbook),
@@ -115,8 +121,11 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
     print(f"Running: {' '.join(cmd)}")
     print(f"{'='*60}\n")
     # Open /dev/null for stdin to avoid Ansible's non-blocking IO detection issue
-    result = subprocess.run(cmd, stdin=subprocess.DEVNULL)
-    return result.returncode
+    if log_path is None:
+        return subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
+    with open(log_path, "w") as log:
+        return subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=log,
+                              stderr=subprocess.STDOUT).returncode
 
 
 def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | None]:
@@ -278,9 +287,10 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     return server
 
 
-def verify_server(args, server: VMManager) -> bool:
+def verify_server(args, server: VMManager, log_path: Path | None = None) -> bool:
     """Run verify-server.yml against the converged server VM."""
-    rc = run_ansible("verify-server.yml", server.ansible_inventory, "test-vm", server.ansible_extra)
+    rc = run_ansible("verify-server.yml", server.ansible_inventory, "test-vm", server.ansible_extra,
+                     log_path=log_path)
     if rc != 0:
         print(f"ERROR: verify-server.yml failed with exit code {rc}")
         return False
@@ -423,11 +433,12 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
         pi.shutdown()
         return False
 
-    # The web terminal's login path: password, no key (see the docstring).
-    if not pi_password_login_works(pi_host, pi_password_from_inventory(), key_path, proxy):
-        print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
-        pi.shutdown()
-        return False
+    # The web terminal's login path (password, no key; see the docstring),
+    # checked alongside verify-pi: both only read, and each SSH handshake
+    # with the emulated Pi takes tens of seconds.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    password_ok = pool.submit(pi_password_login_works, pi_host, pi_password_from_inventory(),
+                              key_path, proxy)
 
     # Run verify-pi.yml against the running Pi (test-pi in the inventory).
     inventory = TEST_INVENTORY
@@ -436,6 +447,10 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
         extra.extend(["--skip-tags", args.skip_tags])
 
     rc = run_ansible("verify-pi.yml", inventory, "test-pi", extra)
+    if not password_ok.result():
+        print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
+        rc = rc or 1
+    pool.shutdown()
     if rc != 0:
         print(f"ERROR: verify-pi.yml failed with exit code {rc}")
         print("[server] network view of the Pi at failure:\n"
@@ -505,24 +520,32 @@ def main():
         if server is None:
             print("\nSERVER PHASE FAILED")
             sys.exit(1)
-        # The server is converged: power the Pi on now and let it netboot
-        # while verify-server runs (its checks are read-only).
-        if args.phase == "all":
+        if args.phase != "all":
+            if not verify_server(args, server):
+                print("\nSERVER PHASE FAILED")
+                sys.exit(1)
+            print("\nSERVER PHASE PASSED")
+        else:
+            # The server is converged: power the Pi on now -- the point at
+            # which a real deploy's boards are PoE-cycled -- and verify both
+            # sides at once. verify-server only reads, so it runs in the
+            # background (output printed when it ends) while the Pi netboots
+            # and verify-pi runs against it.
             pi = start_pi(workdir, switch)
             if pi is None:
                 print("\nPI PHASE FAILED")
                 sys.exit(1)
-        if not verify_server(args, server):
-            print("\nSERVER PHASE FAILED")
-            sys.exit(1)
-        print("\nSERVER PHASE PASSED")
-
-        if pi is not None:
-            success = phase_pi(args, workdir, server, pi)
-            if not success:
-                print("\nPI PHASE FAILED")
+            server_log = workdir / "verify-server.log"
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                server_ok = pool.submit(verify_server, args, server, server_log)
+                pi_ok = phase_pi(args, workdir, server, pi)
+                server_passed = server_ok.result()
+            print(f"\n{'=' * 60}\nverify-server.yml output (ran alongside the Pi phase)\n{'=' * 60}")
+            print(server_log.read_text(errors="replace"))
+            print(f"\nSERVER PHASE {'PASSED' if server_passed else 'FAILED'}")
+            print(f"PI PHASE {'PASSED' if pi_ok else 'FAILED'}")
+            if not (server_passed and pi_ok):
                 sys.exit(1)
-            print("\nPI PHASE PASSED")
 
     finally:
         if pi is not None and pi.is_alive() and not args.keep_vm:
