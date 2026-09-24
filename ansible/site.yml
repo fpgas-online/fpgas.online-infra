@@ -6,7 +6,10 @@
 # The Pi NFS root image is several GB: start pulling it now (after netif,
 # which may reboot the server) so the download overlaps everything up to
 # the root's extraction below, which waits for it.
+# Facts gathered by the first play hold for the rest of the run (netif
+# re-gathers them itself after a reboot), so later nbp plays skip gathering.
 - hosts: nbp
+  gather_facts: false
   tasks:
     - name: start pulling the Pi NFS root image
       include_role:
@@ -15,6 +18,7 @@
       tags: [img]
 
 - hosts: nbp
+  gather_facts: false
   roles:
     - operators
     - jump
@@ -40,6 +44,7 @@
 # before the root they boot changes, and the image pull has had the whole
 # run to finish.
 - hosts: nbp
+  gather_facts: false
   tasks:
     - name: extract the pulled Pi NFS root
       import_role:
