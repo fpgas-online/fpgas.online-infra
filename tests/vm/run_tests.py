@@ -308,6 +308,43 @@ def ensure_qemu_rpi() -> tuple[str, str, str]:
     return qemu_bin, pxeboot_bin, pxeboot_dtb
 
 
+# TCP segments the server may have in flight to the virtual Pi: well under
+# the emulated GENET's 256-descriptor RX ring (see clamp_server_cwnd_to_pi).
+PI_ROUTE_CWND = 64
+
+
+def clamp_server_cwnd_to_pi(server: VMManager, key_path: Path, pi_ip: str) -> None:
+    """Cap the server's TCP congestion window on its route to the virtual Pi.
+
+    qemu-rpi's GENET model has no RX flow control: can_receive() is always
+    true and bcm2838_genet_rdma() never checks the driver's consumer index,
+    so a burst larger than the 256-descriptor ring overwrites descriptors the
+    TCG-slow guest has not consumed yet and the Pi's RX path wedges for good
+    (fpgas-online/rpi-qemu#12: "permanent flow wedge"). The KVM-fast server
+    produces exactly such bursts -- one NFS READ reply can be ~700 frames --
+    and verify-pi died with "No route to host" a few minutes in. A locked
+    cwnd metric on a host route keeps every server TCP connection to the Pi
+    (NFS root, SSH) below the ring size. Test harness only: real GENET
+    hardware drops and counts instead.
+    """
+    cmd = (
+        f"set -e; r=$(ip -4 -o route get {pi_ip}); "
+        "dev=$(echo \"$r\" | sed -n 's/.* dev \\([^ ]*\\).*/\\1/p'); "
+        "src=$(echo \"$r\" | sed -n 's/.* src \\([^ ]*\\).*/\\1/p'); "
+        f"sudo ip route replace {pi_ip}/32 dev \"$dev\" src \"$src\" cwnd lock {PI_ROUTE_CWND}; "
+        f"ip -4 route show {pi_ip}/32"
+    )
+    ssh = server.wait_for_ssh(port=SSH_PORT, key_path=key_path)
+    try:
+        _in, out, err = ssh.exec_command(cmd, timeout=60)
+        rc = out.channel.recv_exit_status()
+        print(f"[server] cwnd clamp to {pi_ip} (rc={rc}): "
+              f"{out.read().decode(errors='replace').strip()} "
+              f"{err.read().decode(errors='replace').strip()}")
+    finally:
+        ssh.close()
+
+
 def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
@@ -322,6 +359,8 @@ def phase_pi(args, workdir: Path, server: VMManager, switch: AccessPortSwitch) -
     started listening on both ports before either VM booted (see main()).
     """
     key_path = workdir / "test_key"
+
+    clamp_server_cwnd_to_pi(server, key_path, "10.21.1.1")
 
     # Ensure patched QEMU and PXE boot firmware are available
     qemu_bin, pxeboot_bin, pxeboot_dtb = ensure_qemu_rpi()
