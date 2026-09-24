@@ -1,0 +1,27 @@
+---
+# Stale-NFS-root watchdog (tasks/stale_root.yml): the nfsroot-watchdog
+# package from fpgas-online/nfsroot-watchdog, configured for this fleet.
+# Every setting is documented in the package's /etc/default/nfsroot-watchdog;
+# these are the ones fpgas.online sets.
+
+# Files a root rebuild is known to replace (measured 2026-09-24 on
+# pi-sw2-p33: all three answered ESTALE through the overlay; the stale
+# authorized_keys is what broke key-based ssh fleet-wide). The package adds
+# its generation marker itself.
+nfsroot_watchdog_probes:
+  - /var/lib/dpkg/status
+  - /etc/ld.so.cache
+  - /home/pi/.ssh/authorized_keys
+  - /root/.ssh/authorized_keys
+
+# Stagger by switch placement: pi-sw<S>-p<P> -> slot (S-1)*48 + (P-1), so
+# no two boards on a site share a slot. 96 slots x 20 s: a two-switch site
+# is done within ~33 min.
+nfsroot_watchdog_slot_sed: 's/^pi-sw([0-9]+)-p([0-9]+)$/\1 \2/'
+nfsroot_watchdog_slot_stride: 48
+nfsroot_watchdog_slot_base: 49
+nfsroot_watchdog_slots: 96
+nfsroot_watchdog_spacing: 20
+
+# true: the boards only log "would reboot" (journal + netconsole).
+nfsroot_watchdog_dry_run: false

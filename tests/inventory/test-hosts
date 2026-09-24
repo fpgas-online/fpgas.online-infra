@@ -2,14 +2,15 @@
 test-vm ansible_host=127.0.0.1 ansible_port=2222 ansible_user=debian
 
 [uhubctl]
-test-vm
+# empty, like the production inventory's (no uhubctl hub at any site)
 
 [pig]
 test-vm
 
-# Live Pi verification — connects to running Pi via ProxyJump through server
+# Live Pi verification -- the virtual Pi on switch 1 port 1, whose per-port
+# DHCP address is 10.21.1.1 -- reached via ProxyCommand through the server
 [pi_live]
-test-pi ansible_host=10.21.0.128 ansible_user=pi
+test-pi ansible_host=10.21.1.1 ansible_user=pi
 
 [all:vars]
 ansible_ssh_common_args=-o StrictHostKeyChecking=accept-new

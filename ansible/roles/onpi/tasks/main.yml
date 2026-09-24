@@ -22,3 +22,4 @@
 - {include_tasks: sshkeys.yml, tags: sshkeys}
 - {include_tasks: tweeks.yml, tags: pitweeks}
 - {include_tasks: acorn.yml, tags: [acorn, fpgas-apt]}
+- {include_tasks: stale_root.yml, tags: stale-root}

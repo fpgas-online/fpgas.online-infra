@@ -135,7 +135,7 @@ differs between test and production.
 | Pi PXE chain | DHCP lease, TFTP (bootcode, kernel, DTB, initramfs), kernel handoff |
 | Kernel boot | `root=/dev/nfs`, overlayroot `tmpfs` overlay, NFS client, systemd → `multi-user.target` |
 | SSH reachability | `sshd` running on the Pi, reachable from the server via ProxyCommand |
-| `verify-pi.yml` | 14 assertions: NFS mount, overlayfs, 10.21.0.x IP, ping server, SSH service, python3, hostname, overlayroot package |
+| `verify-pi.yml` | Mounts, per-port address, services, packages, JTAG tools, camera/TT services, nfsroot-watchdog, and fleet registration with the server (`/fleet/<serial>/` online with the current boot id) |
 
 **Run locally:**
 
@@ -147,20 +147,22 @@ echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qe
   | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
-# Full run (server + Pi + both verify playbooks)
-uv run tests/vm/run_tests.py --phase all
+# Full run (server + Pi + both verify playbooks). --nfsroot-image names the
+# prebuilt Pi root the server pulls: the rolling tag, or a CI run's tag.
+uv run tests/vm/run_tests.py --phase all \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
-# Server phase only (faster iteration — skips the slow Pi boot)
-uv run tests/vm/run_tests.py --phase server --keep-vm
+# Server phase only (faster iteration)
+uv run tests/vm/run_tests.py --phase server --keep-vm \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
 # Debug: SSH into the running VMs after setup
-uv run tests/vm/run_tests.py --phase all --ssh-to-server --keep-vm
-uv run tests/vm/run_tests.py --phase all --ssh-to-pi --keep-vm
+uv run tests/vm/run_tests.py --phase all --ssh-to-server --keep-vm --nfsroot-image ...
+uv run tests/vm/run_tests.py --phase all --ssh-to-pi --keep-vm --nfsroot-image ...
 ```
 
-A full run under TCG takes roughly 2 hours (server phase is the long pole). KVM
-acceleration is used automatically when `/dev/kvm` is available, which cuts runtime
-substantially.
+With KVM (used automatically when `/dev/kvm` is available) a full run takes
+about 13-14 minutes; see CLAUDE.md's Testing section for where the time goes.
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every push
 to `main` and on pull requests. Serial logs are uploaded as an artifact on every run

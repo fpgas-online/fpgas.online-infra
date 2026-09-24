@@ -1,0 +1,7 @@
+---
+# The automation key ansible connects with (ansible/ssh.cfg's IdentityFile
+# names the same file). Declared as an inventory var, not only in ssh.cfg,
+# so fixpi/tasks/userconf.yml authorizes it on the Pis -- verify-pi and the
+# fleet's reachability both depend on it. The test inventory names the VM
+# harness's per-run key instead (tests/inventory/group_vars/all/controller.yml).
+ansible_ssh_private_key_file: "{{ lookup('env', 'HOME') }}/.ssh/fpgas.online-ansible"

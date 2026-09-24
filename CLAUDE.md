@@ -84,18 +84,21 @@ from [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838
 GENET ethernet emulation on `raspi4b`), and runs `verify-pi.yml`. Only the inventory
 differs between test and production.
 
-**End-to-end coverage:**
+**End-to-end coverage** (nothing is skipped: the harness passes no
+`--skip-tags`, and the test inventory differs from production only in site
+data -- addresses, names, the switch it cannot reach):
 
-- `site.yml` converges: server roles, plus pulling and extracting the
-  CI-built NFS root image (the CI run builds it from the same checkout
-  first and passes the tag in, so PR role changes are in the booted root)
+- `site.yml` converges a fresh Debian 13 server (tweed's OS), pulling and
+  extracting the NFS root image built from the same checkout
 - `verify-server.yml`: firewall, dnsmasq, TFTP layout, NFS exports, NFS root
-  packages and config
-- Virtual Pi PXE boots: DHCP → TFTP → kernel → initramfs → NFS root mounted
-  read-only with overlayroot tmpfs overlay → systemd → `multi-user.target`
-- SSH reachable through the server via ProxyCommand
-- `verify-pi.yml` (14 assertions): NFS mount, overlayfs, 10.21.0.x IP, ping
-  server, `ssh.service` active, python3, hostname, `overlayroot` package
+  packages and the site layer (`fleet.toml`, `tt-boards.yaml`), web tier
+- Virtual Pi PXE boots from the flat per-port-VLAN TFTP root, exactly as
+  production Pis do: DHCP → TFTP → kernel → initramfs → NFS root read-only
+  with overlayroot → systemd; SSH and the web terminal's password login work
+- `verify-pi.yml`: mounts, per-port address, services, packages, JTAG tools,
+  camera/TT services, nfsroot-watchdog armed -- and **fleet registration**:
+  the server's Django app shows `/fleet/<serial>/` online with the Pi's
+  current boot id
 
 ```bash
 # Install qemu-rpi packages
@@ -116,11 +119,17 @@ uv run tests/vm/run_tests.py --phase server --keep-vm \
   --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 ```
 
-With KVM (used automatically when `/dev/kvm` is available) the server phase
-is ~20 min (most of it the web tier's pip installs and the image pull); the
-Pi phase is ~5-10 min of aarch64 TCG (ARM guests cannot be KVM-accelerated
-on x86 hosts): boot to SSH, then verify-pi. The harness waits for the kernel
-handoff and then SSH -- not a serial `login:` prompt, which never appears.
+With KVM (used automatically when `/dev/kvm` is available) the whole run is
+about 13-14 min in CI: server VM up in ~20 s, `site.yml` ~9 min (the Pi root
+image is pulled in the background from right after `netif` and extracted in
+the last play), then the Pi netboots (~2 min of aarch64 TCG to SSH) while
+`verify-server` runs, and `verify-pi` (one collector call plus the fleet
+lookup) takes about a minute.
+
+The image build (`nfsroot-build.yml`, arm64 runner) is reused whenever no
+image input changed (`tests/ci/nfsroot_inputs.py`), and otherwise converges
+main's latest image (~3 min); the weekly scheduled build starts from
+RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
 push to `main` and on PRs. Serial logs are uploaded as an artifact on every run

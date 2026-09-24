@@ -93,32 +93,22 @@ switches_manage: false
 # is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
 pi_pw: "fpgas-test-pi"
 
-# QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
-# in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
-# involved), so the `ip`/`mac` DHCP host-entry task in
-# ansible/roles/pxe/tasks/test_clients.yml is skipped -- this list only
-# still triggers the ephemeral test SSH key injection into the Pi's
-# authorized_keys, which the harness needs regardless of addressing scheme.
-pxe_test_clients:
-  - name: test-pi
-    sn: "deadbeef"
-    mac: "52:54:00:12:34:56"
-    ip: "10.21.0.128"
-    nfs_root: "/srv/nfs/rpi/bookworm/root"
-    console: "ttyAMA0,115200"
-
-# tinytapeout.fpgas.online in the VM test: one live slot on the virtual Pi
-# (10.21.0.128 = switch 0 / port 128 in the legacy scheme), the rest unwired;
-# no public DNS => no certbot; no embed download.
+# tinytapeout.fpgas.online in the VM test: the live FPGA slot is the virtual
+# Pi's own port (switch 1 port 1), so the designs API route is exercised as
+# on tweed; the rest are unwired. No public DNS => no certbot.
 tt_boards:
-  - {slug: tt06, switch: 0, port: 128, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (VM)"}
+  - {slug: fpga-1, switch: 1, port: 1, kind: fpga, title: "FPGA (the virtual Pi)"}
   # commander: legacy exercises the catalogue key end to end (template render,
-  # daemon tolerance, ttsite_loadboards) without needing a legacy bundle pin.
+  # daemon tolerance, ttsite_loadboards) and the legacy embed bundle.
   - {slug: tt03p5, port: null, kind: asic, shuttle: tt03p5, title: "TT 3.5 (unwired)", commander: legacy}
+  - {slug: tt06, port: null, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (unwired)"}
   - {slug: kianv-1, port: null, kind: kianv, title: "KianV (unwired)"}
-  - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
-tt_commander_embed_version: ""
+# The Commander embed bundles tweed pins (ansible/inventory/host_vars/fpgas.online.yml).
+tt_commander_embed_version: "0.2.0"
+tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
+tt_commander_legacy_embed_version: "0.1.0"
+tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
 # The VM test runs concurrently with the nfsroot build that produces the
 # image it pulls (.github/workflows/vm-test.yml): wait up to 45 min for it.
 img_pull_retries: 90
@@ -128,10 +118,11 @@ img_pull_delay: 30
 # the pulled image carries (baked in by the CI build, fixpi/sunxi-image.yml).
 sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
 # hat_uuid + mac identify the physical board; switch/port/usb/host are its
-# current placement (see the production host_vars). hat_uuid is only checked
-# on real Orange Pi hardware (the virtual Pi skips the DT-model-gated tasks).
+# current placement (see the production host_vars). Its FEL-boot hub host is
+# a Pi this test does not boot (the virtual Pi is pi-sw1-p1), so verify-pi's
+# hub-host and DT-model-gated checks do not apply to the virtual Pi.
 sunxi_boards:
-  - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 1, usb: "1-1.2.2", host: pi-sw1-p1}
+  - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 2, usb: "1-1.2.2", host: pi-sw1-p9}
 
 # WebRTC/WHEP (roles/cam/webrtc): converge + verify in CI. The advertised
 # candidate is the TEST-NET uplink address; no browser reaches it in CI.

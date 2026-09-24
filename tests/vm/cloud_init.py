@@ -14,8 +14,8 @@ def create_seed_iso(
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
-    Configures the VM with SSH key, Python3, qemu-guest-agent,
-    and a static IP on the second NIC (for the socket VLAN).
+    Configures the VM's user and SSH key, and brings up the second NIC
+    (the VLAN trunk) for the roles to configure.
     """
     user_data = f"""#cloud-config
 hostname: {hostname}
@@ -28,13 +28,11 @@ users:
     ssh_authorized_keys:
       - {ssh_pubkey}
 
-packages:
-  - python3
-  - git
-  - qemu-guest-agent
+# No packages: the cloud image ships python3, and the roles install what
+# they need themselves (site installs git for its pip installs), as on a
+# fresh tweed. Installing them here was a minute of apt on every boot.
 
 runcmd:
-  - systemctl enable --now qemu-guest-agent
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf

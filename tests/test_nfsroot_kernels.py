@@ -310,3 +310,34 @@ def test_simulated_removals_parses_apt_output():
         "linux-image-6.12.96+rpt-rpi-v7",
         "linux-image-rpi-v7",
     }
+
+
+def test_refresh_initramfs_rebuilds_stale_versions_in_parallel(tmp_path, monkeypatch):
+    """Every stale version is rebuilt (-c when it has no image yet), and one
+    failure fails the command after all builds have run."""
+    calls = []
+
+    class Result:
+        def __init__(self, rc):
+            self.returncode, self.stdout, self.stderr = rc, "", ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Result(1 if cmd[-1] == "6.12.1-v7" else 0)
+
+    monkeypatch.setattr(nk.subprocess, "run", fake_run)
+    monkeypatch.setattr(nk, "rootfs_kernels", lambda root: {"6.12.1-v7": None, "6.12.1-v8": None})
+    monkeypatch.setattr(nk, "stale_initramfs", lambda root, versions: list(versions))
+
+    class Args:
+        nfs_root = str(tmp_path)
+        dry_run = False
+
+    assert nk.cmd_refresh_initramfs(Args()) == 1
+    assert sorted(c[-1] for c in calls) == ["6.12.1-v7", "6.12.1-v8"]
+    assert all(c[:3] == ["chroot", str(tmp_path / "root"), "update-initramfs"] and c[3] == "-c" for c in calls)
+
+    calls.clear()
+    monkeypatch.setattr(nk.subprocess, "run", lambda cmd, **kw: (calls.append(cmd), Result(0))[1])
+    assert nk.cmd_refresh_initramfs(Args()) == 0
+    assert len(calls) == 2

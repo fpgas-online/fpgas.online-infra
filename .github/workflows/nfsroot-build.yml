@@ -13,6 +13,11 @@ name: nfsroot build
 # the rolling apt repo between merges.
 on:
   workflow_dispatch:
+    inputs:
+      from_scratch:
+        description: "Build from RasPiOS instead of converging main's latest image"
+        type: boolean
+        default: true
   schedule:
     - cron: "17 2 * * 1"
   workflow_call:
@@ -21,6 +26,10 @@ on:
         description: "Also push this tag (the VM test picks it before the build starts)"
         type: string
         default: ""
+      from_scratch:
+        description: "Build from RasPiOS instead of converging main's latest image"
+        type: boolean
+        default: false
     outputs:
       image:
         description: "GHCR ref of the image this run pushed (dated tag)"
@@ -39,7 +48,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     outputs:
-      image: ${{ steps.publish.outputs.image }}
+      image: ${{ steps.reuse.outputs.image || steps.publish.outputs.image }}
     steps:
       - uses: actions/checkout@v6
 
@@ -50,14 +59,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
+      # the build roles, playbook, inventory and tooling, plus the ISO week)
+      # is retagged instead of rebuilt; the steps below then skip. Every
+      # change to an image input gets a fresh build of this checkout.
+      - name: Reuse an image built from the same inputs
+        id: reuse
+        env:
+          NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
+        run: python3 tests/ci/nfsroot_publish.py --reuse
+
       - uses: astral-sh/setup-uv@v5
+        if: steps.reuse.outputs.reused != 'true'
         with:
           python-version: "3.12"
+          enable-cache: true
+
+      - name: Cache Ansible collections
+        if: steps.reuse.outputs.reused != 'true'
+        uses: actions/cache@v5
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-arm-${{ hashFiles('requirements.yml') }}
 
       - name: Install ansible and collections
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           uv sync
-          uv run ansible-galaxy collection install -r requirements.yml --upgrade
+          uv run ansible-galaxy collection install -r requirements.yml
 
       # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
       # 524 MB image vs the usual 16 s). Cache the download; the img role's
@@ -65,15 +94,49 @@ jobs:
       # image release busts the cache. The dir must be runner-writable for
       # actions/cache's tar restore/save (the download itself runs as root).
       - name: Prepare image cache dir
-        run: sudo install -d -o "$(id -un)" /var/cache/pib
+        if: steps.reuse.outputs.reused != 'true'
+        id: cachedirs
+        run: |
+          sudo install -d -o "$(id -un)" /var/cache/pib /var/cache/nfsroot-debs
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache the RasPiOS base image
+        if: steps.reuse.outputs.reused != 'true'
         uses: actions/cache@v5
         with:
           path: /var/cache/pib
           key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
 
+      # apt's downloads from earlier builds (inventory-ci-nfsroot's
+      # nfsroot_build_deb_cache, bind-mounted into the root during the
+      # build and never packed into the image). One entry per ISO week,
+      # seeded from the newest earlier one, so it tracks the archive without
+      # a GB-sized entry per run crowding out the other caches. apt checks
+      # every deb against the signed indexes: a stale one is re-downloaded.
+      - name: Restore the build's deb cache
+        if: steps.reuse.outputs.reused != 'true'
+        id: debcache
+        uses: actions/cache/restore@v5
+        with:
+          path: /var/cache/nfsroot-debs
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
+          restore-keys: nfsroot-debs-
+
+      # PR and push builds converge the image main last published (the roles
+      # are idempotent; their apt runs are then mostly no-ops): ~3 min
+      # instead of ~10. The weekly schedule and a dispatch build from
+      # RasPiOS, so the from-scratch path keeps running and a warm chain is
+      # never more than a week old. See tests/ci/nfsroot_warm.py.
+      - name: Start from main's latest image (warm build)
+        if: >-
+          steps.reuse.outputs.reused != 'true'
+          && github.event_name != 'schedule'
+          && !inputs.from_scratch
+        id: warm
+        run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm
+
       - name: Build the NFS root (same roles as site.yml, chroot connection)
+        if: steps.reuse.outputs.reused != 'true'
         working-directory: ansible
         run: >-
           sudo env "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections"
@@ -81,19 +144,44 @@ jobs:
           "$(pwd)/../.venv/bin/ansible-playbook"
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
+          -e nfsroot_warm=${{ steps.warm.outputs.warm == 'true' }}
+
+      # apt leaves its root-only lock file and partial/ dir in the cache
+      # (the save's tar failed on them): keep only the debs, runner-owned.
+      - name: Tidy the build's deb cache for saving
+        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        run: |
+          sudo find /var/cache/nfsroot-debs -mindepth 1 -maxdepth 1 ! -name '*.deb' -exec rm -rf {} +
+          sudo chown -R "$(id -un)" /var/cache/nfsroot-debs
+          du -sh /var/cache/nfsroot-debs
+
+      - name: Save the build's deb cache
+        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /var/cache/nfsroot-debs
+          key: nfsroot-debs-${{ steps.cachedirs.outputs.week }}
 
       - name: Write nfsroot manifest (packages, boot hashes, configs)
+        if: steps.reuse.outputs.reused != 'true'
         run: |
           sudo .venv/bin/python tests/ci/nfsroot_manifest.py \
             /srv/nfs/rpi/bookworm manifest
 
       - uses: actions/upload-artifact@v4
+        if: steps.reuse.outputs.reused != 'true'
         with:
           name: nfsroot-manifest
           path: manifest/
 
       - name: Publish to GHCR
+        if: steps.reuse.outputs.reused != 'true'
         id: publish
         env:
           NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
-        run: uv run tests/ci/nfsroot_publish.py
+        run: |
+          # skopeo pushes the zstd OCI layout nfsroot_publish.py writes
+          # (both ship on the runner images; installed if one ever does not)
+          command -v skopeo && command -v zstd \
+            || { sudo apt-get update && sudo apt-get install -y skopeo zstd; }
+          uv run tests/ci/nfsroot_publish.py
