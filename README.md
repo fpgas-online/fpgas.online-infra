@@ -191,13 +191,13 @@ test coverage grows correspondingly.
 | `img` | server (SSH) | Download and extract Raspberry Pi OS images |
 | `fixpi` | server (SSH) | Configure Pi OS in the NFS root (boot config, users, chroot installs) |
 | `pxe` | server (SSH) | dnsmasq DHCP/DNS/TFTP for Pi network booting |
-| `nspawn-pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
+| `nspawn_pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
 | `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
-| `cam/stream-server` | server (SSH) | nginx-rtmp HLS streaming server |
+| `cam/stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
-| `fpgas-apt` | NFS root (nspawn) | Add fpgas.online apt repository |
+| `fpgas_apt` | NFS root (nspawn) | Add fpgas.online apt repository |
 | `cam/pi` | NFS root (nspawn) | Install camera capture package |
 | `onpi` | NFS root (nspawn) | Install Pi environment setup package |
 

@@ -6,7 +6,7 @@
 fpgas_apt_upstream_url: https://fpgas.online/apt
 
 # The "Pi" here is the NFS root on a gateway, so the gateway's apt cache
-# (roles/apt-cache publishes apt_cache_url) is read from the first nbp host's
+# (roles/apt_cache publishes apt_cache_url) is read from the first nbp host's
 # vars -- the same pattern as onpi/tasks/tt.yml. Empty (no nbp group, as in
 # ci-nfsroot.yml, or the cache disabled) falls back to upstream.
 fpgas_apt_cache_url: "{{ hostvars[groups['nbp'][0]].apt_cache_url | default('') if groups['nbp'] | default([]) else '' }}"
@@ -28,7 +28,7 @@ fpgas_apt_key_fingerprint: 878EC72910E22EA0E989EAA9BEB0EC3124E538E4
 # fpgas-online.github.io project page 301s to http://fpgas.online/<repo>,
 # which apt will not follow. Like fpgas_apt_url, clients go through the
 # gateway's apt cache when there is one (remap fpgatools in
-# roles/apt-cache/defaults/main.yml); apt-cache's verify fails any NFS root
+# roles/apt_cache/defaults/main.yml); apt_cache's verify fails any NFS root
 # source that bypasses it.
 #
 # The site publishes the key twice: fpgas.online-fpga-tools.asc (armoured)
@@ -36,7 +36,7 @@ fpgas_apt_key_fingerprint: 878EC72910E22EA0E989EAA9BEB0EC3124E538E4
 # fetched, because bookworm's apt verifies with gpgv, which rejects an
 # armoured keyring as an unsupported filetype and then treats the repository
 # as unsigned (Debian 13's sqv accepts both, which hides the problem there).
-# roles/fpgas-apt/tasks/repo.yml asserts the format as well as the
+# roles/fpgas_apt/tasks/repo.yml asserts the format as well as the
 # fingerprint, so an upstream change to either fails the build instead of
 # being trusted.
 fpga_tools_apt_upstream_url: https://fpgas.online/fpgas.online-fpga-tools
@@ -47,7 +47,7 @@ fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30
 # fpgas-online/nfsroot-watchdog: the NFS-root stale-handle watchdog
 # (nfsroot-watchdog, installed in the Pi root by roles/onpi) and its server
 # half (nfsroot-watchdog-server, installed on the gateway by
-# roles/nfsroot-generation). Architecture: all, one flat repository per
+# roles/nfsroot_generation). Architecture: all, one flat repository per
 # Debian release under the shared apt convention (tasks/repo.yml):
 # canonical https on the custom domain, through the gateway's apt cache
 # (remap nfsrootwatchdog) when there is one, key pinned by fingerprint.
