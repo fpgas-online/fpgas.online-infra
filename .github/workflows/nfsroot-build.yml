@@ -116,6 +116,15 @@ jobs:
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
 
+      # apt leaves its root-only lock file and partial/ dir in the cache
+      # (the save's tar failed on them): keep only the debs, runner-owned.
+      - name: Tidy the build's deb cache for saving
+        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        run: |
+          sudo find /var/cache/nfsroot-debs -mindepth 1 -maxdepth 1 ! -name '*.deb' -exec rm -rf {} +
+          sudo chown -R "$(id -un)" /var/cache/nfsroot-debs
+          du -sh /var/cache/nfsroot-debs
+
       - name: Save the build's deb cache
         if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
