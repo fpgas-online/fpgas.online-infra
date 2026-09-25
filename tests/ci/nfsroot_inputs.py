@@ -9,8 +9,9 @@ serve on the day. nfsroot-build.yml tags every image it pushes with
 PR that touches no image input boots exactly the image main would, and one
 that does touch an input always gets a fresh build of its own checkout.
 
-The key includes the ISO week, so an unchanged checkout still rebuilds at
-least weekly and picks up new debs (the same cadence as the weekly cron).
+The key includes the UTC hour, so an unchanged checkout still rebuilds at
+least hourly and picks up new debs (the same cadence as nfsroot-build.yml's
+hourly schedule, whose image the later runs of that hour then reuse).
 
 tests/test_nfsroot_inputs.py fails if ci-nfsroot.yml starts using a role,
 or a role starts reading another role's files, that INPUTS does not cover.
@@ -30,6 +31,10 @@ REPO = Path(__file__).resolve().parents[2]
 # Paths (files or directories) whose content can change the built image.
 INPUTS = [
     "ansible/ci-nfsroot.yml",
+    # the stages it builds on (nfsroot_stages.py)
+    "ansible/ci-nfsroot-base.yml",
+    "ansible/ci-nfsroot-upgrade.yml",
+    "ansible/ci-nfsroot-runner.yml",
     "ansible/inventory-ci-nfsroot",
     # group_vars the CI inventory symlinks from the production inventory
     "ansible/inventory/group_vars/all/ci.yml",
@@ -47,6 +52,7 @@ INPUTS = [
     "ansible/roles/ttsite/templates/tt-boards.yaml.j2",
     # the build and publish machinery itself
     ".github/workflows/nfsroot-build.yml",
+    ".github/actions/nfsroot-setup",
     "tests/ci",
     "requirements.yml",
     "pyproject.toml",
@@ -70,6 +76,8 @@ BASE_VAR_FILES = [
     "ansible/inventory-ci-nfsroot/group_vars/all/zz-ci-overrides.yml",
 ]
 BASE_FILES = [
+    "ansible/ci-nfsroot-base.yml",
+    "ansible/ci-nfsroot-runner.yml",
     "ansible/roles/img/tasks/build.yml",
     "ansible/roles/img/files/img2files.sh",
 ]
@@ -110,24 +118,61 @@ def base_key() -> str:
     return h.hexdigest()[:20]
 
 
-def input_files() -> list[str]:
-    """Tracked files under INPUTS, sorted (git's view: no stray build output)."""
-    out = subprocess.run(
-        ["git", "-C", str(REPO), "ls-files", "-z", "--", *INPUTS],
-        check=True, capture_output=True,
-    ).stdout.decode()
-    return sorted(p for p in out.split("\0") if p)
+# What else shapes the upgraded stage (ci-nfsroot-upgrade.yml) on top of
+# the base: that playbook, the chroot session it runs apt in, and the
+# inventory and Ansible it runs with. Its image tag carries upgraded_key(),
+# so changing any of these builds a new stage instead of reusing a stale one.
+UPGRADE_INPUTS = [
+    "ansible/ci-nfsroot-upgrade.yml",
+    "ansible/ci-nfsroot-runner.yml",
+    "ansible/roles/nspawn_pi",
+    "ansible/inventory-ci-nfsroot",
+    "ansible/inventory/group_vars/all/ci.yml",
+    "ansible/inventory/group_vars/all/srv.yml",
+    "ansible/inventory/group_vars/all/ssh_keys.yml",
+    "ansible.cfg",
+    "requirements.yml",
+]
 
 
-def key(week: str | None = None) -> str:
-    h = hashlib.sha256()
-    h.update((week or time.strftime("%G-W%V", time.gmtime())).encode() + b"\0")
-    for rel in input_files():
+def _hash_files(h, paths: list[str]) -> None:
+    for rel in tracked_files(paths):
         path = REPO / rel
         h.update(rel.encode() + b"\0")
         # Hash what the build reads: a symlink's target content, not the link.
         h.update(path.read_bytes() if path.exists() else b"<missing>")
         h.update(b"\0")
+
+
+def upgraded_key() -> str:
+    h = hashlib.sha256()
+    h.update(base_key().encode() + b"\0")
+    _hash_files(h, UPGRADE_INPUTS)
+    return h.hexdigest()[:20]
+
+
+def tracked_files(paths: list[str]) -> list[str]:
+    """Tracked files under paths, sorted (git's view: no stray build output)."""
+    out = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "-z", "--", *paths],
+        check=True, capture_output=True,
+    ).stdout.decode()
+    return sorted(p for p in out.split("\0") if p)
+
+
+def input_files() -> list[str]:
+    return tracked_files(INPUTS)
+
+
+def period() -> str:
+    """The current UTC hour: how long an image counts as fresh."""
+    return time.strftime("%Y-%m-%dT%H", time.gmtime())
+
+
+def key(period_: str | None = None) -> str:
+    h = hashlib.sha256()
+    h.update((period_ or period()).encode() + b"\0")
+    _hash_files(h, INPUTS)
     return h.hexdigest()[:20]
 
 

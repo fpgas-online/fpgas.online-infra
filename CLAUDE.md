@@ -46,7 +46,8 @@ from other repos:
 ### Deployment Flow
 
 1. CI publishes the provisioned NFS root image (every PR/merge via the VM
-   test workflow's `nfsroot` job, plus a weekly cron)
+   test workflow's `nfsroot` job, plus an hourly warm and a daily
+   from-scratch scheduled build)
 2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
    the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
@@ -127,9 +128,9 @@ the last play), then the Pi netboots (~2 min of aarch64 TCG to SSH) while
 lookup) takes about a minute.
 
 The image build (`nfsroot-build.yml`, arm64 runner) is reused whenever no
-image input changed (`tests/ci/nfsroot_inputs.py`), and otherwise converges
-main's latest image (~3 min); the weekly scheduled build starts from
-RasPiOS (~10 min).
+image input changed in the current UTC hour (`tests/ci/nfsroot_inputs.py`),
+and otherwise converges main's latest image (~5 min); the daily scheduled
+build starts from RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
 push to `main` and on PRs. Serial logs are uploaded as an artifact on every run

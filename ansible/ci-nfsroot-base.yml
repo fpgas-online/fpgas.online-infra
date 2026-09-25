@@ -1,0 +1,22 @@
+---
+# Stage 1 of the CI Pi root build: the RasPiOS release named in srv.yml,
+# downloaded and unpacked into {{ nfs_root }}/boot and /root, nothing else.
+# tests/ci/nfsroot_stages.py publishes the result as
+# ghcr.io/fpgas-online/nfsroot:base-<base_key> (base_key in
+# tests/ci/nfsroot_inputs.py), and ci-nfsroot-upgrade.yml builds on it.
+#
+# Rebuilt from the download daily (nfsroot-build.yml's schedule), so the
+# download and unpack path stays proven; otherwise only when the base key
+# changes, i.e. a different RasPiOS release.
+
+- hosts: nbp
+  become: true
+  tasks:
+    - name: Prepare the runner
+      import_tasks: ci-nfsroot-runner.yml
+
+    - name: Download and extract the RasPiOS base image
+      include_role:
+        name: img
+        tasks_from: build.yml
+      tags: [img]
