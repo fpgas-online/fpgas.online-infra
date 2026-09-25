@@ -29,7 +29,7 @@
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf.d/50nfsroot-watchdog-direct
         content: |
-          // {{ ansible_managed }} (roles/nfsroot_generation)
+          // Managed by Ansible (fpgas.online-infra roles/nfsroot_generation).
           Acquire::https::Proxy::{{ nfsroot_generation_apt_url | urlsplit('hostname') }} "DIRECT";
         mode: '0644'
       when: nfsroot_generation_apt_url is match('https://')
