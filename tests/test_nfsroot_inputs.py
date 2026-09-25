@@ -100,7 +100,7 @@ def test_base_vars_cover_build_yml():
     mirror/path the image does not depend on)."""
     used = set(re.findall(r"\{\{\s*(\w+)\s*\}\}",
                           (REPO / "ansible/roles/img/tasks/build.yml").read_text()))
-    not_identity = {"img_host", "cache_dir", "nfs_root"}
+    not_identity = {"img_host", "img_cache_dir", "nfs_root"}
     missing = used - set(nfsroot_inputs.BASE_VARS) - not_identity
     assert not missing, f"build.yml uses {missing}, which base_key() ignores"
 
