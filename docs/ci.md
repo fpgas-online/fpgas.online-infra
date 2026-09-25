@@ -1,13 +1,23 @@
 # How CI works
 
-CI answers one question for every push and pull request: **does this
-checkout deploy a working site?** To answer it, CI does three things:
+CI answers one question for every push and pull request: **would a fresh
+deploy of tweed from this checkout actually work?** "Work" means the test
+the fleet itself applies. A Raspberry Pi netboots from the new server,
+comes up correctly, and registers itself with the server's fleet. So CI:
 
-1. It builds the Raspberry Pi root filesystem image from the checkout.
-2. It deploys a brand-new server (a stand-in for tweed) with
-   [`ansible/site.yml`](../ansible/site.yml), exactly as a real deploy does.
-3. It netboots a virtual Raspberry Pi from that server, and proves that the
-   Pi registered itself with the server's fleet.
+1. deploys a brand-new server, a stand-in for tweed, with
+   [`ansible/site.yml`](../ansible/site.yml), exactly as a real deploy
+   does;
+2. powers on a virtual Raspberry Pi, which netboots from that server; and
+3. checks both sides, including that the Pi appears online in the server's
+   fleet.
+
+The Pi root filesystem image that the Pi boots is built in CI as part of
+that test, not as a goal of its own. A tweed deploy needs one, since the
+server downloads it rather than building it. CI builds it from the same
+checkout, so that a change to the Pi's roles is tested in the root the
+virtual Pi actually boots. [Section 2](#2-job-1-the-pi-root-image-nfsroot-buildyml)
+covers how, and the ways it avoids rebuilding what hasn't changed.
 
 Three workflows are involved:
 
@@ -27,8 +37,11 @@ links to the run or job it came from. Anything that is an estimate says so.
 Every push to `main` and every pull request starts two workflows. The VM
 test workflow runs **two jobs at the same time**:
 
-- **Job 1** builds the Pi's root filesystem image.
-- **Job 2** deploys a new server and boots a virtual Pi from it.
+- **Job 2** is the test: it deploys a new server and boots a virtual Pi
+  from it.
+- **Job 1** prepares the one input that test needs from outside the
+  server: the Pi root image. It is built from the checkout, or reused
+  when nothing that goes into it has changed.
 
 The two jobs meet at one point. Job 1 publishes the image to the GitHub
 container registry (GHCR), and the server in Job 2 downloads it from
