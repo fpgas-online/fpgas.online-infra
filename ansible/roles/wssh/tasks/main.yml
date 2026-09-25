@@ -17,24 +17,24 @@
     # virtualenv_site_packages: True
     virtualenv_command: "python3 -m venv --system-site-packages"
 
-- name: systemd files
+- name: Systemd files
   copy:
     src: "files/etc/systemd/system/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
   with_items:
     - wssh.socket
   notify:
-    - reload systemd
+    - Reload systemd
   tags:
     - wssh
 
-- name: systemd files
+- name: Systemd files
   template:
     src: templates/wssh.service.j2
     dest: /etc/systemd/system/wssh.service
   notify:
-    - reload systemd
-    - restart wssh
+    - Reload systemd
+    - Restart wssh
   tags:
     - wssh
 
@@ -60,4 +60,4 @@
   tags:
     - pibsite
   notify:
-    - reload nginx
+    - Reload nginx

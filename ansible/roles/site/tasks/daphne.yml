@@ -1,11 +1,11 @@
 ---
 # pip install is in fpgas-online-site.yml.
-- name: copy daphne socket file to /etc/systemd/system/daphne.socket
+- name: Copy daphne socket file to /etc/systemd/system/daphne.socket
   template:
     src: templates/daphne.socket.j2
     dest: /etc/systemd/system/daphne.socket
 
-- name: copy daphne systemd file to /etc/systemd/system/daphne.service
+- name: Copy daphne systemd file to /etc/systemd/system/daphne.service
   template:
     src: templates/daphne.service.j2
     dest: /etc/systemd/system/daphne.service

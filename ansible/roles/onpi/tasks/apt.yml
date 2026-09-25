@@ -12,7 +12,7 @@
 # converge that changed nothing. The grep is read-only; so is `dpkg --audit`,
 # but that also lists permanent oddities (missing md5sums) and would never
 # come back empty.
-- name: look for interrupted dpkg work
+- name: Look for interrupted dpkg work
   ansible.builtin.shell: |
     grep -qE '^Status: [^ ]+ [^ ]+ (half-installed|unpacked|half-configured|triggers-awaited|triggers-pending)$' /var/lib/dpkg/status && echo pending-packages
     [ -n "$(ls -A /var/lib/dpkg/updates)" ] && echo pending-journal
@@ -21,13 +21,13 @@
   changed_when: false
   check_mode: false
 
-- name: finish any interrupted dpkg configuration
+- name: Finish any interrupted dpkg configuration
   command: dpkg --configure -a
   register: onpi_dpkg_configure
   changed_when: onpi_dpkg_configure.stdout | trim | length > 0
   when: onpi_dpkg_pending.stdout | trim | length > 0
 
-- name: apt update/upgrade
+- name: Apt update/upgrade
   apt:
     # name: "*"
     upgrade: true
@@ -38,7 +38,7 @@
 # something odd here...
 # dpkg-divert: error: rename involves overwriting '/usr/share/vim/vim82/doc/help.txt.vim-tiny' with different file '/usr/share/vim/vim82/doc/help.txt', not allowed
 # so remove it
-- name: apt remove tiny-vim
+- name: Apt remove tiny-vim
   apt:
     name:
       - vim-tiny
@@ -163,7 +163,7 @@
 # pipx; the CI runner chroot: /opt/pipx) and puts the binaries on no user's
 # PATH. /opt/pipx + /usr/local/bin is deterministic and reachable by every
 # user (issue #34 CI-vs-tweed manifest comparison).
-- name: install mpremote via pipx
+- name: Install mpremote via pipx
   command: "pipx install mpremote"
   args:
     creates: /usr/local/bin/mpremote
@@ -173,7 +173,7 @@
   tags:
     - mp
 
-- name: install uv via pipx
+- name: Install uv via pipx
   command: "pipx install uv"
   args:
     creates: /usr/local/bin/uv

@@ -12,7 +12,7 @@
 # boot/root trees are only populated by later roles (fixpi/netboot) —
 # exportfs fails with "Failed to stat" on missing paths (rebuild #2 P2-3,
 # caught by CI before it hit hardware).
-- name: create some dirs
+- name: Create some dirs
   file:
     path: "{{ item }}"
     state: directory
@@ -21,25 +21,25 @@
     - "{{ nfs_root }}/boot"
     - "{{ nfs_root }}/root"
 
-- name: nfs only on internal nic
+- name: Nfs only on internal nic
   lineinfile:
     path: /etc/default/nfs-kernel-server
     regexp: '^host='
     line: "host={{ eth_local_address }}"
 
-- name: write etc/exports
+- name: Write etc/exports
   template:
     src: templates/exports.j2
     dest: /etc/exports
-  notify: exportfs
+  notify: Exportfs
 
-- name: enable and start server service rpcbind
+- name: Enable and start server service rpcbind
   systemd:
     name: rpcbind
     enabled: true
     state: started
 
-- name: enable and start server service nfs-kernel-server
+- name: Enable and start server service nfs-kernel-server
   systemd:
     name: nfs-kernel-server
     enabled: true

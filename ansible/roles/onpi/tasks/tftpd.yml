@@ -1,13 +1,13 @@
-- name: tftpd port systemd
+- name: Tftpd port systemd
   lineinfile:
     path: /usr/lib/systemd/system/atftpd.socket
     regexp: "ListenDatagram=69"
     line: "ListenDatagram={{ tftpd_port }}"
-  notify: reload-systemd
+  notify: Reload-systemd
   tags:
     - tftpd
 
-- name: tftpd port conf
+- name: Tftpd port conf
   replace:
     path: /etc/default/atftpd
     regexp: "--port 69"
@@ -15,7 +15,7 @@
   tags:
     - tftpd
 
-- name: pi tftp dir user writable
+- name: Pi tftp dir user writable
   ansible.builtin.file:
     dest: /srv/tftp
     owner: "pi"

@@ -1,5 +1,5 @@
 ---
-- name: create home/pi/updownload
+- name: Create home/pi/updownload
   ansible.builtin.file:
     path: "/home/pi/{{ item }}"
     state: directory

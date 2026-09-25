@@ -1,10 +1,10 @@
 ---
-- name: install uhubctl
+- name: Install uhubctl
   ansible.builtin.apt:
     name:
       - uhubctl
 
-- name: set udev rule to give user access to turn on and off the usb ports
+- name: Set udev rule to give user access to turn on and off the usb ports
   template:
     src: templates/udev/52-uhubctl.rules.j2
     dest: /etc/udev/rules.d/52-uhubctl.rules

@@ -1,5 +1,5 @@
 ---
-- name: add ssh keys
+- name: Add ssh keys
   become: true
   become_user: pi
   command: "ssh-import-id {{ item }}"

@@ -1,4 +1,4 @@
-- name: let kernel figure out nfs ver
+- name: Let kernel figure out nfs ver
   # (4.x doesn't work with overlayfs)
   # Remove nfsvers=4.2 from cmdline.txt if present.
   # Path varies: /boot/firmware/cmdline.txt on newer Pi OS, /boot/cmdline.txt on older.

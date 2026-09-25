@@ -58,7 +58,7 @@
   tags:
     - img
 
-- name: create the NFS root directory
+- name: Create the NFS root directory
   file:
     path: "{{ nfs_root }}"
     state: directory
@@ -70,7 +70,7 @@
   tags:
     - img
   block:
-    - name: mount the image
+    - name: Mount the image
       command: podman image mount {{ img_nfsroot_image }}
       register: img_mnt
 
@@ -80,7 +80,7 @@
     # mid-run would make every board see a change and start rebooting,
     # deleting update.lock drops the hold, and deleting inhibit silently undoes
     # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
-    - name: rsync boot/ and root/ from the image
+    - name: Rsync boot/ and root/ from the image
       command: >-
         rsync -aHAX --delete --numeric-ids
         {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
@@ -89,13 +89,13 @@
         - boot
         - root
 
-    - name: record the extraction stamp
+    - name: Record the extraction stamp
       copy:
         content: "{{ img_digest.stdout }}\n"
         dest: "{{ nfs_root }}/.image-digest"
         mode: "0644"
   always:
-    - name: unmount the image
+    - name: Unmount the image
       command: podman image umount {{ img_nfsroot_image }}
       failed_when: false
       changed_when: false

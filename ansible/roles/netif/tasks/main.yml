@@ -12,7 +12,7 @@
 # add; renaming the live uplink under our own SSH session is not worth it).
 # On an already-converged host (names right, networkd up) it is a no-op.
 
-- name: current names of the two NICs (by MAC)
+- name: Current names of the two NICs (by MAC)
   set_fact:
     netif_local_cur: >-
       {{ eth_local if eth_local in ansible_facts.interfaces
@@ -41,16 +41,16 @@
     - item.name != eth_uplink or netif_uplink_manage
   tags: [netif]
 
-- name: uplink network (systemd-networkd)
+- name: Uplink network (systemd-networkd)
   template:
     src: templates/uplink.network.j2
     dest: "/etc/systemd/network/30-{{ eth_uplink }}.network"
     mode: "0644"
-  notify: reload networkd
+  notify: Reload networkd
   when: netif_uplink_manage
   tags: [netif]
 
-- name: static resolv.conf (networkd without systemd-resolved)
+- name: Static resolv.conf (networkd without systemd-resolved)
   template:
     src: templates/resolv.conf.j2
     dest: /etc/resolv.conf
@@ -59,7 +59,7 @@
   when: netif_uplink_manage and eth_uplink_dns_server is defined
   tags: [netif]
 
-- name: is the host running ifupdown
+- name: Is the host running ifupdown
   stat:
     path: /etc/network/interfaces
   register: netif_ifupdown
@@ -67,7 +67,7 @@
   tags: [netif]
 
 # A host installed without ifupdown (networkd only) has nothing to take.
-- name: take the uplink away from ifupdown
+- name: Take the uplink away from ifupdown
   replace:
     path: /etc/network/interfaces
     # comment out: auto|allow-hotplug|iface <uplink by old or new name> ...
@@ -76,14 +76,14 @@
   when: netif_uplink_manage and netif_ifupdown.stat.exists
   tags: [netif]
 
-- name: enable systemd-networkd
+- name: Enable systemd-networkd
   systemd:
     name: systemd-networkd
     enabled: true
     state: started
   tags: [netif]
 
-- name: reboot so the .link renames take effect
+- name: Reboot so the .link renames take effect
   reboot:
     msg: "netif: renaming NICs to {{ eth_local }}/{{ eth_uplink }}"
     reboot_timeout: 600
@@ -92,7 +92,7 @@
     - (netif_local_cur != eth_local) or (netif_uplink_manage and netif_uplink_cur != eth_uplink)
   tags: [netif]
 
-- name: re-gather facts after rename
+- name: Re-gather facts after rename
   setup:
   when:
     - netif_allow_reboot

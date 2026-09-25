@@ -9,14 +9,14 @@
 # "Unsupported kernel version (6.1.0-50-armmp) - skipping setup" and leaves
 # /boot/firmware alone (verified 2026-08-28 in the spike).
 
-- name: find the installed armmp kernel
+- name: Find the installed armmp kernel
   find:
     paths: "{{ nfs_root }}/root/boot"
     patterns: "vmlinuz-*-armmp"
   register: fixpi_sunxi_vmlinuz
   tags: [sunxi]
 
-- name: derive the armmp kernel version
+- name: Derive the armmp kernel version
   set_fact:
     fixpi_sunxi_kver: >-
       {{ (fixpi_sunxi_vmlinuz.files | map(attribute='path') | sort | last | basename)
@@ -24,7 +24,7 @@
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 
-- name: create tftp sunxi directories
+- name: Create tftp sunxi directories
   file:
     path: "{{ tftp_root }}/{{ item }}"
     state: directory
@@ -32,7 +32,7 @@
   loop: [sunxi, sunxi/dtbs, pxelinux.cfg]
   tags: [sunxi]
 
-- name: publish kernel + initrd to tftp sunxi/
+- name: Publish kernel + initrd to tftp sunxi/
   copy:
     remote_src: true
     src: "{{ nfs_root }}/root/boot/{{ item.src }}-{{ fixpi_sunxi_kver }}"
@@ -44,7 +44,7 @@
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 
-- name: publish sunxi DTBs to tftp sunxi/dtbs/
+- name: Publish sunxi DTBs to tftp sunxi/dtbs/
   copy:
     remote_src: true
     src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
@@ -55,7 +55,7 @@
   tags: [sunxi]
 
 # fdtget/fdtput for the I2C fixup below.
-- name: install device-tree-compiler on the server
+- name: Install device-tree-compiler on the server
   apt:
     name: device-tree-compiler
   tags: [sunxi]
@@ -64,7 +64,7 @@
 # change, so this fixup re-applies right after it. Done at publish time (not
 # a U-Boot fdtoverlays line) so nothing depends on the U-Boot build having
 # overlay support.
-- name: enable the header I2C controllers in the published sunxi DTBs
+- name: Enable the header I2C controllers in the published sunxi DTBs
   shell: |
     set -e
     changed=0

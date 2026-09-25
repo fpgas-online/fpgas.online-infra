@@ -15,6 +15,6 @@
     src: "{{ role_path }}/../pxe/files/send_stat.conf"
     dest: /etc/dnsmasq.d/send_stat.conf
     mode: preserve
-  notify: restart dnsmasq
+  notify: Restart dnsmasq
   tags:
     - pistat

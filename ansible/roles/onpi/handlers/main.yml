@@ -1,4 +1,4 @@
 ---
-- name: reload-systemd
+- name: Reload-systemd
   command: systemctl daemon-reload
   failed_when: false

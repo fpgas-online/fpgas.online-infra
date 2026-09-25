@@ -1,44 +1,44 @@
 ---
-- name: compute port vlan map
+- name: Compute port vlan map
   set_fact:
     vlan_ports_port_map: "{{ switches | port_vlan_map(pib_network, pib_network6_base) }}"
   tags: [vlan-ports]
 
-- name: create vlan netdevs
+- name: Create vlan netdevs
   template:
     src: templates/vlan.netdev.j2
     dest: "/etc/systemd/network/40-{{ item.iface }}.netdev"
   loop: "{{ vlan_ports_port_map }}"
   loop_control:
     label: "{{ item.iface }}"
-  notify: reload networkd
+  notify: Reload networkd
   tags: [vlan-ports]
 
-- name: create vlan networks
+- name: Create vlan networks
   template:
     src: templates/vlan.network.j2
     dest: "/etc/systemd/network/40-{{ item.iface }}.network"
   loop: "{{ vlan_ports_port_map }}"
   loop_control:
     label: "{{ item.iface }}"
-  notify: reload networkd
+  notify: Reload networkd
   tags: [vlan-ports]
 
-- name: configure eth-local trunk
+- name: Configure eth-local trunk
   template:
     src: templates/eth-local.network.j2
     dest: /etc/systemd/network/30-eth-local.network
-  notify: reload networkd
+  notify: Reload networkd
   tags: [vlan-ports]
 
-- name: find stale vlan config files
+- name: Find stale vlan config files
   find:
     paths: /etc/systemd/network
     patterns: "40-v*"
   register: vlan_ports_vlan_files
   tags: [vlan-ports]
 
-- name: remove stale vlan config files
+- name: Remove stale vlan config files
   file:
     path: "{{ item.path }}"
     state: absent
@@ -48,7 +48,7 @@
   when: >-
     (item.path | basename | regex_replace('^40-(v\\d+)\\..*$', '\\1'))
     not in (vlan_ports_port_map | map(attribute='iface') | list)
-  notify: reload networkd
+  notify: Reload networkd
   tags: [vlan-ports]
 
 # Apply the networkd config NOW rather than via end-of-play handlers: a

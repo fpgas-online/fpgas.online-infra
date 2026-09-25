@@ -7,7 +7,7 @@
 # chroot), so read it from the first nbp host's vars when this host has
 # none of its own. The role keeps its copy in onpi_tt_boards rather than
 # setting a tt_boards fact over the inventory variable.
-- name: tt_boards from the server host
+- name: Tt_boards from the server host
   set_fact:
     onpi_tt_boards: "{{ tt_boards if tt_boards is defined else hostvars[groups['nbp'][0]].tt_boards }}"
   when: tt_boards is defined or hostvars[groups['nbp'][0]].tt_boards is defined
@@ -31,7 +31,7 @@
         update_cache: true
         cache_valid_time: 600
 
-    - name: create /etc/fpgas-online
+    - name: Create /etc/fpgas-online
       ansible.builtin.file:
         path: /etc/fpgas-online
         state: directory
@@ -40,7 +40,7 @@
 - name: Tiny Tapeout site catalogue (when this site has TT boards)
   when: onpi_tt_boards is defined
   block:
-    - name: bake tt-boards.yaml into the Pi root
+    - name: Bake tt-boards.yaml into the Pi root
       ansible.builtin.template:
         src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
         dest: /etc/fpgas-online/tt-boards.yaml
@@ -49,7 +49,7 @@
         # the shared ttsite template renders tt_boards
         tt_boards: "{{ onpi_tt_boards }}"
 
-    - name: enable fpgas-tt.service
+    - name: Enable fpgas-tt.service
       ansible.builtin.systemd:
         name: fpgas-tt.service
         enabled: true

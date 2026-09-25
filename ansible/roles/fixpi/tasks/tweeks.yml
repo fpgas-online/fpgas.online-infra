@@ -1,10 +1,10 @@
 ---
-- name: avoid [FAILED] Failed to start Set console font and keymap.
+- name: Avoid [FAILED] Failed to start Set console font and keymap.
   file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/console-setup.service"
     state: absent
 
-- name: avoid Wi-Fi is currently blocked by rfkill.
+- name: Avoid Wi-Fi is currently blocked by rfkill.
   file:
     path: "{{ nfs_root }}/root/etc/profile.d/wifi-check.sh"
     state: absent
@@ -16,7 +16,7 @@
 #    state: absent
 #
 
-- name: remove etc/hostname (dhclient will get hostname from server)
+- name: Remove etc/hostname (dhclient will get hostname from server)
   file:
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
@@ -35,7 +35,7 @@
 
 # regexp so the site value REPLACES the generic one a pulled CI image
 # carries (pistat_host=fpgas.online) instead of appending a second line.
-- name: set pistat_host in /etc/environment
+- name: Set pistat_host in /etc/environment
   lineinfile:
     dest: "{{ nfs_root }}/root/etc/environment"
     state: present
@@ -46,21 +46,21 @@
     - hostname
     - fixpi
 
-- name: etc overrides
+- name: Etc overrides
   copy:
     src: "files/etc/"
     dest: "{{ nfs_root }}/root/etc/"
   tags:
     - fixpi
 
-- name: resolve.conf
+- name: Resolve.conf
   template:
     src: templates/resolve.conf.j2
     dest: "{{ nfs_root }}/root/etc/resolve.conf"
   tags:
     - fixpi
 
-- name: add time to bash prompt
+- name: Add time to bash prompt
   lineinfile:
     dest: "{{ nfs_root }}/root/home/pi/.bashrc"
     insertafter: '^unset color_prompt force_color_prompt'
@@ -78,7 +78,7 @@
 # overlay_map.dtb, so the same two lines disable both radios on Pi 4 and Pi 5.
 #   disable-wifi:  Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
 #   disable-bt:    Pi 4 disables &bt, Pi 5 disables &bluetooth
-- name: config.txt disable onboard Wi-Fi and Bluetooth, enable uart
+- name: Config.txt disable onboard Wi-Fi and Bluetooth, enable uart
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: "{{ item }}"
@@ -108,7 +108,7 @@
 # To legitimately update an EEPROM later: set eeprom_write_protect=0 in the
 # served config.txt, reboot the board, flash, then restore =1. See
 # docs/superpowers/runbooks/2026-08-31-eeprom-write-protect.md
-- name: config.txt write-protect the bootloader EEPROM
+- name: Config.txt write-protect the bootloader EEPROM
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: eeprom_write_protect=1
@@ -133,7 +133,7 @@
 # driving K2 then feeds the console garbage that SysRq reads as reboot/crash
 # (see the acorn-pinmap.md warning).  Pinning the Pi 5s to their dedicated
 # debug UART keeps the console off the FPGA AND leaves ttyAMA0 unclaimed.
-- name: config.txt enable the 40-pin header UART on Pi 5
+- name: Config.txt enable the 40-pin header UART on Pi 5
   ansible.builtin.blockinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     marker: "# {mark} ANSIBLE MANAGED BLOCK: pi5 header uart"
@@ -152,7 +152,7 @@
 # RP1), so nothing is lost, whereas on a Pi 3 or Zero dwc2 IS the only USB
 # (Ethernet on the 3B+ included). Fleet nodes are PoE-powered, so the USB-C
 # port is free. Orange Pi H3 boards need nothing here (musb autoloads).
-- name: config.txt dwc2 peripheral mode on Pi 4 / Pi 5 (USB gadget console)
+- name: Config.txt dwc2 peripheral mode on Pi 4 / Pi 5 (USB gadget console)
   ansible.builtin.blockinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     marker: "# {mark} ANSIBLE MANAGED BLOCK: usb gadget console"
@@ -169,14 +169,14 @@
 # They touch the build host, not the NFS root, so the CI nfsroot build
 # (issue #34) skips them with fixpi_server_monitor: false.
 
-- name: is server pi
+- name: Is server pi
   stat:
     path: /boot/firmware/config.txt
   register: fixpi_is_pi
   tags:
     - ispi
 
-- name: enable /dev/serial0
+- name: Enable /dev/serial0
   ansible.builtin.lineinfile:
     dest: /boot/firmware/config.txt
     # regexp: (^|#\s*)Storage=
@@ -189,7 +189,7 @@
 
 # https://bugs.debian.org/667616
 # brltty greedily grabs serial ports, ftdi_sio loses connection
-- name: apt remove brltty
+- name: Apt remove brltty
   apt:
     name:
       - brltty
@@ -199,13 +199,13 @@
 # tio, to watch a Pi's serial console from the server. (Debian's ansible
 # was installed here too, for running the Pi roles on the server; the root
 # now arrives prebuilt, so nothing on the server runs ansible.)
-- name: install packages on server
+- name: Install packages on server
   apt:
     name:
       - tio
   when: fixpi_server_monitor | default(true)
 
-- name: let tio connect to the tty and see pi boot messages
+- name: Let tio connect to the tty and see pi boot messages
   ansible.builtin.user:
     name: "{{ user_name }}"
     groups: dialout
@@ -213,7 +213,7 @@
   when: fixpi_server_monitor | default(true)
 
 # don't let getty mess up boot messages over the serial console
-- name: disable (mask) getty systemd service
+- name: Disable (mask) getty systemd service
   systemd:
     enabled: false
     masked: true
@@ -227,7 +227,7 @@
 # networking.service fails on every Pi and ifupdown-pre.service (udevadm
 # settle) waits its full 2 min on the Orange Pi H3 before anything else starts
 # (spike 2026-08-28: userspace 2 m 16 s, of which ifupdown-pre 2 m 02 s).
-- name: mask ifupdown units in NFS root
+- name: Mask ifupdown units in NFS root
   file:
     src: /dev/null
     dest: "{{ nfs_root }}/root/etc/systemd/system/{{ item }}"
