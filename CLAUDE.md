@@ -167,4 +167,9 @@ test coverage grows correspondingly.
 ## Linting
 
 - yamllint: blocking (`.yamllint.yml`)
-- ansible-lint: advisory, many legacy issues (`.ansible-lint` has extensive skip list)
+- ansible-lint: blocking, and the tree is clean (`.ansible-lint`). Run it
+  exactly as CI does: `uv sync && uv run ansible-galaxy collection install -r
+  requirements.yml && (cd ansible && uv run ansible-lint)`. Both linters are
+  pinned in the `dev` group of `pyproject.toml`. Fix violations rather than
+  skipping them; a deliberate construct gets a scoped `# noqa: <rule>` with a
+  comment explaining why.
