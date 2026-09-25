@@ -218,7 +218,7 @@ which all point at the same image:
 |---|---|---|---|
 | `bookworm-armhf-YYYYMMDD-<sha7>` | always | pinnable identity of this build; the workflow's `image` output | `bookworm-armhf-20260924-844e8bc` ([844e8bc](https://github.com/fpgas-online/fpgas.online-infra/commit/844e8bc)) |
 | `ci-<run_id>` | when the VM test calls the build | the tag the VM test pulls. Its name is known before the build starts, so the VM test can start at the same time | `ci-36063159932` |
-| `bookworm-armhf` | only on `main` | rolling "latest". Production's default [`nfsroot_image`](../ansible/roles/img/defaults/main.yml), and the starting point for warm builds | `bookworm-armhf` |
+| `bookworm-armhf` | only on `main` | rolling "latest". Production's default [`img_nfsroot_image`](../ansible/roles/img/defaults/main.yml), and the starting point for warm builds | `bookworm-armhf` |
 | `inputs-<key>` | always, pushed **last** | the inputs key: a fingerprint of everything that went into the image, so later runs can find it and reuse it ([§2.4](#24-how-the-path-is-chosen)) | `inputs-87b3ddc20e18c6445cba` |
 
 Every tag must point at a single image manifest
@@ -487,7 +487,7 @@ This is what a real Netgear S3300 access port does.
 - **Readiness:** the harness waits for SSH (17 s), then for
   `cloud-init status --wait`, and fails if its exit code is non-zero.
 
-**18–521 s: `ansible-playbook site.yml -i tests/inventory/test-hosts --limit test-vm -e nfsroot_image=…:ci-<run_id>`.**
+**18–521 s: `ansible-playbook site.yml -i tests/inventory/test-hosts --limit test-vm -e img_nfsroot_image=…:ci-<run_id>`.**
 This is the production playbook with **no `--skip-tags`, no `--become` and
 no key override**. The SSH key comes from
 [`tests/inventory/group_vars/all/controller.yml`](../tests/inventory/group_vars/all/controller.yml),
