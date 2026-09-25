@@ -1,5 +1,6 @@
 ---
-- hosts: nbp
+- name: Configure the server network interfaces
+  hosts: nbp
   roles:
     - netif
 
@@ -8,7 +9,8 @@
 # the root's extraction below, which waits for it.
 # Facts gathered by the first play hold for the rest of the run (netif
 # re-gathers them itself after a reboot), so later nbp plays skip gathering.
-- hosts: nbp
+- name: Start pulling the Pi NFS root image
+  hosts: nbp
   gather_facts: false
   tasks:
     - name: Start pulling the Pi NFS root image
@@ -17,7 +19,8 @@
         tasks_from: prefetch.yml
       tags: [img]
 
-- hosts: nbp
+- name: Configure the server services
+  hosts: nbp
   gather_facts: false
   roles:
     - operators
@@ -33,17 +36,20 @@
     # has created (empty on a fresh server) and the last play fills.
     - pxe
 
-- hosts: uhubctl
+- name: Configure USB hub power control
+  hosts: uhubctl
   roles:
     - uhubctl
 
 # Web tier (site, wssh, cam/stream_server, ttsite) -- see web.yml.
-- import_playbook: web.yml
+- name: Import the web tier playbook
+  import_playbook: web.yml
 
 # The Pi NFS root last: every service the Pis boot against is in place
 # before the root they boot changes, and the image pull has had the whole
 # run to finish.
-- hosts: nbp
+- name: Update the Pi NFS root
+  hosts: nbp
   gather_facts: false
   tasks:
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in

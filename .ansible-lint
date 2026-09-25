@@ -1,6 +1,5 @@
 skip_list:
   - name[missing]
-  - name[play]
   - no-changed-when
   - command-instead-of-module
   - risky-shell-pipe

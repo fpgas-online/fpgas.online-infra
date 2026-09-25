@@ -9,7 +9,8 @@
 # download and unpack path stays proven; otherwise only when the base key
 # changes, i.e. a different RasPiOS release.
 
-- hosts: nbp
+- name: Download and extract the RasPiOS base image
+  hosts: nbp
   become: true
   tasks:
     - name: Prepare the runner

@@ -14,7 +14,8 @@
 # Refreshed hourly (nfsroot-build.yml's schedule) and rebuilt with the base
 # daily; a PR build rebuilds it only when no image exists for its key.
 
-- hosts: nbp
+- name: Prepare the RasPiOS tree for the upgrade
+  hosts: nbp
   become: true
   tasks:
     - name: Prepare the runner
@@ -46,14 +47,16 @@
         name: nspawn_pi
         tasks_from: chroot-prep.yml
 
-- hosts: pi
+- name: Upgrade the RasPiOS packages
+  hosts: pi
   tasks:
     - name: Upgrade every package the RasPiOS release ships
       apt:
         upgrade: true
         update_cache: true
 
-- hosts: nbp
+- name: Finish and clean the upgraded stage
+  hosts: nbp
   become: true
   tasks:
     # As in ci-nfsroot.yml: sync the upgraded kernel payload into boot/
