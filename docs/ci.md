@@ -1,9 +1,12 @@
 # How CI works
 
 CI answers one question for every push and pull request: **would a fresh
-deploy of tweed from this checkout actually work?** A deploy works when a
-Raspberry Pi can netboot from the new server, come up correctly, and
-register itself with the server's fleet. So CI:
+deploy of tweed from this checkout work?**
+
+Tweed is the server that network-boots ("netboots") the Raspberry Pis
+attached to the FPGA boards. A deploy of tweed works when a Pi can netboot
+from the new server, come up correctly, and register itself with the
+server's fleet. CI tests exactly that. It:
 
 1. deploys a brand-new server, a stand-in for tweed, with
    [`ansible/site.yml`](../ansible/site.yml), exactly as a real deploy
@@ -12,36 +15,43 @@ register itself with the server's fleet. So CI:
 3. checks both sides, including that the Pi appears online in the server's
    fleet.
 
-The Pi root filesystem image that the Pi boots is built in CI as part of
-that test, not as a goal of its own. A tweed deploy needs one, since the
-server downloads it rather than building it. CI builds it from the same
-checkout, so that a change to the Pi's roles is tested in the root the
-virtual Pi actually boots. [Section 2](#2-job-1-the-pi-root-image-nfsroot-buildyml)
-covers how, and the ways it avoids rebuilding what hasn't changed.
+A netbooted Pi mounts its root filesystem over the network from the
+server. The server does not build that filesystem itself: it downloads a
+prebuilt **Pi root image**. So CI builds that image too, from the same
+checkout, and the test server downloads it. That way a change to the Pi's
+roles is tested in the root the virtual Pi boots. The image build supports
+the test; it is not a goal of its own.
+[Section 2](#2-job-1-the-pi-root-image-nfsroot-buildyml) covers how the
+image is built, and how CI avoids rebuilding it when nothing in it has
+changed.
 
 Three workflows are involved:
 
 | Workflow | File | Runs on | Typical duration | Example run |
 |---|---|---|---|---|
 | VM Integration Tests | [`vm-test.yml`](../.github/workflows/vm-test.yml) | every push to `main`, every PR to `main`, manual dispatch | **12½–13½ min** | [36063159932](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932) (`main`, 12:26) |
-| nfsroot build | [`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml) | called by the VM test; also weekly (Mondays 02:17 UTC, 11:47 Adelaide) and by manual dispatch | 15 s, ~5 min or ~9.5 min: see [§2.3](#23-why-there-are-three-ways-to-produce-it) | [35575592187](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/35575592187) (weekly) |
+| nfsroot build (the Pi root image) | [`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml) | called by the VM test; also weekly (Mondays 02:17 UTC, 11:47 Adelaide) and by manual dispatch | 15 s, ~5 min or ~9.5 min: see [§2.3](#23-why-there-are-three-ways-to-produce-it) | [35575592187](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/35575592187) (weekly) |
 | Lint | [`lint.yml`](../.github/workflows/lint.yml) | every push to `main` and every PR | ~50 s | [36063159621](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621) |
 
-Every duration in this document was measured on a real run, and each one
-links to the run or job it came from. Anything that is an estimate says so.
+Every duration in this document was measured on a real run, and links to
+the run or job it came from. Estimates are marked as such.
 
 ---
 
 ## 1. The big picture
 
-Every push to `main` and every pull request starts two workflows. The VM
-test workflow runs **two jobs at the same time**:
+This section shows how the jobs fit together, so that sections 2 and 3
+make sense on their own.
 
-- **Job 2** is the test: it deploys a new server and boots a virtual Pi
-  from it.
-- **Job 1** prepares the one input that test needs from outside the
-  server: the Pi root image. It is built from the checkout, or reused
-  when nothing that goes into it has changed.
+Every push to `main` and every pull request starts two workflows: Lint and
+the VM test. The VM test workflow runs **two jobs at the same time**:
+
+- **Job 1** produces the Pi root image. It builds the image from the
+  checkout, or reuses an earlier one when nothing that goes into the image
+  has changed. It publishes the image to the GitHub container registry
+  (**GHCR**, `ghcr.io`).
+- **Job 2** is the test itself. It deploys a new server and boots a
+  virtual Pi from it. The server downloads the image from GHCR.
 
 ### Overview
 
@@ -62,13 +72,25 @@ flowchart TB
     job2 --> result
 ```
 
-The two jobs meet at one point. Job 1 publishes the image to the GitHub
-container registry (GHCR), and the server in Job 2 downloads it from
-there: the dotted arrow. The server needs it only in the last play of
-`site.yml`, about 7 minutes in, so Job 1 has that long before it delays
-anything.
+The two jobs meet at one point, the dotted arrow: the server in Job 2
+downloads the image that Job 1 published. The server needs the image only
+in the last play of `site.yml`, about 7 minutes in. So Job 1 can take up to
+7 minutes without delaying anything.
 
 ### Job 1: which image the test gets
+
+Job 1 first computes a fingerprint of every file that goes into the image.
+This fingerprint is the **inputs key**. The job then takes the cheapest of
+three paths that still gives an image matching this checkout:
+
+- **Reuse:** an image with the same inputs key already exists. The job
+  gives it this run's tags and builds nothing.
+- **Warm:** the inputs changed, but the Raspberry Pi OS (RasPiOS) base did
+  not. The job starts from the image `main` last published and applies only
+  the changes.
+- **Scratch:** the RasPiOS base changed, or the run is the weekly
+  scheduled build or a manual dispatch. The job builds a new image from
+  RasPiOS.
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "20px"}}}%%
@@ -96,13 +118,17 @@ flowchart TB
     class scratch slow
 ```
 
-Most runs reuse an image (green) or update main's (yellow). Both are done
-long before the server needs the image. Starting from RasPiOS (red) happens
-only for a new RasPiOS release and on the schedule, and it is the one path
-where the server waits. [Section 2.3](#23-why-there-are-three-ways-to-produce-it)
-explains why there are three paths.
+Most runs take the reuse path (green) or the warm path (yellow). Both
+finish long before the server needs the image. The scratch path (red) runs
+only for a new RasPiOS release and for the weekly scheduled build. It is
+the one path where the server has to wait.
+[Section 2.3](#23-why-there-are-three-ways-to-produce-it) explains why
+there are three paths.
 
 ### Job 2: the test
+
+Job 2 runs the production deploy on a fresh server VM, then boots the
+virtual Pi and checks both machines.
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "20px"}}}%%
@@ -124,21 +150,30 @@ flowchart TB
     pion --> vs --> result
 ```
 
-Everything from `site.yml` to the NFS root is the production playbook, run
-exactly as it runs on tweed, with nothing skipped. The Pi is powered on
-only after the server is fully deployed, just as real boards are
-PoE-cycled after a deploy. The server's checks run while the Pi boots, so
-they add no time.
+- Everything from `site.yml` to the NFS root is the production playbook,
+  run exactly as it runs on tweed, with nothing skipped.
+- The **site layer** is the part of the Pi root that differs per site:
+  passwords, SSH keys and site configuration. The published image has none
+  of it; each server adds its own (see [§2.1](#21-what-the-image-is-and-why-ci-builds-it)).
+- The Pi is powered on only after the server is fully deployed, just as
+  real boards are power-cycled over PoE after a deploy.
+- The server's checks run while the Pi boots, so they add no time.
 
 ---
 
 ## 2. Job 1: the Pi root image ([`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml))
 
+This section covers the job that produces the Pi root image: what the
+image contains, where it is published, how the job decides how much to
+build, and what the build does. Read it when a change touches the Pi's
+software, or when this job fails.
+
 ### 2.1 What the image is, and why CI builds it
 
-Every netbooted Pi mounts the same root filesystem read-only over NFS from
-the server's `/srv/nfs/rpi/bookworm`, with a tmpfs overlay for writes. That
-tree holds two directories:
+Every netbooted Pi mounts the same root filesystem read-only over NFS, from
+the server's `/srv/nfs/rpi/bookworm`. Writes go to a tmpfs overlay (a
+RAM-backed layer on top of the read-only root). The tree holds two
+directories:
 
 - `boot/` is what the Pis fetch over TFTP: the kernels, device trees and
   `config.txt`.
@@ -150,26 +185,29 @@ ARM root under `qemu-user` emulation, which took about two hours per
 rebuild. Since [issue #34](https://github.com/fpgas-online/fpgas.online-infra/issues/34)
 and [PR #63](https://github.com/fpgas-online/fpgas.online-infra/pull/63), a
 GitHub **arm64 runner** builds it instead. The runner executes the Pi's
-32-bit ARM programs natively, with no emulation; the fitness measurements
-are in the spike, [PR #40](https://github.com/fpgas-online/fpgas.online-infra/pull/40).
-The runner publishes the result as a container image. Servers, tweed and
-the CI test server alike, just download it
+32-bit ARM programs natively, with no emulation. The measurements showing
+the runner is fit for this are in the trial-run PR,
+[PR #40](https://github.com/fpgas-online/fpgas.online-infra/pull/40).
+The runner publishes the result as a container image. Every server, tweed
+and the CI test server alike, just downloads it
 ([`img/tasks/pull.yml`](../ansible/roles/img/tasks/pull.yml)).
 
 The published image is **site-agnostic**: it contains no passwords, SSH
-keys or site configuration. Each server adds its own "site layer" after
-downloading it, in the last play of `site.yml`
+keys or site configuration. Each server adds its own site layer after
+downloading the image, in the last play of `site.yml`
 ([`fixpi`](../ansible/roles/fixpi/tasks/main.yml)).
 
 ### 2.2 Where it is published: container registry tags (not git tags)
 
-The image lives in the GitHub container registry at
+The image lives in GHCR at
 [`ghcr.io/fpgas-online/nfsroot`](https://github.com/fpgas-online/fpgas.online-infra/pkgs/container/nfsroot).
-It is a single-layer OCI image of about 4.0 GB uncompressed and 1.64 GB
-compressed with zstd, and its filesystem holds `boot/` and `root/`. The
-"tags" below are **image tags in that registry**, the name after the `:` in
-`podman pull ghcr.io/fpgas-online/nfsroot:<tag>`. **Nothing is tagged in
-git.**
+It is a single-layer OCI (standard container) image, about 4.0 GB
+uncompressed and 1.64 GB compressed with zstd. Its filesystem holds `boot/`
+and `root/`.
+
+The "tags" below are **image tags in that registry**: the name after the
+`:` in `podman pull ghcr.io/fpgas-online/nfsroot:<tag>`. **Nothing is
+tagged in git.**
 
 [`tests/ci/nfsroot_publish.py`](../tests/ci/nfsroot_publish.py) (`tags()`)
 gives each image several tags. These are the tags from the `main` run
@@ -181,33 +219,40 @@ which all point at the same image:
 | `bookworm-armhf-YYYYMMDD-<sha7>` | always | pinnable identity of this build; the workflow's `image` output | `bookworm-armhf-20260924-844e8bc` ([844e8bc](https://github.com/fpgas-online/fpgas.online-infra/commit/844e8bc)) |
 | `ci-<run_id>` | when the VM test calls the build | the tag the VM test pulls. Its name is known before the build starts, so the VM test can start at the same time | `ci-36063159932` |
 | `bookworm-armhf` | only on `main` | rolling "latest". Production's default [`nfsroot_image`](../ansible/roles/img/defaults/main.yml), and the starting point for warm builds | `bookworm-armhf` |
-| `inputs-<key>` | always, pushed **last** | fingerprint of everything that went into the image, so later runs can find it and reuse it ([§2.4](#24-how-the-path-is-chosen)) | `inputs-87b3ddc20e18c6445cba` |
+| `inputs-<key>` | always, pushed **last** | the inputs key: a fingerprint of everything that went into the image, so later runs can find it and reuse it ([§2.4](#24-how-the-path-is-chosen)) | `inputs-87b3ddc20e18c6445cba` |
 
-Every tag must be a single image manifest
+Every tag must point at a single image manifest
 ([OCI manifest](https://github.com/opencontainers/image-spec/blob/main/manifest.md)),
-never an [image index](https://github.com/opencontainers/image-spec/blob/main/image-index.md).
-`assert_plain_manifest()` in `nfsroot_publish.py` checks this after each
-push.
+never at an [image index](https://github.com/opencontainers/image-spec/blob/main/image-index.md)
+(a list of per-architecture manifests). `assert_plain_manifest()` in
+`nfsroot_publish.py` checks this after each push.
 
-The reason is architecture. The image is labelled arm64, and the servers
-are amd64. `podman pull` accepts a plain manifest of any architecture, but
-it refuses an index that has no amd64 entry. `docker buildx imagetools
-create` produces exactly such an index, and it once broke the rolling tag.
+The reason is architecture:
+
+- The image is labelled arm64, and the servers are amd64.
+- `podman pull` accepts a plain manifest of any architecture, but refuses
+  an index that has no amd64 entry.
+- `docker buildx imagetools create` produces exactly such an index, and it
+  once broke the rolling tag.
+
 [PR #104](https://github.com/fpgas-online/fpgas.online-infra/pull/104) fixed
 that by copying tags with [skopeo](https://github.com/containers/skopeo)
 `copy --preserve-digests` instead.
 
 ### 2.3 Why there are three ways to produce it
 
+This section explains why Job 1 does not simply build the image from
+scratch every time.
+
 **The problem.** Building the image from nothing takes about 9½ minutes
 ([example job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717)).
-The deploy test reaches the point where it needs the image after about 7
-minutes. So if every run built from scratch, every run would wait, and the
-run would take about 16½ minutes instead of 12½.
+The deploy test needs the image after about 7 minutes. If every run built
+from scratch, every run would wait, and would take about 16½ minutes
+instead of 12½.
 
 **The observation.** Most pull requests don't change what goes into the
-image: they touch server roles, the web tier or tests. Of those that do,
-most change it a little, such as one role or one package. Only a new
+image: they touch server roles, the web tier or tests. Most of those that
+do change it only a little, such as one role or one package. Only a new
 RasPiOS release changes its foundation.
 
 So the build does the least work that still gives an image that is correct
@@ -216,23 +261,24 @@ for this checkout:
 | Path | Used when | What it does | Why it is safe | Time |
 |---|---|---|---|---|
 | **Reuse** | nothing that goes into the image changed since an earlier build (same `inputs-<key>`) | copies the existing image's tags, and builds nothing | same inputs in the same week produce the same image, so rebuilding would only burn 9½ minutes | [15 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932/job/107846650877) |
-| **Warm** | something changed, but the RasPiOS base is the same | unpacks the image `main` last published, then runs the Pi roles over it, so only the difference gets applied | the roles are idempotent Ansible. Tweed converged its live root this way for years, before the image moved to CI | [4 min 53 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899/job/107823962630) |
+| **Warm** | something changed, but the RasPiOS base is the same | unpacks the image `main` last published, then runs the Pi roles over it, so only the difference gets applied | the roles are idempotent Ansible: running them on an already-configured tree only changes what differs. Tweed converged its live root this way for years, before the image moved to CI | [4 min 53 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899/job/107823962630) |
 | **Scratch** | the RasPiOS base changed; the weekly schedule; manual dispatch | downloads RasPiOS and runs every role on it | the only way to switch to a new base. It also proves a clean build still works | [9 min 23 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717) |
 
-Two details keep the shortcuts honest:
+Two rules stop the shortcuts from producing a stale image:
 
 - **The ISO week is part of the inputs key.** The roles install whatever
-  the package repositories serve on the day. A checkout that hasn't
-  changed therefore still gets a fresh (warm) build every week, which picks
-  up new packages.
+  the package repositories serve on the day. So even an unchanged checkout
+  gets a fresh (warm) build every week, which picks up new packages.
 - **The weekly scheduled build always starts from scratch**
   ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/35575592187)).
   A warm image is layered on top of older ones, and can carry leftovers
   (removed files, old configuration) that a clean build would not have.
-  The weekly clean build caps that drift at one week, and keeps the
+  The weekly clean build limits that drift to one week, and keeps the
   scratch path tested.
 
 ### 2.4 How the path is chosen
+
+The job tries each path in turn and takes the first that applies.
 
 1. **Reuse?** The step "Reuse an image built from the same inputs" runs
    `nfsroot_publish.py --reuse`. It computes `key()` in
@@ -254,22 +300,25 @@ Two details keep the shortcuts honest:
    - the build machinery itself: `nfsroot-build.yml`, `tests/ci/`,
      `requirements.yml`, `pyproject.toml` and `uv.lock`.
 
-   Run `uv run tests/ci/nfsroot_inputs.py --list` to print the list. If
-   `inputs-<key>` already exists in the registry, its manifest is copied to
-   this run's tags and every later step is skipped. For example, the `main`
-   push after a PR merge usually reuses the PR's image, because the merged
-   files are identical.
+   Run `uv run tests/ci/nfsroot_inputs.py --list` to print the list.
+
+   If `inputs-<key>` already exists in the registry, its manifest is copied
+   to this run's tags and every later step is skipped. For example, the
+   `main` push after a PR merge usually reuses the PR's image, because the
+   merged files are identical.
+
    [`tests/test_nfsroot_inputs.py`](../tests/test_nfsroot_inputs.py) fails
    if the build starts reading a role or file that `INPUTS` does not
    cover, so the key cannot silently go stale.
 2. **Warm?** The step "Start from main's latest image" runs
-   [`tests/ci/nfsroot_warm.py`](../tests/ci/nfsroot_warm.py). It reads the
-   `org.fpgas-online.nfsroot.base-key` label that `nfsroot_publish.py`
-   stamps on every image. That label records which RasPiOS base the image
-   descends from (`base_key()` in `nfsroot_inputs.py`). If the label on
-   `bookworm-armhf` matches this checkout, the script copies that image
-   down and untars it into `/srv/nfs/rpi/bookworm`. The playbook then runs
-   with `-e nfsroot_warm=true`.
+   [`tests/ci/nfsroot_warm.py`](../tests/ci/nfsroot_warm.py).
+   - `nfsroot_publish.py` stamps every image with the label
+     `org.fpgas-online.nfsroot.base-key`. The label records which RasPiOS
+     base the image descends from (`base_key()` in `nfsroot_inputs.py`).
+   - If the label on `bookworm-armhf` matches this checkout's base, the
+     script copies that image down and untars it into
+     `/srv/nfs/rpi/bookworm`.
+   - The playbook then runs with `-e nfsroot_warm=true`.
 3. **Otherwise scratch.** A scratch build logs
    `… descends from base X, this checkout's is Y: building from scratch`
    ([example log](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717)),
@@ -281,6 +330,9 @@ Two details keep the shortcuts honest:
    because downloads.raspberrypi.org has stalled CI for an hour.
 
 ### 2.5 Steps of the build job
+
+The table lists every step of the job, with times from one warm and one
+scratch run. Use it to see which step a failure or slowdown is in.
 
 | Step | What it does | Warm ([job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36056167899/job/107823962630)) | Scratch ([job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717)) |
 |---|---|---|---|
@@ -297,16 +349,20 @@ Two details keep the shortcuts honest:
 
 ### 2.6 What [`ci-nfsroot.yml`](../ansible/ci-nfsroot.yml) does
 
-It runs the same Pi roles a deploy used to run on the server, in the same
-order. The difference is that the "Pi" is the unpacked tree, reached
-through Ansible's
+This playbook is the build itself. It runs the same Pi roles a deploy used
+to run on the server, in the same order. The difference is that the "Pi" is
+the unpacked tree on the runner. Ansible reaches it through the
 [`community.general.chroot`](https://github.com/ansible-collections/community.general/blob/main/plugins/connection/chroot.py)
-connection
+connection, which runs tasks inside a directory tree as if it were a
+separate machine
 ([`inventory-ci-nfsroot/hosts`](../ansible/inventory-ci-nfsroot/hosts)).
 
-1. **Disables any registered `qemu-arm` binfmt handler.** A runner image
-   once shipped one, and it made the runner emulate ARM code it can run
-   natively, slowing every apt run 4–10×.
+The playbook:
+
+1. **Disables any registered `qemu-arm` binfmt handler.** (A binfmt handler
+   tells the kernel to run foreign binaries through an emulator.) A runner
+   image once shipped one, and it made the runner emulate ARM code it can
+   run natively, slowing every apt run 4–10×.
 2. **Scratch only:** runs [`img/tasks/build.yml`](../ansible/roles/img/tasks/build.yml),
    which downloads RasPiOS and unpacks it with
    [`img2files.sh`](../ansible/roles/img/files/img2files.sh).
@@ -331,7 +387,7 @@ connection
    ([`nfsroot_kernels.py`](../ansible/roles/nspawn_pi/files/nfsroot_kernels.py)),
    prunes superseded kernels and unmounts everything.
 7. **Makes the image site-agnostic and finishes `boot/`.** It points
-   `resolv.conf` at the site gateway and deletes any SSH host keys that
+   `resolv.conf` at the site gateway, and deletes any SSH host keys that
    package installs generated, because every site generates its own. Then
    it re-syncs `boot/`.
 8. **Asserts before anything is published:**
@@ -342,7 +398,7 @@ connection
 
 `--skip-tags pipw,keys` leaves out the password and SSH-key tasks. Those
 belong to the site layer, which each server's own `fixpi` run adds in the
-last play of `site.yml`. That play runs in full in the VM test. This is the
+last play of `site.yml`. The VM test runs that play in full. This is the
 only tag skip anywhere in CI.
 
 Where the build time goes, from the Ansible
@@ -365,29 +421,34 @@ recap:
 
 ## 3. Job 2: deploy and boot ([`vm-test.yml`](../.github/workflows/vm-test.yml), job "Server + Pi PXE Boot")
 
-The example times in this section come from the `main` run
+This section walks through the test job in order: the job's setup steps,
+then what the test harness does second by second, then how the test
+inventory differs from production. Read it when the VM test fails or gets
+slower.
+
+The example times come from the `main` run
 [36063159932, job 107846650469](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932/job/107846650469).
 
 ### 3.1 Job setup (about 35 s)
 
-The job runs in a `node:22-trixie` container with `--device=/dev/kvm`. The
-Pi emulator, `qemu-rpi-system-arm`, is built for Debian trixie and needs
-newer libraries than the runner's Ubuntu 24.04 has.
+The job runs in a `node:22-trixie` container with `--device=/dev/kvm`,
+because the Pi emulator, `qemu-rpi-system-arm`, is built for Debian trixie.
+It needs newer libraries than the runner's Ubuntu 24.04 has.
 
 | Step | What it does | Time |
 |---|---|---|
 | Initialize containers | pulls `node:22-trixie` | 17 s |
 | Install system dependencies | `qemu-system-x86`, `qemu-utils`, `cloud-image-utils`, `systemd-container`, `openssh-client`, `curl` | 7 s |
 | Install qemu-rpi packages | from rpi-qemu's signed apt repo (`https://fpgas.online/rpi-qemu/trixie/`), with two **hard version gates**: `qemu-rpi-system-arm >= 2:0.1+95` (fixes a whole-VM freeze, [rpi-qemu#16](https://github.com/fpgas-online/rpi-qemu/pull/16)) and `qemu-rpi-pxeboot >= 2:0.1+100` (boot-directory fallback, [rpi-qemu#18](https://github.com/fpgas-online/rpi-qemu/pull/18)) | 3 s |
-| Enable KVM | the server VM uses KVM; the Pi is always emulated (TCG) | 0 s |
+| Enable KVM | the server VM uses KVM hardware acceleration; the Pi is always emulated in software (QEMU's TCG) | 0 s |
 | `uv sync`, collection cache, VM image cache | the [Debian 13 cloud image](https://cloud.debian.org/images/cloud/trixie/latest/) is cached under the key `vm-images-trixie-v1` | 5 s |
 | **Run VM integration tests** | `uv run tests/vm/run_tests.py --phase all --nfsroot-image ghcr.io/fpgas-online/nfsroot:ci-<run_id>` | **702 s** |
 | Show serial log tails | only on failure: prints the last 200 lines of every serial log into the job log | — |
 | Upload serial logs | always: the `serial-logs` artifact ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932/artifacts/10834793648)) | 1 s |
 
-Both jobs' timeouts, 180 min for this job and 60 min for the build, are
-far above normal. The real guards are the fail-fast checks inside the
-harness, described below.
+The job timeouts, 180 min for this job and 60 min for the build, are far
+above normal run times. The real guards are the fail-fast checks inside
+the harness, described below.
 
 ### 3.2 What [`run_tests.py`](../tests/vm/run_tests.py) does, step by step
 
@@ -419,9 +480,10 @@ This is what a real Netgear S3300 access port does.
   - pre-seeds a self-signed certificate at
     `/etc/letsencrypt/live/test.fpgas.online`.
 - **QEMU:** KVM with every runner CPU and 8 GB RAM. Disk writes skip host
-  flushes (`cache=unsafe`), because the VM is thrown away. NIC 1 is QEMU
-  user networking (uplink, and SSH on port 2222), with `ipv6=off`. NIC 2
-  is the VLAN trunk.
+  flushes (`cache=unsafe`), because the VM is thrown away afterwards.
+  - NIC 1 is QEMU user networking (uplink, and SSH on port 2222), with
+    `ipv6=off`.
+  - NIC 2 is the VLAN trunk.
 - **Readiness:** the harness waits for SSH (17 s), then for
   `cloud-init status --wait`, and fails if its exit code is non-zero.
 
@@ -467,7 +529,7 @@ Result: `ok=326 changed=180 failed=0 skipped=39` in 8 min 22 s. The 39
 skips are tasks whose `when:` condition is false on this host, such as
 tasks for the legacy MAC-table scheme. None of them are tag skips.
 
-**The pull only retries errors that can go away.** The retryable ones,
+**The pull retries only errors that can go away.** The retryable errors,
 `img_pull_retryable` in
 [`img/defaults/main.yml`](../ansible/roles/img/defaults/main.yml), are:
 
@@ -478,10 +540,10 @@ tasks for the legacy MAC-table scheme. None of them are tag skips.
 The test inventory raises the retry budget to 45 minutes
 ([`test-vm.yml`](../tests/inventory/host_vars/test-vm.yml)), so it covers
 an image build that is still running. Any other error fails the play at
-once, for example an image podman can't use, or an auth failure.
+once: for example, an image podman can't use, or an auth failure.
 
 **521 s: the Pi is powered on** (`start_pi`). This is the moment a real
-deploy's boards would be PoE-cycled. The emulator runs
+deploy's boards would be power-cycled over PoE. The emulator runs
 `qemu-rpi-system-aarch64 -M raspi4b`, from
 [rpi-qemu](https://github.com/fpgas-online/rpi-qemu), with the
 `qemu-rpi-pxeboot` firmware: U-Boot plus an emulation of the Pi 4's network
@@ -516,15 +578,15 @@ boot sequence. The virtual Pi has no disk. From here, three things run
     "No kernel image found" twice, the test fails at once instead of
     waiting 10 minutes.
   - **538–626 s:** the NFS root is mounted with overlayroot and userland
-    starts, emulated at roughly a twentieth of real speed. SSH as `pi`,
-    through the server, is the readiness check.
-- **626–694 s: [`verify-pi.yml`](../ansible/verify-pi.yml)**, alongside a
-  password login as `pi` (`pi_password_login_works`). The password login
-  is the path the board page's web terminal uses.
-  - The playbook runs without sudo and without fact gathering. One task,
-    "Collect the Pi's state" (49 s), runs a single Python script on the Pi
-    that returns everything the checks need. Each separate task costs
-    seconds on the emulated Pi.
+    starts, emulated at roughly a twentieth of real speed. The Pi counts
+    as ready when SSH as `pi`, through the server, works.
+- **626–694 s: [`verify-pi.yml`](../ansible/verify-pi.yml)** runs,
+  alongside a password login as `pi` (`pi_password_login_works`). The
+  password login is the path the board page's web terminal uses.
+  - The playbook runs without sudo and without fact gathering. Each
+    separate task costs seconds on the emulated Pi, so one task, "Collect
+    the Pi's state" (49 s), runs a single Python script on the Pi that
+    returns everything the checks need.
   - It checks:
     - the NFS and overlay mounts;
     - the per-port address and hostname;
@@ -551,6 +613,10 @@ console lines.
 
 ### 3.3 How the test inventory differs from production, and why
 
+The test uses its own Ansible inventory. This section lists where it
+differs from production, so you can tell which production settings the
+test does not cover.
+
 [`tests/inventory`](../tests/inventory/) symlinks these production
 group_vars:
 [`ci.yml`](../ansible/inventory/group_vars/all/ci.yml),
@@ -565,7 +631,7 @@ The rest is test-only:
 [`ttsite.yml`](../tests/inventory/group_vars/all/ttsite.yml),
 [`controller.yml`](../tests/inventory/group_vars/all/controller.yml) and
 [`host_vars/test-vm.yml`](../tests/inventory/host_vars/test-vm.yml).
-Compare [tweed's host_vars](../ansible/inventory/host_vars/fpgas.online.yml).
+Compare them with [tweed's host_vars](../ansible/inventory/host_vars/fpgas.online.yml).
 They differ from production only where the test environment forces them
 to:
 
@@ -582,6 +648,9 @@ to:
 ---
 
 ## 4. Lint ([`lint.yml`](../.github/workflows/lint.yml))
+
+The Lint workflow checks YAML style and Ansible best practice. Only
+yamllint can fail it.
 
 | Step | Fails the job? | Time ([job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901)) |
 |---|---|---|
@@ -601,6 +670,9 @@ to:
 ---
 
 ## 5. Timings
+
+This section answers "how long will CI take for my change?", with the
+measured runs behind the answer.
 
 ### 5.1 Measured runs
 
@@ -649,11 +721,23 @@ The costliest single tasks in `site.yml` are:
 |---|---|---|
 | nothing in `INPUTS` (server roles, web tier, `tests/vm`, docs) | reuse | ~12½–13½ min |
 | a Pi role, `ci-nfsroot.yml`, `uv.lock`, … (or it's the first run of a new ISO week) | warm | ~12½–13½ min: the build finishes before the server needs the image |
-| the RasPiOS base | scratch | **14½–17 min** (measured three times: [16:29](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261), [16:43](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36071974623), [14:35](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36073732503)). It depends on how long the image build takes, 8–10 min: at or over the 15-minute target, because the server waits for the image. Since [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108) only a change to the image's identity (`dist`, `img_path`, `img_name`, `zip_name`, [`img/tasks/build.yml`](../ansible/roles/img/tasks/build.yml), [`img2files.sh`](../ansible/roles/img/files/img2files.sh)) counts as a base change. Any other edit to [`srv.yml`](../ansible/inventory/group_vars/all/srv.yml) gets a warm build |
+| the RasPiOS base | scratch | **14½–17 min**, at or over the 15-minute target, because the server waits for the image. It depends on how long the image build takes (8–10 min). Measured three times: [16:29](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261), [16:43](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36071974623), [14:35](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36073732503) |
+
+What counts as a change to the RasPiOS base: since
+[PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108), only
+a change to the image's identity counts. That is `dist`, `img_path`,
+`img_name`, `zip_name`,
+[`img/tasks/build.yml`](../ansible/roles/img/tasks/build.yml) or
+[`img2files.sh`](../ansible/roles/img/files/img2files.sh). Any other edit
+to [`srv.yml`](../ansible/inventory/group_vars/all/srv.yml) gets a warm
+build.
 
 ---
 
 ## 6. Running it yourself
+
+You can run the same test locally. `--nfsroot-image` names the Pi root
+image the server should download.
 
 ```bash
 uv sync
@@ -670,14 +754,19 @@ uv run tests/vm/run_tests.py --phase server --keep-vm --nfsroot-image …
 
 `--skip-tags` exists for local debugging only. CI never passes it.
 
-To compare a CI image with a live server's root, run
-[`tests/ci/nfsroot_manifest.py`](../tests/ci/nfsroot_manifest.py)` <root> <out>`
-on the server. Then diff the result against the build's `nfsroot-manifest`
-artifact with [`tests/ci/nfsroot_diff.py`](../tests/ci/nfsroot_diff.py).
+To compare a CI image with a live server's root:
+
+1. Run [`tests/ci/nfsroot_manifest.py`](../tests/ci/nfsroot_manifest.py)` <root> <out>`
+   on the server.
+2. Diff the result against the build's `nfsroot-manifest` artifact with
+   [`tests/ci/nfsroot_diff.py`](../tests/ci/nfsroot_diff.py).
 
 ---
 
 ## 7. When it fails: where to look
+
+Find the symptom in the first column, then check the place in the last
+column.
 
 | Symptom | Likely cause | Where to look |
 |---|---|---|
@@ -686,6 +775,6 @@ artifact with [`tests/ci/nfsroot_diff.py`](../tests/ci/nfsroot_diff.py).
 | `the firmware found no kernel over TFTP (twice)` | `boot/` empty or wrong, or the TFTP root is misconfigured | `serial-logs` artifact, `pi-serial.log.uboot` |
 | `the Pi got X from DHCP, expected 10.21.1.1` | a per-port DHCP or VLAN addressing bug | `pi-serial.log.uboot`; the dnsmasq journal in the failure dump |
 | Pi SSH never becomes ready | the NFS root or overlayroot failed, or userland hung | `serial-logs` artifact, `pi-serial.log` (kernel console) |
-| `Server has registered this Pi in the fleet` fails | agent not running, `fleet.toml` missing, or the MQTT broker or consumer broken | verify-pi output; the collector's fleet agent state |
+| `Server has registered this Pi in the fleet` fails | agent not running, `fleet.toml` missing, or the MQTT broker or consumer broken | verify-pi output; the fleet agent state reported by the "Collect the Pi's state" task |
 | verify-server fails | one of the roles' own `verify/main.yml` assertions | the "verify-server.yml output" block, printed after the Pi phase |
 | build log: `… descends from base None/X … building from scratch` | the base key changed, or the rolling image has no label | expected after a base change: the run takes the scratch path |
