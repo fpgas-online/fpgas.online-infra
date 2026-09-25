@@ -126,7 +126,8 @@
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^CSRF_TRUSTED_ORIGINS = '
-    line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
+    line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) \
+      | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
   notify:
     - Restart django services
   tags:

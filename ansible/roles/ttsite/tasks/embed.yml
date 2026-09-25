@@ -8,7 +8,8 @@
 
 - name: Download Commander embed bundle
   get_url:
-    url: "https://github.com/fpgas-online/tt-commander-app/releases/download/embed-v{{ tt_commander_embed_version }}/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
+    url: "https://github.com/fpgas-online/tt-commander-app/releases/download/\
+      embed-v{{ tt_commander_embed_version }}/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
     dest: "{{ static_dir }}/tt-commander/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
     checksum: "sha256:{{ tt_commander_embed_sha256 }}"
     mode: "0644"

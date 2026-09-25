@@ -20,7 +20,8 @@
 # pins the content either way).
 - name: Fetch debian-archive-keyring for the armmp kernel source
   get_url:
-    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ fixpi_sunxi_debian_keyring_deb }}"
+    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}\
+      /pool/main/d/debian-archive-keyring/{{ fixpi_sunxi_debian_keyring_deb }}"
     dest: "{{ nfs_root }}/root/root/{{ fixpi_sunxi_debian_keyring_deb }}"
     checksum: "sha256:{{ fixpi_sunxi_debian_keyring_sha256 }}"
     mode: "0644"

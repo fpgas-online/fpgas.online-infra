@@ -57,7 +57,9 @@
         timeout: 120
       failed_when: false
       register: apt_cache_v_probe
-      loop: "{{ (apt_cache_remaps | map(attribute='path') | zip(apt_cache_remaps | map(attribute='probe')) | map('join', '/') | list) + apt_cache_stock_probes }}"
+      loop: "{{ (apt_cache_remaps | map(attribute='path') \
+        | zip(apt_cache_remaps | map(attribute='probe')) | map('join', '/') | list) \
+        + apt_cache_stock_probes }}"
 
     # acng's error pages say little ("500 Remote or cache error") and the
     # cache lives on the gateway, so gather what explains a failed probe
