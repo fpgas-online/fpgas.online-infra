@@ -13,7 +13,8 @@
 # password, per-site authorized_keys/keypairs) is applied by the consuming
 # server after extraction, not baked into the published image.
 
-- hosts: nbp
+- name: Apply the generic fixpi layer to the NFS root
+  hosts: nbp
   become: true
   tasks:
     - name: Prepare the runner
@@ -38,7 +39,8 @@
 # the chroot its API-filesystem mounts, a policy-rc.d that suppresses service
 # starts, the initramfs suppression and the served-kernel protection; the
 # image build is the only place anything runs inside the ARM root.
-- hosts: nbp
+- name: Prepare the NFS root chroot
+  hosts: nbp
   become: true
   tasks:
     - name: Prepare the NFS root chroot for apt
@@ -46,7 +48,8 @@
         name: nspawn_pi
         tasks_from: chroot-prep.yml
 
-- hosts: pi
+- name: Install the Pi roles into the NFS root
+  hosts: pi
   roles:
     - role: fpgas_apt
       tags: [fpgas-apt]
@@ -55,7 +58,8 @@
     - role: onpi
       tags: [onpi]
 
-- hosts: nbp
+- name: Finish, clean and check the NFS root image
+  hosts: nbp
   become: true
   tasks:
     # Lift the initramfs suppression, rebuild any initramfs the chroot apt
