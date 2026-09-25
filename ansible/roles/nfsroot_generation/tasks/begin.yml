@@ -20,6 +20,20 @@
         update_cache: true
         cache_valid_time: 3600
 
+    # A gateway whose apt goes through an upstream caching proxy (tweed's
+    # installer set Acquire::http::Proxy to ten64's apt-cacher-ng) cannot
+    # reach an https repository through it: apt-cacher-ng answers CONNECT
+    # with 403, and https could not be cached anyway. Fetch this one host
+    # directly; with no proxy configured the setting changes nothing.
+    - name: Let apt fetch the nfsroot-watchdog repository without the proxy
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/50nfsroot-watchdog-direct
+        content: |
+          // {{ ansible_managed }} (roles/nfsroot_generation)
+          Acquire::https::Proxy::{{ nfsroot_generation_apt_url | urlsplit('hostname') }} "DIRECT";
+        mode: '0644'
+      when: nfsroot_generation_apt_url is match('https://')
+
     - name: Add the nfsroot-watchdog apt repository on the gateway
       ansible.builtin.include_role:
         name: fpgas_apt
