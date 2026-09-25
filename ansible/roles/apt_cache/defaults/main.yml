@@ -22,9 +22,8 @@ apt_cache_bind_addresses: ""
 # Chain upstream through another cache, e.g. ten64's: http://10.99.21.1:3142.
 # Empty = fetch directly. LIMITATION: acng reaches https:// backends through
 # a proxy with CONNECT, and ten64's acng refuses CONNECT (403), so while this
-# is set the https remaps below (fpgasonline, fpgatools, nfsrootwatchdog,
-# rp1jtag) fail; the http ones
-# (raspbian, raspberrypi, debian) work.
+# is set the https remaps below (fpgasonline, fpgatools, nfsrootwatchdog)
+# fail; the http ones (raspbian, raspberrypi, debian) work.
 apt_cache_upstream_proxy: ""
 
 apt_cache_dir: /var/cache/apt-cacher-ng
@@ -90,14 +89,14 @@ apt_cache_remaps:
       - fpgas.online/nfsroot-watchdog
     backend: https://fpgas.online/nfsroot-watchdog/
     probe: bookworm/Release
-  # GitHub Pages, flat per-suite repo (clients use /rp1-jtag/bookworm/ ./).
-  - name: rp1jtag
-    path: /rp1-jtag
-    aliases:
-      - mith.ro/rp1-jtag
-      - mithro.github.io/rp1-jtag
-    backend: https://mith.ro/rp1-jtag/
-    probe: bookworm/Release
+
+# Remaps that are gone from the list above. Their backend files are removed,
+# so /etc/apt-cacher-ng holds only what apt_cache_remaps configures.
+#   rp1jtag: mithro/rp1-jtag no longer publishes packages (its #25,
+#            2026-09-25) and mith.ro/rp1-jtag serves no apt repository; the
+#            roots dropped its source already (fpgas_apt/tasks/rp1-jtag.yml).
+apt_cache_retired_remaps:
+  - rp1jtag
 
 # Stock acng.conf remaps the NFS root also uses (Remap-debrep, for fixpi's
 # Debian armmp kernel source; Remap-secdeb). Not configured here: the paths
