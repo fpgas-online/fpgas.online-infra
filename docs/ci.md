@@ -31,7 +31,7 @@ Three workflows are involved:
 |---|---|---|---|---|
 | VM Integration Tests | [`vm-test.yml`](../.github/workflows/vm-test.yml) | every push to `main`, every PR to `main`, manual dispatch | **12½–13½ min** | [36063159932](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932) (`main`, 12:26) |
 | nfsroot build (the Pi root image) | [`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml) | called by the VM test; also weekly (Mondays 02:17 UTC, 11:47 Adelaide) and by manual dispatch | 15 s, ~5 min or ~9.5 min: see [§2.3](#23-why-there-are-three-ways-to-produce-it) | [35575592187](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/35575592187) (weekly) |
-| Lint | [`lint.yml`](../.github/workflows/lint.yml) | every push to `main` and every PR | ~50 s | [36063159621](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621) |
+| Lint | [`lint.yml`](../.github/workflows/lint.yml) | every push to `main` and every PR | ~80 s | [36078756527](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36078756527) |
 
 Every duration in this document was measured on a real run, and links to
 the run or job it came from. Estimates are marked as such.
@@ -59,7 +59,7 @@ the VM test. The VM test workflow runs **two jobs at the same time**:
 %%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 flowchart TB
     trigger(["push to main<br/>or pull request"])
-    lint["<b>Lint</b><br/>yamllint, ansible-lint<br/>~50 s"]
+    lint["<b>Lint</b><br/>yamllint, ansible-lint,<br/>unit tests · ~80 s"]
     job1["<b>Job 1</b><br/>Pi root image<br/>15 s – 9½ min"]
     job2["<b>Job 2</b><br/>deploy tweed,<br/>boot a virtual Pi<br/>~12 min"]
     ghcr[("GHCR<br/>nfsroot:ci-RUN_ID")]
@@ -649,23 +649,34 @@ to:
 
 ## 4. Lint ([`lint.yml`](../.github/workflows/lint.yml))
 
-The Lint workflow checks YAML style and Ansible best practice. Only
-yamllint can fail it.
+The Lint workflow checks YAML style and Ansible best practice, and runs the
+unit tests of the CI tooling. Every step can fail it. It has two jobs,
+which run at the same time.
 
-| Step | Fails the job? | Time ([job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901)) |
+**`ansible-lint` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36078756527/job/107895765289), 76 s):
+
+| Step | What it does | Time |
 |---|---|---|
-| `pip install ansible-lint yamllint` | yes | 7 s |
-| `yamllint -c .yamllint.yml ansible/` ([config](../.yamllint.yml)) | **yes** | 2 s |
-| `ansible-lint` ([config](../.ansible-lint)) | **no**: `continue-on-error: true` | 29 s |
+| Install linters | `uv sync`: ansible-lint 26.9.0 and yamllint 1.38.0, pinned in [`pyproject.toml`](../pyproject.toml)'s dev group, so CI and a local `uv run ansible-lint` report the same thing | 1 s |
+| Install Ansible collections | the pinned collections from [`requirements.yml`](../requirements.yml), cached. Without them ansible-lint cannot parse playbooks that use `ansible.posix` modules, and silently skips them | 26 s (cache miss) |
+| `uv run yamllint -c .yamllint.yml ansible/` ([config](../.yamllint.yml)) | YAML style | 2 s |
+| `uv run ansible-lint`, in `ansible/` ([config](../.ansible-lint)) | Ansible best practice | 34 s |
 
-> **Known gap:** ansible-lint has been advisory since 2026-04-04 (commit
-> [dd68a50](https://github.com/fpgas-online/fpgas.online-infra/commit/dd68a50)).
-> It currently reports **397 violations**
-> ([log](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901)),
-> and 411 with the Ansible collections installed. The job is green anyway.
-> Fixes, and making it blocking, are in progress from
-> [PR #109](https://github.com/fpgas-online/fpgas.online-infra/pull/109)
-> onwards.
+**`pytest` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36078756527/job/107895765055), 19 s):
+`uv run pytest -q tests` runs the unit tests in [`tests/`](../tests/). One of
+them, [`tests/test_nfsroot_inputs.py`](../tests/test_nfsroot_inputs.py),
+fails a PR that makes the image build read a file the inputs key does not
+cover ([§2.4](#24-how-the-path-is-chosen)).
+
+To fix a lint failure, fix the flagged code. Use a scoped
+`# noqa: <rule>` with a reason only when the construct is deliberate.
+
+> **History:** ansible-lint was advisory from 2026-04-04 (commit
+> [dd68a50](https://github.com/fpgas-online/fpgas.online-infra/commit/dd68a50)) until 2026-09-25. By then it reported 397
+> violations ([log](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901)), 411
+> with the collections installed, while the job stayed green. PRs
+> [#109](https://github.com/fpgas-online/fpgas.online-infra/pull/109) to [#112](https://github.com/fpgas-online/fpgas.online-infra/pull/112) fixed them, and
+> [#115](https://github.com/fpgas-online/fpgas.online-infra/pull/115) made it blocking.
 
 ---
 
@@ -689,7 +700,8 @@ waits for.
 | [36052538261](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261) | a PR before #104–#106, **scratch** image build | [563 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379717) | [986 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36052538261/job/107811379397) (waited 181 s for the image) | **989 s (16:29)** |
 | [36071974623](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36071974623) | [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108), **scratch** image build (current `main` plus #108) | 620 s | 1000 s (waited 265 s for the image) | **1003 s (16:43)** |
 | [36073732503](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36073732503) | [PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108) after merging main, **scratch** image build | [493 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36073732503/job/107880220748) | [873 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36073732503/job/107880220466) | **875 s (14:35)** |
-| [36063159621](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621) | Lint | | [46 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901) | **50 s** |
+| [36063159621](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621) | Lint (before ansible-lint became blocking) | | [46 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159621/job/107846648901) | **50 s** |
+| [36078756527](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36078756527) | Lint (blocking ansible-lint + unit tests) | | [76 s](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36078756527/job/107895765289) | **79 s** |
 
 ### 5.2 Where the 12 minutes go (reuse case, [run 36063159932](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36063159932/job/107846650469))
 
