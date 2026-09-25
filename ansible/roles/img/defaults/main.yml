@@ -5,7 +5,9 @@ img_cache_dir: "/var/cache/pib"
 # inventory/group_vars/all/srv.yml, not here.
 
 # The prebuilt Pi NFS root image CI publishes (issue #34). Pin a dated
-# tag in host_vars for reproducible rebuilds; the rolling tag tracks main.
+# tag in host_vars for reproducible rebuilds. The rolling tag is main's
+# latest image to pass the VM test (.github/workflows/vm-test.yml, promote
+# job): CI moves it only after a virtual Pi has netbooted that image.
 img_nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
 # Retries for a failed pull (registry hiccups). The VM test raises these:
