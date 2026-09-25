@@ -25,8 +25,8 @@
         name: fpgas_apt
         tasks_from: nfsroot-watchdog.yml
       vars:
-        nfsroot_watchdog_apt_url: "{{ nfsroot_generation_apt_url }}"
-        nfsroot_watchdog_apt_suite: "{{ nfsroot_generation_apt_suite }}"
+        fpgas_apt_nfsroot_watchdog_url: "{{ nfsroot_generation_apt_url }}"
+        fpgas_apt_nfsroot_watchdog_suite: "{{ nfsroot_generation_apt_suite }}"
 
     - name: Install nfsroot-watchdog-server
       ansible.builtin.apt:

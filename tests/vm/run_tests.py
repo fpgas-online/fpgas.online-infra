@@ -263,7 +263,7 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # image from the same checkout in the nfsroot job and passes its ref
     # here, so the VM test exercises the production pull path with the
     # PR's own roles baked in.
-    extra.extend(["-e", f"nfsroot_image={args.nfsroot_image}"])
+    extra.extend(["-e", f"img_nfsroot_image={args.nfsroot_image}"])
 
     # The key and become come from the inventory and ansible.cfg, as in
     # production (tests/inventory/group_vars/all/controller.yml names the

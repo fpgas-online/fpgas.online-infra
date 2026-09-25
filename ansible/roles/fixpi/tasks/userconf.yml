@@ -50,12 +50,15 @@
   tags:
     - pipw
 
+# Inline, not a handler (noqa): a handler only runs if the rest of the play
+# succeeds, and this warning must not be lost when the shadow was replaced
+# and a later task then fails.
 - name: Reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
   debug:
     msg: >-
       {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
       now refuses SSH until rebooted: PoE-cycle their switch ports.
-  when: fixpi_pi_pw_set is changed
+  when: fixpi_pi_pw_set is changed  # noqa: no-handler
   tags:
     - pipw
 
@@ -120,7 +123,7 @@
     user: root
     state: present
     key: "{{ lookup('file', '/home/{{ user_name }}/.ssh/id_rsa.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
   tags:
@@ -131,7 +134,7 @@
   ansible.builtin.copy:
     remote_src: true
     src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
-    dest: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    dest: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
     - home/pi
@@ -147,7 +150,7 @@
     user: root
     state: present
     key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
   with_items:
     - root
     - home/pi
@@ -157,7 +160,7 @@
 
 - name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh"
+    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh"
     recurse: true
     owner: "1000"
     group: "1000"

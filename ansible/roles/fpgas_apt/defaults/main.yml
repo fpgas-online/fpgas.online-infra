@@ -39,10 +39,10 @@ fpgas_apt_key_fingerprint: 878EC72910E22EA0E989EAA9BEB0EC3124E538E4
 # roles/fpgas_apt/tasks/repo.yml asserts the format as well as the
 # fingerprint, so an upstream change to either fails the build instead of
 # being trusted.
-fpga_tools_apt_upstream_url: https://fpgas.online/fpgas.online-fpga-tools
-fpga_tools_apt_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online-fpga-tools') if fpgas_apt_cache_url else fpga_tools_apt_upstream_url }}"
-fpga_tools_apt_suite: "{{ dist }}"
-fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30
+fpgas_apt_fpga_tools_upstream_url: https://fpgas.online/fpgas.online-fpga-tools
+fpgas_apt_fpga_tools_url: "{{ (fpgas_apt_cache_url ~ '/fpgas-online-fpga-tools') if fpgas_apt_cache_url else fpgas_apt_fpga_tools_upstream_url }}"
+fpgas_apt_fpga_tools_suite: "{{ dist }}"
+fpgas_apt_fpga_tools_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30
 
 # fpgas-online/nfsroot-watchdog: the NFS-root stale-handle watchdog
 # (nfsroot-watchdog, installed in the Pi root by roles/onpi) and its server
@@ -51,7 +51,7 @@ fpga_tools_apt_key_fingerprint: A0F376D2174A0A54C6F13AAA02E06C0592A2EA30
 # Debian release under the shared apt convention (tasks/repo.yml):
 # canonical https on the custom domain, through the gateway's apt cache
 # (remap nfsrootwatchdog) when there is one, key pinned by fingerprint.
-nfsroot_watchdog_apt_upstream_url: https://fpgas.online/nfsroot-watchdog
-nfsroot_watchdog_apt_url: "{{ (fpgas_apt_cache_url ~ '/nfsroot-watchdog') if fpgas_apt_cache_url else nfsroot_watchdog_apt_upstream_url }}"
-nfsroot_watchdog_apt_suite: "{{ dist }}"
-nfsroot_watchdog_apt_key_fingerprint: FC0E4835E563E003D06CF358A105FA0679EC6204
+fpgas_apt_nfsroot_watchdog_upstream_url: https://fpgas.online/nfsroot-watchdog
+fpgas_apt_nfsroot_watchdog_url: "{{ (fpgas_apt_cache_url ~ '/nfsroot-watchdog') if fpgas_apt_cache_url else fpgas_apt_nfsroot_watchdog_upstream_url }}"
+fpgas_apt_nfsroot_watchdog_suite: "{{ dist }}"
+fpgas_apt_nfsroot_watchdog_key_fingerprint: FC0E4835E563E003D06CF358A105FA0679EC6204
