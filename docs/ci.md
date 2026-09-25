@@ -1,9 +1,9 @@
 # How CI works
 
 CI answers one question for every push and pull request: **would a fresh
-deploy of tweed from this checkout actually work?** "Work" means the test
-the fleet itself applies. A Raspberry Pi netboots from the new server,
-comes up correctly, and registers itself with the server's fleet. So CI:
+deploy of tweed from this checkout actually work?** A deploy works when a
+Raspberry Pi can netboot from the new server, come up correctly, and
+register itself with the server's fleet. So CI:
 
 1. deploys a brand-new server, a stand-in for tweed, with
    [`ansible/site.yml`](../ansible/site.yml), exactly as a real deploy
