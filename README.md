@@ -203,7 +203,7 @@ test coverage grows correspondingly.
 ## Linting
 
 - **yamllint**: blocking (zero errors)
-- **ansible-lint**: advisory (legacy issues tracked in [#4](https://github.com/fpgas-online/fpgas.online-infra/issues/4))
+- **ansible-lint**: blocking; pinned in `pyproject.toml`, run with `cd ansible && uv run ansible-lint`
 
 ## Related Repos
 
