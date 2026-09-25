@@ -8,7 +8,6 @@ The image filesystem holds top-level boot/ and root/ directories mirroring
 
   - <dist>-armhf-YYYYMMDD-<sha7>   always (pinnable; production references
     this in host_vars so a rebuild is reproducible)
-  - <dist>-armhf                   rolling, only from main
   - $NFSROOT_EXTRA_TAG             when set: a tag the caller chose before
     the build started (the VM test polls for ci-<run_id> so it can run its
     server phase while this build is still going)
@@ -19,6 +18,12 @@ The image filesystem holds top-level boot/ and root/ directories mirroring
 checkout's inputs key already exists its manifest is copied to them
 (skopeo, preserving digests: no layer is pulled or pushed), and the
 `reused` step output says whether that happened.
+
+No build moves the rolling <dist>-armhf tag, which is what production
+pulls unless a deploy pins another. `--promote SOURCE` does that, and the
+VM test workflow runs it only on main, after the virtual Pi has netbooted
+SOURCE and registered with the server, so the rolling tag only ever names
+an image that has passed that test.
 
 Run after ansible/ci-nfsroot.yml on the runner (needs sudo for tar to read
 the root-owned tree, and a docker login to ghcr.io).
@@ -55,8 +60,6 @@ def tags() -> tuple[str, str, list[str]]:
     others = []
     if extra := os.environ.get("NFSROOT_EXTRA_TAG"):
         others.append(f"{IMAGE}:{extra}")
-    if os.environ.get("GITHUB_REF_NAME") == "main":
-        others.append(f"{IMAGE}:{DIST}-armhf")
     return dated, inputs, others
 
 
@@ -228,8 +231,24 @@ def build() -> int:
     return 0
 
 
+def promote(source: str) -> int:
+    """Point the rolling tag at SOURCE, an image the VM test has booted."""
+    rolling = f"{IMAGE}:{DIST}-armhf"
+    run(["skopeo", "copy", "--preserve-digests", f"docker://{source}", f"docker://{rolling}"],
+        check=True)
+    assert_plain_manifest(rolling)
+    digest = run(["skopeo", "inspect", "--format", "{{.Digest}}", f"docker://{rolling}"],
+                 capture_output=True, text=True, check=True).stdout.strip()
+    summary(["## nfsroot promoted (the VM test passed)", "",
+             f"- `{rolling}` is now `{source}`", f"- digest `{digest}`"])
+    return 0
+
+
 def main():
-    return reuse() if "--reuse" in sys.argv[1:] else build()
+    args = sys.argv[1:]
+    if args[:1] == ["--promote"] and len(args) == 2:
+        return promote(args[1])
+    return reuse() if "--reuse" in args else build()
 
 
 if __name__ == "__main__":
