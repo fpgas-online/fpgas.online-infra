@@ -106,6 +106,8 @@
   register: site_certonly
   tags: le
 
+# Second pass of the two-pass vhost render (noqa: it belongs right after the
+# certificate issues, not deferred to the end of the play as a handler).
 - name: Vhost (https, after the certificate was issued)
   template:
     src: vhost.conf.j2
@@ -115,7 +117,7 @@
     site_cert_exists: true
     site_ssl_options_exists: "{{ site_ssl_options.stat.exists }}"
     site_ssl_dhparams_exists: "{{ site_ssl_dhparams.stat.exists }}"
-  when: site_certonly is changed
+  when: site_certonly is changed  # noqa: no-handler
   notify: Reload nginx
   tags: le
 
