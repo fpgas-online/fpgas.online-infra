@@ -47,12 +47,14 @@
   register: apt_cache_vhost
 
 # An explicit reload rather than flush_handlers: this file runs inside a
-# `when:` block, and flush_handlers does not honour conditionals.
+# `when:` block, and flush_handlers does not honour conditionals. (noqa: a
+# handler would reload only at the end of the play, after certbot needed the
+# vhost for http-01.)
 - name: Reload nginx so it serves the vhost before certbot
   ansible.builtin.systemd_service:
     name: nginx
     state: reloaded
-  when: apt_cache_vhost is changed
+  when: apt_cache_vhost is changed  # noqa: no-handler
 
 # The certificate cannot issue until apt_cache_host has a public DNS record
 # (the fpgas.online zone on ns1; ten64 already forwards *.welland.fpgas.online
@@ -85,13 +87,16 @@
   when: apt_cache_certbot | bool and not apt_cache_cert_exists | bool and apt_cache_dns.rc == 0
 
 # Mirrors facts.yml's certificate branch, so the rest of this run (fixpi, the
-# NFS root sources, the pi play) already uses https.
+# NFS root sources, the pi play) already uses https. (noqa: those later tasks
+# read the fact, so it must be set here, not by an end-of-play handler.)
 - name: Switch clients to https now the certificate exists
   ansible.builtin.set_fact:
     apt_cache_cert_exists: true
     apt_cache_url: "https://{{ apt_cache_host }}"
-  when: apt_cache_certonly is changed
+  when: apt_cache_certonly is changed  # noqa: no-handler
 
+# Second pass of the two-pass vhost render (noqa: it belongs right after the
+# certificate issues, not deferred to the end of the play as a handler).
 - name: Apt cache vhost (https, after the certificate was issued)
   ansible.builtin.template:
     src: nginx-apt-cache.conf.j2
@@ -101,5 +106,5 @@
     apt_cache_vhost_tls: true
     apt_cache_ssl_options_exists: "{{ apt_cache_ssl_options.stat.exists }}"
     apt_cache_ssl_dhparams_exists: "{{ apt_cache_ssl_dhparams.stat.exists }}"
-  when: apt_cache_certonly is changed
+  when: apt_cache_certonly is changed  # noqa: no-handler
   notify: Reload nginx (apt-cache)

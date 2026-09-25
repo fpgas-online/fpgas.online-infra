@@ -41,7 +41,7 @@
     state: present
     create: true
     regexp: '^pistat_host='
-    line: "pistat_host={{domain_name}}"
+    line: "pistat_host={{ domain_name }}"
   tags:
     - hostname
     - fixpi
