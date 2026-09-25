@@ -43,78 +43,51 @@ test workflow runs **two jobs at the same time**:
   server: the Pi root image. It is built from the checkout, or reused
   when nothing that goes into it has changed.
 
-The two jobs meet at one point. Job 1 publishes the image to the GitHub
-container registry (GHCR), and the server in Job 2 downloads it from
-there. That handoff is the dotted arrow in the diagram.
+### Overview
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 flowchart TB
-    trigger(["push to main or pull request"])
+    trigger(["push to main<br/>or pull request"])
+    lint["<b>Lint</b><br/>yamllint, ansible-lint<br/>~50 s"]
+    job1["<b>Job 1</b><br/>Pi root image<br/>15 s – 9½ min"]
+    job2["<b>Job 2</b><br/>deploy tweed,<br/>boot a virtual Pi<br/>~12 min"]
+    ghcr[("GHCR<br/>nfsroot:ci-RUN_ID")]
+    result(["pass / fail"])
+    trigger --> lint
+    trigger --> job1
+    trigger --> job2
+    job1 -- publishes --> ghcr
+    ghcr -. "pulled by the<br/>server" .-> job2
+    job2 --> result
+```
 
-    subgraph LINT["Lint workflow · ~50 s"]
-        direction TB
-        yl["yamllint<br/>fails the job"]
-        al["ansible-lint<br/>advisory only"]
-    end
+The two jobs meet at one point. Job 1 publishes the image to the GitHub
+container registry (GHCR), and the server in Job 2 downloads it from
+there: the dotted arrow. The server needs it only in the last play of
+`site.yml`, about 7 minutes in, so Job 1 has that long before it delays
+anything.
 
-    subgraph BUILD["Job 1 · nfsroot / build · arm64 runner"]
-        direction TB
-        key["Hash the files that go into the image<br/>+ the ISO week → inputs key"]
-        q1{"An image with this<br/>key already exists?"}
-        q2{"main's image starts from<br/>the same RasPiOS release?"}
-        reuse["<b>REUSE</b><br/>~15 s<br/>copy its tags"]
-        warm["<b>WARM</b><br/>~5 min<br/>unpack main's image,<br/>run the Pi roles over it"]
-        scratch["<b>SCRATCH</b><br/>~9.5 min<br/>download RasPiOS,<br/>run the Pi roles"]
-        ghcr[("GHCR<br/>nfsroot:ci-RUN_ID")]
-        key --> q1
-        q1 -- yes --> reuse
-        q1 -- no --> q2
-        q2 -- yes --> warm
-        q2 -- no --> scratch
-        reuse --> ghcr
-        warm --> ghcr
-        scratch --> ghcr
-    end
+### Job 1: which image the test gets
 
-    subgraph VM["Job 2 · Server + Pi PXE Boot · x86 runner"]
-        direction TB
-        setup["Job setup: container, QEMU packages<br/>35 s"]
-        srv["Boot a fresh Debian 13 server VM<br/>18 s"]
-        subgraph SITE["ansible-playbook site.yml: the production playbook, nothing skipped · 8.5 min"]
-            direction TB
-            s1["netif: rename NICs, reboot<br/>33 s"]
-            s2["start pulling the image in the background<br/>13 s"]
-            s3["server roles: firewall, NFS, apt cache, DHCP/TFTP …<br/>2.5 min"]
-            s4["web.yml: Django site, web terminal, streaming, fleet broker<br/>3 min"]
-            s5["NFS root: unpack the image, add this site's layer<br/>2 min"]
-            s1 --> s2 --> s3 --> s4 --> s5
-        end
-        pion["Power on the virtual Pi 4B"]
-        subgraph CHECK["Verify · 2.9 min"]
-            direction LR
-            vs["verify-server.yml<br/>every role's checks<br/>(runs alongside)<br/>75 s"]
-            subgraph PI["Virtual Pi"]
-                direction TB
-                boot["DHCP → TFTP → kernel<br/>→ NFS root → SSH<br/>1.8 min"]
-                vp["verify-pi.yml + password login<br/>incl. <b>registered with the fleet</b><br/>70 s"]
-                boot --> vp
-            end
-        end
-        result(["pass / fail<br/>run total ~12.5 min"])
-        setup --> srv --> s1
-        s5 --> pion
-        pion --> boot
-        pion --> vs
-        vp --> result
-        vs --> result
-    end
-
-    trigger --> yl
-    trigger --> al
-    trigger --> key
-    trigger --> setup
-    ghcr -. "podman pull, retried until the image is published" .-> s5
-
+```mermaid
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
+flowchart TB
+    key["Fingerprint every file<br/>that goes into the image"]
+    q1{"Image with this<br/>fingerprint exists?"}
+    q2{"main's image uses<br/>the same RasPiOS?"}
+    reuse["<b>REUSE</b><br/>copy its tags<br/>~15 s"]
+    warm["<b>WARM</b><br/>update main's image<br/>~5 min"]
+    scratch["<b>SCRATCH</b><br/>start from RasPiOS<br/>~9½ min"]
+    ghcr[("GHCR")]
+    key --> q1
+    q1 -- yes --> reuse
+    q1 -- no --> q2
+    q2 -- yes --> warm
+    q2 -- no --> scratch
+    reuse --> ghcr
+    warm --> ghcr
+    scratch --> ghcr
     classDef fast fill:#d8f3dc,stroke:#2d6a4f,color:#1b4332
     classDef mid fill:#fff3bf,stroke:#b08900,color:#5c4400
     classDef slow fill:#ffe3e3,stroke:#c92a2a,color:#7d1a1a
@@ -123,19 +96,39 @@ flowchart TB
     class scratch slow
 ```
 
-**How to read it**
+Most runs reuse an image (green) or update main's (yellow). Both are done
+long before the server needs the image. Starting from RasPiOS (red) happens
+only for a new RasPiOS release and on the schedule, and it is the one path
+where the server waits. [Section 2.3](#23-why-there-are-three-ways-to-produce-it)
+explains why there are three paths.
 
-- **Job 1, the image build.** Most runs reuse an existing image (green) or
-  update main's image (yellow). Both finish long before the server needs
-  the image. A full from-scratch build (red) happens only when a change
-  picks a new RasPiOS release, and on the weekly schedule. It is the one
-  path where the server has to wait for the image.
-- **Job 2, the deploy**, is `site.yml` exactly as it runs on tweed. The
-  image download starts early, in the background, and only the last play
-  needs the image.
-- **The Pi is powered on after the server is fully deployed**, just as real
-  boards are PoE-cycled after a deploy. The server's checks run while the
-  Pi boots, so they add no time.
+### Job 2: the test
+
+```mermaid
+%%{init: {"themeVariables": {"fontSize": "20px"}}}%%
+flowchart TB
+    setup["Job setup<br/>35 s"]
+    srv["Boot a fresh<br/>Debian 13 server VM<br/>18 s"]
+    s1["site.yml: netif,<br/>rename NICs, reboot<br/>33 s"]
+    s2["start pulling the<br/>image in the background<br/>13 s"]
+    s3["server roles<br/>firewall, NFS, DHCP/TFTP …<br/>2½ min"]
+    s4["web.yml<br/>Django, web terminal,<br/>streaming, fleet broker<br/>3 min"]
+    s5["NFS root: unpack<br/>the image, add<br/>the site layer<br/>2 min"]
+    pion(["Power on<br/>the virtual Pi"])
+    boot["Pi netboots<br/>DHCP → TFTP → kernel<br/>→ NFS root<br/>1¾ min"]
+    vp["verify-pi.yml<br/>incl. <b>registered<br/>with the fleet</b><br/>70 s"]
+    vs["verify-server.yml<br/>runs alongside<br/>75 s"]
+    result(["pass / fail<br/>~12½ min in total"])
+    setup --> srv --> s1 --> s2 --> s3 --> s4 --> s5 --> pion
+    pion --> boot --> vp --> result
+    pion --> vs --> result
+```
+
+Everything from `site.yml` to the NFS root is the production playbook, run
+exactly as it runs on tweed, with nothing skipped. The Pi is powered on
+only after the server is fully deployed, just as real boards are
+PoE-cycled after a deploy. The server's checks run while the Pi boots, so
+they add no time.
 
 ---
 
