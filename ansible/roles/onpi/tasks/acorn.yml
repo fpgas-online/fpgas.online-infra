@@ -1,0 +1,25 @@
+---
+# The Acorn boot check, from fpgas.online-test-designs (designs/acorn-pcie/host/acorn_verify.py, packaged by
+# packaging/acorn-pcie/build_debs.py). fpgas-acorn-verify.service runs on every boot and, reading only:
+#   1. classifies the FPGA on PCIe by its IDs (the fpgas.online SoC, SQRL's factory image, the vendor XDMA
+#      sample, or something else), and touches nothing it did not build;
+#   2. reads the SoC's identifier over BAR0, which names the exact build running;
+#   3. compares the flash's golden and operational slots with the images of the release pinned in
+#      test-designs' release.toml (fpgas-online-acorn-bitstreams, which fpgas-online-acorn-tools depends on
+#      at exactly that version).
+# It never writes the flash. The result is in /run/fpgas-online/acorn-verify.json and is published as the
+# fleet-event stage `fpga-verified`; anything but "pass" or "none" also leaves the unit failed. The root is
+# shared by every Pi, and a Pi with no FPGA on PCIe reports "none", so it is installed and enabled on all.
+#
+# state: latest for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
+# package, and the pinned release (the bitstreams version) is exactly what should move when a reviewed
+# test-designs PR moves it. From the fpgas.online apt repo, so onpi includes this with the fpgas-apt tag.
+- name: Install the Acorn boot check and the images it checks against  # noqa: package-latest
+  ansible.builtin.apt:
+    name: fpgas-online-acorn-tools
+    state: latest
+
+- name: Run the Acorn boot check on every boot
+  ansible.builtin.systemd:
+    name: fpgas-acorn-verify.service
+    enabled: true
