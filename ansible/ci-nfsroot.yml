@@ -2,10 +2,12 @@
 # Build the provisioned Pi NFS root on a CI runner (issue #34; design in
 # docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
 #
-# Mirrors site.yml's build path with the same roles in the same order --
-# img + fixpi on the build host, then the Pi roles against the root -- but
-# the "Pi" is reached via the chroot connection plugin (see
-# inventory-ci-nfsroot/hosts; only the inventory differs).
+# Stage 3, the published image: the Pi roles (fixpi on the build host,
+# then fpgas_apt, cam/pi and onpi against the root) applied to the
+# upgraded RasPiOS tree of stages 1 and 2 (ci-nfsroot-base.yml,
+# ci-nfsroot-upgrade.yml) or, for a warm build, to main's last image. The
+# "Pi" is reached via the chroot connection plugin (see
+# inventory-ci-nfsroot/hosts).
 #
 # Run with --skip-tags pipw,keys: the site-specific userconf layer (pi
 # password, per-site authorized_keys/keypairs) is applied by the consuming
@@ -14,37 +16,18 @@
 - hosts: nbp
   become: true
   tasks:
-    # The runners execute armhf natively (AArch32 EL0, spike PR #40), but a
-    # registered qemu-arm binfmt handler SHADOWS native execution and makes
-    # every chroot apt run 4-10x slower — runner images have shipped one
-    # pre-registered (2026-09-03: build ran 40+ min before cancellation,
-    # all ARM tasks uniformly slow). Disable it for this boot.
-    - name: List binfmt handlers (diagnostic for future runner-image drift)
-      command: ls /proc/sys/fs/binfmt_misc
-      register: ci_nfsroot_binfmt
-      changed_when: false
-      failed_when: false  # binfmt_misc not mounted = no handlers = nothing to do
+    - name: Prepare the runner
+      import_tasks: ci-nfsroot-runner.yml
 
-    - name: Show binfmt handlers
-      debug:
-        var: ci_nfsroot_binfmt.stdout_lines
-
-    - name: Disable the qemu-arm binfmt handler (shadows native AArch32)
-      shell: echo -1 > /proc/sys/fs/binfmt_misc/qemu-arm
-      when: "'qemu-arm' in ci_nfsroot_binfmt.stdout_lines"
-
-    # The img role's main path pulls the published image; this playbook is
-    # what PRODUCES that image, so it runs the raspios download/extract
-    # tasks directly.
-    # A warm build (nfsroot_warm, set by nfsroot-build.yml) starts from the
-    # image main last published, already extracted by tests/ci/nfsroot_warm.py;
-    # the roles below converge it to this checkout.
-    - name: Download and extract the RasPiOS base image
-      include_role:
-        name: img
-        tasks_from: build.yml
-      when: not (nfsroot_warm | default(false) | bool)
-      tags: [img]
+    # The tree this playbook converges is already in {{ nfs_root }}: the
+    # upgraded RasPiOS stage (ci-nfsroot-upgrade.yml), or for a warm build
+    # the image main last published. tests/ci/nfsroot_stages.py and
+    # tests/ci/nfsroot_warm.py put it there.
+    - name: Check the root to build on is in place
+      stat:
+        path: "{{ nfs_root }}/root/etc/os-release"
+      register: ci_nfsroot_seed
+      failed_when: not ci_nfsroot_seed.stat.exists
 
     - name: Apply the generic fixpi layer
       include_role:

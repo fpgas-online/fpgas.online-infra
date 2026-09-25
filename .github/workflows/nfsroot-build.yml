@@ -15,14 +15,16 @@ on:
   workflow_dispatch:
     inputs:
       from_scratch:
-        description: "Build from RasPiOS instead of converging main's latest image"
+        description: "Rebuild the RasPiOS stages from the download and build on them, instead of converging main's latest image"
         type: boolean
         default: true
-  # Hourly: a warm build of main (~5 min), so the rolling tag -- what
-  # production pulls -- is never more than an hour behind the package
-  # repositories. Daily: a build from scratch (~10 min), which proves the
-  # clean build still works and drops anything a chain of warm builds has
-  # left behind. SCRATCH_CRON below must match the daily entry.
+  # Hourly: refresh the upgraded RasPiOS stage (tests/ci/nfsroot_stages.py)
+  # and warm-build main (~5 min each), so the rolling tag -- what production
+  # pulls -- is never more than an hour behind the package repositories.
+  # Daily: rebuild both stages from the RasPiOS download and build main's
+  # image on them (~10 min), which proves the clean build still works and
+  # drops anything a chain of warm builds has left behind. SCRATCH_CRON
+  # below must match the daily entry.
   schedule:
     - cron: "47 * * * *"
     - cron: "17 2 * * *"
@@ -33,7 +35,7 @@ on:
         type: string
         default: ""
       from_scratch:
-        description: "Build from RasPiOS instead of converging main's latest image"
+        description: "Build on the upgraded RasPiOS stage instead of converging main's latest image"
         type: boolean
         default: false
     outputs:
@@ -53,7 +55,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The RasPiOS stages the build starts from when it is not a warm build:
+  # nfsroot:base-<key> (the release, unpacked) and nfsroot:upgraded-<key>
+  # (that, fully upgraded). Only the schedules and a from-scratch dispatch
+  # rebuild them; PR and push builds (workflow_call) unpack the published
+  # stage, or build it inline if none exists for their key.
+  stages:
+    if: >-
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && inputs.from_scratch)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up the build
+        uses: ./.github/actions/nfsroot-setup
+
+      - name: Rebuild the RasPiOS stages
+        run: >-
+          uv run tests/ci/nfsroot_stages.py
+          ${{ (github.event.schedule == env.SCRATCH_CRON || github.event_name == 'workflow_dispatch') && 'all' || 'upgraded' }}
+
   build:
+    # After `stages` when it runs (the schedules), at once when it is
+    # skipped (PR and push builds).
+    needs: stages
+    if: ${{ !cancelled() && needs.stages.result != 'failure' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     outputs:
@@ -69,7 +104,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
-      # the build roles, playbook, inventory and tooling, plus the UTC hour)
+      # the build roles, playbooks, inventory and tooling, plus the UTC hour)
       # is retagged instead of rebuilt; the steps below then skip. Every
       # change to an image input gets a fresh build of this checkout.
       - name: Reuse an image built from the same inputs
@@ -78,65 +113,16 @@ jobs:
           NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
         run: python3 tests/ci/nfsroot_publish.py --reuse
 
-      - uses: astral-sh/setup-uv@v5
+      - name: Set up the build
         if: steps.reuse.outputs.reused != 'true'
-        with:
-          python-version: "3.12"
-          enable-cache: true
+        id: setup
+        uses: ./.github/actions/nfsroot-setup
 
-      - name: Cache Ansible collections
-        if: steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v5
-        with:
-          path: ~/.ansible/collections
-          key: ansible-collections-arm-${{ hashFiles('requirements.yml') }}
-
-      - name: Install ansible and collections
-        if: steps.reuse.outputs.reused != 'true'
-        run: |
-          uv sync
-          uv run ansible-galaxy collection install -r requirements.yml
-
-      # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
-      # 524 MB image vs the usual 16 s). Cache the download; the img role's
-      # get_url (force: false) skips it on a hit. Keyed on srv.yml so a new
-      # image release busts the cache. The dir must be runner-writable for
-      # actions/cache's tar restore/save (the download itself runs as root).
-      - name: Prepare image cache dir
-        if: steps.reuse.outputs.reused != 'true'
-        id: cachedirs
-        run: |
-          sudo install -d -o "$(id -un)" /var/cache/pib /var/cache/nfsroot-debs
-          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache the RasPiOS base image
-        if: steps.reuse.outputs.reused != 'true'
-        uses: actions/cache@v5
-        with:
-          path: /var/cache/pib
-          key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
-
-      # apt's downloads from earlier builds (inventory-ci-nfsroot's
-      # nfsroot_build_deb_cache, bind-mounted into the root during the
-      # build and never packed into the image). One entry per UTC day,
-      # seeded from the newest earlier one, so it tracks the archive without
-      # a GB-sized entry (~760 MB) per run crowding out the other caches in
-      # the repo's cache quota. apt checks every deb against the signed
-      # indexes: a stale one is re-downloaded.
-      - name: Restore the build's deb cache
-        if: steps.reuse.outputs.reused != 'true'
-        id: debcache
-        uses: actions/cache/restore@v5
-        with:
-          path: /var/cache/nfsroot-debs
-          key: nfsroot-debs-${{ steps.cachedirs.outputs.day }}
-          restore-keys: nfsroot-debs-
-
-      # PR and push builds converge the image main last published (the roles
-      # are idempotent; their apt runs are then mostly no-ops): ~3 min
-      # instead of ~10. The daily schedule and a dispatch build from
-      # RasPiOS, so the from-scratch path keeps running and a warm chain is
-      # never more than a day old. See tests/ci/nfsroot_warm.py.
+      # PR, push and hourly builds converge the image main last published
+      # (the roles are idempotent; their apt runs are then mostly no-ops).
+      # The daily schedule and a from-scratch dispatch build on the freshly
+      # rebuilt RasPiOS stages instead, so a warm chain is never more than a
+      # day old. See tests/ci/nfsroot_warm.py.
       - name: Start from main's latest image (warm build)
         if: >-
           steps.reuse.outputs.reused != 'true'
@@ -144,6 +130,12 @@ jobs:
           && !inputs.from_scratch
         id: warm
         run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm
+
+      # Not a warm build: start from the upgraded RasPiOS stage for this
+      # checkout's key, building it first if none is published.
+      - name: Start from the upgraded RasPiOS stage
+        if: steps.reuse.outputs.reused != 'true' && steps.warm.outputs.warm != 'true'
+        run: uv run tests/ci/nfsroot_stages.py ensure
 
       - name: Build the NFS root (same roles as site.yml, chroot connection)
         if: steps.reuse.outputs.reused != 'true'
@@ -154,23 +146,22 @@ jobs:
           "$(pwd)/../.venv/bin/ansible-playbook"
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
           --skip-tags pipw,keys
-          -e nfsroot_warm=${{ steps.warm.outputs.warm == 'true' }}
 
       # apt leaves its root-only lock file and partial/ dir in the cache
       # (the save's tar failed on them): keep only the debs, runner-owned.
       - name: Tidy the build's deb cache for saving
-        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.setup.outputs.deb-cache-hit != 'true'
         run: |
           sudo find /var/cache/nfsroot-debs -mindepth 1 -maxdepth 1 ! -name '*.deb' -exec rm -rf {} +
           sudo chown -R "$(id -un)" /var/cache/nfsroot-debs
           du -sh /var/cache/nfsroot-debs
 
       - name: Save the build's deb cache
-        if: steps.reuse.outputs.reused != 'true' && steps.debcache.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reused != 'true' && steps.setup.outputs.deb-cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: /var/cache/nfsroot-debs
-          key: nfsroot-debs-${{ steps.cachedirs.outputs.day }}
+          key: nfsroot-debs-${{ steps.setup.outputs.day }}
 
       - name: Write nfsroot manifest (packages, boot hashes, configs)
         if: steps.reuse.outputs.reused != 'true'
