@@ -2,32 +2,18 @@
 # design in docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
 # Runs the same Ansible roles as site.yml's build path against a chroot on
 # an arm64 runner (native AArch32, spike PR #40), verifies per-model boot
-# material, and pushes ghcr.io/fpgas-online/nfsroot (rolling tag only from
-# main; dated pinnable tag always). Scheduled runs keep main's image current
-# with the package repositories (see `on.schedule`).
+# material, and pushes ghcr.io/fpgas-online/nfsroot (dated and ci-<run_id>
+# tags; never the rolling tag production pulls, see below).
 name: nfsroot build
 
-# No push trigger: every push/PR builds via the VM test workflow, which
-# calls this one and then boots the freshly built image (workflow_call
-# output `image` = the dated tag). The schedules below rebuild main's image
-# between merges, so it picks up new debs from the package repositories.
+# Only ever called by the VM test workflow (vm-test.yml), for pushes, PRs,
+# its schedules and its dispatch: that workflow boots the image this one
+# publishes (workflow_call output `image` = the dated tag) on a virtual Pi,
+# and only then, on main, points the rolling bookworm-armhf tag at it. An
+# image that has not netbooted and registered never becomes what
+# production pulls. `github.event_name` and `github.event.schedule` below
+# are the caller's.
 on:
-  workflow_dispatch:
-    inputs:
-      from_scratch:
-        description: "Rebuild the RasPiOS stages from the download and build on them, instead of converging main's latest image"
-        type: boolean
-        default: true
-  # Hourly: refresh the upgraded RasPiOS stage (tests/ci/nfsroot_stages.py)
-  # and warm-build main (~5 min each), so the rolling tag -- what production
-  # pulls -- is never more than an hour behind the package repositories.
-  # Daily: rebuild both stages from the RasPiOS download and build main's
-  # image on them (~10 min), which proves the clean build still works and
-  # drops anything a chain of warm builds has left behind. SCRATCH_CRON
-  # below must match the daily entry.
-  schedule:
-    - cron: "47 * * * *"
-    - cron: "17 2 * * *"
   workflow_call:
     inputs:
       extra_tag:
@@ -47,19 +33,16 @@ permissions:
   contents: read
   packages: write
 
+# Must match the daily entry of vm-test.yml's schedule (tests check it).
 env:
   SCRATCH_CRON: "17 2 * * *"
-
-concurrency:
-  group: nfsroot-build-${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
 
 jobs:
   # The RasPiOS stages the build starts from when it is not a warm build:
   # nfsroot:base-<key> (the release, unpacked) and nfsroot:upgraded-<key>
   # (that, fully upgraded). Only the schedules and a from-scratch dispatch
-  # rebuild them; PR and push builds (workflow_call) unpack the published
-  # stage, or build it inline if none exists for their key.
+  # rebuild them; PR and push builds unpack the published stage, or build
+  # it inline if none exists for their key.
   stages:
     if: >-
       github.event_name == 'schedule'
@@ -118,8 +101,9 @@ jobs:
         id: setup
         uses: ./.github/actions/nfsroot-setup
 
-      # PR, push and hourly builds converge the image main last published
-      # (the roles are idempotent; their apt runs are then mostly no-ops).
+      # PR, push and hourly builds converge the rolling tag: main's last
+      # image to pass the VM test (the roles are idempotent; their apt runs
+      # are then mostly no-ops).
       # The daily schedule and a from-scratch dispatch build on the freshly
       # rebuilt RasPiOS stages instead, so a warm chain is never more than a
       # day old. See tests/ci/nfsroot_warm.py.
