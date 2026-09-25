@@ -75,7 +75,7 @@ up there.
 
 Setting `apt_cache_upstream_proxy: http://10.99.21.1:3142` sends every fetch
 through ten64's apt-cacher-ng. The http upstreams (raspbian, raspberrypi,
-debian) work. The https ones (fpgasonline, rp1jtag) **fail**: acng reaches an
+debian) work. The https ones (fpgasonline, fpgatools, nfsrootwatchdog) **fail**: acng reaches an
 https backend through a proxy with CONNECT, and ten64's acng refuses it
 (`503 CONNECT denied (ask the admin to allow HTTPS tunnels)`, tested
 2026-09-13). The default is empty, i.e. direct.
