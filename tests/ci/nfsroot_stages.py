@@ -29,7 +29,6 @@ NFSROOT (nfsroot_publish.NFSROOT) is emptied first. Needs sudo, skopeo and
 a `docker login` to ghcr.io, and the repo's uv venv with the collections
 from requirements.yml.
 """
-import os
 import sys
 from pathlib import Path
 
