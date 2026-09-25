@@ -20,6 +20,21 @@
         update_cache: true
         cache_valid_time: 3600
 
+    # The source names the site cache itself, so apt must connect to it
+    # directly. tweed's installer also set Acquire::http::Proxy to the same
+    # cache (http://10.99.21.1:3142/), and apt sends https requests through
+    # that proxy as CONNECT, which apt-cacher-ng refuses (403). Every fetch
+    # still goes through the cache: this only stops it being asked to tunnel
+    # to itself.
+    - name: Let apt reach the site apt cache without proxying through it
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/50site-apt-cache-direct
+        content: |
+          // Managed by Ansible (fpgas.online-infra roles/nfsroot_generation).
+          Acquire::https::Proxy::{{ nfsroot_generation_apt_cache | urlsplit('hostname') }} "DIRECT";
+        mode: '0644'
+      when: nfsroot_generation_apt_cache is match('https://')
+
     - name: Add the nfsroot-watchdog apt repository on the gateway
       ansible.builtin.include_role:
         name: fpgas_apt
