@@ -4,11 +4,13 @@
 # NFS root: every Pi runs the daemon; a Pi without a /dev/ttboard just waits
 # for one, and only an `fpga` board gets the demos synced onto it.
 # tt_boards lives on the build host (the Pi "host" is the CI build's
-# chroot), so read it from the first nbp host's vars.
+# chroot), so read it from the first nbp host's vars when this host has
+# none of its own. The role keeps its copy in onpi_tt_boards rather than
+# setting a tt_boards fact over the inventory variable.
 - name: Tt_boards from the server host
   set_fact:
-    tt_boards: "{{ hostvars[groups['nbp'][0]].tt_boards }}"
-  when: tt_boards is not defined and hostvars[groups['nbp'][0]].tt_boards is defined
+    onpi_tt_boards: "{{ tt_boards if tt_boards is defined else hostvars[groups['nbp'][0]].tt_boards }}"
+  when: tt_boards is defined or hostvars[groups['nbp'][0]].tt_boards is defined
 
 # The daemon + demo debs are generic fleet content, so the CI nfsroot build
 # (issue #34) bakes them with tt_install: true even though it has no
@@ -16,11 +18,12 @@
 # tt_boards and are applied by the consuming server (a service enabled
 # without its tt-boards.yaml would change behaviour on non-TT sites).
 - name: Tiny Tapeout bridge packages (generic)
-  when: tt_install | default(tt_boards is defined)
+  when: tt_install | default(onpi_tt_boards is defined)
   block:
     # Both debs are rolling releases from the fpgas-online apt repo:
     # `latest` so re-running the pi play picks up a newer daemon/demo set.
-    - name: Install fpgas-online-tt + the FPGA demo bitstreams
+    # (noqa: that upgrade on every run is the point, not an accident.)
+    - name: Install fpgas-online-tt + the FPGA demo bitstreams  # noqa: package-latest
       ansible.builtin.apt:
         name:
           - fpgas-online-tt
@@ -36,13 +39,16 @@
         mode: "0755"
 
 - name: Tiny Tapeout site catalogue (when this site has TT boards)
-  when: tt_boards is defined
+  when: onpi_tt_boards is defined
   block:
     - name: Bake tt-boards.yaml into the Pi root
       ansible.builtin.template:
         src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
         dest: /etc/fpgas-online/tt-boards.yaml
         mode: "0644"
+      vars:
+        # the shared ttsite template renders tt_boards
+        tt_boards: "{{ onpi_tt_boards }}"
 
     - name: Enable fpgas-tt.service
       ansible.builtin.systemd:

@@ -12,10 +12,10 @@
 # Copy zprofile to ~/.zprofile
 # Copy tmux.conf to ~/.tmux.conf
 
-- name:
+- name: Copy zsh and tmux dotfiles to the pi user
   copy:
-    src: "files/tmux/{{item}}"
-    dest: "/home/pi/.{{item}}"
+    src: "files/tmux/{{ item }}"
+    dest: "/home/pi/.{{ item }}"
     mode: u+x
   with_items:
     - zshrc

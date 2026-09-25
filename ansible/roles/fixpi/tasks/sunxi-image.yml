@@ -20,16 +20,16 @@
 # pins the content either way).
 - name: Fetch debian-archive-keyring for the armmp kernel source
   get_url:
-    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ sunxi_debian_keyring_deb }}"
-    dest: "{{ nfs_root }}/root/root/{{ sunxi_debian_keyring_deb }}"
-    checksum: "sha256:{{ sunxi_debian_keyring_sha256 }}"
+    url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}/pool/main/d/debian-archive-keyring/{{ fixpi_sunxi_debian_keyring_deb }}"
+    dest: "{{ nfs_root }}/root/root/{{ fixpi_sunxi_debian_keyring_deb }}"
+    checksum: "sha256:{{ fixpi_sunxi_debian_keyring_sha256 }}"
     mode: "0644"
   tags: [sunxi]
 
 - name: Install debian-archive-keyring into the NFS root
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "dpkg -i /root/{{ sunxi_debian_keyring_deb }}"
+    "dpkg -i /root/{{ fixpi_sunxi_debian_keyring_deb }}"
   args:
     creates: "{{ nfs_root }}/root/usr/share/keyrings/debian-archive-keyring.gpg"
   tags: [sunxi]
@@ -54,7 +54,7 @@
 - name: Install the armmp kernel into the NFS root
   command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
-    "apt-get update && apt-get install -y {{ sunxi_kernel_package }}"
+    "apt-get update && apt-get install -y {{ fixpi_sunxi_kernel_package }}"
   args:
     creates: "{{ nfs_root }}/root/boot/vmlinuz-*-armmp"
   tags: [sunxi, sunxi-kernel]
