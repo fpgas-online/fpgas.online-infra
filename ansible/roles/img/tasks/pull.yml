@@ -32,7 +32,7 @@
     - img
 
 - name: Pull the nfsroot image
-  command: podman pull {{ nfsroot_image }}
+  command: podman pull {{ img_nfsroot_image }}
   register: img_pull
   until: img_pull.rc == 0 or not (img_pull.stderr is search(img_pull_retryable))
   retries: "{{ img_pull_retries }}"
@@ -44,7 +44,7 @@
 - name: Read the pulled image digest
   command: >-
     podman image inspect --format {% raw %}{{.Digest}}{% endraw %}
-    {{ nfsroot_image }}
+    {{ img_nfsroot_image }}
   register: img_digest
   changed_when: false
   tags:
@@ -71,7 +71,7 @@
     - img
   block:
     - name: Mount the image
-      command: podman image mount {{ nfsroot_image }}
+      command: podman image mount {{ img_nfsroot_image }}
       register: img_mnt
 
     # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
@@ -96,6 +96,6 @@
         mode: "0644"
   always:
     - name: Unmount the image
-      command: podman image umount {{ nfsroot_image }}
+      command: podman image umount {{ img_nfsroot_image }}
       failed_when: false
       changed_when: false

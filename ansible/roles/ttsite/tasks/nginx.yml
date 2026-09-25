@@ -43,6 +43,8 @@
   when: ttsite_certbot and not ttsite_cert.stat.exists
   register: ttsite_certonly
 
+# Second pass of the two-pass vhost render (noqa: it belongs right after the
+# certificate issues, not deferred to the end of the play as a handler).
 - name: Vhost (https, after the certificate was issued)
   template:
     src: vhost.conf.j2
@@ -50,5 +52,5 @@
     mode: "0644"
   vars:
     ttsite_cert_exists: true
-  when: ttsite_certonly is changed
+  when: ttsite_certonly is changed  # noqa: no-handler
   notify: Reload nginx

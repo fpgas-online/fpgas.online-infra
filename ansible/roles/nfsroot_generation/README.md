@@ -44,7 +44,7 @@ journal and the kernel log.
 - **Converge without rebooting anyone**: `-e nfsroot_generation_bump=never`.
   Boards keep their stale handles until they next reboot for another reason.
 - **Force a fleet reboot**: `-e nfsroot_generation_bump=always`.
-- **Dry run on the boards**: `nfsroot_watchdog_dry_run: true` (roles/onpi).
+- **Dry run on the boards**: `onpi_nfsroot_watchdog_dry_run: true` (roles/onpi).
 - **Hand edits in the chroot**: wrap them so the boards wait and then pick
   them up: `nfsroot-generation run {{ nfs_root }}/root -- chroot ... apt ...`.
 - **Logs**: `journalctl -u nfsroot-watchdog -u nfsroot-watchdog-arm` on the

@@ -1,10 +1,12 @@
 ---
-cache_dir: "/var/cache/pib"
-nfs_root: "/srv/nfs/rpi/{{ dist }}"
+img_cache_dir: "/var/cache/pib"
+# nfs_root is site config shared by img, fixpi, nfs, nspawn-pi, apt-cache,
+# nfsroot-generation and the verify playbooks: it lives in
+# inventory/group_vars/all/srv.yml, not here.
 
 # The prebuilt Pi NFS root image CI publishes (issue #34). Pin a dated
 # tag in host_vars for reproducible rebuilds; the rolling tag tracks main.
-nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf
+img_nfsroot_image: ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
 # Retries for a failed pull (registry hiccups). The VM test raises these:
 # it starts before the image it pulls has been pushed.

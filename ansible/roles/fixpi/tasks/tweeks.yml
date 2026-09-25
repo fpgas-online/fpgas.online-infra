@@ -41,7 +41,7 @@
     state: present
     create: true
     regexp: '^pistat_host='
-    line: "pistat_host={{domain_name}}"
+    line: "pistat_host={{ domain_name }}"
   tags:
     - hostname
     - fixpi
@@ -172,7 +172,7 @@
 - name: Is server pi
   stat:
     path: /boot/firmware/config.txt
-  register: is_pi
+  register: fixpi_is_pi
   tags:
     - ispi
 
@@ -183,7 +183,7 @@
     line: "{{ item }}"
   with_items:
     - dtoverlay=disable-bt
-  when: is_pi.stat.exists
+  when: fixpi_is_pi.stat.exists
   tags:
     - ispi
 

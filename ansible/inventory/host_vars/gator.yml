@@ -26,7 +26,7 @@ subject_alt_names:
 streaming_frontend_aliases: []
 # streaming_frontend_hostname: fpgas.online
 streaming_frontend_hostname: willyou.servebeer.com
-domain_name: "{{ streaming_frontend_hostname}}"
+domain_name: "{{ streaming_frontend_hostname }}"
 letsencrypt_account_email: carl@NextDayVideo.com
 
 # Tim's
@@ -37,7 +37,7 @@ switch:
 
 # pi mac n ports
 nos:
-  - {port: 00, mac: "e4:5f:01:64:76:05", sn: "e897e1d3", cable_color: "thin"}
+  - {port: 0, mac: "e4:5f:01:64:76:05", sn: "e897e1d3", cable_color: "thin"}
   - {port: 34, mac: "b8:27:eb:6d:27:f6", sn: "7a6d27f6", cable_color: "white"}
   - {port: 36, mac: "b8:27:eb:86:39:63", sn: "80863963", cable_color: "blue"}
   - {port: 40, mac: "e4:5f:01:97:1f:7e", sn: "613a4524", cable_color: "gray"}

@@ -66,7 +66,7 @@ switch:
 
     # pi for maintenance.sh
     mpi_port: 3
-    mpi_ip: "{{ pib_network }}.{{ 100+3 }}"
+    mpi_ip: "{{ pib_network }}.{{ 100 + 3 }}"
     # mpi_ip: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
 
     nos:

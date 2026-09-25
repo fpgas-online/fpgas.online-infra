@@ -9,37 +9,37 @@
 - name: Restore the root's update-initramfs.conf
   ansible.builtin.command:
     cmd: >-
-      mv {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
-         {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf
-    removes: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
+      mv {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
+         {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf
+    removes: "{{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
 
 - name: Prune kernels and refresh initramfs images in the NFS root
   ansible.builtin.include_tasks: kernels.yml
 
 - name: Unmount chroot bind mounts
   shell: |
-    umount "{{ nspawn_root }}/dev/pts" 2>/dev/null || true
-    umount "{{ nspawn_root }}/dev" 2>/dev/null || true
-    umount "{{ nspawn_root }}/sys" 2>/dev/null || true
-    umount "{{ nspawn_root }}/proc" 2>/dev/null || true
-    if mountpoint -q "{{ nspawn_root }}/var/cache/apt/archives"; then
-      umount "{{ nspawn_root }}/var/cache/apt/archives"
+    umount "{{ nspawn_pi_root }}/dev/pts" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/dev" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/sys" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/proc" 2>/dev/null || true
+    if mountpoint -q "{{ nspawn_pi_root }}/var/cache/apt/archives"; then
+      umount "{{ nspawn_pi_root }}/var/cache/apt/archives"
     fi
   changed_when: false
 
 - name: Remove policy-rc.d
   file:
-    path: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
+    path: "{{ nspawn_pi_root }}/usr/sbin/policy-rc.d"
     state: absent
 
 - name: Resume man-db's index rebuilds
   ansible.builtin.command:
     cmd: >-
-      mv {{ nspawn_root }}/var/lib/man-db/auto-update.fpgas-build
-         {{ nspawn_root }}/var/lib/man-db/auto-update
-    removes: "{{ nspawn_root }}/var/lib/man-db/auto-update.fpgas-build"
+      mv {{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build
+         {{ nspawn_pi_root }}/var/lib/man-db/auto-update
+    removes: "{{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build"
 
 - name: Remove the build-time dpkg unsafe-io setting
   file:
-    path: "{{ nspawn_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    path: "{{ nspawn_pi_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
     state: absent
