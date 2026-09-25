@@ -21,7 +21,9 @@ inventory (hosts, group_vars, host_vars), and roles.
 runs `ansible/ci-nfsroot.yml` — the RasPiOS download/extract plus the
 Pi-targeted roles over a `community.general.chroot` connection — and publishes
 the provisioned root as a public OCI image at `ghcr.io/fpgas-online/nfsroot`
-(rolling `bookworm-armhf` from main, dated pinnable tags always). The server
+(dated pinnable tags always; the rolling `bookworm-armhf` that production
+pulls is moved only by `vm-test.yml`'s promote job, on main, after the
+virtual Pi has netbooted that image and registered). The server
 runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
 image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
 `fixpi` applies the site layer (pi password, ssh host keys, controller
@@ -45,9 +47,10 @@ from other repos:
 
 ### Deployment Flow
 
-1. CI publishes the provisioned NFS root image (every PR/merge via the VM
-   test workflow's `nfsroot` job, plus an hourly warm and a daily
-   from-scratch scheduled build)
+1. CI publishes the provisioned NFS root image (every PR/merge, plus an
+   hourly warm and a daily from-scratch scheduled build, all through the
+   VM test workflow), and on main promotes it to `bookworm-armhf` once the
+   virtual Pi has booted it
 2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
    the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
@@ -133,7 +136,8 @@ and otherwise converges main's latest image (~5 min); the daily scheduled
 build starts from RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
-push to `main` and on PRs. Serial logs are uploaded as an artifact on every run
+push to `main`, on PRs, and on the hourly and daily image-build schedules
+(`nfsroot-build.yml` has no triggers of its own). Serial logs are uploaded as an artifact on every run
 (including failures) for post-mortem debugging.
 
 As rpi-qemu increases emulation fidelity (virtual camera, virtual USB hub, etc.),
