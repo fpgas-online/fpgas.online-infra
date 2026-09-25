@@ -23,7 +23,7 @@
   # is exactly what shipped, and left a 10 min DVR window writing into a
   # 3.9 GB RAM disk. findmnt --mountpoint answers for the path itself.
   ansible.builtin.command: findmnt --noheadings --output FSTYPE --mountpoint {{ streaming.data_root }}/hls
-  register: hls_mount
+  register: stream_server_hls_mount
   changed_when: false
   failed_when: false
   check_mode: false
@@ -36,7 +36,7 @@
   # detached tmpfs finish harmlessly and it is freed when they close.
   # Only ever a tmpfs: never detach a real filesystem someone mounted here.
   ansible.builtin.command: umount --lazy {{ streaming.data_root }}/hls
-  when: hls_mount.stdout | trim == "tmpfs"
+  when: stream_server_hls_mount.stdout | trim == "tmpfs"
   changed_when: true
   tags:
     - streaming

@@ -15,22 +15,22 @@
 
 - name: Create pib cache dir
   file:
-    path: "{{ cache_dir }}"
+    path: "{{ img_cache_dir }}"
     state: directory
 
 - name: Download pi sd card img file
   get_url:
     url: "{{ img_host }}/{{ img_path }}/{{ zip_name }}"
-    dest: "{{ cache_dir }}"
+    dest: "{{ img_cache_dir }}"
     force: false
-  # creates: "{{ cache_dir }}/{{ zip_name }}"
+  # creates: "{{ img_cache_dir }}/{{ zip_name }}"
   tags:
     - img
 
 - name: Extract files from raspios.img.xz
   script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
   args:
-    chdir: "{{ cache_dir }}"
+    chdir: "{{ img_cache_dir }}"
     creates: "{{ nfs_root }}/root/home"
   tags:
     - img
