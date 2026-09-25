@@ -14,17 +14,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+
+      - name: Install uv
+        # Pinned to a specific tag because astral-sh/setup-uv only
+        # publishes floating major tags up to v7; v8 has no major ref.
+        uses: astral-sh/setup-uv@v8.1.0
+
+      # ansible-lint and yamllint are pinned in pyproject.toml's dev group
+      # (uv.lock), so CI and `uv run ansible-lint` locally report the same
+      # violations; bump them deliberately.
       - name: Install linters
-        run: pip install ansible-lint yamllint
+        run: uv sync
+
+      # Same cache as the VM test. Without the pinned collections
+      # ansible-lint fails syntax-check on ansible.posix modules and silently
+      # skips linting those playbooks.
+      - name: Cache Ansible collections
+        uses: actions/cache@v5
+        with:
+          path: ~/.ansible/collections
+          key: ansible-collections-${{ hashFiles('requirements.yml') }}
+
+      - name: Install Ansible collections
+        run: uv run ansible-galaxy collection install -r requirements.yml
+
       - name: Run yamllint
-        run: yamllint -c .yamllint.yml ansible/
+        run: uv run yamllint -c .yamllint.yml ansible/
+
+      # Blocking: the tree is lint-clean, keep it that way. Fix the
+      # violation; use a scoped `# noqa: <rule>` with a reason only when
+      # the flagged construct is deliberate.
       - name: Run ansible-lint
-        continue-on-error: true
         working-directory: ansible
-        run: ansible-lint
+        run: uv run ansible-lint
 
   # The harness and CI tooling's unit tests (tests/test_*.py), e.g. the
   # guard that the image's inputs key covers every file the build reads.
