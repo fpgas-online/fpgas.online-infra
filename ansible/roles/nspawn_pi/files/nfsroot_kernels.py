@@ -37,7 +37,7 @@ What is never removed
   name or a date, so pruning cannot move the fleet onto a different kernel.
 * The newest kernel of each flavour -- what the next ``netboot`` payload sync
   would publish.
-* Anything matching ``--keep`` (inventory: ``nfsroot_kernel_keep``).
+* Anything matching ``--keep`` (inventory: ``nspawn_pi_kernel_keep``).
 * Module directories themselves.  Only dpkg-installed kernel *packages* are
   purged; leftover trees such as the 6.6.31 husks (index files only, the
   modules already gone) are left exactly where they are.
@@ -408,7 +408,7 @@ def cmd_prune(args: argparse.Namespace) -> int:
             + str(len(plan["installed"]))
             + " kernels rather than guessing.  Publish a payload with the "
             "`netboot` tag (a separate, deliberate change to what the fleet "
-            "boots), or name the kernels to keep in nfsroot_kernel_keep.",
+            "boots), or name the kernels to keep in nspawn_pi_kernel_keep.",
             file=sys.stderr,
         )
         return 0
@@ -515,7 +515,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             f"{len(trees)} kernel module trees exceed the limit of "
             f"{args.max_trees}: {' '.join(trees)}.  Every one of them is a "
             "full initramfs build under qemu emulation whenever anything "
-            "triggers a rebuild -- prune, or raise nfsroot_max_kernel_trees "
+            "triggers a rebuild -- prune, or raise nspawn_pi_max_kernel_trees "
             "deliberately."
         )
 

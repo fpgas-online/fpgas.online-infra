@@ -13,17 +13,17 @@
 
 - name: Mount filesystems for chroot
   ansible.builtin.shell: |
-    mountpoint -q "{{ nspawn_root }}/proc" || mount --bind /proc "{{ nspawn_root }}/proc"
-    mountpoint -q "{{ nspawn_root }}/sys" || mount --bind /sys "{{ nspawn_root }}/sys"
-    mountpoint -q "{{ nspawn_root }}/dev" || mount --bind /dev "{{ nspawn_root }}/dev"
-    mountpoint -q "{{ nspawn_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_root }}/dev/pts"
+    mountpoint -q "{{ nspawn_pi_root }}/proc" || mount --bind /proc "{{ nspawn_pi_root }}/proc"
+    mountpoint -q "{{ nspawn_pi_root }}/sys" || mount --bind /sys "{{ nspawn_pi_root }}/sys"
+    mountpoint -q "{{ nspawn_pi_root }}/dev" || mount --bind /dev "{{ nspawn_pi_root }}/dev"
+    mountpoint -q "{{ nspawn_pi_root }}/dev/pts" || mount --bind /dev/pts "{{ nspawn_pi_root }}/dev/pts"
   changed_when: false
 
 # The root is packed into an image and discarded if the build fails, so
 # dpkg's per-file fsyncs buy nothing here; stop.yml removes this again.
 - name: Let dpkg skip fsync during the build
   ansible.builtin.copy:
-    dest: "{{ nspawn_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    dest: "{{ nspawn_pi_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
     content: |
       force-unsafe-io
     mode: "0644"
@@ -44,12 +44,12 @@
       loop:
         - "{{ nfsroot_build_deb_cache }}"
         - "{{ nfsroot_build_deb_cache }}/partial"
-        - "{{ nspawn_root }}/var/cache/apt/archives"
+        - "{{ nspawn_pi_root }}/var/cache/apt/archives"
 
     - name: Bind-mount the build's deb cache over the root's archives
       ansible.builtin.shell: |
-        mountpoint -q "{{ nspawn_root }}/var/cache/apt/archives" \
-          || mount --bind "{{ nfsroot_build_deb_cache }}" "{{ nspawn_root }}/var/cache/apt/archives"
+        mountpoint -q "{{ nspawn_pi_root }}/var/cache/apt/archives" \
+          || mount --bind "{{ nfsroot_build_deb_cache }}" "{{ nspawn_pi_root }}/var/cache/apt/archives"
       changed_when: false
 
 # man-db rebuilds its index on every apt run that touches a man page
@@ -58,13 +58,13 @@
 - name: Pause man-db's index rebuilds during the build
   ansible.builtin.command:
     cmd: >-
-      mv {{ nspawn_root }}/var/lib/man-db/auto-update
-         {{ nspawn_root }}/var/lib/man-db/auto-update.fpgas-build
-    removes: "{{ nspawn_root }}/var/lib/man-db/auto-update"
+      mv {{ nspawn_pi_root }}/var/lib/man-db/auto-update
+         {{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build
+    removes: "{{ nspawn_pi_root }}/var/lib/man-db/auto-update"
 
 - name: Install policy-rc.d to suppress service starts during apt
   ansible.builtin.copy:
-    dest: "{{ nspawn_root }}/usr/sbin/policy-rc.d"
+    dest: "{{ nspawn_pi_root }}/usr/sbin/policy-rc.d"
     content: |
       #!/bin/sh
       exit 101
@@ -86,21 +86,21 @@
 # rebuilt once at the end of the session, by exactly the versions that need it
 # (nspawn_pi/tasks/kernels.yml).
 - name: Suppress blanket initramfs regeneration during the chroot apt runs
-  when: nfsroot_suppress_initramfs | default(true)
+  when: nspawn_pi_suppress_initramfs | default(true)
   block:
     # Stashed rather than rewritten from a template so stop.yml can put back
     # the distro's own bytes, whatever they are.
     - name: Stash the root's update-initramfs.conf
       ansible.builtin.command:
         cmd: >-
-          mv {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf
-             {{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
-        removes: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf"
-        creates: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
+          mv {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf
+             {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
+        removes: "{{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf"
+        creates: "{{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
 
     - name: Write the build-time update-initramfs.conf
       ansible.builtin.copy:
-        dest: "{{ nspawn_root }}/etc/initramfs-tools/update-initramfs.conf"
+        dest: "{{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf"
         content: |
           # Written by fpgas.online-infra roles/nspawn_pi/tasks/chroot-prep.yml
           # for the duration of a chroot provisioning session; stop.yml restores
@@ -129,5 +129,5 @@
       /usr/local/sbin/nfsroot-kernels
       --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
       protect
-  register: nspawn_kernel_protect
-  changed_when: "'set to manually installed' in nspawn_kernel_protect.stdout"
+  register: nspawn_pi_kernel_protect_result
+  changed_when: "'set to manually installed' in nspawn_pi_kernel_protect_result.stdout"

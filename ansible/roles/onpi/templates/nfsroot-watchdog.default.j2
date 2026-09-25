@@ -2,10 +2,10 @@
 #
 # fpgas.online settings for nfsroot-watchdog; the package's own copy of this
 # file documents every setting and its default. Read once per boot.
-PROBES="{{ nfsroot_watchdog_probes | join(' ') }}"
-SLOT_SED='{{ nfsroot_watchdog_slot_sed }}'
-SLOT_STRIDE={{ nfsroot_watchdog_slot_stride }}
-SLOT_BASE={{ nfsroot_watchdog_slot_base }}
-SLOTS={{ nfsroot_watchdog_slots }}
-SPACING={{ nfsroot_watchdog_spacing }}
-DRY_RUN={{ nfsroot_watchdog_dry_run | bool | ternary(1, 0) }}
+PROBES="{{ onpi_nfsroot_watchdog_probes | join(' ') }}"
+SLOT_SED='{{ onpi_nfsroot_watchdog_slot_sed }}'
+SLOT_STRIDE={{ onpi_nfsroot_watchdog_slot_stride }}
+SLOT_BASE={{ onpi_nfsroot_watchdog_slot_base }}
+SLOTS={{ onpi_nfsroot_watchdog_slots }}
+SPACING={{ onpi_nfsroot_watchdog_spacing }}
+DRY_RUN={{ onpi_nfsroot_watchdog_dry_run | bool | ternary(1, 0) }}

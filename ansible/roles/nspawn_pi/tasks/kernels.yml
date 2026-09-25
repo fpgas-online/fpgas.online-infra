@@ -30,18 +30,18 @@
     cmd: >-
       /usr/local/sbin/nfsroot-kernels
       --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
-      {{ nfsroot_kernel_keep | map('regex_replace', '^', '--keep=') | join(' ') }}
-      prune {{ '--dry-run' if nfsroot_kernel_prune_dry_run else '' }}
-  register: nspawn_kernel_prune
-  changed_when: "'purged' in nspawn_kernel_prune.stdout"
-  when: nfsroot_kernel_prune | default(true)
+      {{ nspawn_pi_kernel_keep | map('regex_replace', '^', '--keep=') | join(' ') }}
+      prune {{ '--dry-run' if nspawn_pi_kernel_prune_dry_run else '' }}
+  register: nspawn_pi_kernel_prune_result
+  changed_when: "'purged' in nspawn_pi_kernel_prune_result.stdout"
+  when: nspawn_pi_kernel_prune | default(true)
 
 # The prune prints what it keeps and what it took out; surface it, because
 # "which kernels does this root have and why" is the first question anyone
 # debugging a boot failure asks.
 - name: Report the NFS root kernel set
   ansible.builtin.debug:
-    msg: "{{ nspawn_kernel_prune.stdout_lines | default([]) }}"
+    msg: "{{ nspawn_pi_kernel_prune_result.stdout_lines | default([]) }}"
 
 # Only the images whose inputs changed, and only once -- as opposed to the
 # `update-initramfs -u` a package trigger runs, which rebuilds every installed
@@ -52,13 +52,13 @@
       /usr/local/sbin/nfsroot-kernels
       --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
       refresh-initramfs
-  register: nspawn_kernel_initramfs
-  changed_when: "'rebuilt' in nspawn_kernel_initramfs.stdout"
+  register: nspawn_pi_kernel_initramfs_result
+  changed_when: "'rebuilt' in nspawn_pi_kernel_initramfs_result.stdout"
 
 - name: Assert the NFS root kernel set has not drifted back
   ansible.builtin.command:
     cmd: >-
       /usr/local/sbin/nfsroot-kernels
       --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
-      check --max-trees {{ nfsroot_max_kernel_trees }}
+      check --max-trees {{ nspawn_pi_max_kernel_trees }}
   changed_when: false

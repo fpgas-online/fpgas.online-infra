@@ -7,6 +7,6 @@
   ansible.builtin.include_tasks: repo.yml
   vars:
     repo_name: nfsroot-watchdog
-    repo_url: "{{ nfsroot_watchdog_apt_url }}"
-    repo_suite: "{{ nfsroot_watchdog_apt_suite }}"
-    repo_key_fingerprint: "{{ nfsroot_watchdog_apt_key_fingerprint }}"
+    repo_url: "{{ fpgas_apt_nfsroot_watchdog_url }}"
+    repo_suite: "{{ fpgas_apt_nfsroot_watchdog_suite }}"
+    repo_key_fingerprint: "{{ fpgas_apt_nfsroot_watchdog_key_fingerprint }}"

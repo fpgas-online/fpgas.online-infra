@@ -1,22 +1,22 @@
 ---
-nspawn_sshd_port: 2200
-nspawn_root: "{{ nfs_root }}/root"
+nspawn_pi_sshd_port: 2200
+nspawn_pi_root: "{{ nfs_root }}/root"
 
 # Blanket `update-initramfs -u` rebuilds are suppressed while the chroot apt
 # runs happen; see tasks/chroot-prep.yml.  Only set false to reproduce the
 # old (very slow) behaviour when debugging initramfs content.
-nfsroot_suppress_initramfs: true
+nspawn_pi_suppress_initramfs: true
 
 # Purge kernel packages that are neither what the TFTP payload serves nor the
-# newest of their flavour (tasks/kernels.yml).  nfsroot_kernel_keep is a list
+# newest of their flavour (tasks/kernels.yml).  nspawn_pi_kernel_keep is a list
 # of version globs that are kept regardless, e.g. ["6.6.31+rpt-rpi-*"].
-nfsroot_kernel_prune: true
-nfsroot_kernel_prune_dry_run: false
-nfsroot_kernel_keep: []
+nspawn_pi_kernel_prune: true
+nspawn_pi_kernel_prune_dry_run: false
+nspawn_pi_kernel_keep: []
 
 # Upper bound on populated kernel module trees in the root.  Each one is a
 # full initramfs build under qemu emulation whenever anything triggers a
 # rebuild, so unbounded growth is what made a tweed rebuild take 1 h 53 m.
 # The steady-state set is at most two versions (served + newest) for each of
 # v6/v7/v7l/v8 and armmp; the run fails above this so drift cannot go quiet.
-nfsroot_max_kernel_trees: 10
+nspawn_pi_max_kernel_trees: 10

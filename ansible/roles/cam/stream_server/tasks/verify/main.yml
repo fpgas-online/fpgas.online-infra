@@ -2,11 +2,11 @@
 - name: Check nginx modules-enabled directory exists
   stat:
     path: /etc/nginx/modules-enabled
-  register: cam_nginx_modules_stat
+  register: stream_server_nginx_modules_stat
 
 - name: Assert nginx modules-enabled directory exists
   assert:
-    that: cam_nginx_modules_stat.stat.exists and cam_nginx_modules_stat.stat.isdir
+    that: stream_server_nginx_modules_stat.stat.exists and stream_server_nginx_modules_stat.stat.isdir
     fail_msg: "/etc/nginx/modules-enabled directory not found"
 
 # The DVR window is sized for disk, not RAM: 10 min of fragments is ~300 MB
@@ -15,25 +15,25 @@
 # tmpfs and so could never fire. Assert the outcome, not the mechanism.
 - name: Check what filesystem the hls directory is on
   ansible.builtin.command: findmnt --noheadings --output FSTYPE --target {{ streaming.data_root }}/hls
-  register: cam_hls_fstype
+  register: stream_server_hls_fstype
   changed_when: false
   check_mode: false
 
 - name: Assert the hls DVR directory is not a tmpfs
   assert:
-    that: cam_hls_fstype.stdout | trim != "tmpfs"
+    that: stream_server_hls_fstype.stdout | trim != "tmpfs"
     fail_msg: >-
       {{ streaming.data_root }}/hls is on tmpfs
-      ({{ cam_hls_fstype.stdout | trim }}): the HLS DVR window would fill RAM.
+      ({{ stream_server_hls_fstype.stdout | trim }}): the HLS DVR window would fill RAM.
 
 - name: Check the hls fragment directory exists on that filesystem
   stat:
     path: "{{ streaming.data_root }}/hls/source"
-  register: cam_hls_source_stat
+  register: stream_server_hls_source_stat
 
 - name: Assert the hls fragment directory exists
   assert:
-    that: cam_hls_source_stat.stat.exists and cam_hls_source_stat.stat.isdir
+    that: stream_server_hls_source_stat.stat.exists and stream_server_hls_source_stat.stat.isdir
     fail_msg: >-
       {{ streaming.data_root }}/hls/source is missing - nginx-rtmp has nowhere
       to write fragments (created inside the tmpfs before it was unmounted?).

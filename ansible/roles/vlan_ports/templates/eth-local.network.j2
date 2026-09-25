@@ -18,7 +18,7 @@ MTUBytes=1504
 
 [Network]
 Description=FPGA per-port VLAN trunk (untagged = VLAN 1 quarantine)
-{% for e in port_map %}
+{% for e in vlan_ports_port_map %}
 VLAN={{ e.iface }}
 {% endfor %}
 

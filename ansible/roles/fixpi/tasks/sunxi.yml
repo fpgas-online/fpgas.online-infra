@@ -50,7 +50,7 @@
     src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
     dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
     mode: "0644"
-  loop: "{{ sunxi_dtbs }}"
+  loop: "{{ fixpi_sunxi_dtbs }}"
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 
@@ -68,7 +68,7 @@
   shell: |
     set -e
     changed=0
-    for node in {{ sunxi_i2c_nodes | join(' ') }}; do
+    for node in {{ fixpi_sunxi_i2c_nodes | join(' ') }}; do
       if [ "$(fdtget '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status)" != okay ]; then
         fdtput -t s '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status okay
         changed=1
@@ -77,7 +77,7 @@
     echo "changed=$changed"
   register: fixpi_sunxi_i2c
   changed_when: "'changed=1' in fixpi_sunxi_i2c.stdout"
-  loop: "{{ sunxi_dtbs }}"
+  loop: "{{ fixpi_sunxi_dtbs }}"
   when: fixpi_sunxi_vmlinuz.matched > 0
   tags: [sunxi]
 

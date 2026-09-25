@@ -16,31 +16,31 @@
     mode: "0755"
   loop:
     - /etc/mediamtx
-    - "/opt/mediamtx/v{{ mediamtx_version }}"
+    - "/opt/mediamtx/v{{ webrtc_mediamtx_version }}"
   tags:
     - streaming
 
 - name: Download mediamtx release tarball
   ansible.builtin.get_url:
-    url: "{{ mediamtx_url }}"
-    dest: "/opt/mediamtx/{{ mediamtx_tarball }}"
-    checksum: "sha256:{{ mediamtx_checksums[ansible_architecture] }}"
+    url: "{{ webrtc_mediamtx_url }}"
+    dest: "/opt/mediamtx/{{ webrtc_mediamtx_tarball }}"
+    checksum: "sha256:{{ webrtc_mediamtx_checksums[ansible_architecture] }}"
     mode: "0644"
   tags:
     - streaming
 
 - name: Unpack mediamtx
   ansible.builtin.unarchive:
-    src: "/opt/mediamtx/{{ mediamtx_tarball }}"
-    dest: "/opt/mediamtx/v{{ mediamtx_version }}"
+    src: "/opt/mediamtx/{{ webrtc_mediamtx_tarball }}"
+    dest: "/opt/mediamtx/v{{ webrtc_mediamtx_version }}"
     remote_src: true
-    creates: "/opt/mediamtx/v{{ mediamtx_version }}/mediamtx"
+    creates: "/opt/mediamtx/v{{ webrtc_mediamtx_version }}/mediamtx"
   tags:
     - streaming
 
 - name: Install mediamtx binary
   ansible.builtin.copy:
-    src: "/opt/mediamtx/v{{ mediamtx_version }}/mediamtx"
+    src: "/opt/mediamtx/v{{ webrtc_mediamtx_version }}/mediamtx"
     dest: /usr/local/bin/mediamtx
     remote_src: true
     mode: "0755"
