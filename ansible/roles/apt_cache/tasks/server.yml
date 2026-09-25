@@ -25,6 +25,13 @@
     label: "{{ item.name }}"
   notify: Restart apt-cacher-ng (apt-cache)
 
+- name: Remove the backends of retired remaps
+  ansible.builtin.file:
+    path: "/etc/apt-cacher-ng/backends_{{ item }}"
+    state: absent
+  loop: "{{ apt_cache_retired_remaps }}"
+  notify: Restart apt-cacher-ng (apt-cache)
+
 - name: Enable and start apt-cacher-ng
   ansible.builtin.systemd_service:
     name: apt-cacher-ng

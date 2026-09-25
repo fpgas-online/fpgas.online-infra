@@ -1,0 +1,86 @@
+---
+# Stage 2 of the CI Pi root build: the stage-1 RasPiOS tree (already in
+# {{ nfs_root }}, see ci-nfsroot-base.yml) with every package it ships
+# upgraded, and nothing of ours added. tests/ci/nfsroot_stages.py publishes
+# it as ghcr.io/fpgas-online/nfsroot:upgraded-<upgraded_key>, and the final
+# build (ci-nfsroot.yml) starts from it instead of from the release image,
+# whose packages are more than a year behind the archive: its upgrade was
+# the largest single task of every from-scratch build.
+#
+# The upgrade is the one the Pi roles run anyway (cam/pi and onpi:
+# `apt: upgrade: true, update_cache: true`), so a root built on this stage
+# is the root they would have produced from the release image.
+#
+# Refreshed hourly (nfsroot-build.yml's schedule) and rebuilt with the base
+# daily; a PR build rebuilds it only when no image exists for its key.
+
+- hosts: nbp
+  become: true
+  tasks:
+    - name: Prepare the runner
+      import_tasks: ci-nfsroot-runner.yml
+
+    - name: Check the RasPiOS tree is in place (stage 1)
+      stat:
+        path: "{{ nfs_root }}/root/etc/os-release"
+      register: ci_nfsroot_upgrade_os
+      failed_when: not ci_nfsroot_upgrade_os.stat.exists
+
+    # Same source as fixpi/netboot.yml's copy for the final build: never
+    # the systemd-resolved stub, which is unreachable from the chroot.
+    - name: Check for systemd-resolved's upstream resolv.conf
+      stat:
+        path: /run/systemd/resolve/resolv.conf
+      register: ci_nfsroot_upgrade_resolved
+
+    - name: Give the chroot the runner's DNS for apt
+      copy:
+        remote_src: true
+        src: "{{ '/run/systemd/resolve/resolv.conf' if ci_nfsroot_upgrade_resolved.stat.exists else '/etc/resolv.conf' }}"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        follow: true
+        mode: "0644"
+
+    - name: Prepare the NFS root chroot for apt
+      include_role:
+        name: nspawn_pi
+        tasks_from: chroot-prep.yml
+
+- hosts: pi
+  tasks:
+    - name: Upgrade every package the RasPiOS release ships
+      apt:
+        upgrade: true
+        update_cache: true
+
+- hosts: nbp
+  become: true
+  tasks:
+    # As in ci-nfsroot.yml: sync the upgraded kernel payload into boot/
+    # first, so the kernel pruner keeps what the Pis will boot, then finish
+    # the chroot session (initramfs refresh, prune, unmount, policy-rc.d),
+    # then sync again to pick up the refreshed initramfs images.
+    - name: Sync the upgraded kernel payload before pruning
+      command: >-
+        rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+
+    - name: Finish the chroot session (kernels, mounts, policy-rc.d)
+      include_role:
+        name: nspawn_pi
+        tasks_from: stop.yml
+
+    - name: Re-sync kernel+initramfs+DTB payload after the kernel maintenance
+      command: >-
+        rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+
+    # The published stage carries no build-host DNS (the final build copies
+    # the runner's in again for its own apt runs, then neutralizes it).
+    - name: Neutralize build-host resolv.conf in the stage
+      copy:
+        content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        mode: "0644"

@@ -51,16 +51,55 @@ def covered(rel: str) -> bool:
     return any(rel == p or rel.startswith(p.rstrip("/") + "/") for p in nfsroot_inputs.INPUTS)
 
 
+BUILD_PLAYBOOKS = ["ci-nfsroot-base.yml", "ci-nfsroot-upgrade.yml", "ci-nfsroot.yml"]
+
+
+def build_closure(playbooks=BUILD_PLAYBOOKS):
+    roles = set()
+    for name in playbooks:
+        roles |= playbook_roles(REPO / "ansible" / name)
+    return role_closure(roles)
+
+
+def covered_by(rel: str, paths: list[str]) -> bool:
+    return any(rel == p or rel.startswith(p.rstrip("/") + "/") for p in paths)
+
+
 def test_every_build_role_is_an_input():
-    roles, _ = role_closure(playbook_roles(REPO / "ansible" / "ci-nfsroot.yml"))
+    roles, _ = build_closure()
     missing = sorted(r for r in roles if not covered(f"ansible/roles/{r}"))
     assert not missing, f"roles the image build runs but nfsroot_inputs.INPUTS omits: {missing}"
 
 
 def test_every_cross_role_file_is_an_input():
-    _, files = role_closure(playbook_roles(REPO / "ansible" / "ci-nfsroot.yml"))
+    _, files = build_closure()
     missing = sorted(f for f in files if not covered(f))
     assert not missing, f"files the build roles read from other roles, not in INPUTS: {missing}"
+
+
+def test_every_build_playbook_and_task_file_is_an_input():
+    for name in BUILD_PLAYBOOKS + ["ci-nfsroot-runner.yml"]:
+        assert covered(f"ansible/{name}"), f"ansible/{name} is not in INPUTS"
+
+
+def test_the_upgraded_stage_key_covers_its_roles():
+    """A change to a role the upgrade stage runs must give it a new key."""
+    roles, files = build_closure(["ci-nfsroot-upgrade.yml"])
+    missing = sorted(r for r in roles
+                     if not covered_by(f"ansible/roles/{r}", nfsroot_inputs.UPGRADE_INPUTS))
+    missing += sorted(f for f in files if not covered_by(f, nfsroot_inputs.UPGRADE_INPUTS))
+    assert not missing, f"the upgrade stage reads these, UPGRADE_INPUTS omits them: {missing}"
+
+
+def test_the_base_stage_key_covers_its_playbook():
+    for name in ("ansible/ci-nfsroot-base.yml", "ansible/ci-nfsroot-runner.yml"):
+        assert name in nfsroot_inputs.BASE_FILES
+
+
+def test_upgraded_key_follows_the_base(monkeypatch):
+    before = nfsroot_inputs.upgraded_key()
+    monkeypatch.setattr(nfsroot_inputs, "base_key", lambda: "0" * 20)
+    assert nfsroot_inputs.upgraded_key() != before
 
 
 def test_inputs_exist():

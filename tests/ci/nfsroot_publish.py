@@ -165,9 +165,13 @@ def put_blob(layout: Path, data: bytes) -> tuple[str, int]:
     return f"sha256:{digest}", len(data)
 
 
-def build() -> int:
-    dated, inputs, others = tags()
+def push_tree(tags_: list[str], labels: dict[str, str], heading: str) -> list[str]:
+    """Pack NFSROOT's boot/ and root/ as one zstd layer and push it to tags_.
 
+    The layer is uploaded once; every further tag is a manifest-only copy,
+    pushed in the order given (put the tag other runs look up last, so they
+    never see a half-published set). Returns the tags pushed.
+    """
     with tempfile.TemporaryDirectory(dir=os.environ.get("RUNNER_TEMP")) as tmp:
         layout = Path(tmp) / "oci"
         layer, diff_id, layer_size, raw_size = pack_layer(layout)
@@ -175,9 +179,7 @@ def build() -> int:
             # What `docker import` on the arm64 build runner recorded.
             "architecture": "arm64",
             "os": "linux",
-            # Which RasPiOS base the image descends from (nfsroot_warm.py
-            # converges only an image with this checkout's base key).
-            "config": {"Labels": {nfsroot_inputs.BASE_LABEL: nfsroot_inputs.base_key()}},
+            "config": {"Labels": labels},
             "rootfs": {"type": "layers", "diff_ids": [diff_id]},
         }).encode())
         manifest, manifest_size = put_blob(layout, json.dumps({
@@ -195,26 +197,34 @@ def build() -> int:
                            "digest": manifest, "size": manifest_size,
                            "annotations": {"org.opencontainers.image.ref.name": "nfsroot"}}],
         }))
-        # skopeo reads the `docker login` credentials. The layer is uploaded
-        # once; every further tag is a manifest-only copy. inputs-<key> goes
-        # last: a later run that finds it (and reuses the image) never sees a
-        # half-published set of tags.
+        # skopeo reads the `docker login` credentials.
         pushed = []
-        for t in [dated] + others + [inputs]:
+        for t in tags_:
             run(["skopeo", "copy", "--preserve-digests",
                  f"oci:{layout}:nfsroot", f"docker://{t}"])
             pushed.append(t)
 
     for t in pushed:
         assert_plain_manifest(t)
-
-    # The dated tag is this build's identity: downstream jobs (the VM test)
-    # consume it via the workflow_call output.
-    write_outputs(image=dated)
-    summary(["## nfsroot published", "",
+    summary([f"## {heading}", "",
              f"- size: {raw_size / 1e9:.2f} GB uncompressed, "
              f"{layer_size / 1e9:.2f} GB zstd"]
             + [f"- `{tag}`" for tag in pushed])
+    return pushed
+
+
+def build() -> int:
+    dated, inputs, others = tags()
+    # The base-key label says which RasPiOS release the image descends from
+    # (nfsroot_warm.py converges only an image with this checkout's base
+    # key). inputs-<key> goes last: a later run that finds it (and reuses
+    # the image) never sees a half-published set of tags.
+    push_tree([dated] + others + [inputs],
+              {nfsroot_inputs.BASE_LABEL: nfsroot_inputs.base_key()},
+              "nfsroot published")
+    # The dated tag is this build's identity: downstream jobs (the VM test)
+    # consume it via the workflow_call output.
+    write_outputs(image=dated)
     return 0
 
 
