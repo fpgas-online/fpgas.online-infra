@@ -28,7 +28,8 @@
 - name: Live boards
   set_fact:
     ttsite_v_live: "{{ tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | rejectattr('enabled', 'defined') | list
-                       + tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | selectattr('enabled', 'defined') | selectattr('enabled') | list }}"
+                       + tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none')
+                       | selectattr('enabled', 'defined') | selectattr('enabled') | list }}"
 
 - name: Assert one ws location per live board
   assert:
