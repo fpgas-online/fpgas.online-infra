@@ -4,13 +4,13 @@
 # #2 P2-1), so operators get their own accounts, keyed from their GitHub
 # accounts via ssh-import-id (same pattern onpi uses for the pi user).
 - name: Install ssh-import-id
-  apt:
+  ansible.builtin.apt:
     name: ssh-import-id
   tags:
     - operators
 
 - name: Create operator accounts
-  user:
+  ansible.builtin.user:
     name: "{{ item.name }}"
     shell: /bin/bash
   loop: "{{ operators_accounts }}"
@@ -20,7 +20,7 @@
     - operators
 
 - name: Passwordless sudo for operators
-  copy:
+  ansible.builtin.copy:
     content: "{{ item.name }} ALL=(ALL) NOPASSWD:ALL\n"
     dest: "/etc/sudoers.d/{{ item.name }}"
     mode: "0440"
@@ -35,7 +35,7 @@
 # never SILENTLY leave an operator without keys - the assert below trips
 # if the account has no authorized_keys at all.
 - name: Import operator ssh keys from GitHub
-  command: "ssh-import-id {{ item.ssh_import_ids | join(' ') }}"
+  ansible.builtin.command: "ssh-import-id {{ item.ssh_import_ids | join(' ') }}"
   become: true
   become_user: "{{ item.name }}"
   loop: "{{ operators_accounts }}"
@@ -47,7 +47,7 @@
     - operators
 
 - name: Check operator authorized_keys exist
-  stat:
+  ansible.builtin.stat:
     path: "/home/{{ item.name }}/.ssh/authorized_keys"
   loop: "{{ operators_accounts }}"
   loop_control:
@@ -57,7 +57,7 @@
     - operators
 
 - name: Assert every operator has at least one key
-  assert:
+  ansible.builtin.assert:
     that:
       - item.stat.exists
       - item.stat.size > 0
