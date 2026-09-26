@@ -1,11 +1,11 @@
 ---
 - name: Check nginx modules-enabled directory exists
-  stat:
+  ansible.builtin.stat:
     path: /etc/nginx/modules-enabled
   register: stream_server_nginx_modules_stat
 
 - name: Assert nginx modules-enabled directory exists
-  assert:
+  ansible.builtin.assert:
     that: stream_server_nginx_modules_stat.stat.exists and stream_server_nginx_modules_stat.stat.isdir
     fail_msg: "/etc/nginx/modules-enabled directory not found"
 
@@ -20,19 +20,19 @@
   check_mode: false
 
 - name: Assert the hls DVR directory is not a tmpfs
-  assert:
+  ansible.builtin.assert:
     that: stream_server_hls_fstype.stdout | trim != "tmpfs"
     fail_msg: >-
       {{ streaming.data_root }}/hls is on tmpfs
       ({{ stream_server_hls_fstype.stdout | trim }}): the HLS DVR window would fill RAM.
 
 - name: Check the hls fragment directory exists on that filesystem
-  stat:
+  ansible.builtin.stat:
     path: "{{ streaming.data_root }}/hls/source"
   register: stream_server_hls_source_stat
 
 - name: Assert the hls fragment directory exists
-  assert:
+  ansible.builtin.assert:
     that: stream_server_hls_source_stat.stat.exists and stream_server_hls_source_stat.stat.isdir
     fail_msg: >-
       {{ streaming.data_root }}/hls/source is missing - nginx-rtmp has nowhere

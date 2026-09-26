@@ -1,5 +1,5 @@
 - name: Systemd pistat_ssh.service
-  template:
+  ansible.builtin.template:
     src: "files/{{ item }}.service"
     dest: "/etc/systemd/system/{{ item }}.service"
   notify: Reload-systemd
@@ -12,7 +12,7 @@
     - pistat
 
 - name: Enable pistat services
-  systemd:
+  ansible.builtin.systemd:
     name: "{{ item }}"
     enabled: true
   failed_when: false

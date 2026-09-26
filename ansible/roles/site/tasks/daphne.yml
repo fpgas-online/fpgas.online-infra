@@ -1,19 +1,19 @@
 ---
 # pip install is in fpgas-online-site.yml.
 - name: Copy daphne socket file to /etc/systemd/system/daphne.socket
-  template:
+  ansible.builtin.template:
     src: templates/daphne.socket.j2
     dest: /etc/systemd/system/daphne.socket
 
 - name: Copy daphne systemd file to /etc/systemd/system/daphne.service
-  template:
+  ansible.builtin.template:
     src: templates/daphne.service.j2
     dest: /etc/systemd/system/daphne.service
   tags:
     - django
 
 - name: Enable services
-  systemd:
+  ansible.builtin.systemd:
     service: "{{ item }}"
     daemon_reload: true
     enabled: true

@@ -14,10 +14,10 @@
   become: true
   tasks:
     - name: Prepare the runner
-      import_tasks: ci-nfsroot-runner.yml
+      ansible.builtin.import_tasks: ci-nfsroot-runner.yml
 
     - name: Download and extract the RasPiOS base image
-      include_role:
+      ansible.builtin.include_role:
         name: img
         tasks_from: build.yml
       tags: [img]

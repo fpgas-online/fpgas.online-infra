@@ -22,13 +22,13 @@
   check_mode: false
 
 - name: Finish any interrupted dpkg configuration
-  command: dpkg --configure -a
+  ansible.builtin.command: dpkg --configure -a
   register: onpi_dpkg_configure
   changed_when: onpi_dpkg_configure.stdout | trim | length > 0
   when: onpi_dpkg_pending.stdout | trim | length > 0
 
 - name: Apt update/upgrade
-  apt:
+  ansible.builtin.apt:
     # name: "*"
     upgrade: true
     update_cache: true
@@ -40,13 +40,13 @@
 #   '/usr/share/vim/vim82/doc/help.txt', not allowed
 # so remove it
 - name: Apt remove tiny-vim
-  apt:
+  ansible.builtin.apt:
     name:
       - vim-tiny
     state: absent
 
 - name: Install packages
-  apt:
+  ansible.builtin.apt:
     name:
       - overlayroot
       - ssh-import-id
@@ -152,11 +152,11 @@
 #      - raspberrypi-kernel-headers
 
 - name: Remove useless packages from the cache
-  apt:
+  ansible.builtin.apt:
     autoclean: true
 
 - name: Remove dependencies that are no longer required
-  apt:
+  ansible.builtin.apt:
     autoremove: true
 
 # Pin the pipx locations: bare `pipx install` places venvs wherever the
@@ -165,7 +165,7 @@
 # PATH. /opt/pipx + /usr/local/bin is deterministic and reachable by every
 # user (issue #34 CI-vs-tweed manifest comparison).
 - name: Install mpremote via pipx
-  command: "pipx install mpremote"
+  ansible.builtin.command: "pipx install mpremote"
   args:
     creates: /usr/local/bin/mpremote
   environment:
@@ -175,7 +175,7 @@
     - mp
 
 - name: Install uv via pipx
-  command: "pipx install uv"
+  ansible.builtin.command: "pipx install uv"
   args:
     creates: /usr/local/bin/uv
   environment:

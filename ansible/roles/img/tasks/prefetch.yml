@@ -12,7 +12,7 @@
 # The first apt install in site.yml (right after netif), so it refreshes
 # the package lists: a freshly installed server may have none yet.
 - name: Install podman and rsync
-  apt:
+  ansible.builtin.apt:
     name:
       - podman
       - rsync
@@ -22,7 +22,7 @@
 
 - name: Start pulling the nfsroot image in the background
   # Retries only the errors img_pull_retryable names, like pull.yml.
-  shell: |
+  ansible.builtin.shell: |
     for attempt in $(seq {{ img_pull_retries | int + 1 }}); do
       err=$(podman pull --quiet {{ img_nfsroot_image }} 2>&1 >/dev/null) && exit 0
       echo "$err" >&2

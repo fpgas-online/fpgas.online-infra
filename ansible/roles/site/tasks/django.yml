@@ -9,7 +9,7 @@
     name: "{{ user_name }}"
 
 - name: Site directories
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ user_name }}"
@@ -27,14 +27,14 @@
 # gunicorn/daphne/manage.py pick up THIS copy (plus local_settings.py, which
 # only the lineinfile tasks below ever touch).
 - name: Locate the installed pib project package
-  command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
   register: site_pib_pkg
   changed_when: false
   tags:
     - django
 
 - name: Install Django project files from the wheel
-  copy:
+  ansible.builtin.copy:
     src: "{{ site_pib_pkg.stdout }}/{{ item }}"
     dest: "{{ django_dir }}/pib/{{ item }}"
     remote_src: true
@@ -52,7 +52,7 @@
     - django
 
 - name: Create local_settings.py if missing (never overwritten)
-  copy:
+  ansible.builtin.copy:
     dest: "{{ django_dir }}/pib/local_settings.py"
     content: "# site-local Django settings, lines managed by fpgas.online-infra (roles/site, roles/ttsite)\n"
     force: false
@@ -66,7 +66,7 @@
 # settings come from local_settings.py. The key is generated once per host
 # (kept out of the inventory) and never rotated by Ansible.
 - name: Generate a SECRET_KEY once
-  shell: >-
+  ansible.builtin.shell: >-
     umask 077 && {{ django_dir }}/venv/bin/python -c
     "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
   args:
@@ -75,7 +75,7 @@
     - django
 
 - name: Read the SECRET_KEY
-  slurp:
+  ansible.builtin.slurp:
     src: "{{ django_dir }}/.secret_key"
   register: site_secret_key
   no_log: true
@@ -83,7 +83,7 @@
     - django
 
 - name: SECRET_KEY and DEBUG
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: "^{{ item.key }} = "
@@ -103,7 +103,7 @@
 # its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
 # tinytapeout.fpgas.online host when this server carries TT boards.
 - name: Site_web_hosts
-  set_fact:
+  ansible.builtin.set_fact:
     site_web_hosts: >-
       {{ ([eth_uplink_static_address, domain_name] + (streaming_frontend_aliases | default([]))
           + ([ttsite_domain] if tt_boards is defined else [])) | unique }}
@@ -111,7 +111,7 @@
     - django
 
 - name: ALLOWED_HOSTS
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^ALLOWED_HOSTS = '
@@ -122,7 +122,7 @@
     - django
 
 - name: CSRF_TRUSTED_ORIGINS
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^CSRF_TRUSTED_ORIGINS = '
@@ -134,7 +134,7 @@
     - django
 
 - name: Pass the pi's user pw
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^PI_PW = '
@@ -143,7 +143,7 @@
     - django
 
 - name: Sites's domain name
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^DOMAIN_NAME = '
@@ -154,7 +154,7 @@
 # The mosquitto listener binds eth-local only (roles/mqtt), so the
 # consumer must dial that address -- 127.0.0.1 is not listening.
 - name: FLEET_MQTT broker address for the fleet consumer
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^FLEET_MQTT = '
@@ -170,7 +170,7 @@
 # want it, so a host that is switched back gets an explicit False rather than
 # keeping a stale True that nothing would ever remove.
 - name: Under-construction banner
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^UNDER_CONSTRUCTION = '
@@ -181,7 +181,7 @@
     - django
 
 - name: Set static dir
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^STATIC_ROOT = '
@@ -190,7 +190,7 @@
     - django
 
 - name: Manage.py
-  copy:
+  ansible.builtin.copy:
     dest: "{{ django_dir }}/manage.py"
     owner: "{{ user_name }}"
     group: www-data
@@ -213,7 +213,7 @@
 # installs by default (requirements.yml lists it, but keep the role
 # self-sufficient).
 - name: Run manage.py migrate
-  command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
   args:
     chdir: "{{ django_dir }}"
   become: true
@@ -224,7 +224,7 @@
     - django
 
 - name: Run manage.py collectstatic
-  command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
   args:
     chdir: "{{ django_dir }}"
   become: true
@@ -243,7 +243,7 @@
 # an empty board list. loaddata upserts by primary key, so re-running a
 # converge refreshes the seeded rows rather than duplicating them.
 - name: Load the board fixture into the application
-  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ fixture_path }}"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ fixture_path }}"
   args:
     chdir: "{{ django_dir }}"
   become: true

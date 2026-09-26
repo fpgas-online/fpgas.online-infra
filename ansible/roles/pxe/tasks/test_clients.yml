@@ -15,7 +15,7 @@
 # VLAN interface, no MAC involved -- see pxe/tasks/main.yml), and pibs.conf
 # is removed entirely in that case, so this task has nothing to append to.
 - name: Add DHCP host entries for test clients
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/dnsmasq.d/pibs.conf
     line: "dhcp-host={{ item.mac }},{{ item.name }},{{ item.ip }}"
     create: false

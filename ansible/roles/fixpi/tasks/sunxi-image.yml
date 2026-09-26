@@ -19,7 +19,7 @@
 # Fetched through the gateway's apt cache when there is one (the checksum
 # pins the content either way).
 - name: Fetch debian-archive-keyring for the armmp kernel source
-  get_url:
+  ansible.builtin.get_url:
     url: "{{ (apt_cache_url ~ '/debian') if (apt_cache_url | default('')) else 'http://deb.debian.org/debian' }}\
       /pool/main/d/debian-archive-keyring/{{ fixpi_sunxi_debian_keyring_deb }}"
     dest: "{{ nfs_root }}/root/root/{{ fixpi_sunxi_debian_keyring_deb }}"
@@ -28,7 +28,7 @@
   tags: [sunxi]
 
 - name: Install debian-archive-keyring into the NFS root
-  command: >-
+  ansible.builtin.command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "dpkg -i /root/{{ fixpi_sunxi_debian_keyring_deb }}"
   args:
@@ -36,14 +36,14 @@
   tags: [sunxi]
 
 - name: Debian armhf apt source (kernel only) in NFS root
-  template:
+  ansible.builtin.template:
     src: templates/apt/debian-armmp.sources.j2
     dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/debian-armmp.sources"
     mode: "0644"
   tags: [sunxi]
 
 - name: Pin the debian source to the armmp kernel only
-  template:
+  ansible.builtin.template:
     src: templates/apt/debian-armmp.pref.j2
     dest: "{{ nfs_root }}/root/etc/apt/preferences.d/debian-armmp.pref"
     mode: "0644"
@@ -53,7 +53,7 @@
 # servers built the root). Kernel upgrades arrive through onpi's apt upgrade
 # in the pi play like every other package.
 - name: Install the armmp kernel into the NFS root
-  command: >-
+  ansible.builtin.command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "apt-get update && apt-get install -y {{ fixpi_sunxi_kernel_package }}"
   args:
@@ -69,7 +69,7 @@
 # DT-alias coldplug from the real root (none of them are in the sunxi
 # initramfs), so a root modprobe.d blacklist removes the whole probe path.
 - name: Blacklist the sunxi audio codec modules in the NFS root
-  copy:
+  ansible.builtin.copy:
     dest: "{{ nfs_root }}/root/etc/modprobe.d/fpgas-sunxi-no-audio.conf"
     mode: "0644"
     content: |

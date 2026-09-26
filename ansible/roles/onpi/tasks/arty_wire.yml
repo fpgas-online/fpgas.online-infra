@@ -1,6 +1,6 @@
 ---
 - name: Arty_wire
-  copy:
+  ansible.builtin.copy:
     src: "files/is_wire/{{ item }}"
     dest: "/usr/local/bin/{{ item }}"
     mode: u+x
@@ -10,7 +10,7 @@
     - ia
 
 - name: Install systemd arty_wire service
-  copy:
+  ansible.builtin.copy:
     src: files/is_wire/arty_wire.service
     dest: /etc/systemd/system/arty_wire.service
   notify: Reload-systemd
@@ -18,7 +18,7 @@
     - ia
 
 - name: Enable arty_wire.service
-  systemd:
+  ansible.builtin.systemd:
     name: arty_wire.service
     enabled: true
   failed_when: false

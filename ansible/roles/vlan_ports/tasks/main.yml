@@ -1,11 +1,11 @@
 ---
 - name: Compute port vlan map
-  set_fact:
+  ansible.builtin.set_fact:
     vlan_ports_port_map: "{{ switches | port_vlan_map(pib_network, pib_network6_base) }}"
   tags: [vlan-ports]
 
 - name: Create vlan netdevs
-  template:
+  ansible.builtin.template:
     src: templates/vlan.netdev.j2
     dest: "/etc/systemd/network/40-{{ item.iface }}.netdev"
   loop: "{{ vlan_ports_port_map }}"
@@ -15,7 +15,7 @@
   tags: [vlan-ports]
 
 - name: Create vlan networks
-  template:
+  ansible.builtin.template:
     src: templates/vlan.network.j2
     dest: "/etc/systemd/network/40-{{ item.iface }}.network"
   loop: "{{ vlan_ports_port_map }}"
@@ -25,21 +25,21 @@
   tags: [vlan-ports]
 
 - name: Configure eth-local trunk
-  template:
+  ansible.builtin.template:
     src: templates/eth-local.network.j2
     dest: /etc/systemd/network/30-eth-local.network
   notify: Reload networkd
   tags: [vlan-ports]
 
 - name: Find stale vlan config files
-  find:
+  ansible.builtin.find:
     paths: /etc/systemd/network
     patterns: "40-v*"
   register: vlan_ports_vlan_files
   tags: [vlan-ports]
 
 - name: Remove stale vlan config files
-  file:
+  ansible.builtin.file:
     path: "{{ item.path }}"
     state: absent
   loop: "{{ vlan_ports_vlan_files.files }}"
@@ -57,4 +57,4 @@
 # the tweed rebuild ran with zero v* interfaces because run 1 failed after
 # this role and no later run re-notified (C1-1, 2026-08-25).
 - name: Apply the networkd config now
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers

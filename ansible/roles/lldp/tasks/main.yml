@@ -12,13 +12,13 @@
 # the 2026-08 rebuilds. See fpgas.online-setup-pi#6 (the Pi half of this is
 # the lldpd entry in the onpi package list).
 - name: Install lldpd
-  apt:
+  ansible.builtin.apt:
     name: lldpd
   tags:
     - lldp
 
 - name: Enable and start lldpd
-  systemd:
+  ansible.builtin.systemd:
     name: lldpd
     enabled: true
     state: started

@@ -1,6 +1,6 @@
 ---
 - name: "Verify: operator accounts exist"
-  getent:
+  ansible.builtin.getent:
     database: passwd
     key: "{{ item.name }}"
   loop: "{{ operators_accounts }}"
@@ -8,14 +8,14 @@
     label: "{{ item.name }}"
 
 - name: "Verify: operator sudoers files are valid"
-  command: "visudo -cf /etc/sudoers.d/{{ item.name }}"
+  ansible.builtin.command: "visudo -cf /etc/sudoers.d/{{ item.name }}"
   changed_when: false
   loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
 
 - name: "Verify: operator authorized_keys are non-empty"
-  stat:
+  ansible.builtin.stat:
     path: "/home/{{ item.name }}/.ssh/authorized_keys"
   register: operators_v_keys
   loop: "{{ operators_accounts }}"
@@ -23,7 +23,7 @@
     label: "{{ item.name }}"
 
 - name: "Verify: assert operator keys present"
-  assert:
+  ansible.builtin.assert:
     that:
       - item.stat.exists
       - item.stat.size > 0

@@ -3,7 +3,7 @@
 # live in the image's dpkg database).
 - name: Don't helper resize the root fs
   when: fixpi_image_build | bool
-  command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
+  ansible.builtin.command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
   with_items:
     - "/var/lib/systemd/deb-systemd-helper-enabled/rpi-resize.service.dsh-also"
     - "/usr/lib/systemd/zram-generator.conf.d/20-rpi-swap-zram0-ctrl.conf"
@@ -12,7 +12,7 @@
     - nogrow
 
 - name: Don't resize the root fs
-  command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
+  ansible.builtin.command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
   with_items:
     - "systemd-growfs@.service"
     - "systemd-growfs-root.service"
@@ -26,7 +26,7 @@
 
 #     ./usr/lib/systemd/system/systemd-networkd-persistent-storage.service
 - name: Don't manage a swap file
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}"
     state: absent
   with_items:
@@ -36,6 +36,6 @@
     - nogrow
 
 - name: Don't resize the root fs
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/init.d/resize2fs_once"
     state: absent

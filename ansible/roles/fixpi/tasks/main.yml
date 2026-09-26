@@ -1,14 +1,14 @@
 ---
-- {name: Install the Pi state management scripts, include_tasks: manage.yml, tags: [manage, qemu]}
-- {name: Prepare the NFS root and TFTP tree for netboot, include_tasks: netboot.yml, tags: [cmdline, pibs, netboot, qemu]}
+- {name: Install the Pi state management scripts, ansible.builtin.include_tasks: manage.yml, tags: [manage, qemu]}
+- {name: Prepare the NFS root and TFTP tree for netboot, ansible.builtin.include_tasks: netboot.yml, tags: [cmdline, pibs, netboot, qemu]}
 # sunxi-image.yml bakes the armmp kernel into every image (CI build only);
 # sunxi.yml publishes it to TFTP on sites that declare sunxi_boards.
-- {name: Bake the Orange Pi armmp kernel into the image, include_tasks: sunxi-image.yml, tags: [sunxi], when: fixpi_image_build | bool}
-- {name: Publish the Orange Pi kernel and DTBs to TFTP, include_tasks: sunxi.yml, tags: [sunxi], when: sunxi_boards is defined}
-- {name: "Set the pi user's password and console banner", include_tasks: userconf.yml, tags: [pipw, keys]}
-- {name: Apply the NFS root tweaks, include_tasks: tweeks.yml, tags: [ispi, hostname, bashrc, fixpi]}
-- {name: Stop the root filesystem resizing and the swap file, include_tasks: nogrow.yml, tags: [fixpi, nogrow]}
+- {name: Bake the Orange Pi armmp kernel into the image, ansible.builtin.include_tasks: sunxi-image.yml, tags: [sunxi], when: fixpi_image_build | bool}
+- {name: Publish the Orange Pi kernel and DTBs to TFTP, ansible.builtin.include_tasks: sunxi.yml, tags: [sunxi], when: sunxi_boards is defined}
+- {name: "Set the pi user's password and console banner", ansible.builtin.include_tasks: userconf.yml, tags: [pipw, keys]}
+- {name: Apply the NFS root tweaks, ansible.builtin.include_tasks: tweeks.yml, tags: [ispi, hostname, bashrc, fixpi]}
+- {name: Stop the root filesystem resizing and the swap file, ansible.builtin.include_tasks: nogrow.yml, tags: [fixpi, nogrow]}
 # Server-side TT site catalogue (pull-mode roots never see onpi/tt.yml).
-- {name: Bake the TT site catalogue into the NFS root, include_tasks: tt-site.yml, tags: [tt], when: tt_boards is defined}
+- {name: Bake the TT site catalogue into the NFS root, ansible.builtin.include_tasks: tt-site.yml, tags: [tt], when: tt_boards is defined}
 # Server-side fleet agent config (same reason).
-- {name: Bake the fleet agent config into the NFS root, include_tasks: fleet-site.yml, tags: [fleet], when: fleet_broker | default(false)}
+- {name: Bake the fleet agent config into the NFS root, ansible.builtin.include_tasks: fleet-site.yml, tags: [fleet], when: fleet_broker | default(false)}

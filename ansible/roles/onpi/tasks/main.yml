@@ -1,6 +1,6 @@
 ---
 - name: Upgrade and install the NFS root packages
-  include_tasks: apt.yml
+  ansible.builtin.include_tasks: apt.yml
 
 # Install the fpgas-online-setup-pi deb which provides:
 # - zsh/tmux shell environment
@@ -17,11 +17,11 @@
     - fpgas-apt
 
 - name: Let the kernel pick the NFS version
-  include_tasks: nonfs.yml
-- {name: Install the Tiny Tapeout bridge and site catalogue, include_tasks: tt.yml, tags: [tt, fpgas-apt]}
-- {name: Enable the fleet agent units, include_tasks: fleet.yml, tags: [fleet, fpgas-apt]}
-- {name: Configure the Pi tftpd, include_tasks: tftpd.yml, tags: tftpd}
-- {name: Add the ssh keys, include_tasks: sshkeys.yml, tags: sshkeys}
-- {name: "Create the pi user's upload and download directories", include_tasks: tweeks.yml, tags: pitweeks}
-- {name: Install and enable the Acorn boot check, include_tasks: acorn.yml, tags: [acorn, fpgas-apt]}
-- {name: Install and configure nfsroot-watchdog, include_tasks: stale_root.yml, tags: stale-root}
+  ansible.builtin.include_tasks: nonfs.yml
+- {name: Install the Tiny Tapeout bridge and site catalogue, ansible.builtin.include_tasks: tt.yml, tags: [tt, fpgas-apt]}
+- {name: Enable the fleet agent units, ansible.builtin.include_tasks: fleet.yml, tags: [fleet, fpgas-apt]}
+- {name: Configure the Pi tftpd, ansible.builtin.include_tasks: tftpd.yml, tags: tftpd}
+- {name: Add the ssh keys, ansible.builtin.include_tasks: sshkeys.yml, tags: sshkeys}
+- {name: "Create the pi user's upload and download directories", ansible.builtin.include_tasks: tweeks.yml, tags: pitweeks}
+- {name: Install and enable the Acorn boot check, ansible.builtin.include_tasks: acorn.yml, tags: [acorn, fpgas-apt]}
+- {name: Install and configure nfsroot-watchdog, ansible.builtin.include_tasks: stale_root.yml, tags: stale-root}

@@ -18,20 +18,20 @@
   become: true
   tasks:
     - name: Prepare the runner
-      import_tasks: ci-nfsroot-runner.yml
+      ansible.builtin.import_tasks: ci-nfsroot-runner.yml
 
     # The tree this playbook converges is already in {{ nfs_root }}: the
     # upgraded RasPiOS stage (ci-nfsroot-upgrade.yml), or for a warm build
     # the image main last published. tests/ci/nfsroot_stages.py and
     # tests/ci/nfsroot_warm.py put it there.
     - name: Check the root to build on is in place
-      stat:
+      ansible.builtin.stat:
         path: "{{ nfs_root }}/root/etc/os-release"
       register: ci_nfsroot_seed
       failed_when: not ci_nfsroot_seed.stat.exists
 
     - name: Apply the generic fixpi layer
-      include_role:
+      ansible.builtin.include_role:
         name: fixpi
 
 # The chroot connection plugin does not provide the API filesystems the Pi
@@ -44,7 +44,7 @@
   become: true
   tasks:
     - name: Prepare the NFS root chroot for apt
-      include_role:
+      ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: chroot-prep.yml
 
@@ -74,14 +74,14 @@
     # build) although no Pi ever boots it -- the server's fixpi re-syncs the
     # upgraded payload. Sync first, so "served" is what the Pis will boot.
     - name: Sync the upgraded kernel payload before pruning
-      command: >-
+      ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
       tags: [netboot]
 
     - name: Finish the chroot session (kernels, mounts, policy-rc.d)
-      include_role:
+      ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: stop.yml
 
@@ -90,7 +90,7 @@
     # DNS into the image: point the root at the gateway address both sites
     # use (issue #11 tracks proper resolv handling on the Pis).
     - name: Neutralize build-host resolv.conf in the image
-      copy:
+      ansible.builtin.copy:
         content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
         dest: "{{ nfs_root }}/root/etc/resolv.conf"
         mode: "0644"
@@ -101,13 +101,13 @@
     # every consuming site, so strip them; the consuming server's fixpi run
     # generates fresh ones after extraction.
     - name: Find build-generated ssh host keys in the image
-      find:
+      ansible.builtin.find:
         paths: "{{ nfs_root }}/root/etc/ssh"
         patterns: "ssh_host_*"
       register: ci_nfsroot_host_keys
 
     - name: Remove build-generated ssh host keys from the image
-      file:
+      ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
       loop: "{{ ci_nfsroot_host_keys.files }}"
@@ -121,7 +121,7 @@
     # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
     # design doc's "ordering is load-bearing" requirement.
     - name: Re-sync kernel+initramfs+DTB payload after chroot apt upgrades
-      command: >-
+      ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
@@ -132,7 +132,7 @@
     # image or kernel-packaging change cannot brick part of the fleet on
     # the next pull.
     - name: Assert per-model kernel payload present in boot/
-      stat:
+      ansible.builtin.stat:
         path: "{{ nfs_root }}/boot/{{ item }}"
       register: ci_nfsroot_boot_file
       failed_when: not ci_nfsroot_boot_file.stat.exists
@@ -154,7 +154,7 @@
     # dpkg -l exits 0 for a package that is merely known to the database
     # ("rc" after a removal, "un"), so read the status field instead.
     - name: Assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
-      command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
+      ansible.builtin.command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
       register: ci_nfsroot_pkg_status
       changed_when: false
       failed_when: ci_nfsroot_pkg_status.stdout != 'install ok installed'
@@ -174,6 +174,6 @@
       tags: [verify]
 
     - name: Assert pi user exists in the root
-      command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
+      ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
       changed_when: false
       tags: [verify]

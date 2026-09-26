@@ -10,7 +10,7 @@
 # handles). A re-run with an unchanged image digest skips extraction.
 
 - name: Install podman and rsync
-  apt:
+  ansible.builtin.apt:
     name:
       - podman
       - rsync
@@ -21,7 +21,7 @@
 # prefetch.yml started the download early in site.yml; wait for it here.
 # Its outcome is not trusted: the pull below is what must succeed.
 - name: Wait for the background pull started by prefetch.yml
-  async_status:
+  ansible.builtin.async_status:
     jid: "{{ img_prefetch.ansible_job_id }}"
   register: img_prefetch_job
   until: img_prefetch_job.finished
@@ -32,7 +32,7 @@
     - img
 
 - name: Pull the nfsroot image
-  command: podman pull {{ img_nfsroot_image }}
+  ansible.builtin.command: podman pull {{ img_nfsroot_image }}
   register: img_pull
   until: img_pull.rc == 0 or not (img_pull.stderr is search(img_pull_retryable))
   retries: "{{ img_pull_retries }}"
@@ -42,7 +42,7 @@
     - img
 
 - name: Read the pulled image digest
-  command: >-
+  ansible.builtin.command: >-
     podman image inspect --format {% raw %}{{.Digest}}{% endraw %}
     {{ img_nfsroot_image }}
   register: img_digest
@@ -51,7 +51,7 @@
     - img
 
 - name: Read the extraction stamp
-  command: cat {{ nfs_root }}/.image-digest
+  ansible.builtin.command: cat {{ nfs_root }}/.image-digest
   register: img_stamp
   failed_when: false
   changed_when: false
@@ -59,7 +59,7 @@
     - img
 
 - name: Create the NFS root directory
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}"
     state: directory
   tags:
@@ -71,7 +71,7 @@
     - img
   block:
     - name: Mount the image
-      command: podman image mount {{ img_nfsroot_image }}
+      ansible.builtin.command: podman image mount {{ img_nfsroot_image }}
       register: img_mnt
 
     # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
@@ -98,7 +98,7 @@
     # a changed file whose size and mtime second happen to match. The cost is
     # reading both trees once per new image digest.
     - name: Rsync boot/ and root/ from the image
-      command: >-
+      ansible.builtin.command: >-
         rsync -aHAX --delete --numeric-ids --checksum
         {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*' if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
@@ -107,12 +107,12 @@
         - root
 
     - name: Record the extraction stamp
-      copy:
+      ansible.builtin.copy:
         content: "{{ img_digest.stdout }}\n"
         dest: "{{ nfs_root }}/.image-digest"
         mode: "0644"
   always:
     - name: Unmount the image
-      command: podman image umount {{ img_nfsroot_image }}
+      ansible.builtin.command: podman image umount {{ img_nfsroot_image }}
       failed_when: false
       changed_when: false

@@ -1,13 +1,13 @@
 ---
 - name: Embed bundle directory
-  file:
+  ansible.builtin.file:
     path: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}"
     state: directory
     mode: "0755"
   when: tt_commander_embed_version | length > 0
 
 - name: Download Commander embed bundle
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/fpgas-online/tt-commander-app/releases/download/\
       embed-v{{ tt_commander_embed_version }}/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
     dest: "{{ static_dir }}/tt-commander/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
@@ -17,7 +17,7 @@
   register: ttsite_embed_download
 
 - name: Unpack Commander embed bundle
-  unarchive:
+  ansible.builtin.unarchive:
     src: "{{ static_dir }}/tt-commander/tt-commander-embed-{{ tt_commander_embed_version }}.tar.gz"
     dest: "{{ static_dir }}/tt-commander/{{ tt_commander_embed_version }}/"
     remote_src: true
@@ -28,14 +28,14 @@
 # ships the same inner filenames; its own version directory is what tells the
 # two bundles apart (ttsite serves it as tt-commander/legacy-<version>/).
 - name: Legacy embed bundle directory
-  file:
+  ansible.builtin.file:
     path: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}"
     state: directory
     mode: "0755"
   when: tt_commander_legacy_embed_version | length > 0
 
 - name: Download legacy Commander embed bundle
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/fpgas-online/tt-commander-app/releases/download/\
       legacy-embed-v{{ tt_commander_legacy_embed_version }}/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
     dest: "{{ static_dir }}/tt-commander/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
@@ -44,7 +44,7 @@
   when: tt_commander_legacy_embed_version | length > 0
 
 - name: Unpack legacy Commander embed bundle
-  unarchive:
+  ansible.builtin.unarchive:
     src: "{{ static_dir }}/tt-commander/tt-commander-legacy-embed-{{ tt_commander_legacy_embed_version }}.tar.gz"
     dest: "{{ static_dir }}/tt-commander/legacy-{{ tt_commander_legacy_embed_version }}/"
     remote_src: true

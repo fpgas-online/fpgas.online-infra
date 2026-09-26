@@ -5,4 +5,4 @@
 # download/extract step that only ansible/ci-nfsroot.yml uses to produce
 # the image in the first place.
 - name: Pull and extract the prebuilt Pi NFS root
-  import_tasks: pull.yml
+  ansible.builtin.import_tasks: pull.yml

@@ -1,13 +1,13 @@
 ---
 - name: Apt update/upgrade
-  apt:
+  ansible.builtin.apt:
     # name: "*"
     upgrade: true
     update_cache: true
     cache_valid_time: 86400
 
 - name: Install gst packages
-  apt:
+  ansible.builtin.apt:
     name:
       - jq
       - gstreamer1.0-tools
@@ -35,7 +35,7 @@
     - cam
 
 - name: Enable cam.service
-  systemd:
+  ansible.builtin.systemd:
     name: fpgas-cam.service
     enabled: true
   tags:

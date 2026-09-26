@@ -1,6 +1,6 @@
 ---
 - name: Install wssh deb packages
-  apt:
+  ansible.builtin.apt:
     name:
       - nginx
       - systemd
@@ -10,7 +10,7 @@
       - python3-bcrypt
 
 - name: Install wssh pip packages
-  pip:
+  ansible.builtin.pip:
     name:
       - webssh
     virtualenv: "/usr/local/venv/wssh"
@@ -18,7 +18,7 @@
     virtualenv_command: "python3 -m venv --system-site-packages"
 
 - name: Systemd files
-  copy:
+  ansible.builtin.copy:
     src: "files/etc/systemd/system/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
   with_items:
@@ -29,7 +29,7 @@
     - wssh
 
 - name: Systemd files
-  template:
+  ansible.builtin.template:
     src: templates/wssh.service.j2
     dest: /etc/systemd/system/wssh.service
   notify:
@@ -39,7 +39,7 @@
     - wssh
 
 - name: Enable services
-  systemd:
+  ansible.builtin.systemd:
     service: "{{ item }}"
     daemon_reload: true
     enabled: true
@@ -54,7 +54,7 @@
     state: directory
 
 - name: Deploy nginx conf
-  template:
+  ansible.builtin.template:
     src: "files/etc/nginx/includes/wssh.conf"
     dest: "/etc/nginx/includes/{{ conference_name }}-wssh.conf"
   tags:

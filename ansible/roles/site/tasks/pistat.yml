@@ -4,14 +4,14 @@
 # Pi-side scripts (send.py, send_stat.py) are in the fpgas-online-setup-pi deb
 
 - name: Install redis
-  apt:
+  ansible.builtin.apt:
     name:
       - redis
   tags:
     - pistat
 
 - name: Install dnsmasq send_stat.conf
-  copy:
+  ansible.builtin.copy:
     src: "{{ role_path }}/../pxe/files/send_stat.conf"
     dest: /etc/dnsmasq.d/send_stat.conf
     mode: preserve
