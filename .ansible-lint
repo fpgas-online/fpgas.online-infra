@@ -3,7 +3,6 @@ skip_list:
   - command-instead-of-module
   - risky-shell-pipe
   - risky-file-permissions
-  - fqcn[action-core]
 
 warn_list:
   - experimental
