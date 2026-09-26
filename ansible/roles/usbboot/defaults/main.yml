@@ -1,0 +1,26 @@
+---
+# usbboot: Raspberry Pi USB device-boot tooling, baked into the published Pi NFS
+# root image so any Pi in the rack can bring up a stranded Pi over USB.
+#
+# Turn the whole role off with one line in inventory (group_vars/host_vars), or
+# in inventory-ci-nfsroot for the image build:
+#
+#     usbboot_enabled: false
+#
+# ci-nfsroot.yml gates the role on this, so `false` installs nothing and skips
+# the role's own assertions with it. Nothing else references the variable, so
+# there is no second place to keep in step.
+usbboot_enabled: true
+
+# rpiboot is the host half of Raspberry Pi USB device boot. Per Raspberry Pi's
+# own documentation (raspberry-pi.adoc, "USB device boot mode"): "When this boot
+# mode is activated (usually after a failure to boot from the SD card), the
+# Raspberry Pi puts its USB port into device mode and awaits a USB reset from
+# the host." rpiboot answers that reset and pushes a second-stage bootloader in.
+#
+# The package ships in the Raspberry Pi archive, which this image already has,
+# and carries the payload directories under /usr/share/rpiboot -- including the
+# legacy `msd` firmware the Zero series, 1A+ and CM1 need (raspberrypi/usbboot
+# Readme.md). Checked available for the served root's suite on tweed, 2026-09-26.
+usbboot_packages:
+  - rpiboot
