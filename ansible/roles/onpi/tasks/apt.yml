@@ -11,8 +11,9 @@
 # root's generation, rebooting the fleet (roles/nfsroot_generation), for a
 # converge that changed nothing. The grep is read-only; so is `dpkg --audit`,
 # but that also lists permanent oddities (missing md5sums) and would never
-# come back empty.
-- name: Look for interrupted dpkg work
+# come back empty. (noqa: the | characters are alternation inside the quoted
+# grep -E pattern; there is no pipeline for pipefail to guard.)
+- name: Look for interrupted dpkg work  # noqa: risky-shell-pipe
   ansible.builtin.shell: |
     grep -qE '^Status: [^ ]+ [^ ]+ (half-installed|unpacked|half-configured|triggers-awaited|triggers-pending)$' /var/lib/dpkg/status && echo pending-packages
     [ -n "$(ls -A /var/lib/dpkg/updates)" ] && echo pending-journal

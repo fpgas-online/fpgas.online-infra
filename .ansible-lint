@@ -1,7 +1,6 @@
 skip_list:
   - no-changed-when
   - command-instead-of-module
-  - risky-shell-pipe
   - risky-file-permissions
 
 warn_list:

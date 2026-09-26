@@ -67,6 +67,7 @@
     # index files with the upstream headers acng stored for them.
     - name: Diagnose failed remap probes
       ansible.builtin.shell: |
+        set -o pipefail
         curl -sv -o /dev/null "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" 2>&1 | tail -n 25
         echo "--- acng error page"
         curl -sS -m 30 "http://127.0.0.1:{{ apt_cache_port }}{{ item.item }}" | tail -n 15
@@ -88,6 +89,8 @@
         {% endfor %}
         echo "--- cached index files"; find {{ apt_cache_dir }} -maxdepth 4 -path '*dists*' -ls | head -n 40
         for h in {{ apt_cache_dir }}/*/dists/*/*.head; do echo "== $h"; cat "$h"; done
+      args:
+        executable: /bin/bash
       changed_when: false
       failed_when: false
       register: apt_cache_v_probe_diag
@@ -159,7 +162,7 @@
     # here instead of silently fetching from upstream.
     - name: Collect the NFS root's apt source URIs
       ansible.builtin.shell: >-
-        grep -rhE '^[[:space:]]*(deb|deb-src)[[:space:]]|^[[:space:]]*URIs:'
+        grep -rhE -e '^[[:space:]]*deb(-src)?[[:space:]]' -e '^[[:space:]]*URIs:'
         {{ nfs_root }}/root/etc/apt/sources.list {{ nfs_root }}/root/etc/apt/sources.list.d/
       changed_when: false
       failed_when: apt_cache_v_sources.rc > 1
