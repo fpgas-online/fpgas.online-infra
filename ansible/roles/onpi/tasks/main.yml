@@ -23,5 +23,5 @@
 - {name: Configure the Pi tftpd, ansible.builtin.include_tasks: tftpd.yml, tags: tftpd}
 - {name: Add the ssh keys, ansible.builtin.include_tasks: sshkeys.yml, tags: sshkeys}
 - {name: "Create the pi user's upload and download directories", ansible.builtin.include_tasks: tweeks.yml, tags: pitweeks}
-- {name: Install and enable the Acorn boot check, ansible.builtin.include_tasks: acorn.yml, tags: [acorn, fpgas-apt]}
+- {name: Install and enable the FPGA boot check, ansible.builtin.include_tasks: fpga_verify.yml, tags: [fpga-verify, acorn, fpgas-apt]}
 - {name: Install and configure nfsroot-watchdog, ansible.builtin.include_tasks: stale_root.yml, tags: stale-root}
