@@ -150,6 +150,10 @@ fixture_path: fpgas.online.json
 fleet_broker: true
 fleet_site: welland
 
+# Only offer a board whose FPGA boot check passed this boot (roles/site
+# defaults; needs fleet_broker above, which carries the result).
+site_require_fpga_verified: true
+
 # Tim's
 # Netgear S3300-52X-PoE+
 switch_base: base

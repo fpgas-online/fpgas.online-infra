@@ -180,6 +180,21 @@
   tags:
     - django
 
+# Offer a Pi on /fpgas/ only when its FPGA boot check passed this boot (the
+# fleet app's `fpga-verified` event; fpgas-verify from roles/onpi's
+# fpga_verify.yml). Written on every host, like the banner above, so turning
+# it off leaves an explicit False.
+- name: Only offer boards whose FPGA check passed
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^FPGAS_REQUIRE_VERIFIED = '
+    line: "FPGAS_REQUIRE_VERIFIED = {{ 'True' if site_require_fpga_verified | bool else 'False' }}"
+  notify:
+    - Restart django services
+  tags:
+    - django
+
 - name: Set static dir
   ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
