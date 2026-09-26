@@ -1,6 +1,6 @@
 ---
 - name: Install scripts to manage pi states
-  copy:
+  ansible.builtin.copy:
     src: "scripts/{{ item }}"
     dest: "/usr/local/sbin/{{ item }}"
     mode: preserve
@@ -13,5 +13,5 @@
     - qemu
 
 - name: Put the pi boot system into maintenance mode
-  command: maintenance.sh
+  ansible.builtin.command: maintenance.sh
   when: false

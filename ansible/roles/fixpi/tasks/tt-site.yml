@@ -7,19 +7,19 @@
 # themselves are generic and already baked into the image (tt_install).
 
 - name: Create /etc/fpgas-online in the NFS root
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/fpgas-online"
     state: directory
     mode: "0755"
 
 - name: Bake tt-boards.yaml into the NFS root
-  template:
+  ansible.builtin.template:
     src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
     dest: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"
     mode: "0644"
 
 - name: Enable fpgas-tt.service in the NFS root
-  file:
+  ansible.builtin.file:
     src: /lib/systemd/system/fpgas-tt.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-tt.service"
     state: link

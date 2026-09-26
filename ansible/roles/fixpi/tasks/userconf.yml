@@ -1,11 +1,11 @@
 ---
 - name: Create issue.d dir
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/issue.d"
     state: directory
 
 - name: Display IP, pw and things on console
-  copy:
+  ansible.builtin.copy:
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
 
@@ -17,7 +17,7 @@
 # /etc/shadow as a plain file edit. The salt is derived from the password, so
 # the hash is stable across runs and the tasks are idempotent.
 - name: Hash the pi user's password (sha512-crypt, salt derived from it)
-  command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
+  ansible.builtin.command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
     stdin: "{{ pi_pw }}"
   register: fixpi_pi_pw_hash
@@ -27,7 +27,7 @@
     - pipw
 
 - name: Check whether the NFS root already carries that hash
-  command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
+  ansible.builtin.command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
   register: fixpi_pi_pw_current
   changed_when: false
   failed_when: fixpi_pi_pw_current.rc not in [0, 1]
@@ -54,7 +54,7 @@
 # succeeds, and this warning must not be lost when the shadow was replaced
 # and a later task then fails.
 - name: Reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
-  debug:
+  ansible.builtin.debug:
     msg: >-
       {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
       now refuses SSH until rebooted: PoE-cycle their switch ports.
@@ -67,7 +67,7 @@
 # was only ever a marker. userconf.txt holds the plaintext password in the
 # TFTP-served boot dir, so make sure it is gone.
 - name: Remove userconf.txt and the password marker
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   with_items:
@@ -77,18 +77,18 @@
     - pipw
 
 - name: Enable sshd
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/boot/ssh"
     state: touch
 
 - name: Get fixed sshswitch
-  get_url:
+  ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/RPi-Distro/raspberrypi-sys-mods/{{ dist }}/debian/raspberrypi-sys-mods.sshswitch.service"
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/sshswitch.service"
   when: false
 
 - name: Sshd password settings
-  copy:
+  ansible.builtin.copy:
     src: "files/etc/ssh/sshd_config.d/password.conf"
     dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/password.conf"
 
@@ -100,7 +100,7 @@
     - keys
 
 - name: Create .ssh dirs
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
   with_items:

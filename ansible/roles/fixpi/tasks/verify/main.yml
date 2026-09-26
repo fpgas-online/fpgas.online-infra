@@ -1,79 +1,79 @@
 ---
 - name: Check maintenance.sh script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/maintenance.sh
   register: fixpi_maintenance_stat
 
 - name: Assert maintenance.sh exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_maintenance_stat.stat.exists
     fail_msg: "/usr/local/sbin/maintenance.sh not found"
 
 - name: Check production.sh script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/production.sh
   register: fixpi_production_stat
 
 - name: Assert production.sh exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_production_stat.stat.exists
     fail_msg: "/usr/local/sbin/production.sh not found"
 
 - name: Check chroot-mount-pi-fs.bash script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/chroot-mount-pi-fs.bash
   register: fixpi_chroot_stat
 
 - name: Assert chroot-mount-pi-fs.bash exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_chroot_stat.stat.exists
     fail_msg: "/usr/local/sbin/chroot-mount-pi-fs.bash not found"
 
 - name: Check /srv/tftp/bootcode.bin symlink exists
-  stat:
+  ansible.builtin.stat:
     path: /srv/tftp/bootcode.bin
   register: fixpi_bootcode_stat
 
 - name: Assert /srv/tftp/bootcode.bin symlink exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_bootcode_stat.stat.exists and fixpi_bootcode_stat.stat.islnk
     fail_msg: "/srv/tftp/bootcode.bin symlink not found"
 
 # Legacy MAC-table scheme only (switch.nos); per-port VLAN hosts (switches
 # defined) have no switch.nos -- see (D) in task-11.
 - name: Check TFTP serial number directories from switch.nos
-  stat:
+  ansible.builtin.stat:
     path: "/srv/tftp/{{ item.sn }}"
   register: fixpi_sn_stats
   with_items: "{{ switch.nos }}"
   when: switches is not defined
 
 - name: Assert TFTP serial number directories exist
-  assert:
+  ansible.builtin.assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
   with_items: "{{ fixpi_sn_stats.results }}"
   when: switches is not defined
 
 - name: Read cmdline.txt from nfs_root/boot
-  command: cat "{{ nfs_root }}/boot/cmdline.txt"
+  ansible.builtin.command: cat "{{ nfs_root }}/boot/cmdline.txt"
   changed_when: false
   register: fixpi_cmdline
 
 - name: Assert cmdline.txt contains nfsroot=
-  assert:
+  ansible.builtin.assert:
     that: "'nfsroot=' in fixpi_cmdline.stdout"
     fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"
 
 # --- Orange Pi (sunxi) netboot files (fixpi/tasks/sunxi.yml) ---
 - name: Read the sunxi PXE config
-  slurp:
+  ansible.builtin.slurp:
     src: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
   register: fixpi_verify_sunxi_pxe
   when: sunxi_boards is defined
 
 - name: Assert sunxi PXE config names the default DTB and the NFS root
-  assert:
+  ansible.builtin.assert:
     that:
       - fixpi_verify_sunxi_pxe.content | b64decode is search('fdt sunxi/dtbs/' ~ sunxi_default_dtb)
       - fixpi_verify_sunxi_pxe.content | b64decode is search('nfsroot=' ~ eth_local_address ~ ':' ~ nfs_root ~ '/root')
@@ -83,14 +83,14 @@
 # Every image carries the armmp kernel (fixpi/sunxi-image.yml, CI build),
 # so a site with sunxi_boards must have published it.
 - name: Sunxi kernel payload present in tftp
-  stat:
+  ansible.builtin.stat:
     path: "{{ tftp_root }}/sunxi/{{ item }}"
   register: fixpi_verify_sunxi_payload
   loop: [vmlinuz, initrd.img, "dtbs/{{ sunxi_default_dtb }}"]
   when: sunxi_boards is defined
 
 - name: Assert sunxi kernel payload present
-  assert:
+  ansible.builtin.assert:
     that: fixpi_verify_sunxi_payload.results | map(attribute='stat.exists') | list == [true, true, true]
     fail_msg: "sunxi/vmlinuz, sunxi/initrd.img or {{ sunxi_default_dtb }} missing from {{ tftp_root }}/sunxi"
   when: sunxi_boards is defined

@@ -1,11 +1,11 @@
 ---
 - name: Avoid [FAILED] Failed to start Set console font and keymap.
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/console-setup.service"
     state: absent
 
 - name: Avoid Wi-Fi is currently blocked by rfkill.
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/profile.d/wifi-check.sh"
     state: absent
 
@@ -17,7 +17,7 @@
 #
 
 - name: Remove etc/hostname (dhclient will get hostname from server)
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
   tags:
@@ -36,7 +36,7 @@
 # regexp so the site value REPLACES the generic one a pulled CI image
 # carries (pistat_host=fpgas.online) instead of appending a second line.
 - name: Set pistat_host in /etc/environment
-  lineinfile:
+  ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/root/etc/environment"
     state: present
     create: true
@@ -47,21 +47,21 @@
     - fixpi
 
 - name: Etc overrides
-  copy:
+  ansible.builtin.copy:
     src: "files/etc/"
     dest: "{{ nfs_root }}/root/etc/"
   tags:
     - fixpi
 
 - name: Resolve.conf
-  template:
+  ansible.builtin.template:
     src: templates/resolve.conf.j2
     dest: "{{ nfs_root }}/root/etc/resolve.conf"
   tags:
     - fixpi
 
 - name: Add time to bash prompt
-  lineinfile:
+  ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/root/home/pi/.bashrc"
     insertafter: '^unset color_prompt force_color_prompt'
     line: '{% raw %}PS1="\D{%T} $PS1"{% endraw %}'
@@ -170,7 +170,7 @@
 # (issue #34) skips them with fixpi_server_monitor: false.
 
 - name: Is server pi
-  stat:
+  ansible.builtin.stat:
     path: /boot/firmware/config.txt
   register: fixpi_is_pi
   tags:
@@ -190,7 +190,7 @@
 # https://bugs.debian.org/667616
 # brltty greedily grabs serial ports, ftdi_sio loses connection
 - name: Apt remove brltty
-  apt:
+  ansible.builtin.apt:
     name:
       - brltty
     state: absent
@@ -200,7 +200,7 @@
 # was installed here too, for running the Pi roles on the server; the root
 # now arrives prebuilt, so nothing on the server runs ansible.)
 - name: Install packages on server
-  apt:
+  ansible.builtin.apt:
     name:
       - tio
   when: fixpi_server_monitor | default(true)
@@ -214,7 +214,7 @@
 
 # don't let getty mess up boot messages over the serial console
 - name: Disable (mask) getty systemd service
-  systemd:
+  ansible.builtin.systemd:
     enabled: false
     masked: true
     state: stopped
@@ -228,7 +228,7 @@
 # settle) waits its full 2 min on the Orange Pi H3 before anything else starts
 # (spike 2026-08-28: userspace 2 m 16 s, of which ifupdown-pre 2 m 02 s).
 - name: Mask ifupdown units in NFS root
-  file:
+  ansible.builtin.file:
     src: /dev/null
     dest: "{{ nfs_root }}/root/etc/systemd/system/{{ item }}"
     state: link

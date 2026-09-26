@@ -10,14 +10,14 @@
 # /boot/firmware alone (verified 2026-08-28 in the spike).
 
 - name: Find the installed armmp kernel
-  find:
+  ansible.builtin.find:
     paths: "{{ nfs_root }}/root/boot"
     patterns: "vmlinuz-*-armmp"
   register: fixpi_sunxi_vmlinuz
   tags: [sunxi]
 
 - name: Derive the armmp kernel version
-  set_fact:
+  ansible.builtin.set_fact:
     fixpi_sunxi_kver: >-
       {{ (fixpi_sunxi_vmlinuz.files | map(attribute='path') | sort | last | basename)
          | regex_replace('^vmlinuz-', '') }}
@@ -25,7 +25,7 @@
   tags: [sunxi]
 
 - name: Create tftp sunxi directories
-  file:
+  ansible.builtin.file:
     path: "{{ tftp_root }}/{{ item }}"
     state: directory
     mode: "0755"
@@ -33,7 +33,7 @@
   tags: [sunxi]
 
 - name: Publish kernel + initrd to tftp sunxi/
-  copy:
+  ansible.builtin.copy:
     remote_src: true
     src: "{{ nfs_root }}/root/boot/{{ item.src }}-{{ fixpi_sunxi_kver }}"
     dest: "{{ tftp_root }}/sunxi/{{ item.dest }}"
@@ -45,7 +45,7 @@
   tags: [sunxi]
 
 - name: Publish sunxi DTBs to tftp sunxi/dtbs/
-  copy:
+  ansible.builtin.copy:
     remote_src: true
     src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
     dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
@@ -56,7 +56,7 @@
 
 # fdtget/fdtput for the I2C fixup below.
 - name: Install device-tree-compiler on the server
-  apt:
+  ansible.builtin.apt:
     name: device-tree-compiler
   tags: [sunxi]
 
@@ -65,7 +65,7 @@
 # a U-Boot fdtoverlays line) so nothing depends on the U-Boot build having
 # overlay support.
 - name: Enable the header I2C controllers in the published sunxi DTBs
-  shell: |
+  ansible.builtin.shell: |
     set -e
     changed=0
     for node in {{ fixpi_sunxi_i2c_nodes | join(' ') }}; do
@@ -82,7 +82,7 @@
   tags: [sunxi]
 
 - name: U-Boot PXE config for the sunxi boards
-  template:
+  ansible.builtin.template:
     src: templates/boot/default-arm-sunxi.j2
     dest: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
     mode: "0644"
