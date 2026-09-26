@@ -19,10 +19,10 @@
   become: true
   tasks:
     - name: Prepare the runner
-      import_tasks: ci-nfsroot-runner.yml
+      ansible.builtin.import_tasks: ci-nfsroot-runner.yml
 
     - name: Check the RasPiOS tree is in place (stage 1)
-      stat:
+      ansible.builtin.stat:
         path: "{{ nfs_root }}/root/etc/os-release"
       register: ci_nfsroot_upgrade_os
       failed_when: not ci_nfsroot_upgrade_os.stat.exists
@@ -30,12 +30,12 @@
     # Same source as fixpi/netboot.yml's copy for the final build: never
     # the systemd-resolved stub, which is unreachable from the chroot.
     - name: Check for systemd-resolved's upstream resolv.conf
-      stat:
+      ansible.builtin.stat:
         path: /run/systemd/resolve/resolv.conf
       register: ci_nfsroot_upgrade_resolved
 
     - name: Give the chroot the runner's DNS for apt
-      copy:
+      ansible.builtin.copy:
         remote_src: true
         src: "{{ '/run/systemd/resolve/resolv.conf' if ci_nfsroot_upgrade_resolved.stat.exists else '/etc/resolv.conf' }}"
         dest: "{{ nfs_root }}/root/etc/resolv.conf"
@@ -43,7 +43,7 @@
         mode: "0644"
 
     - name: Prepare the NFS root chroot for apt
-      include_role:
+      ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: chroot-prep.yml
 
@@ -51,7 +51,7 @@
   hosts: pi
   tasks:
     - name: Upgrade every package the RasPiOS release ships
-      apt:
+      ansible.builtin.apt:
         upgrade: true
         update_cache: true
 
@@ -64,18 +64,18 @@
     # the chroot session (initramfs refresh, prune, unmount, policy-rc.d),
     # then sync again to pick up the refreshed initramfs images.
     - name: Sync the upgraded kernel payload before pruning
-      command: >-
+      ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
 
     - name: Finish the chroot session (kernels, mounts, policy-rc.d)
-      include_role:
+      ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: stop.yml
 
     - name: Re-sync kernel+initramfs+DTB payload after the kernel maintenance
-      command: >-
+      ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
@@ -83,7 +83,7 @@
     # The published stage carries no build-host DNS (the final build copies
     # the runner's in again for its own apt runs, then neutralizes it).
     - name: Neutralize build-host resolv.conf in the stage
-      copy:
+      ansible.builtin.copy:
         content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
         dest: "{{ nfs_root }}/root/etc/resolv.conf"
         mode: "0644"

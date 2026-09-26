@@ -9,15 +9,15 @@
 # pre-registered (2026-09-03: build ran 40+ min before cancellation,
 # all ARM tasks uniformly slow). Disable it for this boot.
 - name: List binfmt handlers (diagnostic for future runner-image drift)
-  command: ls /proc/sys/fs/binfmt_misc
+  ansible.builtin.command: ls /proc/sys/fs/binfmt_misc
   register: ci_nfsroot_binfmt
   changed_when: false
   failed_when: false  # binfmt_misc not mounted = no handlers = nothing to do
 
 - name: Show binfmt handlers
-  debug:
+  ansible.builtin.debug:
     var: ci_nfsroot_binfmt.stdout_lines
 
 - name: Disable the qemu-arm binfmt handler (shadows native AArch32)
-  shell: echo -1 > /proc/sys/fs/binfmt_misc/qemu-arm
+  ansible.builtin.shell: echo -1 > /proc/sys/fs/binfmt_misc/qemu-arm
   when: "'qemu-arm' in ci_nfsroot_binfmt.stdout_lines"

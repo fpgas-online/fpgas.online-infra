@@ -14,7 +14,7 @@
   gather_facts: false
   tasks:
     - name: Start pulling the Pi NFS root image
-      include_role:
+      ansible.builtin.include_role:
         name: img
         tasks_from: prefetch.yml
       tags: [img]
@@ -66,20 +66,20 @@
       tags: [always]
 
     - name: Extract the pulled Pi NFS root
-      import_role:
+      ansible.builtin.import_role:
         name: img
       tags: [img]
 
     # A fresh extract restores the image's upstream apt sources; point
     # them back at this site's cache.
     - name: Point the NFS root's apt sources at the site cache
-      import_role:
+      ansible.builtin.import_role:
         name: apt_cache
         tasks_from: nfsroot.yml
       tags: [apt-cache]
 
     - name: Apply the site layer to the NFS root
-      import_role:
+      ansible.builtin.import_role:
         name: fixpi
       tags: [fixpi]
 
