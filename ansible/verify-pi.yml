@@ -411,7 +411,8 @@
           {% if verify_pi_acorn_report.content is not defined %}No /run/fpgas-online/acorn-verify.json: the
           check has not run this boot ({{ verify_pi_acorn_report.msg | default('') }}).{% else %}Acorn check
           result '{{ report.result }}' (release {{ report.release or '-' }}):
-          {% for b in report.boards %}{{ b.bdf }} {{ b.kind }} {{ b.variant }} {{ b.result }}{% if b.reason is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% endif %}
+          {% for b in report.boards %}{{ b.bdf }} {{ b.kind }} {{ b.variant }} {{ b.result }}{% if b.reason
+          is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% endif %}
       tags: [verify, acorn, hw-fpga]
 
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
