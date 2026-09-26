@@ -1,5 +1,5 @@
 ---
 - name: Create static content dir
-  file:
+  ansible.builtin.file:
     path: "{{ static_dir }}"
     state: directory

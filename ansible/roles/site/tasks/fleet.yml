@@ -4,14 +4,14 @@
 # status beats and boot events into the fleet app. Included from main.yml
 # guarded by fleet_broker.
 - name: Fleet-consumer systemd unit
-  template:
+  ansible.builtin.template:
     src: templates/fleet-consumer.service.j2
     dest: /etc/systemd/system/fleet-consumer.service
     mode: "0644"
   notify: Restart fleet-consumer
 
 - name: Enable fleet-consumer
-  systemd:
+  ansible.builtin.systemd:
     service: fleet-consumer.service
     daemon_reload: true
     enabled: true

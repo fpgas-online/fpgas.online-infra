@@ -8,7 +8,7 @@
 # VLAN hosts (switches defined, e.g. tweed) removed those fields in Task 10
 # and use fpgas-switch-setup instead, so this whole task is skipped there.
 - name: Populate /etc/environment
-  lineinfile:
+  ansible.builtin.lineinfile:
     dest: "{{ item[0] }}"
     state: present
     regexp: "^{{ 'export ' if 'export' in item[0] else '' }}{{ item[1].key }}="

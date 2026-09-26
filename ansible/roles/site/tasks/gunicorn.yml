@@ -2,13 +2,13 @@
 # fpgas-online-site.yml.
 ---
 - name: Copy gunicorn socket file to /etc/systemd/system/gunicorn.socket
-  template:
+  ansible.builtin.template:
     src: templates/gunicorn.socket.j2
     dest: /etc/systemd/system/gunicorn.socket
   notify: Restart django services
 
 - name: Copy gunicorn systemd file to /etc/systemd/system/gunicorn.service
-  template:
+  ansible.builtin.template:
     src: templates/gunicorn.service.j2
     dest: /etc/systemd/system/gunicorn.service
   notify: Restart django services
@@ -19,7 +19,7 @@
 # per-port-VLAN switches through environment variables; see the template.
 # Hosts on the legacy single-switch scheme get theirs from snmp.yml instead.
 - name: Gunicorn drop-in directory
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/gunicorn.service.d
     state: directory
     mode: "0755"
@@ -29,7 +29,7 @@
     - snmp
 
 - name: Tell gunicorn where the per-port-VLAN switches are (PoE control)
-  template:
+  ansible.builtin.template:
     src: templates/gunicorn-poe.conf.j2
     dest: /etc/systemd/system/gunicorn.service.d/poe.conf
     mode: "0600"
@@ -43,7 +43,7 @@
     - snmp
 
 - name: No per-port-VLAN switch drop-in on a legacy-scheme host
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/gunicorn.service.d/poe.conf
     state: absent
   when: switches is not defined
@@ -55,7 +55,7 @@
     - snmp
 
 - name: Enable services
-  systemd:
+  ansible.builtin.systemd:
     service: "{{ item }}"
     daemon_reload: true
     enabled: true

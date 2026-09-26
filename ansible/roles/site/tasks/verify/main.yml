@@ -1,39 +1,39 @@
 ---
 - name: Check nginx package installed
-  command: dpkg -s nginx
+  ansible.builtin.command: dpkg -s nginx
   changed_when: false
   register: site_dpkg_nginx
 
 - name: Assert nginx is installed
-  assert:
+  ansible.builtin.assert:
     that: site_dpkg_nginx.rc == 0
     fail_msg: "nginx package is not installed"
 
 - name: Check nginx service active
-  command: systemctl is-active nginx
+  ansible.builtin.command: systemctl is-active nginx
   changed_when: false
   register: site_nginx_active
   failed_when: false
 
 - name: Assert nginx service is active
-  assert:
+  ansible.builtin.assert:
     that: site_nginx_active.stdout == "active"
     fail_msg: "nginx service is not active (got: {{ site_nginx_active.stdout }})"
 
 - name: Check Django venv python exists
-  stat:
+  ansible.builtin.stat:
     path: "{{ django_dir }}/venv/bin/python"
   register: site_venv_python_stat
   tags: [verify, django]
 
 - name: Assert Django venv python exists
-  assert:
+  ansible.builtin.assert:
     that: site_venv_python_stat.stat.exists
     fail_msg: "Django venv python not found at {{ django_dir }}/venv/bin/python"
   tags: [verify, django]
 
 - name: Check the Django app services are active
-  command: systemctl is-active {{ item }}
+  ansible.builtin.command: systemctl is-active {{ item }}
   changed_when: false
   register: site_app_services
   loop: [gunicorn.socket, gunicorn.service, daphne.service, uvicorn.service, redis-server.service]
@@ -41,7 +41,7 @@
   tags: [verify, django]
 
 - name: Assert the Django app services are active
-  assert:
+  ansible.builtin.assert:
     that: item.stdout == "active"
     fail_msg: "{{ item.item }} is not active (got: {{ item.stdout }})"
   loop: "{{ site_app_services.results }}"
@@ -50,7 +50,7 @@
   tags: [verify, django]
 
 - name: Check the Django app answers through the gunicorn socket
-  command: >-
+  ansible.builtin.command: >-
     curl -s -o /dev/null -w '%{http_code}' --unix-socket /run/gunicorn.sock
     -H 'Host: {{ domain_name }}' http://localhost/fpgas/
   changed_when: false
@@ -58,7 +58,7 @@
   tags: [verify, django]
 
 - name: Assert the Django app answers (2xx/3xx)
-  assert:
+  ansible.builtin.assert:
     that: site_http_probe.stdout is match('^[23]')
     fail_msg: "GET /fpgas/ via /run/gunicorn.sock returned HTTP {{ site_http_probe.stdout }}"
   tags: [verify, django]
@@ -73,7 +73,7 @@
 # but sending it keeps the probe honest about what it is asking for.
 
 - name: Fetch /fpgas/ to check the under-construction banner
-  command: >-
+  ansible.builtin.command: >-
     curl -s --unix-socket /run/gunicorn.sock
     -H 'Host: {{ domain_name }}' -H 'Sec-Fetch-Dest: document'
     http://localhost/fpgas/
@@ -82,7 +82,7 @@
   tags: [verify, django]
 
 - name: Assert the under-construction banner matches site_under_construction
-  assert:
+  ansible.builtin.assert:
     that: ('Under construction!' in site_v_banner.stdout) == (site_under_construction | bool)
     fail_msg: >-
       site_under_construction is {{ site_under_construction | bool }} but the banner is
@@ -98,19 +98,19 @@
 # Nothing in CI noticed, so assert it here rather than in a comment.
 
 - name: Nginx vhosts that terminate TLS on IPv4
-  shell: "grep -lE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
+  ansible.builtin.shell: "grep -lE '^[[:space:]]*listen[[:space:]]+443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
   changed_when: false
   failed_when: false
   register: site_v_tls4
 
 - name: Nginx vhosts that terminate TLS on IPv6
-  shell: "grep -lE '^[[:space:]]*listen[[:space:]]+\\[::\\]:443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
+  ansible.builtin.shell: "grep -lE '^[[:space:]]*listen[[:space:]]+\\[::\\]:443[[:space:]]+ssl' /etc/nginx/sites-enabled/*.conf"
   changed_when: false
   failed_when: false
   register: site_v_tls6
 
 - name: Assert every TLS vhost listens on IPv6 as well as IPv4
-  assert:
+  ansible.builtin.assert:
     that: (site_v_tls4.stdout_lines | difference(site_v_tls6.stdout_lines)) | length == 0
     fail_msg: >-
       IPv4-only TLS vhost(s)
@@ -119,12 +119,12 @@
       certificate. Add `listen [::]:443 ssl;` beside `listen 443 ssl;`.
 
 - name: Listening sockets
-  command: ss -H -ltn
+  ansible.builtin.command: ss -H -ltn
   changed_when: false
   register: site_v_listeners
 
 - name: Assert nginx accepts TLS over IPv6
-  assert:
+  ansible.builtin.assert:
     that: site_v_listeners.stdout is search('\[::\]:443')
     fail_msg: "nothing is listening on [::]:443; IPv6 clients cannot reach the site over TLS"
 
@@ -132,13 +132,13 @@
 # certificate comes back. s_client prints "subject=CN=..." on stdout, so no
 # second openssl process and no discarded stderr.
 - name: Certificate served over IPv6 for {{ domain_name }}
-  shell: "openssl s_client -6 -connect [::1]:443 -servername {{ domain_name }} < /dev/null"
+  ansible.builtin.shell: "openssl s_client -6 -connect [::1]:443 -servername {{ domain_name }} < /dev/null"
   changed_when: false
   failed_when: false
   register: site_v_v6cert
 
 - name: Assert the IPv6 handshake serves this host's own certificate
-  assert:
+  ansible.builtin.assert:
     that: site_v_v6cert.stdout is search('subject=.*CN[ ]*=[ ]*' ~ (domain_name | regex_escape))
     fail_msg: >-
       TLS over IPv6 for {{ domain_name }} did not serve its own certificate.
@@ -147,7 +147,7 @@
 # Fleet self-registration (fpgas.online-infra#47): broker + consumer +
 # pages, only on hosts that opted in via fleet_broker.
 - name: Check the fleet broker and consumer are active
-  command: systemctl is-active {{ item }}
+  ansible.builtin.command: systemctl is-active {{ item }}
   changed_when: false
   register: site_v_fleet_services
   loop: [mosquitto.service, fleet-consumer.service]
@@ -156,7 +156,7 @@
   tags: [verify, fleet]
 
 - name: Assert the fleet broker and consumer are active
-  assert:
+  ansible.builtin.assert:
     that: item.stdout == "active"
     fail_msg: "{{ item.item }} is not active (got: {{ item.stdout }})"
   loop: "{{ site_v_fleet_services.results }}"
@@ -168,7 +168,7 @@
 # Straight to gunicorn's socket: proves Django serves the fleet pages
 # without depending on TLS/SNI details already asserted above.
 - name: GET /fleet/ from the app server
-  command: >-
+  ansible.builtin.command: >-
     curl --silent --output /dev/null --write-out '%{http_code}'
     --unix-socket /run/gunicorn.sock
     --header 'Host: {{ domain_name }}'
@@ -180,7 +180,7 @@
   tags: [verify, fleet]
 
 - name: Assert /fleet/ returns 200
-  assert:
+  ansible.builtin.assert:
     that: site_v_fleet_page.stdout == "200"
     fail_msg: "GET /fleet/ returned {{ site_v_fleet_page.stdout }}, expected 200"
   when: fleet_broker | default(false)
