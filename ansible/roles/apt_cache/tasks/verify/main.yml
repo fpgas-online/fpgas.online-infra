@@ -162,7 +162,7 @@
     # here instead of silently fetching from upstream.
     - name: Collect the NFS root's apt source URIs
       ansible.builtin.shell: >-
-        grep -rhE '^[[:space:]]*(deb|deb-src)[[:space:]]|^[[:space:]]*URIs:'
+        grep -rhE -e '^[[:space:]]*deb(-src)?[[:space:]]' -e '^[[:space:]]*URIs:'
         {{ nfs_root }}/root/etc/apt/sources.list {{ nfs_root }}/root/etc/apt/sources.list.d/
       changed_when: false
       failed_when: apt_cache_v_sources.rc > 1
