@@ -1,0 +1,26 @@
+---
+# felboot: FEL-mode boot tooling for Allwinner (sunxi) boards, baked into the
+# published Pi NFS root image so any Pi in the rack can bring up an Orange Pi
+# over USB.
+#
+# Turn the whole role off with one line in inventory (group_vars/host_vars), or
+# in inventory-ci-nfsroot for the image build:
+#
+#     felboot_enabled: false
+#
+# ci-nfsroot.yml gates the role on this, so `false` installs nothing and skips
+# the role's own assertion with it. Nothing else references the variable, so
+# there is no second place to keep in step.
+felboot_enabled: true
+
+# sunxi-tools provides sunxi-fel, the host half of the Allwinner FEL protocol:
+# an H3 board with no bootable media exposes a USB device (1f3a:efe8) and waits
+# for a host to push SPL + U-Boot into SRAM over it. That is the only way to
+# start a board whose SD slot is empty, which is the state the rack's Orange Pis
+# are in.
+#
+# RasPiOS bookworm carries sunxi-tools for both armhf and arm64 (checked against
+# the served root's own apt lists on tweed, 2026-09-26), so the stock sources
+# the image already has are enough -- no extra apt source, no pinning.
+felboot_packages:
+  - sunxi-tools
