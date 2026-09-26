@@ -80,9 +80,18 @@
     # mid-run would make every board see a change and start rebooting,
     # deleting update.lock drops the hold, and deleting inhibit silently undoes
     # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
+    #
+    # --checksum: rsync replaces every file it transfers with a temp file
+    # renamed into place, i.e. a NEW inode, and every replaced inode goes
+    # ESTALE on the booted boards' overlayroot until they reboot. Without it
+    # the quick check (size + mtime) re-transfers every file whose mtime moved
+    # in a CI rebuild even though its bytes did not; with it an identical
+    # file keeps its inode and only its attributes are updated. It also stops the quick check from skipping
+    # a changed file whose size and mtime second happen to match. The cost is
+    # reading both trees once per new image digest.
     - name: Rsync boot/ and root/ from the image
       command: >-
-        rsync -aHAX --delete --numeric-ids
+        rsync -aHAX --delete --numeric-ids --checksum
         {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
       loop:
