@@ -42,7 +42,7 @@ The infra repo does NOT embed application source code. Instead, roles install pa
 from other repos:
 - `site` role: `pip install fpgas-online-site fpgas-online-poe[cli]`
 - `onpi` role: `apt install fpgas-online-setup-pi` (baked into the CI image)
-- `cam/pi` role: `apt install fpgas-online-cam` (baked into the CI image)
+- `cam_pi` role: `apt install fpgas-online-cam` (baked into the CI image)
 - `fpgas_apt` role: Adds the fpgas.online apt repository (baked into the CI image)
 
 ### Deployment Flow
@@ -60,7 +60,7 @@ from other repos:
 ### Key Files
 
 - `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi
-- `ansible/web.yml` -- Web tier play (site, wssh, cam/stream_server, ttsite); imported by site.yml, runnable alone
+- `ansible/web.yml` -- Web tier play (site, wssh, stream_server, ttsite); imported by site.yml, runnable alone
 - `ansible/verify-server.yml` -- Server-side verification (TFTP, NFS, packages, config)
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)

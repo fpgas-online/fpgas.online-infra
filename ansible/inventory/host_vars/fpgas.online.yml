@@ -407,7 +407,7 @@ dnsmasq_auth_glue: gw.fpgas.welland.mithis.com
 dnsmasq_auth_subnet: 10.21.0.0/16
 dnsmasq_auth_interface: eth-uplink
 
-# --- WebRTC / WHEP camera streaming (roles/cam/webrtc) --------------------
+# --- WebRTC / WHEP camera streaming (roles/webrtc) ------------------------
 # Defining webrtc_additional_hosts switches the mediamtx role on for this
 # host (web.yml). These are the ICE candidates mediamtx advertises:
 webrtc_media_port: 8189

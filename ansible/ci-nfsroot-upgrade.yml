@@ -7,7 +7,7 @@
 # whose packages are more than a year behind the archive: its upgrade was
 # the largest single task of every from-scratch build.
 #
-# The upgrade is the one the Pi roles run anyway (cam/pi and onpi:
+# The upgrade is the one the Pi roles run anyway (cam_pi and onpi:
 # `apt: upgrade: true, update_cache: true`), so a root built on this stage
 # is the root they would have produced from the release image.
 #

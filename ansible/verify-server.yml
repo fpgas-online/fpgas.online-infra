@@ -342,15 +342,15 @@
         tasks_from: verify/main.yml
       tags: [verify, wssh]
 
-    - name: Verify cam/stream-server
+    - name: Verify stream_server
       include_role:
-        name: cam/stream_server
+        name: stream_server
         tasks_from: verify/main.yml
       tags: [verify, cam-stream]
 
-    - name: Verify cam/webrtc
+    - name: Verify webrtc
       include_role:
-        name: cam/webrtc
+        name: webrtc
         tasks_from: verify/main.yml
       when: webrtc_additional_hosts is defined
       tags: [verify, cam-webrtc]

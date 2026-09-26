@@ -41,7 +41,7 @@
   roles:
     - uhubctl
 
-# Web tier (site, wssh, cam/stream_server, ttsite) -- see web.yml.
+# Web tier (site, wssh, stream_server, ttsite) -- see web.yml.
 - name: Import the web tier playbook
   import_playbook: web.yml
 

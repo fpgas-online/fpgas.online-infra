@@ -1,6 +1,6 @@
 # Runbook: open the WebRTC media port on ten64 (IPv4 DNAT)
 
-Date: 2026-09-02. Companion to `roles/cam/webrtc` (mediamtx WHEP streaming).
+Date: 2026-09-02. Companion to `roles/webrtc` (mediamtx WHEP streaming).
 
 ## Why a manual step exists
 
