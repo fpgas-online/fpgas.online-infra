@@ -1,5 +1,4 @@
 skip_list:
-  - name[missing]
   - no-changed-when
   - command-instead-of-module
   - risky-shell-pipe

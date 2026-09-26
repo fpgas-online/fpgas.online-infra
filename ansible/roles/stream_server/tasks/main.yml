@@ -1,8 +1,10 @@
 ---
-- ansible.builtin.include_tasks: base.yml
+- name: Install the nginx RTMP base configuration
+  ansible.builtin.include_tasks: base.yml
   tags:
     - streaming
 
-- ansible.builtin.include_tasks: back.yml
+- name: Configure the nginx streaming back end
+  ansible.builtin.include_tasks: back.yml
   tags:
     - streaming
