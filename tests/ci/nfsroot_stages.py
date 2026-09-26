@@ -17,26 +17,43 @@ behind the archive, and upgrading them was the largest single task of a
 from-scratch build.
 
 usage: nfsroot_stages.py MODE
-  ensure    leave the upgraded stage in NFSROOT: unpack the published one,
-            or build it if none exists for this checkout's key (PR and push
-            builds)
-  upgraded  rebuild and publish the upgraded stage on the published base
-            (the hourly schedule)
-  all       rebuild and publish both stages, starting from the RasPiOS
-            download (the daily schedule)
+  ensure     leave the upgraded stage in NFSROOT: unpack the published one,
+             or build it if none exists for this checkout's key (PR and push
+             builds)
+  scheduled  `all` when the published base stage is missing, carries no
+             build time, or was built SCRATCH_AFTER or longer ago; otherwise
+             `upgraded` (every scheduled run)
+  upgraded   rebuild and publish the upgraded stage on the published base
+  all        rebuild and publish both stages, starting from the RasPiOS
+             download (also a from-scratch dispatch)
+
+The scheduled choice goes by the base stage's age, not by which cron fired:
+GitHub runs schedules best-effort, and has started this repo's hourly one
+about every 4-6 hours and a daily one 5.5 hours late. Whichever scheduled
+run comes first once the base is a day old rebuilds from the download.
+
+`all` and `upgraded` (and so `scheduled`) write the step output
+scratch=true when the stages were rebuilt from the download, which tells
+the build job to build on them instead of converging main's last image.
 
 NFSROOT (nfsroot_publish.NFSROOT) is emptied first. Needs sudo, skopeo and
 a `docker login` to ghcr.io, and the repo's uv venv with the collections
 from requirements.yml.
 """
+import calendar
 import sys
+import time
 from pathlib import Path
 
 import nfsroot_inputs
 from nfsroot_publish import IMAGE, NFSROOT, push_tree, run, write_outputs
 from nfsroot_warm import extract
+from nfsroot_warm import labels as image_labels
 
 STAGE_LABEL = "org.fpgas-online.nfsroot.stage"
+BUILT_LABEL = "org.fpgas-online.nfsroot.built"  # UTC, TIME_FORMAT
+TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+SCRATCH_AFTER = 24 * 3600  # seconds
 
 
 def base_tag() -> str:
@@ -80,7 +97,24 @@ def unpack(tag: str) -> bool:
 
 
 def labels(stage: str) -> dict[str, str]:
-    return {nfsroot_inputs.BASE_LABEL: nfsroot_inputs.base_key(), STAGE_LABEL: stage}
+    return {nfsroot_inputs.BASE_LABEL: nfsroot_inputs.base_key(), STAGE_LABEL: stage,
+            BUILT_LABEL: time.strftime(TIME_FORMAT, time.gmtime())}
+
+
+def base_age(now: float | None = None) -> float | None:
+    """Seconds since the published base stage was built; None if unknown."""
+    built = (image_labels(base_tag()) or {}).get(BUILT_LABEL)
+    if not built:
+        return None
+    try:
+        then = calendar.timegm(time.strptime(built, TIME_FORMAT))
+    except ValueError:
+        return None
+    return (time.time() if now is None else now) - then
+
+
+def scratch_due(age: float | None) -> bool:
+    return age is None or age >= SCRATCH_AFTER
 
 
 def build_base(publish: bool) -> None:
@@ -99,16 +133,21 @@ def build_upgraded() -> None:
 
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) == 2 else ""
-    if mode not in ("ensure", "upgraded", "all"):
+    if mode not in ("ensure", "scheduled", "upgraded", "all"):
         print(__doc__, file=sys.stderr)
         return 2
+    if mode == "scheduled":
+        age = base_age()
+        mode = "all" if scratch_due(age) else "upgraded"
+        shown = "unknown" if age is None else f"{age / 3600:.1f} h"
+        print(f"base stage age: {shown}; rebuilding {mode}", flush=True)
     empty_root()
     if mode == "ensure":
         if unpack(upgraded_tag()):
             write_outputs(stage="unpacked")
             return 0
         # A PR build waits on this, so it publishes only the stage later
-        # runs start from; the hourly refresh rebuilds a missing base.
+        # runs start from; the next scheduled run rebuilds a missing base.
         if not unpack(base_tag()):
             build_base(publish=False)
         build_upgraded()
@@ -116,9 +155,11 @@ def main() -> int:
         return 0
     if mode == "upgraded" and unpack(base_tag()):
         build_upgraded()
+        write_outputs(scratch="false")
         return 0
     build_base(publish=True)
     build_upgraded()
+    write_outputs(scratch="true")
     return 0
 
 
