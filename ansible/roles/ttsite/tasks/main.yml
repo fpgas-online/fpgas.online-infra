@@ -11,7 +11,7 @@
     fail_msg: "tt_commander_(legacy_)embed_sha256 must be the 64-hex sha256 when the matching version is set"
   tags: [ttsite]
 
-- {include_tasks: boards.yml, tags: [ttsite, ttsite-boards]}
-- {include_tasks: django.yml, tags: [ttsite, ttsite-django]}
-- {include_tasks: embed.yml, tags: [ttsite, ttsite-embed]}
-- {include_tasks: nginx.yml, tags: [ttsite, ttsite-nginx]}
+- {name: Load the TT board catalogue, include_tasks: boards.yml, tags: [ttsite, ttsite-boards]}
+- {name: Configure the ttsite Django settings, include_tasks: django.yml, tags: [ttsite, ttsite-django]}
+- {name: Install the Commander embed bundles, include_tasks: embed.yml, tags: [ttsite, ttsite-embed]}
+- {name: Configure the ttsite nginx vhost and certificate, include_tasks: nginx.yml, tags: [ttsite, ttsite-nginx]}
