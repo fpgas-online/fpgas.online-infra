@@ -1,6 +1,6 @@
 ---
 - name: Install packages
-  apt:
+  ansible.builtin.apt:
     name:
       - nfs-kernel-server
     install_recommends: true
@@ -13,7 +13,7 @@
 # exportfs fails with "Failed to stat" on missing paths (rebuild #2 P2-3,
 # caught by CI before it hit hardware).
 - name: Create some dirs
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
   loop:
@@ -22,25 +22,25 @@
     - "{{ nfs_root }}/root"
 
 - name: Nfs only on internal nic
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/default/nfs-kernel-server
     regexp: '^host='
     line: "host={{ eth_local_address }}"
 
 - name: Write etc/exports
-  template:
+  ansible.builtin.template:
     src: templates/exports.j2
     dest: /etc/exports
   notify: Exportfs
 
 - name: Enable and start server service rpcbind
-  systemd:
+  ansible.builtin.systemd:
     name: rpcbind
     enabled: true
     state: started
 
 - name: Enable and start server service nfs-kernel-server
-  systemd:
+  ansible.builtin.systemd:
     name: nfs-kernel-server
     enabled: true
     state: started
@@ -52,4 +52,4 @@
 # after this role and no later run re-notified (C1-4, 2026-08-26; same
 # class as vlan-ports/C1-1).
 - name: Apply the NFS exports now
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers

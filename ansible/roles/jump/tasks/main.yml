@@ -2,13 +2,13 @@
 # Restricted jump account (see defaults/main.yml for what and why).
 
 - name: Install ssh-import-id
-  apt:
+  ansible.builtin.apt:
     name: ssh-import-id
   tags:
     - jump
 
 - name: Create the jump account with a restricted shell
-  user:
+  ansible.builtin.user:
     name: "{{ jump_user }}"
     shell: "{{ jump_shell }}"
     home: "{{ jump_home }}"
@@ -21,7 +21,7 @@
 # can run are what ~/bin holds, and .bash_profile points PATH there and
 # nowhere else.
 - name: Restricted command directory
-  file:
+  ansible.builtin.file:
     path: "{{ jump_home }}/bin"
     state: directory
     owner: "{{ jump_user }}"
@@ -31,7 +31,7 @@
     - jump
 
 - name: Expose only the allowed commands
-  file:
+  ansible.builtin.file:
     src: "{{ item }}"
     dest: "{{ jump_home }}/bin/{{ item | basename }}"
     state: link
@@ -42,7 +42,7 @@
     - jump
 
 - name: Lock PATH to the restricted directory
-  copy:
+  ansible.builtin.copy:
     content: "export PATH={{ jump_home }}/bin\n"
     dest: "{{ jump_home }}/.bash_profile"
     owner: "{{ jump_user }}"
@@ -52,7 +52,7 @@
     - jump
 
 - name: Ssh directory
-  file:
+  ansible.builtin.file:
     path: "{{ jump_home }}/.ssh"
     state: directory
     owner: "{{ jump_user }}"
@@ -64,7 +64,7 @@
 # The Pis' host keys change whenever the NFS root is rebuilt; the jump
 # account only ever hops onward, so accept new keys and keep them per host.
 - name: Accept new Pi host keys when hopping onward
-  copy:
+  ansible.builtin.copy:
     content: |
       Host *
           StrictHostKeyChecking accept-new
@@ -90,7 +90,7 @@
 # Same tolerance as the operators role: a GitHub outage must not fail the
 # converge, but the assert below refuses to leave the account key-less.
 - name: Import the shared ssh ids from GitHub / Launchpad
-  command: "ssh-import-id {{ jump_ssh_import_ids | join(' ') }}"
+  ansible.builtin.command: "ssh-import-id {{ jump_ssh_import_ids | join(' ') }}"
   become: true
   become_user: "{{ jump_user }}"
   changed_when: false
@@ -100,7 +100,7 @@
     - jump
 
 - name: Check the jump account has authorized_keys
-  stat:
+  ansible.builtin.stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"
   register: jump_authkeys
   tags:
@@ -109,7 +109,7 @@
 # Only when the inventory configures keys: the CI VM sets both lists empty
 # (no network), and a key-less account is unusable rather than unsafe.
 - name: Assert the jump account has at least one key
-  assert:
+  ansible.builtin.assert:
     that:
       - jump_authkeys.stat.exists
       - jump_authkeys.stat.size > 0
@@ -120,7 +120,7 @@
 
 # Belt and braces: the account must never gain sudo.
 - name: No sudoers entry for the jump account
-  file:
+  ansible.builtin.file:
     path: "/etc/sudoers.d/{{ jump_user }}"
     state: absent
   tags:
@@ -130,7 +130,7 @@
 # non-login shell with the default PATH. sshd's ForceCommand routes every
 # command through a wrapper that allows only ssh/ssh-keyscan (see files/).
 - name: Install the jump command wrapper
-  copy:
+  ansible.builtin.copy:
     src: jump-shell
     dest: /usr/local/bin/jump-shell
     owner: root
@@ -140,7 +140,7 @@
     - jump
 
 - name: Sshd drop-in for the jump account
-  copy:
+  ansible.builtin.copy:
     content: |
       # Restricted jump account (fpgas.online-infra roles/jump).
       # sshd runs ForceCommand through the account's login shell, and rbash
@@ -162,7 +162,7 @@
     - jump
 
 - name: Sshd configuration is still valid
-  command: /usr/sbin/sshd -t
+  ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
   tags:
     - jump
