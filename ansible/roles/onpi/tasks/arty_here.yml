@@ -1,13 +1,13 @@
 ---
 - name: Install packages for arty_here
-  apt:
+  ansible.builtin.apt:
     name:
       - expect
   tags:
     - ia
 
 - name: Arty_here
-  copy:
+  ansible.builtin.copy:
     src: "files/is_arty/{{ item }}"
     dest: "/usr/local/bin/{{ item }}"
     mode: u+x
@@ -18,7 +18,7 @@
     - ia
 
 - name: Install systemd arty_here service
-  copy:
+  ansible.builtin.copy:
     src: files/is_arty/arty_here.service
     dest: /etc/systemd/system/arty_here.service
   notify: Reload-systemd
@@ -26,7 +26,7 @@
     - ia
 
 - name: Enable arty_here.service
-  systemd:
+  ansible.builtin.systemd:
     name: arty_here.service
     enabled: true
   failed_when: false

@@ -1,5 +1,5 @@
 - name: Tftpd port systemd
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /usr/lib/systemd/system/atftpd.socket
     regexp: "ListenDatagram=69"
     line: "ListenDatagram={{ tftpd_port }}"
@@ -8,7 +8,7 @@
     - tftpd
 
 - name: Tftpd port conf
-  replace:
+  ansible.builtin.replace:
     path: /etc/default/atftpd
     regexp: "--port 69"
     replace: "--port {{ tftpd_port }}"

@@ -8,7 +8,7 @@
 # none of its own. The role keeps its copy in onpi_tt_boards rather than
 # setting a tt_boards fact over the inventory variable.
 - name: Tt_boards from the server host
-  set_fact:
+  ansible.builtin.set_fact:
     onpi_tt_boards: "{{ tt_boards if tt_boards is defined else hostvars[groups['nbp'][0]].tt_boards }}"
   when: tt_boards is defined or hostvars[groups['nbp'][0]].tt_boards is defined
 

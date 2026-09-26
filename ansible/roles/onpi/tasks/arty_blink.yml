@@ -1,6 +1,6 @@
 ---
 - name: Arty_blink
-  copy:
+  ansible.builtin.copy:
     src: "files/arty_blink/{{ item }}"
     dest: "/usr/local/bin/{{ item }}"
     mode: u+x
@@ -10,7 +10,7 @@
     - ab
 
 - name: Install systemd arty_blink service
-  copy:
+  ansible.builtin.copy:
     src: files/arty_blink/arty_blink.service
     dest: /etc/systemd/system/arty_blink.service
   notify: Reload-systemd
@@ -18,7 +18,7 @@
     - ab
 
 - name: Enable arty_blink.service
-  systemd:
+  ansible.builtin.systemd:
     name: arty_blink.service
     enabled: true
   failed_when: false
