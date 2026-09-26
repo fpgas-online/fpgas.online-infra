@@ -5,9 +5,10 @@
 # ghcr.io/fpgas-online/nfsroot:base-<base_key> (base_key in
 # tests/ci/nfsroot_inputs.py), and ci-nfsroot-upgrade.yml builds on it.
 #
-# Rebuilt from the download daily (nfsroot-build.yml's schedule), so the
-# download and unpack path stays proven; otherwise only when the base key
-# changes, i.e. a different RasPiOS release.
+# Rebuilt from the download by the first scheduled run once it is a day old
+# (tests/ci/nfsroot_stages.py `scheduled`), so the download and unpack path
+# stays proven; otherwise only when the base key changes, i.e. a different
+# RasPiOS release.
 
 - name: Download and extract the RasPiOS base image
   hosts: nbp

@@ -47,10 +47,12 @@ from other repos:
 
 ### Deployment Flow
 
-1. CI publishes the provisioned NFS root image (every PR/merge, plus an
-   hourly warm and a daily from-scratch scheduled build, all through the
-   VM test workflow), and on main promotes it to `bookworm-armhf` once the
-   virtual Pi has booted it
+1. CI publishes the provisioned NFS root image (every PR/merge, plus
+   scheduled rebuilds of main, all through the VM test workflow), and on
+   main promotes it to `bookworm-armhf` once the virtual Pi has booted it.
+   The schedule asks for hourly but GitHub starts it about every 4-6 hours;
+   the first scheduled run once the base stage is a day old rebuilds from
+   the RasPiOS download
 2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
    the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
@@ -132,12 +134,13 @@ lookup) takes about a minute.
 
 The image build (`nfsroot-build.yml`, arm64 runner) is reused whenever no
 image input changed in the current UTC hour (`tests/ci/nfsroot_inputs.py`),
-and otherwise converges main's latest image (~5 min); the daily scheduled
-build starts from RasPiOS (~10 min).
+and otherwise converges main's latest image (~5 min); a scheduled run
+whose base stage is a day old starts from RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
-push to `main`, on PRs, and on the hourly and daily image-build schedules
-(`nfsroot-build.yml` has no triggers of its own). Serial logs are uploaded as an artifact on every run
+push to `main`, on PRs, and on the image-build schedule (asked for hourly,
+started by GitHub about every 4-6 hours; `nfsroot-build.yml` has no
+triggers of its own). Serial logs are uploaded as an artifact on every run
 (including failures) for post-mortem debugging.
 
 As rpi-qemu increases emulation fidelity (virtual camera, virtual USB hub, etc.),

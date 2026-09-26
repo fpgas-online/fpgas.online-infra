@@ -17,15 +17,18 @@ on:
   # Rebuild main's Pi root between merges so it picks up new debs from the
   # package repositories, and test it like any other build before it can
   # become the rolling tag production pulls (the promote job below).
-  # Hourly: refresh the upgraded RasPiOS stage (tests/ci/nfsroot_stages.py)
-  # and warm-build main, so the rolling tag is at most about an hour behind
-  # the repositories. Daily: rebuild both stages from the RasPiOS download
-  # and build on them, which proves the clean build still works and drops
-  # anything a chain of warm builds has left behind. The daily entry must
-  # match SCRATCH_CRON in nfsroot-build.yml (tests check it).
+  # Asked for hourly. GitHub runs schedules best-effort and, measured
+  # 2026-09-25/26, started one about every 4-6 hours (and dropped the
+  # rest), so expect the rolling tag to trail the repositories by up to
+  # about six hours. Each scheduled run refreshes the upgraded RasPiOS stage
+  # and warm-builds main; the first one after the base stage turns a day
+  # old instead rebuilds both stages from the RasPiOS download and builds on
+  # them, which proves the clean build still works and drops anything a
+  # chain of warm builds has left behind (tests/ci/nfsroot_stages.py
+  # `scheduled`: it goes by the base's age, so a late or dropped run cannot
+  # skip it).
   schedule:
     - cron: "47 * * * *"
-    - cron: "17 2 * * *"
 
 # PRs: a new push supersedes the run in progress. main (pushes, schedules,
 # dispatches): runs never overlap and are never cancelled mid-run, so the

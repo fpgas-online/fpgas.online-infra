@@ -11,8 +11,7 @@ name: nfsroot build
 # publishes (workflow_call output `image` = the dated tag) on a virtual Pi,
 # and only then, on main, points the rolling bookworm-armhf tag at it. An
 # image that has not netbooted and registered never becomes what
-# production pulls. `github.event_name` and `github.event.schedule` below
-# are the caller's.
+# production pulls. `github.event_name` below is the caller's.
 on:
   workflow_call:
     inputs:
@@ -33,22 +32,23 @@ permissions:
   contents: read
   packages: write
 
-# Must match the daily entry of vm-test.yml's schedule (tests check it).
-env:
-  SCRATCH_CRON: "17 2 * * *"
-
 jobs:
   # The RasPiOS stages the build starts from when it is not a warm build:
   # nfsroot:base-<key> (the release, unpacked) and nfsroot:upgraded-<key>
-  # (that, fully upgraded). Only the schedules and a from-scratch dispatch
+  # (that, fully upgraded). Only the schedule and a from-scratch dispatch
   # rebuild them; PR and push builds unpack the published stage, or build
-  # it inline if none exists for their key.
+  # it inline if none exists for their key. A scheduled run rebuilds both
+  # from the RasPiOS download once the base stage is a day old, whenever
+  # GitHub gets round to starting one (tests/ci/nfsroot_stages.py
+  # `scheduled`), and otherwise refreshes the upgraded stage.
   stages:
     if: >-
       github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.from_scratch)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
+    outputs:
+      scratch: ${{ steps.stages.outputs.scratch }}
     steps:
       - uses: actions/checkout@v6
 
@@ -63,9 +63,10 @@ jobs:
         uses: ./.github/actions/nfsroot-setup
 
       - name: Rebuild the RasPiOS stages
+        id: stages
         run: >-
           uv run tests/ci/nfsroot_stages.py
-          ${{ (github.event.schedule == env.SCRATCH_CRON || github.event_name == 'workflow_dispatch') && 'all' || 'upgraded' }}
+          ${{ github.event_name == 'workflow_dispatch' && 'all' || 'scheduled' }}
 
   build:
     # After `stages` when it runs (the schedules), at once when it is
@@ -89,8 +90,11 @@ jobs:
       # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
       # the build roles, playbooks, inventory and tooling, plus the UTC hour)
       # is retagged instead of rebuilt; the steps below then skip. Every
-      # change to an image input gets a fresh build of this checkout.
+      # change to an image input gets a fresh build of this checkout. Not
+      # after the stages were rebuilt from the download: that run exists to
+      # build on them.
       - name: Reuse an image built from the same inputs
+        if: needs.stages.outputs.scratch != 'true'
         id: reuse
         env:
           NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
@@ -101,16 +105,17 @@ jobs:
         id: setup
         uses: ./.github/actions/nfsroot-setup
 
-      # PR, push and hourly builds converge the rolling tag: main's last
+      # PR, push and scheduled builds converge the rolling tag: main's last
       # image to pass the VM test (the roles are idempotent; their apt runs
       # are then mostly no-ops).
-      # The daily schedule and a from-scratch dispatch build on the freshly
-      # rebuilt RasPiOS stages instead, so a warm chain is never more than a
-      # day old. See tests/ci/nfsroot_warm.py.
+      # A run whose stages job rebuilt them from the download (the first
+      # scheduled run once the base is a day old, or a from-scratch
+      # dispatch) builds on them instead, so a warm chain is never much more
+      # than a day old. See tests/ci/nfsroot_warm.py.
       - name: Start from main's latest image (warm build)
         if: >-
           steps.reuse.outputs.reused != 'true'
-          && github.event.schedule != env.SCRATCH_CRON
+          && needs.stages.outputs.scratch != 'true'
           && !inputs.from_scratch
         id: warm
         run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm

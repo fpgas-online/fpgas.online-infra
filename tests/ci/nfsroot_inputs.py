@@ -10,8 +10,9 @@ PR that touches no image input boots exactly the image main would, and one
 that does touch an input always gets a fresh build of its own checkout.
 
 The key includes the UTC hour, so an unchanged checkout still rebuilds at
-least hourly and picks up new debs (the same cadence as nfsroot-build.yml's
-hourly schedule, whose image the later runs of that hour then reuse).
+least hourly and picks up new debs; the later runs of that hour reuse the
+image. (vm-test.yml's schedule asks for hourly; GitHub starts it about
+every 4-6 hours.)
 
 tests/test_nfsroot_inputs.py fails if ci-nfsroot.yml starts using a role,
 or a role starts reading another role's files, that INPUTS does not cover.
