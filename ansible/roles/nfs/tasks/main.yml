@@ -51,4 +51,5 @@
 # (rpc.mountd "unmatched host" on every Pi mount), because run 1 failed
 # after this role and no later run re-notified (C1-4, 2026-08-26; same
 # class as vlan-ports/C1-1).
-- meta: flush_handlers
+- name: Apply the NFS exports now
+  meta: flush_handlers
