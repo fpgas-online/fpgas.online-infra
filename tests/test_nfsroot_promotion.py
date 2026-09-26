@@ -47,9 +47,18 @@ def test_the_build_workflow_runs_only_under_the_vm_test():
         "./.github/workflows/nfsroot-build.yml"
 
 
-def test_the_daily_schedule_is_the_build_workflows_scratch_cron():
-    crons = [s["cron"] for s in triggers(workflow("vm-test.yml"))["schedule"]]
-    assert workflow("nfsroot-build.yml")["env"]["SCRATCH_CRON"] in crons
+def test_scheduled_runs_decide_scratch_by_age_not_by_cron():
+    # GitHub starts schedules late or not at all, so nothing may depend on
+    # which cron fired: one schedule, and the stages job picks the mode.
+    assert len(triggers(workflow("vm-test.yml"))["schedule"]) == 1
+    build = workflow("nfsroot-build.yml")
+    text = (WORKFLOWS / "nfsroot-build.yml").read_text()
+    assert "github.event.schedule" not in text
+    assert "'scheduled'" in str(build["jobs"]["stages"]["steps"])
+    steps = {s.get("id"): s for s in build["jobs"]["build"]["steps"]}
+    scratch = "needs.stages.outputs.scratch != 'true'"
+    assert scratch in steps["reuse"]["if"]
+    assert scratch in steps["warm"]["if"]
 
 
 def test_promotion_needs_the_build_and_the_boot_test_on_main():
