@@ -92,7 +92,8 @@ jobs:
             systemd-container \
             openssh-client \
             ca-certificates \
-            curl
+            curl \
+            zstd
 
       # rpi-qemu's signed flat repo (its README). The version floor keeps
       # out builds before 2:0.1+95, which have the GENET TX index-wrap
@@ -149,7 +150,13 @@ jobs:
       - name: Run VM integration tests (server + Pi PXE boot)
         env:
           NFSROOT_IMAGE: ghcr.io/fpgas-online/nfsroot:ci-${{ github.run_id }}
-        run: uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE"
+        run: uv run tests/vm/run_tests.py --phase all --keep-vm --nfsroot-image "$NFSROOT_IMAGE"
+
+      # EXPERIMENT branch only: time the image pull's parts in the kept VM.
+      - name: Benchmark the image pull
+        env:
+          NFSROOT_IMAGE: ghcr.io/fpgas-online/nfsroot:ci-${{ github.run_id }}
+        run: uv run tests/vm/bench_pull.py "$NFSROOT_IMAGE"
 
       # Belt and braces with the artifact below: on a failure, put the log
       # tails straight into the job log — a crashed teardown has produced
