@@ -194,10 +194,10 @@ test coverage grows correspondingly.
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
 | `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
-| `cam/stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
+| `stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
 | `fpgas_apt` | NFS root (nspawn) | Add fpgas.online apt repository |
-| `cam/pi` | NFS root (nspawn) | Install camera capture package |
+| `cam_pi` | NFS root (nspawn) | Install camera capture package |
 | `onpi` | NFS root (nspawn) | Install Pi environment setup package |
 
 ## Linting

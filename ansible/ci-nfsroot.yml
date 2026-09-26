@@ -3,7 +3,7 @@
 # docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
 #
 # Stage 3, the published image: the Pi roles (fixpi on the build host,
-# then fpgas_apt, cam/pi and onpi against the root) applied to the
+# then fpgas_apt, cam_pi and onpi against the root) applied to the
 # upgraded RasPiOS tree of stages 1 and 2 (ci-nfsroot-base.yml,
 # ci-nfsroot-upgrade.yml) or, for a warm build, to main's last image. The
 # "Pi" is reached via the chroot connection plugin (see
@@ -53,7 +53,7 @@
   roles:
     - role: fpgas_apt
       tags: [fpgas-apt]
-    - role: cam/pi
+    - role: cam_pi
       tags: [cam]
     - role: onpi
       tags: [onpi]
@@ -115,7 +115,7 @@
         label: "{{ item.path }}"
 
     # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
-    # `apt upgrade` (cam/pi) can pull a new kernel into root/boot/firmware
+    # `apt upgrade` (cam_pi) can pull a new kernel into root/boot/firmware
     # -- leaving boot/ stale in a one-shot build: the exact mismatched
     # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
     # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the

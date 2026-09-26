@@ -29,7 +29,7 @@ webrtcLocalTCPAddress: ":{{ webrtc_media_port }}"
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: {{ webrtc_additional_hosts | to_json }}
 
-# Local monitoring only (roles/cam/webrtc verify, ad-hoc debugging).
+# Local monitoring only (roles/webrtc verify, ad-hoc debugging).
 api: yes
 apiAddress: 127.0.0.1:9997
 

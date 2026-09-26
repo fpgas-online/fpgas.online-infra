@@ -47,7 +47,7 @@ INPUTS = [
     "ansible/roles/fixpi",
     "ansible/roles/nspawn_pi",
     "ansible/roles/fpgas_apt",
-    "ansible/roles/cam/pi",
+    "ansible/roles/cam_pi",
     "ansible/roles/onpi",
     "ansible/roles/ttsite/templates/tt-boards.yaml.j2",
     # the build and publish machinery itself

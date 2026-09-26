@@ -13,7 +13,7 @@ application pib {
     # one effect is that nginx-rtmp sends every subscriber a ZERO-LENGTH
     # audio message (dummy_audio in ngx_rtmp_live_module.c) right after the
     # video codec header. That message is legal RTMP, but gortmplib - and so
-    # mediamtx's RTMP pull in roles/cam/webrtc - rejects it as "not enough
+    # mediamtx's RTMP pull in roles/webrtc - rejects it as "not enough
     # bytes" and drops the connection. Verified 2026-09-20 against stock
     # mediamtx v1.20.1 and v1.21.0: on = every pull dies, absent = 75 s clean.
     # Start every subscriber on a keyframe.

@@ -142,7 +142,7 @@ dnsmasq_auth_interface: eth-uplink
 firewall_dns_query_sources:
   - 10.0.2.2
 
-# WebRTC/WHEP (roles/cam/webrtc): converge + verify in CI. The advertised
+# WebRTC/WHEP (roles/webrtc): converge + verify in CI. The advertised
 # candidate is the TEST-NET uplink address; no browser reaches it in CI.
 webrtc_media_port: 8189
 webrtc_additional_hosts: ["203.0.113.1"]
