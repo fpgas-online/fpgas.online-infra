@@ -11,8 +11,9 @@
 # `apt: upgrade: true, update_cache: true`), so a root built on this stage
 # is the root they would have produced from the release image.
 #
-# Refreshed hourly (nfsroot-build.yml's schedule) and rebuilt with the base
-# daily; a PR build rebuilds it only when no image exists for its key.
+# Refreshed by every scheduled run (vm-test.yml's schedule) and rebuilt with
+# the base once that is a day old; a PR build rebuilds it only when no
+# image exists for its key.
 
 - name: Prepare the RasPiOS tree for the upgrade
   hosts: nbp

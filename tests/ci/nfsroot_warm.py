@@ -6,10 +6,10 @@ on it (~10 min on the arm64 runner). A warm build instead extracts the
 image main last published -- which those same roles produced -- and runs
 ansible/ci-nfsroot.yml over it: the roles converge it to this checkout,
 so their apt runs are mostly no-ops. This is how tweed converged its live
-root for years, before the image moved to CI. The daily scheduled build
-(and a workflow_dispatch with from_scratch) still builds from RasPiOS, so
-the from-scratch path is exercised and a warm chain never gets older than
-a day.
+root for years, before the image moved to CI. The first scheduled run once
+the base stage is a day old (and a workflow_dispatch with from_scratch)
+still builds from RasPiOS, so the from-scratch path is exercised and a
+warm chain never gets much older than a day.
 
 usage: nfsroot_warm.py IMAGE NFSROOT
 Writes warm=true|false and base=<digest> to $GITHUB_OUTPUT. A missing or
