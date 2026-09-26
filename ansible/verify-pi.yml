@@ -489,9 +489,11 @@
     - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
       become: true  # /dev/i2c-*
       ansible.builtin.shell: |
-        set -e
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_eeprom
       failed_when: false
@@ -528,7 +530,7 @@
     - name: Read the Pmod HAT product uuid from the ID EEPROM
       become: true  # /dev/i2c-*
       ansible.builtin.shell: |
-        set -e
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r36 | python3 -c '
         import struct, sys
@@ -537,6 +539,8 @@
         assert struct.unpack_from("<H", b, 12)[0] == 1, "vendor atom not first"
         s1, s2, s3, s4 = struct.unpack_from("<IIII", b, 20)
         print(f"{s4:08x}-{s3 >> 16:04x}-{s3 & 0xffff:04x}-{s2 >> 16:04x}-{s2 & 0xffff:04x}{s1:08x}")'
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_uuid
       failed_when: false
