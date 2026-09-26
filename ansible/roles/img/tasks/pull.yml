@@ -81,6 +81,14 @@
     # deleting update.lock drops the hold, and deleting inhibit silently undoes
     # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
     #
+    # root/etc/ssh/ssh_host_* are the site's Pi host keys. The image carries
+    # none (ci-nfsroot.yml strips them; fixpi_generate_host_keys: false), so
+    # without the exclude --delete removes them and fixpi's create-if-absent
+    # "Pre-generate SSH host keys in NFS root" makes NEW ones: every new image
+    # digest changed the host key of every board and broke anything that had
+    # pinned it (seen on tweed 2026-09-25). Excluded, the keys survive with
+    # their inode and fixpi's task stays a no-op.
+    #
     # --checksum: rsync replaces every file it transfers with a temp file
     # renamed into place, i.e. a NEW inode, and every replaced inode goes
     # ESTALE on the booted boards' overlayroot until they reboot. Without it
@@ -92,7 +100,7 @@
     - name: Rsync boot/ and root/ from the image
       command: >-
         rsync -aHAX --delete --numeric-ids --checksum
-        {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
+        {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*' if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
       loop:
         - boot
