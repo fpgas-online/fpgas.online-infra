@@ -1,19 +1,19 @@
 ---
 - name: Per-board websocket include
-  template:
+  ansible.builtin.template:
     src: ws-board.conf.j2
     dest: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
     mode: "0644"
   notify: Reload nginx
 
 - name: ACME webroot
-  file:
+  ansible.builtin.file:
     path: /var/www/html
     state: directory
     mode: "0755"
 
 - name: Check for existing certificate
-  stat:
+  ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ ttsite_domain }}/fullchain.pem"
   register: ttsite_cert
 
@@ -23,7 +23,7 @@
 # scheme tweed's other names use (snap certbot, renewals via the webroot) --
 # so certbot never rewrites nginx config behind Ansible's back.
 - name: Vhost
-  template:
+  ansible.builtin.template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
     mode: "0644"
@@ -32,10 +32,10 @@
   notify: Reload nginx
 
 - name: Flush handlers so nginx serves the vhost before certbot
-  meta: flush_handlers
+  ansible.builtin.meta: flush_handlers
 
 - name: Obtain certificate (webroot http-01 via the port-80 vhost)
-  command: >-
+  ansible.builtin.command: >-
     certbot certonly --webroot -w /var/www/html -d {{ ttsite_domain }}
     --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
   args:
@@ -46,7 +46,7 @@
 # Second pass of the two-pass vhost render (noqa: it belongs right after the
 # certificate issues, not deferred to the end of the play as a handler).
 - name: Vhost (https, after the certificate was issued)
-  template:
+  ansible.builtin.template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
     mode: "0644"

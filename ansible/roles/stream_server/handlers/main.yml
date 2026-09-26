@@ -1,16 +1,16 @@
 ---
 - name: Reload nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: reloaded
 
 - name: Restart nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: restarted
 
 - name: Reload-systemd
-  systemd:
+  ansible.builtin.systemd:
     daemon_reload: true
 
 - name: Mount all

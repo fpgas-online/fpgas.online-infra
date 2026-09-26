@@ -4,14 +4,14 @@
 # WebSocket proxy per live board to the Pi-side fpgas-tt daemon.
 # Spec: docs/superpowers/specs/2026-08-22-tinytapeout-fpgas-online-design.md
 - name: Assert embed pin is complete
-  assert:
+  ansible.builtin.assert:
     that:
       - (tt_commander_embed_version | length == 0) or (tt_commander_embed_sha256 | length == 64)
       - (tt_commander_legacy_embed_version | length == 0) or (tt_commander_legacy_embed_sha256 | length == 64)
     fail_msg: "tt_commander_(legacy_)embed_sha256 must be the 64-hex sha256 when the matching version is set"
   tags: [ttsite]
 
-- {name: Load the TT board catalogue, include_tasks: boards.yml, tags: [ttsite, ttsite-boards]}
-- {name: Configure the ttsite Django settings, include_tasks: django.yml, tags: [ttsite, ttsite-django]}
-- {name: Install the Commander embed bundles, include_tasks: embed.yml, tags: [ttsite, ttsite-embed]}
-- {name: Configure the ttsite nginx vhost and certificate, include_tasks: nginx.yml, tags: [ttsite, ttsite-nginx]}
+- {name: Load the TT board catalogue, ansible.builtin.include_tasks: boards.yml, tags: [ttsite, ttsite-boards]}
+- {name: Configure the ttsite Django settings, ansible.builtin.include_tasks: django.yml, tags: [ttsite, ttsite-django]}
+- {name: Install the Commander embed bundles, ansible.builtin.include_tasks: embed.yml, tags: [ttsite, ttsite-embed]}
+- {name: Configure the ttsite nginx vhost and certificate, ansible.builtin.include_tasks: nginx.yml, tags: [ttsite, ttsite-nginx]}
