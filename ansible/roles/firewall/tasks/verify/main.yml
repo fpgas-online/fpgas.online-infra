@@ -59,7 +59,10 @@
     that: firewall_dpkg_nftables.rc == 0
     fail_msg: "nftables package is not installed"
 
-- name: Check nftables service active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts reports only
+# running/stopped, not the ActiveState string the assert and its message use.
+- name: Check nftables service active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active nftables
   changed_when: false
   register: firewall_nftables_active
