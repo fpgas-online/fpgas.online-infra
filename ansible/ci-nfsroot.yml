@@ -115,7 +115,8 @@
         label: "{{ item.path }}"
 
     # authorized_keys are the consuming site's (fixpi authorized_keys.yml),
-    # and the pull never touches them (roles/img excludes both paths). A
+    # and the pull never touches them (roles/img excludes root's and every
+    # /home/*/.ssh/authorized_keys). A
     # warm build converges main's last image, whose copies came from the
     # old onpi sshkeys.yml, so remove them explicitly.
     - name: Remove authorized_keys from the image
