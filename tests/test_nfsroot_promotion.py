@@ -12,6 +12,7 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests" / "ci"))
+import nfsroot_promote_guard  # noqa: E402
 import nfsroot_publish  # noqa: E402
 
 WORKFLOWS = REPO / ".github" / "workflows"
@@ -78,7 +79,27 @@ def test_promotion_needs_the_build_and_the_boot_test_on_main():
         str(wf["jobs"]["vm-test"]["steps"])
 
 
-def test_main_runs_are_never_cancelled_mid_run():
+def test_main_runs_overlap_and_only_prs_supersede():
+    # A group per PR (a new push cancels the old run), a group per run on
+    # main: main runs never queue behind or cancel each other.
     concurrency = workflow("vm-test.yml")["concurrency"]
-    assert concurrency["cancel-in-progress"] == \
-        "${{ github.event_name == 'pull_request' }}"
+    assert concurrency["group"] == \
+        "vm-test-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}"
+    assert concurrency["cancel-in-progress"] is True
+
+
+def test_promotions_run_one_at_a_time_behind_the_guard():
+    promote = workflow("vm-test.yml")["jobs"]["promote"]
+    assert promote["concurrency"] == {"group": "promote-bookworm-armhf",
+                                      "cancel-in-progress": False}
+    steps = promote["steps"]
+    names = [s.get("name") for s in steps]
+    guard = names.index("Check no newer image has been promoted")
+    copy = names.index(nfsroot_promote_guard.PROMOTE_STEP)
+    assert guard < copy
+    assert "nfsroot_promote_guard.py" in steps[guard]["run"]
+    assert steps[copy]["if"] == "steps.guard.outputs.promote == 'true'"
+    # The guard finds earlier promotions by that step's name, and compares
+    # commits with git, so it needs the Actions API and full history.
+    assert promote["permissions"]["actions"] == "read"
+    assert steps[0]["with"]["fetch-depth"] == 0
