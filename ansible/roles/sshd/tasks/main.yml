@@ -82,7 +82,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Reload sshd
+  notify: Reload sshd for pubkey-only
   when: sshd_pubkey_only
   tags:
     - sshd
@@ -91,7 +91,7 @@
   ansible.builtin.file:
     path: "{{ sshd_pubkey_only_dropin }}"
     state: absent
-  notify: Reload sshd
+  notify: Reload sshd for pubkey-only
   when: not sshd_pubkey_only
   tags:
     - sshd

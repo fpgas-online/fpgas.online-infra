@@ -2,7 +2,7 @@
 # Debian's ssh.service runs `sshd -t` in ExecReload before the SIGHUP, so a
 # broken configuration is refused and the running daemon (and every open
 # session) keeps going; the tasks also run `sshd -t` before notifying.
-- name: Reload sshd
+- name: Reload sshd for pubkey-only
   ansible.builtin.service:
     name: ssh
     state: reloaded
