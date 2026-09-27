@@ -92,8 +92,8 @@
     # their inode and fixpi's task stays a no-op.
     #
     # Every account's authorized_keys (root/root/.ssh, root/home/*/.ssh)
-    # belongs to the site as well (fixpi authorized_keys.yml builds pi's
-    # and root's); the image ships none. Excluded, a pull neither restores
+    # belongs to the site as well (fixpi authorized_keys.yml builds pi's,
+    # root's and the ansible automation account's); the image ships none. Excluded, a pull neither restores
     # an image copy nor --deletes the site's, so fixpi finds them unchanged
     # and leaves them alone: no rewrite, no ESTALE.
     #

@@ -110,7 +110,7 @@
 # published image carries it and no server runs ARM code. groupadd first
 # pins the gid to the uid. useradd leaves the password locked ("!") and
 # nothing sets one: the account is key-only. Its authorized_keys is
-# per-site (automation-key.yml), never baked into the public image.
+# per-site (authorized_keys.yml), never baked into the public image.
 - name: Create the ansible user in the NFS root if missing
   ansible.builtin.command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"

@@ -2,7 +2,7 @@
 # The image build's own check of the automation account (netboot.yml), run
 # by ci-nfsroot.yml: the account at the fixed uid/gid every site's
 # authorized_keys ownership assumes, and valid sudo. Its key is per-site
-# (automation-key.yml), so the published image must not carry one.
+# (authorized_keys.yml), so the published image must not carry one.
 - name: Check the ansible user is in the root at its fixed uid/gid
   ansible.builtin.command: >-
     grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:"

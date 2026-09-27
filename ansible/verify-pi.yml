@@ -206,7 +206,7 @@
       tags: [verify, services]
 
     # The automation account (fixpi: netboot.yml builds it into the image,
-    # automation-key.yml authorizes the key per site): a fresh SSH login as
+    # authorized_keys.yml authorizes the key per site): a fresh SSH login as
     # it with the automation key, then sudo with no password (-n fails
     # instead of prompting), and its own password locked (key-only). Task
     # vars outrank the inventory's ansible_user, so this logs in as the

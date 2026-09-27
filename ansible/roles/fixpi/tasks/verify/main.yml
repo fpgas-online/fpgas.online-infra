@@ -96,7 +96,7 @@
   when: sunxi_boards is defined
 
 # --- The ansible automation account in the NFS root (netboot.yml builds it
-# into the image, automation-key.yml authorizes the key per site) ---
+# into the image, authorized_keys.yml authorizes the key per site) ---
 - name: Check the ansible user in the NFS root's passwd (fixed uid/gid)
   ansible.builtin.command: >-
     grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:"
@@ -132,12 +132,14 @@
 
 # sshd (StrictModes) ignores a key file the user does not own or others can
 # write, so owner and mode are part of "the key works".
-- name: Assert the automation key is authorized for the ansible user
+# Exactly one key (its fixpi_authorized_keys_files entry is `key_sources: [controller]`).
+- name: Assert the automation key is the ansible user's only key
   ansible.builtin.assert:
     that:
+      - (fixpi_verify_ansible_keys.content | b64decode).splitlines() | select | list | length == 1
       - fixpi_ansible_public_key.split()[1] in (fixpi_verify_ansible_keys.content | b64decode)
       - fixpi_verify_ansible_keys_stat.stat.uid == fixpi_ansible_uid | int
       - fixpi_verify_ansible_keys_stat.stat.mode == '0600'
     fail_msg: >-
-      {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys lacks the
-      automation key or is not {{ fixpi_ansible_uid }}-owned 0600
+      {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys does not hold
+      exactly the automation key or is not {{ fixpi_ansible_uid }}-owned 0600

@@ -55,9 +55,14 @@ fixpi_github_key_users: >-
 
 # The authorized_keys files fixpi owns in the NFS root (tasks/authorized_keys.yml),
 # relative to its root/, and their numeric owner (pi is UID/GID 1000 on RPi OS).
+# `key_sources` (optional) picks the key sources for that file from server,
+# controller, github and jump; without it a file gets the full set (server,
+# controller, github, plus jump for home/pi). The ansible automation
+# account trusts the controller's automation key and nothing else.
 fixpi_authorized_keys_files:
   - {path: root, id: "0"}
   - {path: home/pi, id: "1000"}
+  - {path: "home/{{ fixpi_ansible_user }}", id: "{{ fixpi_ansible_uid }}", key_sources: [controller]}
 
 # The automation account in the NFS root, the Pi-side twin of the server's
 # (roles/automation_user): passwordless sudo, logged in to only with the
@@ -67,6 +72,7 @@ fixpi_authorized_keys_files:
 # dynamically (from 999 downwards), so the first regular id after pi.
 fixpi_ansible_user: ansible
 fixpi_ansible_uid: 1001
-# The key the consuming site authorizes for it (automation-key.yml): the
-# key ansible connects with, as fixpi/userconf.yml does for pi and root.
+# The key it trusts is the controller's automation key alone, written by
+# authorized_keys.yml (its entry in fixpi_authorized_keys_files above);
+# verify reads it from the same file the writer uses.
 fixpi_ansible_public_key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
