@@ -35,3 +35,13 @@ fixpi_sunxi_i2c_nodes:
 # must exist when fixpi runs: site.yml runs roles/jump first. Empty string
 # to skip, for a server without the jump role.
 fixpi_jump_ssh_pubkey: /home/pi/.ssh/id_ed25519.pub
+
+# GitHub users whose keys (https://github.com/<user>.keys) are authorized
+# for the Pi `pi` and `root` users in the NFS root: the operators' (Tim,
+# Carl), from the gh: ids of operators_accounts (inventory
+# group_vars/all/ssh_keys.yml), so adding an operator there covers the
+# boards too.
+fixpi_github_key_users: >-
+  {{ operators_accounts | default([])
+     | map(attribute='ssh_import_ids') | flatten
+     | select('match', '^gh:') | map('regex_replace', '^gh:', '') | list }}
