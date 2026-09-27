@@ -13,21 +13,21 @@
   changed_when: false
   check_mode: false  # read-only; --check needs the real answer
   register: sshd_connecting_user
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
 - name: Accounts that must keep a working key
   ansible.builtin.set_fact:
     sshd_key_users: "{{ ([sshd_connecting_user.stdout] + sshd_pubkey_only_key_users) | unique }}"
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
 - name: Read the account database
   ansible.builtin.getent:
     database: passwd
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -39,7 +39,7 @@
       {{ item }} does not exist on {{ inventory_hostname }}; refusing to
       disable SSH password login
   loop: "{{ sshd_key_users }}"
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -53,7 +53,7 @@
   changed_when: false
   check_mode: false  # read-only; --check needs the real answer
   failed_when: false
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -70,7 +70,7 @@
   loop: "{{ sshd_authkeys.results }}"
   loop_control:
     label: "{{ item.item }}"
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -83,7 +83,7 @@
     group: root
     mode: "0644"
   notify: Reload sshd for pubkey-only
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -92,7 +92,7 @@
     path: "{{ sshd_pubkey_only_dropin }}"
     state: absent
   notify: Reload sshd for pubkey-only
-  when: not sshd_pubkey_only
+  when: not (sshd_pubkey_only | bool)
   tags:
     - sshd
 
@@ -105,7 +105,7 @@
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
   check_mode: false  # read-only
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   tags:
     - sshd
 
@@ -117,6 +117,6 @@
 # still the old ones (verify-server.yml checks them after a real run).
 - name: Check the effective sshd settings
   ansible.builtin.import_tasks: verify/main.yml
-  when: sshd_pubkey_only and not ansible_check_mode
+  when: (sshd_pubkey_only | bool) and not ansible_check_mode
   tags:
     - sshd

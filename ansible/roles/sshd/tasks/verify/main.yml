@@ -5,7 +5,7 @@
 # Checked for an ordinary connection and for the jump account, whose
 # `Match User` block (roles/jump, 50-jump.conf) must not reopen passwords.
 - name: "Verify: public-key-only login"
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only | bool
   block:
     - name: "Verify: public-key-only drop-in present"
       ansible.builtin.stat:
