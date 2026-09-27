@@ -43,6 +43,7 @@
     ansible_user: "{{ automation_user_name }}"
     ansible_become: false
   changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
   register: automation_user_v_login
 
 - name: "Verify: assert the login and the passwordless sudo"

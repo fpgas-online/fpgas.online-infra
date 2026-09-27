@@ -7,6 +7,11 @@
 # depended on.
 automation_user_name: ansible
 
+# Off by default and switched on per host (inventory/host_vars), like
+# sshd_pubkey_only: tweed and the CI test VM set it; ps1.fpgas.online is
+# left alone until someone decides it should be managed the same way.
+automation_user_manage: false
+
 # The public half of the key ansible connects with: the fpgas.online-ansible
 # automation key in production (inventory/group_vars/all/controller.yml),
 # the VM harness's per-run key under test. Same lookup fixpi/userconf.yml

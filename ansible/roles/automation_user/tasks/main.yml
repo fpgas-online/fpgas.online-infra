@@ -38,8 +38,8 @@
     argv: [ssh-keygen, -y, -P, "", -f, "{{ ansible_ssh_private_key_file }}"]
   delegate_to: localhost
   become: false
-  run_once: true
   changed_when: false
+  check_mode: false  # read-only; --check needs the real key for the assert
   register: automation_user_derived_key
   tags:
     - automation-user

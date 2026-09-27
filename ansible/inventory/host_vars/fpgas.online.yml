@@ -11,6 +11,9 @@
 ansible_host: 10.99.21.2
 ansible_user: ansible
 ansible_become: true
+# The ansible account itself (user, NOPASSWD sudo, exactly the
+# fpgas.online-ansible key) is managed by roles/automation_user.
+automation_user_manage: true
 
 # SSH login to tweed is public-key only (roles/sshd). Every account used
 # here has keys: ansible (fpgas.online-ansible), the operators (GitHub via

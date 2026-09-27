@@ -223,6 +223,7 @@
         # would outrank the keyword and make id -un report root.
         ansible_become: false
       changed_when: false
+      check_mode: false  # read-only; --check needs the real answer
       # A refused login is this check failing, not the Pi being down:
       # report it through the assert below.
       ignore_unreachable: true

@@ -14,6 +14,7 @@
       ansible.builtin.include_role:
         name: automation_user
         tasks_from: verify/main.yml
+      when: automation_user_manage | default(false) | bool
       tags: [verify, automation-user]
 
     - name: Verify operators

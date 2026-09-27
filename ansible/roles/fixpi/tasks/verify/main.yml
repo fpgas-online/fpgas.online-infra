@@ -107,6 +107,7 @@
 - name: Read the ansible user's shadow entry in the NFS root
   ansible.builtin.command: grep "^{{ fixpi_ansible_user }}:" {{ nfs_root }}/root/etc/shadow
   changed_when: false
+  check_mode: false  # read-only; the assert below needs the real entry
   no_log: true
   register: fixpi_verify_ansible_shadow
 
