@@ -25,6 +25,8 @@
   roles:
     - operators
     - jump
+    # After operators and jump: its lockout guard needs their keys in place.
+    - sshd
     - lldp
     - firewall
     - {role: vlan_ports, when: switches is defined}

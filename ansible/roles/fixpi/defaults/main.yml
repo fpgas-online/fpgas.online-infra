@@ -27,3 +27,34 @@ fixpi_sunxi_dtbs:
 fixpi_sunxi_i2c_nodes:
   - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
   - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
+
+# The gateway's restricted jump account's own public key (roles/jump makes
+# the keypair at jump_ssh_key; keep this path in step with it). Authorized
+# for the Pi `pi` user so that someone logged in to the jump account can
+# `ssh pi@10.21.S.P` onward. Read on the server, so it must exist when
+# fixpi runs: site.yml runs roles/jump first. Empty string to skip, for a
+# server without the jump role.
+fixpi_jump_ssh_pubkey: /home/pi/.ssh/id_ed25519.pub
+
+# The server user's public key (made by userconf.yml's "Generate ssh keys
+# for server user"), authorized for the Pi pi and root users.
+fixpi_server_user_pubkey: "/home/{{ user_name }}/.ssh/id_rsa.pub"
+
+# GitHub users whose keys (https://github.com/<user>.keys) are authorized
+# for the Pi `pi` and `root` users in the NFS root: the operators' (Tim,
+# Carl), from the gh: ids of operators_accounts (inventory
+# group_vars/all/ssh_keys.yml), so adding an operator there covers the
+# boards too.
+# Where <user>.keys is fetched from (the tests point it at a local server).
+fixpi_github_keys_base_url: https://github.com
+
+fixpi_github_key_users: >-
+  {{ operators_accounts | default([])
+     | map(attribute='ssh_import_ids') | flatten
+     | select('match', '^gh:') | map('regex_replace', '^gh:', '') | list }}
+
+# The authorized_keys files fixpi owns in the NFS root (tasks/authorized_keys.yml),
+# relative to its root/, and their numeric owner (pi is UID/GID 1000 on RPi OS).
+fixpi_authorized_keys_files:
+  - {path: root, id: "0"}
+  - {path: home/pi, id: "1000"}

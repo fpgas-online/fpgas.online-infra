@@ -494,9 +494,11 @@
     - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
       become: true  # /dev/i2c-*
       ansible.builtin.shell: |
-        set -e
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_eeprom
       failed_when: false
@@ -533,7 +535,7 @@
     - name: Read the Pmod HAT product uuid from the ID EEPROM
       become: true  # /dev/i2c-*
       ansible.builtin.shell: |
-        set -e
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r36 | python3 -c '
         import struct, sys
@@ -542,6 +544,8 @@
         assert struct.unpack_from("<H", b, 12)[0] == 1, "vendor atom not first"
         s1, s2, s3, s4 = struct.unpack_from("<IIII", b, 20)
         print(f"{s4:08x}-{s3 >> 16:04x}-{s3 & 0xffff:04x}-{s2 >> 16:04x}-{s2 & 0xffff:04x}{s1:08x}")'
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_uuid
       failed_when: false
@@ -664,3 +668,40 @@
       delay: 5
       when: verify_pi_fleet | default(false)
       tags: [verify, fleet]
+
+    # The gateway's jump account (roles/jump) can hop on to this board with
+    # its own key, as someone logged in to it does: `ssh pi@<board>` from
+    # its restricted login shell. fixpi authorizes that key in the NFS
+    # root. BatchMode: a missing key must fail, not fall back to asking
+    # for the password. Also records the board's host key in the jump
+    # account's known_hosts (accept-new), as a person's first hop would.
+    - name: The gateway jump account reaches this Pi with its own key
+      ansible.builtin.command:
+        argv:
+          - su
+          - "-"
+          - "{{ verify_pi_jump_user | default('pi') }}"
+          - "-c"
+          - >-
+            ssh -o BatchMode=yes -o ConnectTimeout=60
+            {{ user | default('pi') }}@{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} id -un
+      delegate_to: "{{ groups['nbp'][0] }}"
+      become: true
+      changed_when: false
+      register: verify_pi_jump_hop
+      until: verify_pi_jump_hop.rc == 0
+      retries: 3
+      delay: 10
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+      tags: [verify, jump]
+
+    - name: Assert the jump hop logged in as the Pi user
+      ansible.builtin.assert:
+        that:
+          - verify_pi_jump_hop.stdout == (user | default('pi'))
+        fail_msg: >-
+          ssh from {{ groups['nbp'][0] }}'s jump account to
+          {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} said
+          {{ verify_pi_jump_hop.stdout }} / {{ verify_pi_jump_hop.stderr }}
+      when: verify_pi_jump_hop is not skipped
+      tags: [verify, jump]

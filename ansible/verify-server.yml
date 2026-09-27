@@ -22,6 +22,12 @@
         tasks_from: verify/main.yml
       tags: [verify, jump]
 
+    - name: Verify sshd
+      ansible.builtin.include_role:
+        name: sshd
+        tasks_from: verify/main.yml
+      tags: [verify, sshd]
+
     - name: Verify lldp
       ansible.builtin.include_role:
         name: lldp
@@ -321,6 +327,12 @@
   hosts: pig
   become: true
   tasks:
+    - name: Verify server_user
+      ansible.builtin.include_role:
+        name: server_user
+        tasks_from: verify/main.yml
+      tags: [verify, server_user]
+
     - name: Verify site
       ansible.builtin.include_role:
         name: site

@@ -21,8 +21,9 @@ sshd password settings
 Generate ssh keys for server user
 create .ssh dirs
 Generate ssh keys for pi users pi and root
-Set authorized key for pi root user
-Copy keys to pi pi and root authorized_keys
+Write the NFS root's authorized_keys (authorized_keys.yml): the complete
+key list for root and pi (server user, controller, operators' GitHub keys,
+and for pi the gateway jump account), written once and only when it changed
 set perms
 
 

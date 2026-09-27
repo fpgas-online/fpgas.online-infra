@@ -1,0 +1,77 @@
+---
+# The server's own account (see defaults/main.yml).
+
+# The rename runs on EVERY run, tagged or not: each other task keyed on
+# user_name (here, roles/site, roles/fixpi) would otherwise create a
+# fresh, empty account under the new name -- and fixpi would then push a
+# brand-new key into the Pi root in place of the one the Pis trust.
+- name: Rename the server account in place
+  ansible.builtin.include_tasks:
+    file: rename.yml
+    apply:
+      tags: [always]
+  when: server_user_rename_from | length > 0
+  tags: [always]
+
+- name: Server account
+  ansible.builtin.user:
+    name: "{{ user_name }}"
+    shell: "{{ '/bin/bash' if server_user_ssh_import_ids | length > 0 else omit }}"
+  register: server_user_account
+  tags: [server_user]
+
+- name: Passwordless sudo for the server account
+  ansible.builtin.copy:
+    content: "{{ user_name }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "/etc/sudoers.d/{{ user_name }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  when: server_user_sudo | bool
+  tags: [server_user]
+
+# The account's authorized_keys is site-managed and EXCLUSIVE: exactly the
+# keys the ids below publish, nothing else. With NOPASSWD sudo, a stale
+# key carried along in the home (the rename moves it) must never keep a
+# way in. Every id is fetched first; any failed or empty fetch fails the
+# play before the file is touched, so an outage never writes it empty.
+# (ssh-import-id only ever adds keys, hence the direct fetch.)
+- name: Fetch the server account's keys
+  ansible.builtin.uri:
+    url: >-
+      {{ 'https://github.com/' ~ item[3:] ~ '.keys' if item is match('gh:')
+         else 'https://launchpad.net/~' ~ item[3:] ~ '/+sshkeys' }}
+    return_content: true
+  loop: "{{ server_user_ssh_import_ids }}"
+  register: server_user_key_fetch
+  check_mode: false
+  tags: [server_user]
+
+- name: Assert every id published at least one key
+  ansible.builtin.assert:
+    that:
+      - item.item is match('(gh|lp):')
+      - item.content | trim | length > 0
+    fail_msg: "{{ item.item }} gave no ssh keys (only gh:/lp: ids are supported); authorized_keys left alone"
+  loop: "{{ server_user_key_fetch.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [server_user]
+
+# In check mode a pending rename has not created the account yet, so there
+# is no user to look up: skip rather than fail.
+- name: Authorize exactly the fetched keys
+  ansible.posix.authorized_key:
+    user: "{{ user_name }}"
+    key: >-
+      {{ (server_user_key_fetch.results | map(attribute='content') | join(server_user_nl)).splitlines()
+         | map('trim') | select | join(server_user_nl) }}
+    exclusive: true
+    state: present
+  vars:
+    server_user_nl: "\n"
+  when:
+    - server_user_ssh_import_ids | length > 0
+    - not (ansible_check_mode and server_user_account is changed)
+  tags: [server_user]
