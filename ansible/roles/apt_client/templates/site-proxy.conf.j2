@@ -1,0 +1,10 @@
+// {{ ansible_managed }} (fpgas.online-infra roles/apt_client).
+{% if apt_client_proxy %}
+// Every source goes through the site apt proxy.
+Acquire::http::Proxy "{{ apt_client_proxy }}";
+{% endif %}
+{% if apt_client_https_cache %}
+// The proxy's https front end is reached directly: the proxy will not
+// CONNECT-tunnel to itself. Every https source must use it.
+Acquire::https::Proxy::{{ apt_client_https_cache | urlsplit('hostname') }} "DIRECT";
+{% endif %}
