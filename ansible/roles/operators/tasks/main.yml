@@ -46,6 +46,30 @@
   tags:
     - operators
 
+- name: Read the account database
+  ansible.builtin.getent:
+    database: passwd
+  when: operators_revoked_public_keys | length > 0
+  tags:
+    - operators
+
+# After the imports: authorized_key matches on the key itself, so this
+# catches a revoked key whatever comment its line carries (an ssh-import-id
+# "# ssh-import-id gh:<user>" copy too).
+- name: Delete the revoked static keys
+  ansible.posix.authorized_key:
+    user: "{{ item.0 }}"
+    state: absent
+    key: "{{ item.1 }}"
+  loop: >-
+    {{ (operators_accounts | map(attribute='name')
+        + (operators_legacy_key_accounts | select('in', getent_passwd | default({}))))
+       | product(operators_revoked_public_keys) | list }}
+  loop_control:
+    label: "{{ item.0 }}: {{ item.1.split(' ')[2:] | join(' ') }}"
+  tags:
+    - operators
+
 - name: Check operator authorized_keys exist
   ansible.builtin.stat:
     path: "/home/{{ item.name }}/.ssh/authorized_keys"
