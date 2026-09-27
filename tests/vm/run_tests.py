@@ -271,6 +271,19 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     if args.skip_tags:
         extra.extend(["--skip-tags", args.skip_tags])
 
+    # A check-mode run of the server account role first: the rename is
+    # pending, and --check must report it rather than fail (and change
+    # nothing -- the rename check after site.yml proves the real run did
+    # the whole job).
+    if args.inventory != "production":
+        rc = run_ansible("web.yml", inventory, "test-vm", extra + ["--check", "--tags", "server_user"])
+        if rc != 0 or not check_server_user_untouched(server, key_path):
+            print(f"ERROR: the check-mode server_user run failed (rc={rc}) or changed the host")
+            if not args.keep_vm:
+                server.shutdown()
+                server.cleanup()
+            return None
+
     # Run site.yml (server roles; pulls and site-layers the prebuilt NFS root)
     rc = run_ansible("site.yml", inventory, "test-vm", extra)
     if rc != 0:
@@ -298,8 +311,9 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
 # "pre-rename" and a service running as it) to user_name, as tweed's
 # videoteam became admin. After site.yml: the old account is gone, the new
 # one kept the old keypair, the Pi NFS root trusts that key (fixpi copies
-# it), the service came back up as the new name, and the account has
-# passwordless sudo (server_user_sudo).
+# it), the service came back up as the new name, the account has
+# passwordless sudo (server_user_sudo), its authorized_keys lost the
+# unmanaged stale key, and its subuid/subgid ranges were renamed.
 SERVER_USER_OLD = "testuser"
 SERVER_USER_NEW = "admin"
 SERVER_USER_RENAME_CHECK = f"""set -ex
@@ -311,7 +325,27 @@ sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
 systemctl is-active server-user-probe.service
 test "$(ps -o user= -p "$(systemctl show -p MainPID --value server-user-probe.service)")" = {SERVER_USER_NEW}
 test "$(sudo -u {SERVER_USER_NEW} sudo -n id -un)" = root
+if sudo grep -q stale-key /home/{SERVER_USER_NEW}/.ssh/authorized_keys; then echo "stale key kept"; exit 1; fi
+sudo grep -q . /home/{SERVER_USER_NEW}/.ssh/authorized_keys
+grep -qx '{SERVER_USER_NEW}:165536:65536' /etc/subuid
+grep -qx '{SERVER_USER_NEW}:165536:65536' /etc/subgid
+if grep -q '^{SERVER_USER_OLD}:' /etc/subuid /etc/subgid; then echo "old subid range left"; exit 1; fi
 """
+
+
+SERVER_USER_UNTOUCHED_CHECK = f"""set -ex
+getent passwd {SERVER_USER_OLD}
+if getent passwd {SERVER_USER_NEW}; then echo "check mode created {SERVER_USER_NEW}"; exit 1; fi
+systemctl is-active server-user-probe.service
+sudo grep -q stale-key /home/{SERVER_USER_OLD}/.ssh/authorized_keys
+"""
+
+
+def check_server_user_untouched(server: VMManager, key_path: Path) -> bool:
+    """Check a --check run left the pending rename alone."""
+    out = server_run(server, key_path, SERVER_USER_UNTOUCHED_CHECK)
+    print(f"[server] check-mode server account check:\n{out}")
+    return out.startswith("rc=0\n")
 
 
 def check_server_user_rename(server: VMManager, key_path: Path) -> bool:

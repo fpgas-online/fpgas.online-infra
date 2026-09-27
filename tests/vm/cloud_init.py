@@ -60,6 +60,15 @@ runcmd:
   # The pre-rename keypair, tagged so the check can tell it from a new one.
   - install -d -m 0700 -o {legacy_server_user} -g {legacy_server_user} /home/{legacy_server_user}/.ssh
   - runuser -u {legacy_server_user} -- ssh-keygen -q -t rsa -N "" -C pre-rename -f /home/{legacy_server_user}/.ssh/id_rsa
+  # A key nobody manages, carried along by the rename: the account's
+  # authorized_keys is exclusive, so it must be gone afterwards.
+  - echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHN0YWxlc3RhbGVzdGFsZXN0YWxlc3RhbGVzdGFsZQ stale-key" > /home/{legacy_server_user}/.ssh/authorized_keys
+  - chown {legacy_server_user}:{legacy_server_user} /home/{legacy_server_user}/.ssh/authorized_keys
+  # A subordinate id range, like tweed's videoteam:165536:65536 (replaced,
+  # not added to, in case useradd already gave the account one).
+  - sed -i '/^{legacy_server_user}:/d' /etc/subuid /etc/subgid
+  - echo "{legacy_server_user}:165536:65536" >> /etc/subuid
+  - echo "{legacy_server_user}:165536:65536" >> /etc/subgid
   - systemctl daemon-reload
   - systemctl enable --now server-user-probe.service
   - systemctl disable --now systemd-resolved
