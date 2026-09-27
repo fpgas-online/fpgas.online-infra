@@ -11,13 +11,26 @@
 # fleet-event stage `fpga-verified`; anything but "pass" or "none" also leaves the unit failed. The root is
 # shared by every Pi, and a Pi with no FPGA on PCIe reports "none", so it is installed and enabled on all.
 #
-# state: latest for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
+# Normally state: latest, for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
 # package, and the pinned release (the bitstreams version) is exactly what should move when a reviewed
 # test-designs PR moves it. From the fpgas.online apt repo, so onpi includes this with the fpgas-apt tag.
-- name: Install the Acorn boot check and the images it checks against  # noqa: package-latest
+#
+# STOPGAP, until fpgas.online-infra#137: pinned and held at 0.0.post621, the last build that ships
+# fpgas-acorn-verify.service. fpgas.online-test-designs#48 (merged 2026-09-27) moved the check into
+# fpgas-online-verify's fpgas-verify.service, and 0.0.post634 on depends on that instead, so with
+# `state: latest` every image build failed enabling a unit that no longer exists. The hold keeps the
+# upgrades (cam_pi's, and apt.yml's on a warm build) from moving it on. #137 switches the root to
+# fpgas-verify and must drop the pin and release the hold.
+- name: Install the Acorn boot check and the images it checks against
   ansible.builtin.apt:
+    name: fpgas-online-acorn-tools=0.0.post621
+    state: present
+    allow_downgrade: true
+
+- name: Hold the Acorn boot check at the pinned build (stopgap, see above)
+  ansible.builtin.dpkg_selections:
     name: fpgas-online-acorn-tools
-    state: latest
+    selection: hold
 
 - name: Run the Acorn boot check on every boot
   ansible.builtin.systemd:
