@@ -392,6 +392,8 @@
     # including "missing", a Pi with no board attached: every Pi it checks is meant to have one, and one
     # without is kept off the site (site_require_fpga_verified) until someone looks. The collector reads
     # both the unit's state and the report (written 0644 by the root service, so no become).
+    # verify_pi_fpga_expect (default "pass") is the result a Pi must report: the VM test's Pi has no board,
+    # so its inventory expects "missing", which checks the no-board path end to end.
     - name: Assert the FPGA boot check is enabled
       ansible.builtin.assert:
         that: verify_pi_fpga_verify_enabled.stdout == "enabled"
@@ -402,17 +404,18 @@
           roles/onpi/tasks/fpga_verify.yml has not run against it
       tags: [verify, fpga-verify, acorn, fpgas-apt]
 
-    - name: Assert the FPGA boot check passed
+    - name: Assert the FPGA boot check gave the expected result
       vars:
         report: "{{ verify_pi_fpga_verify_report.content | b64decode | from_json if verify_pi_fpga_verify_report.content is defined else {} }}"
+        expect: "{{ verify_pi_fpga_expect | default('pass') }}"
       ansible.builtin.assert:
         that:
           - verify_pi_fpga_verify_report.content is defined
-          - (report.result | default('')) == 'pass'
+          - (report.result | default('')) == expect
         fail_msg: >-
           {% if verify_pi_fpga_verify_report.content is not defined %}No /run/fpgas-online/verify.json: the
           check has not finished this boot ({{ verify_pi_fpga_verify_report.msg | default('') }}).{% else %}FPGA
-          check result '{{ report.result }}' (mode {{ report.mode | default('-') }},
+          check result '{{ report.result }}', expected '{{ expect }}' (mode {{ report.mode | default('-') }},
           {{ report.chosen_by | default('-') }}){% if report.reason | default('') %}: {{ report.reason }}{% endif %}.
           {% for b in report.boards | default([]) %}{{ b.board }} {{ b.get('variant') or '-' }} {{ b.result
           }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (report.state
