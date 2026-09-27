@@ -23,6 +23,7 @@
   hosts: nbp
   gather_facts: false
   roles:
+    - automation_user
     - operators
     - jump
     - lldp

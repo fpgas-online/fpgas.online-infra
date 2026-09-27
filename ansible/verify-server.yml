@@ -10,6 +10,12 @@
   hosts: nbp
   become: true
   tasks:
+    - name: Verify automation-user
+      ansible.builtin.include_role:
+        name: automation_user
+        tasks_from: verify/main.yml
+      tags: [verify, automation-user]
+
     - name: Verify operators
       ansible.builtin.include_role:
         name: operators

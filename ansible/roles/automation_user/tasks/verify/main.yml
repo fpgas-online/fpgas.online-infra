@@ -1,0 +1,42 @@
+---
+- name: "Verify: automation account exists"
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ automation_user_name }}"
+
+- name: "Verify: automation account sudoers file is valid"
+  ansible.builtin.command: "visudo -cf /etc/sudoers.d/{{ automation_user_name }}"
+  changed_when: false
+
+- name: "Verify: read the automation account's authorized_keys"
+  ansible.builtin.slurp:
+    src: "{{ getent_passwd[automation_user_name][4] }}/.ssh/authorized_keys"
+  register: automation_user_v_keys
+
+- name: "Verify: assert the automation key is authorized"
+  ansible.builtin.assert:
+    that:
+      - automation_user_public_key.split()[1] in (automation_user_v_keys.content | b64decode)
+    fail_msg: >-
+      {{ getent_passwd[automation_user_name][4] }}/.ssh/authorized_keys does
+      not carry the automation key ({{ automation_user_public_key.split()[2] | default('no comment') }})
+
+# The end-to-end proof: a fresh SSH login as the account with the automation
+# key, then sudo with no password (-n fails instead of prompting). Task vars
+# outrank the inventory's ansible_user, so this logs in as the automation
+# account whatever user the rest of the play connects as (debian on the
+# VM test's server).
+- name: "Verify: log in as the automation account and sudo without a password"
+  ansible.builtin.command:
+    argv: [sh, -c, "id -un && sudo -n id -un"]
+  vars:
+    ansible_user: "{{ automation_user_name }}"
+  become: false
+  changed_when: false
+  register: automation_user_v_login
+
+- name: "Verify: assert the login and the passwordless sudo"
+  ansible.builtin.assert:
+    that:
+      - automation_user_v_login.stdout_lines == [automation_user_name, 'root']
+    fail_msg: "login as {{ automation_user_name }} + sudo -n gave {{ automation_user_v_login.stdout_lines }}"
