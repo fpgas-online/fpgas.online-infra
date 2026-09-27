@@ -1,0 +1,31 @@
+---
+# Public-key-only SSH login on the server (the gateway, e.g. tweed).
+#
+# Off by default and switched on per host (inventory/host_vars), so a server
+# is only moved to key-only login deliberately: tweed and the CI test VM set
+# it, ps1.fpgas.online does not (yet). Setting it back to false removes the
+# drop-in and sshd returns to the distribution defaults.
+#
+# This is the SERVER's sshd only. The Pis' NFS root keeps password login
+# (roles/fixpi/files/etc/ssh/sshd_config.d/password.conf): the web terminal
+# logs in to the boards with the shared pi password.
+sshd_pubkey_only: false
+
+# sshd keeps the FIRST value it reads for each keyword, and Debian's
+# sshd_config Includes sshd_config.d/*.conf (sorted) before its own
+# settings, so the drop-in sorts first ("00-") to win over any later one
+# (cloud-init's 50-cloud-init.conf, the jump role's 50-jump.conf, ...).
+sshd_pubkey_only_dropin: /etc/ssh/sshd_config.d/00-pubkey-only.conf
+
+# root keeps key login (the pre-2026-08 tweed was administered as
+# root@tweed with keys; the BMC console is the password path) but never a
+# password. "no" would be stricter; nothing in this repo logs in as root.
+sshd_permit_root_login: prohibit-password
+
+# Lockout guard: the converge refuses to turn passwords off unless each of
+# these accounts has a non-empty authorized_keys. The account Ansible itself
+# connects as is always checked on top of this list. Defaults: the human
+# operators (roles/operators) and the restricted jump account (roles/jump).
+sshd_pubkey_only_key_users: >-
+  {{ (operators_accounts | default([]) | map(attribute='name') | list)
+     + [jump_user | default('pi')] }}

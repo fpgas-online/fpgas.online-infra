@@ -1,0 +1,122 @@
+---
+# Public-key-only SSH login on the server (see defaults/main.yml).
+
+# --- Lockout guard ----------------------------------------------------------
+# Runs before the drop-in is written, on every converge: refuse to turn
+# passwords off while any account people (or Ansible) log in with has no key.
+
+# The account this very connection authenticated as (become is on by
+# default in ansible.cfg, so ask without it).
+- name: Find the account Ansible connects as
+  ansible.builtin.command: id -un
+  become: false
+  changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
+  register: sshd_connecting_user
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+- name: Accounts that must keep a working key
+  ansible.builtin.set_fact:
+    sshd_key_users: "{{ ([sshd_connecting_user.stdout] + sshd_pubkey_only_key_users) | unique }}"
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+- name: Read the account database
+  ansible.builtin.getent:
+    database: passwd
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+- name: Assert every key-login account exists
+  ansible.builtin.assert:
+    that:
+      - item in getent_passwd
+    fail_msg: >-
+      {{ item }} does not exist on {{ inventory_hostname }}; refusing to
+      disable SSH password login
+  loop: "{{ sshd_key_users }}"
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+# ssh-keygen -l parses the file and prints one fingerprint per usable key,
+# so a file holding only comments or garbage counts as key-less.
+- name: List the usable keys of each key-login account
+  ansible.builtin.command:
+    argv: [ssh-keygen, -l, -f, "{{ getent_passwd[item][4] }}/.ssh/authorized_keys"]
+  loop: "{{ sshd_key_users }}"
+  register: sshd_authkeys
+  changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
+  failed_when: false
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+- name: Assert every key-login account has at least one usable key
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout_lines | length > 0
+    fail_msg: >-
+      {{ item.item }}@{{ inventory_hostname }} has no usable
+      ~/.ssh/authorized_keys ({{ item.stderr | default('') | trim }});
+      refusing to disable SSH password login, it would lock the account out
+    success_msg: "{{ item.item }}: {{ item.stdout_lines | length }} key(s)"
+  loop: "{{ sshd_authkeys.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+# --- Configuration ----------------------------------------------------------
+- name: Public-key-only sshd drop-in
+  ansible.builtin.template:
+    src: pubkey-only.conf.j2
+    dest: "{{ sshd_pubkey_only_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd for pubkey-only
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+- name: No public-key-only drop-in when the host does not ask for it
+  ansible.builtin.file:
+    path: "{{ sshd_pubkey_only_dropin }}"
+    state: absent
+  notify: Reload sshd for pubkey-only
+  when: not (sshd_pubkey_only | bool)
+  tags:
+    - sshd
+
+# A drop-in cannot be checked on its own (template's validate would run
+# `sshd -t -f` on the fragment, not the configuration that includes it), so
+# check the whole configuration before the handler reloads it. Only when
+# the role wrote one: removing it cannot break the configuration, and a
+# host that has not opted in is left to its own sshd setup.
+- name: Sshd configuration is still valid
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  check_mode: false  # read-only
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+# The effective values, as the reloaded daemon will apply them. Fails the
+# converge (before the reload) if an earlier-sorting drop-in overrides ours.
+# Imported, not included: an include's tags do not reach the tasks it
+# includes, so `--tags sshd` would skip the check. Not in check mode: the
+# template has not written the drop-in then, so the effective settings are
+# still the old ones (verify-server.yml checks them after a real run).
+- name: Check the effective sshd settings
+  ansible.builtin.import_tasks: verify/main.yml
+  when: (sshd_pubkey_only | bool) and not ansible_check_mode
+  tags:
+    - sshd

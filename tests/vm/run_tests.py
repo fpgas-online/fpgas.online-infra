@@ -20,6 +20,7 @@ import yaml
 
 from tests.vm.cloud_init import create_seed_iso
 from tests.vm.network import proxy_jump_string
+from tests.vm.ssh_auth import openssh_password_attempt, probe
 from tests.vm.vswitch import AccessPortSwitch
 from tests.vm.vm_manager import (
     DEBIAN_CLOUD_URL,
@@ -46,6 +47,10 @@ VLAN = 2101
 # The address the per-port DHCP range gives the Pi on that port: test-pi's
 # ansible_host in tests/inventory/test-hosts.
 PI_ADDRESS = "10.21.1.1"
+# The server VM's debian user also gets this password, and cloud-init turns
+# sshd password login on for it: the state roles/sshd must take the server
+# out of (tests/inventory/host_vars/test-vm.yml sets sshd_pubkey_only).
+SERVER_PASSWORD = "fpgas-test-server"
 
 
 def ensure_ansible_collections() -> None:
@@ -212,6 +217,35 @@ def dump_pi_serial_logs(pi: VMManager) -> None:
             print(f"[pi] {label} log {path.name} does not exist")
 
 
+def server_password_login_accepted(key_path: Path) -> bool:
+    """Before the converge: the password works, so the check after it means something.
+
+    cloud-init's ssh_pwauth (50-cloud-init.conf, PasswordAuthentication yes)
+    and the debian user's password are in force, as a password-enabled
+    install of tweed would be.
+    """
+    result = probe("127.0.0.1", SSH_PORT, "debian", password=SERVER_PASSWORD, key_path=key_path)
+    print(f"[server] before converge: sshd offers {result.allowed}, "
+          f"password login {'OK' if result.password_ok else 'REFUSED'}, "
+          f"key login {'OK' if result.key_ok else 'REFUSED'}")
+    return "password" in result.allowed and bool(result.password_ok) and bool(result.key_ok)
+
+
+def server_pubkey_only(key_path: Path) -> bool:
+    """After the converge: sshd offers only publickey; the password is refused, the key is not."""
+    result = probe("127.0.0.1", SSH_PORT, "debian", password=SERVER_PASSWORD, key_path=key_path)
+    openssh = openssh_password_attempt("127.0.0.1", SSH_PORT, "debian")
+    print(f"[server] after converge: sshd offers {result.allowed}, "
+          f"password login {'OK' if result.password_ok else 'REFUSED'}, "
+          f"key login {'OK' if result.key_ok else 'REFUSED'}")
+    print(f"[server] ssh with only a password: {openssh}")
+    ok = (result.allowed == ["publickey"] and result.password_ok is False
+          and result.key_ok is True and "Permission denied (publickey)." in openssh)
+    if not ok:
+        print("ERROR: the server must accept only public-key logins (roles/sshd)")
+    return ok
+
+
 def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     """Run the server phase: boot VM, apply roles, verify."""
     dist = args.distro
@@ -225,7 +259,7 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # Download and prepare
     download_image(image_url, image_path)
     key_path, pubkey = generate_ssh_keypair(workdir / "test_key")
-    seed_iso = create_seed_iso(workdir / "seed.iso", pubkey)
+    seed_iso = create_seed_iso(workdir / "seed.iso", pubkey, password=SERVER_PASSWORD)
     overlay = create_overlay(image_path, workdir / "server-overlay.qcow2")
 
     # Boot server
@@ -248,6 +282,12 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     print(f"[server] cloud-init: {status} (rc={rc})")
     if rc != 0:
         print(f"ERROR: cloud-init did not finish cleanly. Serial log: {server.serial_log}")
+        server.shutdown()
+        return None
+
+    if not server_password_login_accepted(key_path):
+        print("ERROR: the fresh server VM does not accept its password, so the "
+              "public-key-only check after the converge would prove nothing.")
         server.shutdown()
         return None
 
@@ -280,6 +320,14 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
             return None
         server.shutdown()
         server.cleanup()
+        return None
+
+    # roles/sshd has reloaded sshd by the end of its play: the running daemon,
+    # not just its configuration, must now refuse the password.
+    if not server_pubkey_only(key_path):
+        if not args.keep_vm:
+            server.shutdown()
+            server.cleanup()
         return None
 
     server.ansible_inventory = inventory
