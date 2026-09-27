@@ -82,10 +82,29 @@
   tags:
     - operators
 
-# Retired accounts. No `force`: userdel refuses (rc 8, "user ... is currently
-# used by process N") while the account has a running process, so a live
-# session fails the run loudly instead of being killed; end it, then re-run.
-# The account goes first, so that failure leaves everything else in place.
+# Retired accounts. Their sudoers files and the files their roles installed
+# go first: piroot's sudoers entry is NOPASSWD `sudo chroot`, i.e. root, and
+# must not outlive a failed account deletion. No `force` on the account:
+# userdel refuses (rc 8, "user ... is currently used by process N") while it
+# has a running process, so a live session fails the run loudly instead of
+# being killed; end it, then re-run. Every task here is idempotent, so the
+# re-run completes whatever the earlier run left.
+- name: Delete the retired accounts' sudoers files
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item }}"
+    state: absent
+  loop: "{{ operators_retired_accounts }}"
+  tags:
+    - operators
+
+- name: Delete the files the retired accounts' roles installed
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ operators_retired_files }}"
+  tags:
+    - operators
+
 # `remove` deletes the home directory (and authorized_keys) and mail spool.
 - name: Delete the retired accounts
   ansible.builtin.user:
@@ -103,21 +122,5 @@
     name: "{{ item }}"
     state: absent
   loop: "{{ operators_retired_accounts }}"
-  tags:
-    - operators
-
-- name: Delete the retired accounts' sudoers files
-  ansible.builtin.file:
-    path: "/etc/sudoers.d/{{ item }}"
-    state: absent
-  loop: "{{ operators_retired_accounts }}"
-  tags:
-    - operators
-
-- name: Delete the files the retired accounts' roles installed
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop: "{{ operators_retired_files }}"
   tags:
     - operators
