@@ -4,6 +4,10 @@
 - name: Don't helper resize the root fs
   when: fixpi_image_build | bool
   ansible.builtin.command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
+  register: fixpi_divert
+  # dpkg-divert prints "Leaving 'diversion of ...'" when the diversion is
+  # already in place and "Adding ..." when it creates it.
+  changed_when: not fixpi_divert.stdout.startswith('Leaving')
   with_items:
     - "/var/lib/systemd/deb-systemd-helper-enabled/rpi-resize.service.dsh-also"
     - "/usr/lib/systemd/zram-generator.conf.d/20-rpi-swap-zram0-ctrl.conf"
@@ -13,6 +17,10 @@
 
 - name: Don't resize the root fs
   ansible.builtin.command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
+  register: fixpi_mask
+  # systemctl reports "Created symlink ... -> /dev/null" (on stderr) only when
+  # it masks the unit; an already-masked unit prints nothing.
+  changed_when: "'Created symlink' in (fixpi_mask.stdout ~ fixpi_mask.stderr)"
   with_items:
     - "systemd-growfs@.service"
     - "systemd-growfs-root.service"
