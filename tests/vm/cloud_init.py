@@ -11,11 +11,18 @@ def create_seed_iso(
     hostname: str = "test-vm",
     eth_local_mac: str = "52:54:00:aa:bb:02",
     eth_local_ip: str = "10.21.0.1/24",
+    legacy_server_user: str = "testuser",
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
     Configures the VM's user and SSH key, and brings up the second NIC
     (the VLAN trunk) for the roles to configure.
+
+    It also gives the VM a server account under an OLD name
+    (legacy_server_user), the way tweed had `videoteam` before it became
+    `admin`: a keypair and a running service that runs as it. The test
+    inventory renames it (server_user_rename_from), so every run exercises
+    roles/server_user's in-place rename; run_tests.py checks the result.
     """
     user_data = f"""#cloud-config
 hostname: {hostname}
@@ -27,12 +34,34 @@ users:
     shell: /bin/bash
     ssh_authorized_keys:
       - {ssh_pubkey}
+  - name: {legacy_server_user}
+    shell: /bin/bash
+    lock_passwd: true
+
+# Stands in for the app servers that run as the account on tweed
+# (gunicorn, daphne, ...): the rename must stop it, rewrite it, restart it.
+write_files:
+  - path: /etc/systemd/system/server-user-probe.service
+    content: |
+      [Unit]
+      Description=Runs as the pre-rename server account (roles/server_user test)
+      [Service]
+      User={legacy_server_user}
+      Group={legacy_server_user}
+      ExecStart=/bin/sleep infinity
+      [Install]
+      WantedBy=multi-user.target
 
 # No packages: the cloud image ships python3, and the roles install what
 # they need themselves (site installs git for its pip installs), as on a
 # fresh tweed. Installing them here was a minute of apt on every boot.
 
 runcmd:
+  # The pre-rename keypair, tagged so the check can tell it from a new one.
+  - install -d -m 0700 -o {legacy_server_user} -g {legacy_server_user} /home/{legacy_server_user}/.ssh
+  - runuser -u {legacy_server_user} -- ssh-keygen -q -t rsa -N "" -C pre-rename -f /home/{legacy_server_user}/.ssh/id_rsa
+  - systemctl daemon-reload
+  - systemctl enable --now server-user-probe.service
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf

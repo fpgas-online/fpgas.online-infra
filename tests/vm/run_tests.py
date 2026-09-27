@@ -282,9 +282,44 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
         server.cleanup()
         return None
 
+    if args.inventory != "production" and not check_server_user_rename(server, key_path):
+        if not args.keep_vm:
+            server.shutdown()
+            server.cleanup()
+        return None
+
     server.ansible_inventory = inventory
     server.ansible_extra = extra
     return server
+
+
+# The test inventory renames the VM's pre-existing server account (created
+# by tests/vm/cloud_init.py under the old name, with a keypair tagged
+# "pre-rename" and a service running as it) to user_name, as tweed's
+# videoteam became admin. After site.yml: the old account is gone, the new
+# one kept the old keypair, the Pi NFS root trusts that key (fixpi copies
+# it), and the service came back up as the new name.
+SERVER_USER_OLD = "testuser"
+SERVER_USER_NEW = "admin"
+SERVER_USER_RENAME_CHECK = f"""set -ex
+if getent passwd {SERVER_USER_OLD}; then echo "{SERVER_USER_OLD} still exists"; exit 1; fi
+getent passwd {SERVER_USER_NEW} | grep -q ':/home/{SERVER_USER_NEW}:'
+pub=$(sudo cat /home/{SERVER_USER_NEW}/.ssh/id_rsa.pub)
+case "$pub" in *" pre-rename") ;; *) echo "keypair was regenerated: $pub"; exit 1;; esac
+sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
+systemctl is-active server-user-probe.service
+test "$(ps -o user= -p "$(systemctl show -p MainPID --value server-user-probe.service)")" = {SERVER_USER_NEW}
+"""
+
+
+def check_server_user_rename(server: VMManager, key_path: Path) -> bool:
+    """Check roles/server_user renamed the VM's old server account in place."""
+    out = server_run(server, key_path, SERVER_USER_RENAME_CHECK)
+    print(f"[server] server account rename check:\n{out}")
+    if not out.startswith("rc=0\n"):
+        print("ERROR: the server account was not renamed in place")
+        return False
+    return True
 
 
 def verify_server(args, server: VMManager, log_path: Path | None = None) -> bool:
