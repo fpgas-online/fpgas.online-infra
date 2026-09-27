@@ -27,3 +27,15 @@ fixpi_sunxi_dtbs:
 fixpi_sunxi_i2c_nodes:
   - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
   - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
+
+# The automation account in the NFS root, the Pi-side twin of the server's
+# (roles/automation_user): passwordless sudo, logged in to only with the
+# automation key. The image build creates it (netboot.yml) with a fixed
+# uid/gid so every rebuild of every image agrees on who owns its home:
+# 1000 is pi, below 1000 is where Debian packages allocate system users
+# dynamically (from 999 downwards), so the first regular id after pi.
+fixpi_ansible_user: ansible
+fixpi_ansible_uid: 1001
+# The key the consuming site authorizes for it (automation-key.yml): the
+# key ansible connects with, as fixpi/userconf.yml does for pi and root.
+fixpi_ansible_public_key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"

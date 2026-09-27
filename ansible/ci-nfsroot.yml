@@ -177,3 +177,13 @@
       ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
       changed_when: false
       tags: [verify]
+
+    # The automation account and its sudo (fixpi/netboot.yml). A role task
+    # file, so it sees fixpi's defaults (the user name and fixed uid).
+    - name: Assert the ansible user and its sudo are in the root
+      ansible.builtin.include_role:
+        name: fixpi
+        tasks_from: verify/image.yml
+        apply:
+          tags: [verify]
+      tags: [verify]
