@@ -7,8 +7,10 @@
 #
 # The account is a login shell of /bin/rbash whose PATH holds nothing but
 # `ssh` and `ssh-keyscan`, so it can forward and hop but not run anything
-# else on the gateway. It has no sudo and no private key of its own:
-# ProxyJump authenticates end to end with the caller's key.
+# else on the gateway. It has no sudo. ProxyJump authenticates end to end
+# with the caller's key; someone who logs in to the account itself and hops
+# on with `ssh pi@10.21.S.P` uses the account's own keypair (jump_ssh_key),
+# which roles/fixpi authorizes for the `pi` user in the Pi NFS root.
 #
 # History: the previous tweed (Debian 12) had exactly this account, built by
 # hand on 2026-03-18 (/home/pi/bin/{ssh,ssh-keyscan} symlinks, .bash_profile
@@ -22,6 +24,10 @@ jump_shell: /bin/rbash
 jump_commands:
     - /usr/bin/ssh
     - /usr/bin/ssh-keyscan
+# The account's own keypair (ssh's default identity path, so a plain
+# `ssh pi@10.21.S.P` from the restricted shell offers it). roles/fixpi reads
+# the .pub from the same path (fixpi_jump_ssh_pubkey): keep the two in step.
+jump_ssh_key: "{{ jump_home }}/.ssh/id_ed25519"
 # Who may log in: the static operator keys plus the GitHub/Launchpad ids
 # every Pi's `pi` user trusts (both from inventory/group_vars/all/ssh_keys.yml).
 jump_public_keys: "{{ ssh_public_keys | default([]) | map(attribute='keys') | flatten }}"

@@ -158,6 +158,20 @@
   tags:
     - keys
 
+# The gateway's jump account (roles/jump), for `ssh pi@10.21.S.P` from its
+# restricted shell. The pi user only: the jump account is shared, and the
+# boards' root needs no hop from it. After the copy above, which rewrites
+# the file on every run.
+- name: Authorize the gateway jump account's key for pi
+  ansible.posix.authorized_key:
+    user: root
+    state: present
+    key: "file://{{ fixpi_jump_ssh_pubkey }}"
+    path: "/srv/nfs/rpi/{{ dist }}/root/home/pi/.ssh/authorized_keys"
+  when: fixpi_jump_ssh_pubkey | length > 0
+  tags:
+    - keys
+
 - name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
     path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh"

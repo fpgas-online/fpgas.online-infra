@@ -27,3 +27,11 @@ fixpi_sunxi_dtbs:
 fixpi_sunxi_i2c_nodes:
   - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
   - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
+
+# The gateway's restricted jump account's own public key (roles/jump makes
+# the keypair at jump_ssh_key; keep this path in step with it). Authorized
+# for the Pi `pi` user so that someone logged in to the jump account can
+# `ssh pi@10.21.S.P` onward. Read on the server (a "file://" key), so it
+# must exist when fixpi runs: site.yml runs roles/jump first. Empty string
+# to skip, for a server without the jump role.
+fixpi_jump_ssh_pubkey: /home/pi/.ssh/id_ed25519.pub
