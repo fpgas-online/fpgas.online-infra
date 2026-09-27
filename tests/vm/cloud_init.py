@@ -17,6 +17,7 @@ def create_seed_iso(
     password: str | None = None,
     revoked_key_users: Sequence[str] = (),
     revoked_keys: Sequence[str] = (),
+    legacy_piroot: bool = False,
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
@@ -38,6 +39,11 @@ def create_seed_iso(
     inventory's ssh_public_keys_revoked), as the accounts on tweed an earlier
     converge gave them: the roles must delete them (run_tests.py checks the
     keys are there before the converge and gone after it).
+
+    With legacy_piroot the VM also gets tweed's leftover piroot account as
+    the removed roles/nspawn-pi made it: /usr/local/bin/chroot-shell as its
+    login shell, /etc/sudoers.d/piroot and an authorized_keys. roles/operators
+    must delete all of it (run_tests.py checks before and after).
     """
     password_auth = (
         f"    lock_passwd: false\n    plain_text_passwd: {password}\n"
@@ -53,6 +59,23 @@ def create_seed_iso(
         + "".join(f"      - {json.dumps(key)}\n" for key in revoked_keys)
         for user in revoked_key_users
     ) if revoked_keys else ""
+    piroot_user = (
+        "  - name: piroot\n    shell: /usr/local/bin/chroot-shell\n    lock_passwd: true\n"
+        "    ssh_authorized_keys:\n      - ssh-ed25519 "
+        "AAAAC3NzaC1lZDI1NTE5AAAAIHBpcm9vdHBpcm9vdHBpcm9vdHBpcm9vdHBpcm9vdA piroot-key\n"
+    ) if legacy_piroot else ""
+    # write_files runs before users-groups, so the shell exists when the
+    # account is created.
+    piroot_files = """  - path: /usr/local/bin/chroot-shell
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      exec sudo /usr/sbin/chroot /srv/nfs/rpi/bookworm/root /bin/bash "$@"
+  - path: /etc/sudoers.d/piroot
+    permissions: '0440'
+    content: |
+      piroot ALL=NOPASSWD: /usr/sbin/chroot
+""" if legacy_piroot else ""
     user_data = f"""#cloud-config
 hostname: {hostname}
 manage_etc_hosts: true
@@ -66,7 +89,7 @@ users:
 {password_auth}  - name: {legacy_server_user}
     shell: /bin/bash
     lock_passwd: true
-{revoked_users}
+{revoked_users}{piroot_user}
 {ssh_pwauth}
 # Stands in for the app servers that run as the account on tweed
 # (gunicorn, daphne, ...): the rename must stop it, rewrite it, restart it.
@@ -81,7 +104,7 @@ write_files:
       ExecStart=/bin/sleep infinity
       [Install]
       WantedBy=multi-user.target
-
+{piroot_files}
 # No packages: the cloud image ships python3, and the roles install what
 # they need themselves (site installs git for its pip installs), as on a
 # fresh tweed. Installing them here was a minute of apt on every boot.
