@@ -11,6 +11,7 @@
   ansible.builtin.command: id -un
   become: false
   changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
   register: sshd_connecting_user
   when: sshd_pubkey_only
   tags:
@@ -50,6 +51,7 @@
   loop: "{{ sshd_key_users }}"
   register: sshd_authkeys
   changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
   failed_when: false
   when: sshd_pubkey_only
   tags:
@@ -100,15 +102,18 @@
 - name: Sshd configuration is still valid
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
+  check_mode: false  # read-only
   tags:
     - sshd
 
 # The effective values, as the reloaded daemon will apply them. Fails the
 # converge (before the reload) if an earlier-sorting drop-in overrides ours.
 # Imported, not included: an include's tags do not reach the tasks it
-# includes, so `--tags sshd` would skip the check.
+# includes, so `--tags sshd` would skip the check. Not in check mode: the
+# template has not written the drop-in then, so the effective settings are
+# still the old ones (verify-server.yml checks them after a real run).
 - name: Check the effective sshd settings
   ansible.builtin.import_tasks: verify/main.yml
-  when: sshd_pubkey_only
+  when: sshd_pubkey_only and not ansible_check_mode
   tags:
     - sshd

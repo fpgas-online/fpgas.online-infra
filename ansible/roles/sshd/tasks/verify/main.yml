@@ -31,6 +31,7 @@
         - root
       register: sshd_v_settings
       changed_when: false
+      check_mode: false  # read-only; verify-server under --check still checks
 
     - name: "Verify: assert passwords and keyboard-interactive are off"
       ansible.builtin.assert:
