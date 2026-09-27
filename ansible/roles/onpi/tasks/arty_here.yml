@@ -21,6 +21,7 @@
   ansible.builtin.copy:
     src: files/is_arty/arty_here.service
     dest: /etc/systemd/system/arty_here.service
+    mode: "0644"
   notify: Reload-systemd
   tags:
     - ia

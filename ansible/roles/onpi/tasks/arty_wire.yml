@@ -13,6 +13,7 @@
   ansible.builtin.copy:
     src: files/is_wire/arty_wire.service
     dest: /etc/systemd/system/arty_wire.service
+    mode: "0644"
   notify: Reload-systemd
   tags:
     - ia
