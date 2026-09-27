@@ -75,11 +75,17 @@ def seed(v: dict, extra: list[str]) -> None:
         lines = [SERVER, CONTROLLER, *extra] + ([JUMP] if path == "home/pi" else [])
         f.write_text("\n".join(lines) + "\n")
         f.chmod(0o600)
+    for path in ("home/ansible",):
+        f = Path(v["nfs_root"]) / "root" / path / ".ssh/authorized_keys"
+        lines = [CONTROLLER]
+        f.write_text("\n".join(lines) + "\n")
+        f.chmod(0o600)
 
 
 def make_root(tmp_path: Path) -> dict:
     root = tmp_path / "nfs"
-    for sub in ("root/root/.ssh", "root/home/pi/.ssh"):
+    # home/ansible/.ssh is made by fixpi's ansible-home.yml before the writer runs.
+    for sub in ("root/root/.ssh", "root/home/pi/.ssh", "root/home/ansible/.ssh"):
         (root / sub).mkdir(parents=True)
     keys = tmp_path / "keys"
     keys.mkdir()
@@ -98,6 +104,8 @@ def make_root(tmp_path: Path) -> dict:
         "fixpi_authorized_keys_files": [
             {"path": "root", "id": me},
             {"path": "home/pi", "id": me},
+            # The automation account's: the controller key alone.
+            {"path": "home/ansible", "id": me, "key_sources": ["controller"]},
         ],
     }
 
@@ -149,12 +157,31 @@ def test_first_converge_writes_the_complete_lists(tmp_path):
     assert converge(tmp_path, v) > 0
     assert keys_of(v, "root") == [SERVER, CONTROLLER]
     assert keys_of(v, "home/pi") == [SERVER, CONTROLLER, JUMP]
+    assert keys_of(v, "home/ansible") == [CONTROLLER]
+
+
+def test_the_ansible_account_gets_only_the_controller_key(tmp_path, github):
+    """A `key_sources` selection: no server, GitHub or jump key, whatever is configured."""
+    url, answers = github
+    answers["alice"] = (200, GH_KEY + "\n")
+    v = {**make_root(tmp_path), "fixpi_github_keys_base_url": url, "fixpi_github_key_users": ["alice"]}
+    f = Path(v["nfs_root"]) / "root/home/ansible/.ssh/authorized_keys"
+    # A stray key someone added by hand is dropped (the file is exclusive).
+    f.write_text(CONTROLLER + "\n" + REVOKED + "\n")
+    converge(tmp_path, v)
+    assert keys_of(v, "home/ansible") == [CONTROLLER]
+    st = f.stat()
+    assert (st.st_uid, st.st_gid, st.st_mode & 0o777) == (os.getuid(), os.getuid(), 0o600)
+    before = (st.st_ino, st.st_mtime_ns)
+    assert converge(tmp_path, v) == 0
+    assert (f.stat().st_ino, f.stat().st_mtime_ns) == before
 
 
 def test_second_converge_changes_nothing(tmp_path):
     v = make_root(tmp_path)
     converge(tmp_path, v)
-    files = [Path(v["nfs_root"]) / "root" / p / ".ssh/authorized_keys" for p in ("root", "home/pi")]
+    files = [Path(v["nfs_root"]) / "root" / p / ".ssh/authorized_keys"
+             for p in ("root", "home/pi", "home/ansible")]
     before = [(f.stat().st_ino, f.stat().st_mtime_ns, f.read_text()) for f in files]
     assert converge(tmp_path, v) == 0
     assert [(f.stat().st_ino, f.stat().st_mtime_ns, f.read_text()) for f in files] == before

@@ -3,6 +3,9 @@
 # checks that a password login to the server VM is refused.
 sshd_pubkey_only: true
 
+# The ansible automation account, as on tweed (roles/automation_user).
+automation_user_manage: true
+
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
 # Named, owned and addressed like tweed's (static, networkd, eth-uplink /

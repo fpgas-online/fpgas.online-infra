@@ -1,0 +1,24 @@
+---
+# The image build's own check of the automation account (netboot.yml), run
+# by ci-nfsroot.yml: the account at the fixed uid/gid every site's
+# authorized_keys ownership assumes, and valid sudo. Its key is per-site
+# (authorized_keys.yml), so the published image must not carry one.
+- name: Check the ansible user is in the root at its fixed uid/gid
+  ansible.builtin.command: >-
+    grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:"
+    {{ nfs_root }}/root/etc/passwd
+  changed_when: false
+
+- name: Check the ansible user's group is in the root at the same gid
+  ansible.builtin.command: grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:" {{ nfs_root }}/root/etc/group
+  changed_when: false
+
+- name: Check the ansible user's sudoers file in the root is valid
+  ansible.builtin.command: visudo -cf {{ nfs_root }}/root/etc/sudoers.d/010_{{ fixpi_ansible_user }}-nopasswd
+  changed_when: false
+
+- name: Check the image carries no authorized_keys for the ansible user
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+  register: fixpi_verify_image_ansible_keys
+  failed_when: fixpi_verify_image_ansible_keys.stat.exists

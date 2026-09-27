@@ -23,6 +23,7 @@
   hosts: nbp
   gather_facts: false
   roles:
+    - {role: automation_user, when: automation_user_manage | default(false) | bool}
     - operators
     - jump
     # After operators and jump: its lockout guard needs their keys in place.

@@ -105,6 +105,39 @@
     - netboot
     - qemu
 
+# The automation account (defaults/main.yml fixpi_ansible_user), created
+# like pi above: useradd inside the ARM root, image build only, so the
+# published image carries it and no server runs ARM code. groupadd first
+# pins the gid to the uid. useradd leaves the password locked ("!") and
+# nothing sets one: the account is key-only. Its authorized_keys is
+# per-site (authorized_keys.yml), never baked into the public image.
+- name: Create the ansible user in the NFS root if missing
+  ansible.builtin.command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "if getent passwd {{ fixpi_ansible_user }} >/dev/null; then echo present; else
+    groupadd --gid {{ fixpi_ansible_uid }} {{ fixpi_ansible_user }} &&
+    useradd -m -s /bin/bash --uid {{ fixpi_ansible_uid }} --gid {{ fixpi_ansible_uid }} {{ fixpi_ansible_user }}; fi"
+  register: fixpi_ansible_useradd
+  changed_when: "'present' not in fixpi_ansible_useradd.stdout"
+  when: fixpi_image_build | bool
+  tags:
+    - netboot
+    - qemu
+
+# Same 0440 root:root rule as pi's file above. Validated with the host's
+# visudo: it only parses the file, so the architecture does not matter.
+- name: Grant the ansible user passwordless sudo in the NFS root
+  ansible.builtin.copy:
+    content: "{{ fixpi_ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ fixpi_ansible_user }}-nopasswd"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  tags:
+    - netboot
+    - qemu
+
 # Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
 # stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
