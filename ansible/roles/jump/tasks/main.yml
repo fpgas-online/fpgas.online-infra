@@ -115,6 +115,17 @@
   tags:
     - jump
 
+# ssh-import-id marks every line it adds with "# ssh-import-id <id>", so a
+# revoked id's keys can be found and deleted without fetching them.
+- name: Delete the keys imported for revoked ids
+  ansible.builtin.lineinfile:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+    regexp: "# ssh-import-id {{ item | regex_escape }}$"
+    state: absent
+  loop: "{{ jump_ssh_revoked_import_ids }}"
+  tags:
+    - jump
+
 - name: Check the jump account has authorized_keys
   ansible.builtin.stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"
