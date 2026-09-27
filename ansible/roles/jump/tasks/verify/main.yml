@@ -47,6 +47,24 @@
   ansible.builtin.command: "grep -x '    StrictHostKeyChecking accept-new' {{ jump_home }}/.ssh/config"
   changed_when: false
 
+- name: "Verify: the account's keypair for hopping onward"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: jump_v_keypair
+  loop:
+    - "{{ jump_ssh_key }}"
+    - "{{ jump_ssh_key }}.pub"
+
+- name: "Verify: assert the keypair exists and is the account's own"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.pw_name == jump_user
+    fail_msg: "{{ item.item }} is missing or not owned by {{ jump_user }}"
+  loop: "{{ jump_v_keypair.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
 - name: "Verify: authorized_keys is non-empty"
   ansible.builtin.stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"

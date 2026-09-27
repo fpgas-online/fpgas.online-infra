@@ -61,6 +61,22 @@
   tags:
     - jump
 
+# The account's own identity for hopping onward from its shell (`ssh
+# pi@10.21.S.P`): roles/fixpi authorizes the .pub for the Pi NFS root's pi
+# user. site.yml runs this role before fixpi, so on a fresh server the key
+# exists by the time fixpi reads it. Generated once and kept: regenerating
+# it would change every board's authorized_keys.
+- name: Keypair for hopping onward to the Pis
+  community.crypto.openssh_keypair:
+    path: "{{ jump_ssh_key }}"
+    type: ed25519
+    comment: "{{ jump_user }}@{{ inventory_hostname }} (jump account)"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0600"
+  tags:
+    - jump
+
 # The Pis' host keys change whenever the NFS root is rebuilt; the jump
 # account only ever hops onward, so accept new keys and keep them per host.
 - name: Accept new Pi host keys when hopping onward
@@ -96,6 +112,17 @@
   changed_when: false
   failed_when: false
   when: jump_ssh_import_ids | length > 0
+  tags:
+    - jump
+
+# ssh-import-id marks every line it adds with "# ssh-import-id <id>", so a
+# revoked id's keys can be found and deleted without fetching them.
+- name: Delete the keys imported for revoked ids
+  ansible.builtin.lineinfile:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+    regexp: "# ssh-import-id {{ item | regex_escape }}$"
+    state: absent
+  loop: "{{ jump_ssh_revoked_import_ids }}"
   tags:
     - jump
 
