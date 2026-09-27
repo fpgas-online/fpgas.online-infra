@@ -23,7 +23,7 @@
 - name: Refuse to merge two existing accounts
   ansible.builtin.assert:
     that:
-      - not (server_user_old_exists and server_user_new_exists)
+      - not (server_user_old_exists | bool and server_user_new_exists | bool)
     fail_msg: >-
       both {{ server_user_rename_from }} and {{ user_name }} exist on
       {{ inventory_hostname }}: a rename would have to merge them (two
