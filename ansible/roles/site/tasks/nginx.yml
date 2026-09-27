@@ -22,6 +22,7 @@
   ansible.builtin.file:
     path: /etc/nginx/includes
     state: directory
+    mode: "0755"
 
 # Port 80 catch-all: serve ACME http-01 challenges from the webroot and send
 # everything else to https.  Replaces Debian's stock `default` vhost (removed
