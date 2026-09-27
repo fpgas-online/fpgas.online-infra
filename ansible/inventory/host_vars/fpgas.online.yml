@@ -116,7 +116,14 @@ vault_switch2_snmp_rw_community: !vault |
 
 firewall_internal_networks: [10.21.0.0/24]
 
-user_name: videoteam
+# The server's own account (roles/server_user). Was `videoteam`: the
+# rename runs in place (same uid, home and keypair moved) and is a no-op
+# once done; drop server_user_rename_from after tweed has converged.
+user_name: admin
+server_user_rename_from: videoteam
+server_user_sudo: true
+# Tim's and Carl's keys (the operators' GitHub ids) on the admin account.
+server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: pib
 room_name: k207

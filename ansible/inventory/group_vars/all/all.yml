@@ -6,6 +6,6 @@ ansible_python_interpreter: /usr/bin/python3
 eth_uplink: eth-uplink
 
 domain: fpgas.online
-# user_name: videoteam
+# user_name (the server's own account, roles/server_user) is per host.
 
 ssh_password_auth: false
