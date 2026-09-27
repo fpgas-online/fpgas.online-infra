@@ -413,9 +413,9 @@
           {% if verify_pi_fpga_verify_report.content is not defined %}No /run/fpgas-online/verify.json: the
           check has not finished this boot ({{ verify_pi_fpga_verify_report.msg | default('') }}).{% else %}FPGA
           check result '{{ report.result }}' (mode {{ report.mode | default('-') }},
-          {{ report.chosen_by | default('-') }}){% if report.reason is defined %}: {{ report.reason }}{% endif %}.
+          {{ report.chosen_by | default('-') }}){% if report.reason | default('') %}: {{ report.reason }}{% endif %}.
           {% for b in report.boards | default([]) %}{{ b.board }} {{ b.get('variant') or '-' }} {{ b.result
-          }}{% if b.reason is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (report.state
+          }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (report.state
           | default({})).changes | default([]) %}changed: {{ c }}; {% endfor %}`journalctl -b -u
           fpgas-verify` on the Pi has the rest.{% endif %}
       tags: [verify, fpga-verify, acorn, hw-fpga]
