@@ -5,5 +5,9 @@
   ansible.builtin.command: "ssh-import-id {{ item }}"
   with_items: "{{ ssh_imports | default([]) }}"
   when: ssh_imports is defined and ssh_imports | length > 0
+  register: onpi_ssh_import
   failed_when: false
+  # ssh-import-id logs "Authorized key [...]" for a key it adds and
+  # "Already authorized [...]" for one that was already there.
+  changed_when: "'Authorized key' in (onpi_ssh_import.stdout ~ onpi_ssh_import.stderr)"
   tags: sshkeys
