@@ -6,6 +6,10 @@
 - name: Deploy the web tier
   hosts: pig
   roles:
+    # The server's own account (and its rename, which runs on every run,
+    # tagged or not) before anything that runs as it or reads its key:
+    # site here, fixpi in site.yml's last play.
+    - {role: server_user, tags: [server_user]}
     - site
     - wssh
     - stream_server

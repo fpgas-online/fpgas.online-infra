@@ -38,7 +38,14 @@ pib_domain: test.fpgas.online
 
 firewall_internal_networks: [10.21.0.0/24]
 
-user_name: testuser
+# The server's own account, named and keyed as on tweed. The VM boots with
+# it under an old name (tests/vm/cloud_init.py: a keypair and a service
+# running as `testuser`), so every run exercises roles/server_user's
+# in-place rename, as tweed's videoteam -> admin; run_tests.py checks it.
+user_name: admin
+server_user_rename_from: testuser
+server_user_sudo: true
+server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: test
 room_name: test
