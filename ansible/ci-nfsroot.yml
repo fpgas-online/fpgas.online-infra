@@ -188,6 +188,8 @@
         # mithro/rp1-jtag).
         - openfpgaloader-fpgasonline-git
         - openocd-fpgasonline-git
+        # roles/onpi/tasks/fpga_verify.yml: the FPGA boot check for every board.
+        - fpgas-online-all-boards
         # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
         - linux-image-armmp
       tags: [verify]
