@@ -45,3 +45,23 @@
       - server_user_v_keys.stat.size > 0
     fail_msg: "{{ user_name }} has no authorized_keys"
   when: server_user_ssh_import_ids | length > 0
+
+- name: "Verify: the server account's sudoers file is valid"
+  ansible.builtin.command: "visudo -cf /etc/sudoers.d/{{ user_name }}"
+  changed_when: false
+  when: server_user_sudo | bool
+
+- name: "Verify: the server account gets root without a password"
+  ansible.builtin.command: sudo -n id -un
+  become: true
+  become_user: "{{ user_name }}"
+  register: server_user_v_sudo
+  changed_when: false
+  when: server_user_sudo | bool
+
+- name: "Verify: assert sudo made the server account root"
+  ansible.builtin.assert:
+    that:
+      - server_user_v_sudo.stdout == 'root'
+    fail_msg: "sudo -n id -un as {{ user_name }} printed '{{ server_user_v_sudo.stdout }}', not root"
+  when: server_user_sudo | bool

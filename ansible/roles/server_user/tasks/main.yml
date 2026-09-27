@@ -19,6 +19,17 @@
     shell: "{{ '/bin/bash' if server_user_ssh_import_ids | length > 0 else omit }}"
   tags: [server_user]
 
+- name: Passwordless sudo for the server account
+  ansible.builtin.copy:
+    content: "{{ user_name }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "/etc/sudoers.d/{{ user_name }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  when: server_user_sudo | bool
+  tags: [server_user]
+
 - name: Install ssh-import-id
   ansible.builtin.apt:
     name: ssh-import-id

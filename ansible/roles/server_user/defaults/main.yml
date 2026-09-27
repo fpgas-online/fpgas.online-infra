@@ -20,3 +20,8 @@ server_user_rename_from: ""
 # added to the account's authorized_keys, and given a login shell. Empty =
 # no keys are managed and the shell is left alone (a pure service account).
 server_user_ssh_import_ids: []
+
+# Passwordless sudo for the account (/etc/sudoers.d/<user_name>, as
+# roles/operators does for tim and carl). Off by default: a pure service
+# account (ps1's, gator's videoteam) must not gain root.
+server_user_sudo: false
