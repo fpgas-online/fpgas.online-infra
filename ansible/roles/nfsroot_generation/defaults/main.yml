@@ -10,9 +10,15 @@
 nfsroot_generation_install: true
 nfsroot_generation_cmd: nfsroot-generation
 
-# The gateway fetches straight from upstream: its own apt cache serves the
-# Pi root's releases, not the gateway's.
-nfsroot_generation_apt_url: https://fpgas.online/nfsroot-watchdog
+# Where the gateway installs nfsroot-watchdog-server from. Its own apt cache
+# serves the Pi root's releases, not the gateway's, so this is upstream, or
+# the /nfsroot-watchdog remap of the site apt cache the gateway's apt goes
+# through (roles/apt_client).
+nfsroot_generation_apt_upstream_url: https://fpgas.online/nfsroot-watchdog
+nfsroot_generation_apt_url: >-
+  {{ (apt_client_https_cache ~ '/nfsroot-watchdog')
+     if apt_client_https_cache | default('') | length > 0
+     else nfsroot_generation_apt_upstream_url }}
 nfsroot_generation_apt_suite: "{{ ansible_facts.distribution_release }}"
 
 # Paths (relative to the root, fnmatch) to ignore on top of the package's
