@@ -114,7 +114,11 @@
     # file keeps its inode and only its attributes are updated. It also stops the quick check from skipping
     # a changed file whose size and mtime second happen to match. The cost is
     # reading both trees once per new image digest.
-    - name: Rsync boot/ and root/ from the image
+    # noqa: command-instead-of-module -- an on-host copy from the mounted image
+    # into the NFS root; synchronize is built for controller<->host transfers,
+    # and the exact flag set (-HAX --numeric-ids --checksum, anchored excludes)
+    # is load-bearing (see above), so keep rsync verbatim.
+    - name: Rsync boot/ and root/ from the image  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         rsync -aHAX --delete --numeric-ids --checksum
         {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*'
