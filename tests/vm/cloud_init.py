@@ -11,12 +11,24 @@ def create_seed_iso(
     hostname: str = "test-vm",
     eth_local_mac: str = "52:54:00:aa:bb:02",
     eth_local_ip: str = "10.21.0.1/24",
+    password: str | None = None,
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
     Configures the VM's user and SSH key, and brings up the second NIC
     (the VLAN trunk) for the roles to configure.
+
+    With a password the user can also log in with it, and cloud-init turns
+    sshd password login on (ssh_pwauth writes `PasswordAuthentication yes`
+    to sshd_config.d/50-cloud-init.conf): the drop-in roles/sshd writes must
+    win over it, and the harness proves the password is then refused.
     """
+    password_auth = (
+        f"    lock_passwd: false\n    plain_text_passwd: {password}\n"
+        if password else ""
+    )
+    # Only with a password: without one the image default stays in force.
+    ssh_pwauth = "ssh_pwauth: true\n" if password else ""
     user_data = f"""#cloud-config
 hostname: {hostname}
 manage_etc_hosts: true
@@ -27,6 +39,8 @@ users:
     shell: /bin/bash
     ssh_authorized_keys:
       - {ssh_pubkey}
+{password_auth}
+{ssh_pwauth}
 
 # No packages: the cloud image ships python3, and the roles install what
 # they need themselves (site installs git for its pip installs), as on a

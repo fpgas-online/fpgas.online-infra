@@ -1,4 +1,8 @@
 ---
+# Public-key-only SSH login, as on tweed (roles/sshd); tests/vm/run_tests.py
+# checks that a password login to the server VM is refused.
+sshd_pubkey_only: true
+
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
 # Named, owned and addressed like tweed's (static, networkd, eth-uplink /

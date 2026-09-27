@@ -78,6 +78,10 @@
   ansible.builtin.command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
+  register: fixpi_pi_user
+  # id -u prints the uid when the user already exists; only when it does not
+  # (no uid on stdout) did useradd run.
+  changed_when: fixpi_pi_user.stdout | trim is not match('^[0-9]+$')
   when: fixpi_image_build | bool
   tags:
     - netboot
@@ -219,6 +223,12 @@
 - name: Install nfs-common into pi's fs
   when: fixpi_image_build | bool
   ansible.builtin.command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
+  register: fixpi_nfs_common
+  # apt update only refreshes the package lists; the install changed the root
+  # unless apt's summary says it did nothing.
+  changed_when: >-
+    item != 'apt update'
+    and '0 upgraded, 0 newly installed, 0 to remove' not in fixpi_nfs_common.stdout
   with_items:
     - "apt update"
     - "apt install -y nfs-common overlayroot"
@@ -316,6 +326,8 @@
   ansible.builtin.command: >-
     ssh-keygen -q -N "" -t {{ item.type }}
     -f {{ nfs_root }}/root/etc/ssh/ssh_host_{{ item.type }}_key
+  # Only runs when the keys are absent (the when: below), and then writes them.
+  changed_when: true
   with_items:
     - {type: rsa}
     - {type: ecdsa}

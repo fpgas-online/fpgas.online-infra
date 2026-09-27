@@ -28,6 +28,12 @@
         tasks_from: verify/main.yml
       tags: [verify, jump]
 
+    - name: Verify sshd
+      ansible.builtin.include_role:
+        name: sshd
+        tasks_from: verify/main.yml
+      tags: [verify, sshd]
+
     - name: Verify lldp
       ansible.builtin.include_role:
         name: lldp
