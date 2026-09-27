@@ -36,3 +36,6 @@ jump_public_keys: "{{ ssh_public_keys | default([]) | map(attribute='keys') | fl
 jump_ssh_import_ids: "{{ ssh_imports | default([]) }}"
 # Ids whose previously imported keys are deleted from the account.
 jump_ssh_revoked_import_ids: "{{ ssh_imports_revoked | default([]) }}"
+# Static keys deleted from the account (authorized_key state=present only
+# ever adds, so dropping one from ssh_public_keys would leave it there).
+jump_revoked_public_keys: "{{ ssh_public_keys_revoked | default([]) }}"
