@@ -298,7 +298,8 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
 # "pre-rename" and a service running as it) to user_name, as tweed's
 # videoteam became admin. After site.yml: the old account is gone, the new
 # one kept the old keypair, the Pi NFS root trusts that key (fixpi copies
-# it), and the service came back up as the new name.
+# it), the service came back up as the new name, and the account has
+# passwordless sudo (server_user_sudo).
 SERVER_USER_OLD = "testuser"
 SERVER_USER_NEW = "admin"
 SERVER_USER_RENAME_CHECK = f"""set -ex
@@ -309,6 +310,7 @@ case "$pub" in *" pre-rename") ;; *) echo "keypair was regenerated: $pub"; exit 
 sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
 systemctl is-active server-user-probe.service
 test "$(ps -o user= -p "$(systemctl show -p MainPID --value server-user-probe.service)")" = {SERVER_USER_NEW}
+test "$(sudo -u {SERVER_USER_NEW} sudo -n id -un)" = root
 """
 
 

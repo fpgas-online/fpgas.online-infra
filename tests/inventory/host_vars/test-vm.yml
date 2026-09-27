@@ -40,6 +40,7 @@ firewall_internal_networks: [10.21.0.0/24]
 # in-place rename, as tweed's videoteam -> admin; run_tests.py checks it.
 user_name: admin
 server_user_rename_from: testuser
+server_user_sudo: true
 server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: test
