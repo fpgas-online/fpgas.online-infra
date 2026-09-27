@@ -3,6 +3,7 @@
   ansible.builtin.file:
     path: /srv/tftp
     state: directory
+    mode: "0755"
 
 - name: Link bootcode.bin in tftp root because pi netboot not too smart.
   ansible.builtin.file:
@@ -43,6 +44,7 @@
   ansible.builtin.template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
+    mode: "0644"
   with_items:
     - cmdline.txt
     - cmdline-pi5.txt
@@ -54,6 +56,7 @@
   ansible.builtin.template:
     src: "templates/etc/{{ item }}.j2"
     dest: "{{ nfs_root }}/root/etc/{{ item }}"
+    mode: "0644"
   with_items:
     - fstab
   tags:
@@ -68,6 +71,7 @@
   ansible.builtin.copy:
     src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
     dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    mode: "0644"
   tags:
     - cmdline
     - netboot
@@ -194,6 +198,7 @@
     src: "{{ '/run/systemd/resolve/resolv.conf' if fixpi_resolved_upstream.stat.exists else '/etc/resolv.conf' }}"
     dest: "{{ nfs_root }}/root/etc/resolv.conf"
     follow: true
+    mode: "0644"
   tags:
     - netboot
 
