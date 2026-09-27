@@ -1,0 +1,44 @@
+---
+# What apt actually resolves, not what the files say: apt-config reads every
+# file in the order apt does, and indextargets lists every configured
+# source. Neither touches the network.
+
+- name: Read the apt proxy apt resolves
+  ansible.builtin.command: apt-config dump --format '%v%n' Acquire::http::Proxy
+  changed_when: false
+  register: apt_client_v_proxy
+  when: apt_client_proxy | length > 0
+
+- name: Assert apt uses the site apt proxy
+  ansible.builtin.assert:
+    that: apt_client_v_proxy.stdout_lines == [apt_client_proxy]
+    fail_msg: >-
+      apt's Acquire::http::Proxy is {{ apt_client_v_proxy.stdout_lines }},
+      not {{ apt_client_proxy }}
+  when: apt_client_proxy | length > 0
+
+- name: List the repositories apt fetches from
+  ansible.builtin.command: apt-get indextargets --format '$(REPO_URI)'
+  changed_when: false
+  register: apt_client_v_repos
+  when: apt_client_proxy | length > 0
+
+# With a proxy set, apt tunnels any other https source through it with
+# CONNECT, which the proxy refuses: that source would fail every update.
+- name: Assert every https repository goes through the site cache
+  ansible.builtin.assert:
+    that: apt_client_v_bypass | length == 0
+    fail_msg: >-
+      These https repositories do not go through the site apt cache
+      ({{ apt_client_https_cache | default('none configured', true) }}), so
+      apt cannot fetch them through {{ apt_client_proxy }}:
+      {{ apt_client_v_bypass }}. Add a remap for each to the site cache and
+      point the source at it.
+  vars:
+    apt_client_v_bypass: >-
+      {{ apt_client_v_repos.stdout_lines | unique
+         | select('match', 'https://')
+         | reject('match', ((apt_client_https_cache ~ '/') | regex_escape)
+                           if apt_client_https_cache else '(?!)')
+         | list }}
+  when: apt_client_proxy | length > 0
