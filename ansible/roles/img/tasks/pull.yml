@@ -31,6 +31,15 @@
   tags:
     - img
 
+# How long the successful download took, apart from any wait for the image
+# to be published (see LAYERS in tests/ci/nfsroot_publish.py).
+- name: Report the background pull
+  ansible.builtin.debug:
+    msg: "{{ img_prefetch_job.stdout | default('no report') }}"
+  when: img_prefetch.ansible_job_id is defined
+  tags:
+    - img
+
 - name: Pull the nfsroot image
   ansible.builtin.command: podman pull {{ img_nfsroot_image }}
   register: img_pull
