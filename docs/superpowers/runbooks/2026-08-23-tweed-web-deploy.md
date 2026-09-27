@@ -15,7 +15,8 @@ Date: 2026-08-23. Spec for the TT part: `docs/superpowers/specs/2026-08-22-tinyt
   sudo make deploy-nginx` on ten64) before its cert can be issued / the name works
   over HTTPS; DNS is a CNAME to `welland.fpgas.online`.
 - Ansible runs from inside the Welland network: `ansible_host: 10.99.21.2`,
-  `ansible_user: ansible` (NOPASSWD sudo, key `ansible@hetzner-infrastructure`), `become`.
+  `ansible_user: ansible` (NOPASSWD sudo, trusts only the `fpgas.online-ansible` key,
+  managed by `roles/automation_user`), `become`.
 
 ## Deploy
 
