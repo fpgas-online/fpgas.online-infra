@@ -1,0 +1,53 @@
+---
+# The server's own account (see defaults/main.yml).
+
+# The rename runs on EVERY run, tagged or not: each other task keyed on
+# user_name (here, roles/site, roles/fixpi) would otherwise create a
+# fresh, empty account under the new name -- and fixpi would then push a
+# brand-new key into the Pi root in place of the one the Pis trust.
+- name: Rename the server account in place
+  ansible.builtin.include_tasks:
+    file: rename.yml
+    apply:
+      tags: [always]
+  when: server_user_rename_from | length > 0
+  tags: [always]
+
+- name: Server account
+  ansible.builtin.user:
+    name: "{{ user_name }}"
+    shell: "{{ '/bin/bash' if server_user_ssh_import_ids | length > 0 else omit }}"
+  tags: [server_user]
+
+- name: Install ssh-import-id
+  ansible.builtin.apt:
+    name: ssh-import-id
+  when: server_user_ssh_import_ids | length > 0
+  tags: [server_user]
+
+# Same tolerance as roles/operators: a GitHub outage must not fail the
+# converge, but the assert below refuses to leave the account key-less.
+- name: Import the server account's ssh keys from GitHub
+  ansible.builtin.command: "ssh-import-id {{ server_user_ssh_import_ids | join(' ') }}"
+  become: true
+  become_user: "{{ user_name }}"
+  changed_when: false
+  failed_when: false
+  when: server_user_ssh_import_ids | length > 0
+  tags: [server_user]
+
+- name: Check the server account's authorized_keys
+  ansible.builtin.stat:
+    path: "/home/{{ user_name }}/.ssh/authorized_keys"
+  register: server_user_authkeys
+  when: server_user_ssh_import_ids | length > 0
+  tags: [server_user]
+
+- name: Assert the server account has at least one key
+  ansible.builtin.assert:
+    that:
+      - server_user_authkeys.stat.exists
+      - server_user_authkeys.stat.size > 0
+    fail_msg: "{{ user_name }}@{{ inventory_hostname }} has no authorized_keys (ssh-import-id failed?)"
+  when: server_user_ssh_import_ids | length > 0
+  tags: [server_user]

@@ -1,0 +1,47 @@
+---
+- name: "Verify: read the passwd database"
+  ansible.builtin.getent:
+    database: passwd
+
+- name: "Verify: the server account exists, with its home at /home/<name>"
+  ansible.builtin.assert:
+    that:
+      - user_name in ansible_facts.getent_passwd
+      - ansible_facts.getent_passwd[user_name][4] == '/home/' ~ user_name
+    fail_msg: "{{ user_name }} missing, or its home is not /home/{{ user_name }} (roles/fixpi reads its key from there)"
+
+- name: "Verify: the renamed-from account is gone"
+  ansible.builtin.assert:
+    that:
+      - server_user_rename_from not in ansible_facts.getent_passwd
+    fail_msg: "{{ server_user_rename_from }} still exists next to {{ user_name }}"
+  when: server_user_rename_from | length > 0
+
+- name: "Verify: no systemd unit still runs as the renamed-from account"
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "*.service"
+    contains: '^(User|Group)={{ server_user_rename_from }}\s*$'
+  register: server_user_v_units
+  when: server_user_rename_from | length > 0
+
+- name: "Verify: assert no unit names the renamed-from account"
+  ansible.builtin.assert:
+    that:
+      - server_user_v_units.files | length == 0
+    fail_msg: "units still name {{ server_user_rename_from }}: {{ server_user_v_units.files | map(attribute='path') | list }}"
+  when: server_user_rename_from | length > 0
+
+- name: "Verify: the server account's authorized_keys"
+  ansible.builtin.stat:
+    path: "/home/{{ user_name }}/.ssh/authorized_keys"
+  register: server_user_v_keys
+  when: server_user_ssh_import_ids | length > 0
+
+- name: "Verify: assert the server account has keys"
+  ansible.builtin.assert:
+    that:
+      - server_user_v_keys.stat.exists
+      - server_user_v_keys.stat.size > 0
+    fail_msg: "{{ user_name }} has no authorized_keys"
+  when: server_user_ssh_import_ids | length > 0

@@ -1,0 +1,192 @@
+---
+# Rename the server account from server_user_rename_from to user_name, in
+# place. Idempotent: does nothing unless the old account exists and the
+# new one does not. See defaults/main.yml for why it is a rename rather
+# than a new account.
+
+- name: Sanity-check the rename settings
+  ansible.builtin.assert:
+    that:
+      - server_user_rename_from != user_name
+    fail_msg: "server_user_rename_from and user_name are both '{{ user_name }}'"
+
+- name: Read the passwd and group databases
+  ansible.builtin.getent:
+    database: "{{ item }}"
+  loop: [passwd, group]
+
+- name: Note which of the two accounts exist
+  ansible.builtin.set_fact:
+    server_user_old_exists: "{{ server_user_rename_from in ansible_facts.getent_passwd }}"
+    server_user_new_exists: "{{ user_name in ansible_facts.getent_passwd }}"
+
+- name: Refuse to merge two existing accounts
+  ansible.builtin.assert:
+    that:
+      - not (server_user_old_exists and server_user_new_exists)
+    fail_msg: >-
+      both {{ server_user_rename_from }} and {{ user_name }} exist on
+      {{ inventory_hostname }}: a rename would have to merge them (two
+      homes, two uids). Nothing was changed; merge or remove one by hand.
+
+- name: Rename the account (only when the old one is still there)
+  when: server_user_old_exists | bool
+  block:
+    - name: Check nothing is in the way of the new names
+      ansible.builtin.stat:
+        path: "/home/{{ user_name }}"
+      register: server_user_new_home
+
+    - name: Refuse to overwrite a home directory or group of the new name
+      ansible.builtin.assert:
+        that:
+          - not server_user_new_home.stat.exists
+          - user_name not in ansible_facts.getent_group
+        fail_msg: >-
+          /home/{{ user_name }} or group {{ user_name }} already exists on
+          {{ inventory_hostname }}; usermod/groupmod would fail or take it
+          over. Nothing was changed.
+
+    # The app servers run as the account (roles/site's User=). They and
+    # their socket activators must be down, or usermod refuses ("user is
+    # currently used by process") -- and a socket could start a service
+    # mid-rename.
+    - name: Find the systemd units that run as the old account
+      ansible.builtin.find:
+        paths: /etc/systemd/system
+        patterns: "*.service"
+        contains: '^(User|Group)={{ server_user_rename_from }}\s*$'
+      register: server_user_unit_files
+
+    - name: Find their socket activators
+      ansible.builtin.stat:
+        path: "{{ item.path | regex_replace('\\.service$', '.socket') }}"
+      loop: "{{ server_user_unit_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      register: server_user_socket_files
+
+    - name: List the units to stop, sockets first
+      ansible.builtin.set_fact:
+        server_user_units: >-
+          {{ (server_user_socket_files.results | selectattr('stat.exists') | map(attribute='stat.path') | list
+              + server_user_unit_files.files | map(attribute='path') | list)
+             | map('basename') | list }}
+
+    - name: Record which of them are running
+      ansible.builtin.command: "systemctl is-active {{ item }}"
+      loop: "{{ server_user_units }}"
+      register: server_user_unit_state
+      changed_when: false
+      failed_when: false
+
+    - name: Remember the running ones, to start them again afterwards
+      ansible.builtin.set_fact:
+        server_user_running: >-
+          {{ server_user_unit_state.results | selectattr('stdout', 'equalto', 'active') | map(attribute='item') | list }}
+
+    - name: Show what the rename will stop and restart
+      ansible.builtin.debug:
+        msg: >-
+          renaming {{ server_user_rename_from }} to {{ user_name }};
+          units running as it: {{ server_user_units }}; running now:
+          {{ server_user_running }}
+
+    - name: Stop, rename and restart
+      block:
+        - name: Stop the units that run as the old account
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop: "{{ server_user_units }}"
+
+        - name: Look for anything else still running as the old account
+          ansible.builtin.command: "pgrep -a -u {{ server_user_rename_from }}"
+          register: server_user_procs
+          changed_when: false
+          failed_when: false
+
+        - name: Refuse to rename an account that is still in use
+          ansible.builtin.assert:
+            that:
+              - server_user_procs.rc != 0
+            fail_msg: >-
+              processes still run as {{ server_user_rename_from }} (log out
+              any sessions, disable lingering, stop what runs as it):
+              {{ server_user_procs.stdout_lines }}
+
+        # Same uid and gid: every file the account owns anywhere (the
+        # Django tree under /srv/www, db.sqlite3, STATIC_ROOT) stays owned
+        # by it. -m moves the home, keypair included, to the new path.
+        - name: Rename the account and move its home
+          ansible.builtin.command: >-
+            usermod --login {{ user_name }}
+            --home /home/{{ user_name }} --move-home
+            {{ server_user_rename_from }}
+          changed_when: true
+
+        - name: Rename its group
+          ansible.builtin.command: "groupmod --new-name {{ user_name }} {{ server_user_rename_from }}"
+          when: server_user_rename_from in ansible_facts.getent_group
+          changed_when: true
+
+        - name: Move its crontab, if it has one
+          ansible.builtin.command: >-
+            mv /var/spool/cron/crontabs/{{ server_user_rename_from }}
+            /var/spool/cron/crontabs/{{ user_name }}
+          args:
+            removes: "/var/spool/cron/crontabs/{{ server_user_rename_from }}"
+            creates: "/var/spool/cron/crontabs/{{ user_name }}"
+
+        # roles/site re-templates its own units from user_name later in
+        # the run, but the rename must not depend on it: a tagged run
+        # (--tags fixpi) runs this file and nothing of roles/site.
+        - name: Point the units at the new name
+          ansible.builtin.replace:
+            path: "{{ item.path }}"
+            regexp: '^(User|Group)={{ server_user_rename_from }}\s*$'
+            replace: '\1={{ user_name }}'
+          loop: "{{ server_user_unit_files.files }}"
+          loop_control:
+            label: "{{ item.path | basename }}"
+
+        - name: Start the units that were running
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: started
+            daemon_reload: true
+          loop: "{{ server_user_running }}"
+
+      rescue:
+        - name: Start the units that were running again
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: started
+            daemon_reload: true
+          loop: "{{ server_user_running }}"
+          failed_when: false
+
+        - name: Report the failed rename
+          ansible.builtin.fail:
+            msg: >-
+              renaming {{ server_user_rename_from }} to {{ user_name }} failed
+              at "{{ ansible_failed_task.name }}": {{ ansible_failed_result.msg | default(ansible_failed_result) }}.
+              The units that were running have been started again; check
+              `getent passwd {{ server_user_rename_from }} {{ user_name }}`
+              to see which side of the usermod the host is on.
+
+# Things the rename does not rewrite: sudoers, sshd Match/AllowUsers,
+# cron.d, subuid ranges. Flagged, not edited, every run until cleaned up.
+- name: Look for other references to the old account name
+  ansible.builtin.command: >-
+    grep -rlsw -- {{ server_user_rename_from }}
+    /etc/sudoers /etc/sudoers.d /etc/ssh /etc/systemd/system /etc/cron.d
+    /etc/subuid /etc/subgid
+  register: server_user_refs
+  changed_when: false
+  failed_when: false
+
+- name: Warn about leftover references to the old account name
+  ansible.builtin.debug:
+    msg: "these files still mention {{ server_user_rename_from }}: {{ server_user_refs.stdout_lines }}"
+  when: server_user_refs.stdout_lines | length > 0
