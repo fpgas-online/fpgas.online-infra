@@ -1,0 +1,54 @@
+---
+# What sshd will actually apply (`sshd -T` evaluates the whole configuration,
+# drop-ins, Match blocks and all), not what the drop-in says: an
+# earlier-sorting drop-in setting a keyword first would win over ours.
+# Checked for an ordinary connection and for the jump account, whose
+# `Match User` block (roles/jump, 50-jump.conf) must not reopen passwords.
+- name: "Verify: public-key-only login"
+  when: sshd_pubkey_only
+  block:
+    - name: "Verify: public-key-only drop-in present"
+      ansible.builtin.stat:
+        path: "{{ sshd_pubkey_only_dropin }}"
+      register: sshd_v_dropin
+
+    - name: "Verify: assert the drop-in is present"
+      ansible.builtin.assert:
+        that:
+          - sshd_v_dropin.stat.exists
+        fail_msg: "{{ sshd_pubkey_only_dropin }} is missing"
+
+    - name: "Verify: effective sshd settings"
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/sshd
+          - -T
+          - -C
+          - "user={{ item }},host=localhost,addr=127.0.0.1"
+      loop:
+        - "{{ ansible_user | default('root') }}"
+        - "{{ jump_user | default('pi') }}"
+        - root
+      register: sshd_v_settings
+      changed_when: false
+
+    - name: "Verify: assert passwords and keyboard-interactive are off"
+      ansible.builtin.assert:
+        that:
+          - "'pubkeyauthentication yes' in item.stdout_lines"
+          - "'passwordauthentication no' in item.stdout_lines"
+          - "'kbdinteractiveauthentication no' in item.stdout_lines"
+          - "'authenticationmethods publickey' in item.stdout_lines"
+          # sshd -T prints prohibit-password under its old name.
+          - >-
+            ('permitrootlogin ' ~ (sshd_permit_root_login
+            | replace('prohibit-password', 'without-password')))
+            in item.stdout_lines
+        fail_msg: >-
+          sshd would still accept a non-key login for {{ item.item }}:
+          {{ item.stdout_lines | select('match',
+          '^(pubkeyauthentication|passwordauthentication|kbdinteractiveauthentication|authenticationmethods|permitrootlogin) ')
+          | list }}
+      loop: "{{ sshd_v_settings.results }}"
+      loop_control:
+        label: "{{ item.item }}"
