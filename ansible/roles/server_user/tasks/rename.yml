@@ -66,7 +66,11 @@
           + server_user_unit_files.files | map(attribute='path') | list)
          | map('basename') | list }}
 
-- name: Record which of them are running
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts lists only
+# .service units -- this list has .socket units too -- as running/stopped,
+# not the ActiveState strings the decision below matches.
+- name: Record which of them are running  # noqa: command-instead-of-module
   ansible.builtin.command: "systemctl is-active {{ item }}"
   loop: "{{ server_user_units }}"
   register: server_user_unit_active
@@ -74,7 +78,10 @@
   failed_when: false
   check_mode: false
 
-- name: Record which of them are enabled
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action, and service_facts lists only .service units, while this list has
+# .socket units too.
+- name: Record which of them are enabled  # noqa: command-instead-of-module
   ansible.builtin.command: "systemctl is-enabled {{ item }}"
   loop: "{{ server_user_units }}"
   register: server_user_unit_enabled
