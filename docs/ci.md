@@ -759,11 +759,26 @@ booted, then the plain-manifest check. It takes about 15 s
 ([example job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678/job/108558498863)),
 and prints the new digest in the job summary.
 
-Runs on `main` never overlap and are never cancelled part-way
-(`cancel-in-progress` is on for PRs only), so the tag always moves forward
-in order. A queued `main` run is replaced by a newer one, which tests a
-checkout that includes it. The cost is that runs on `main` can queue behind
-each other ([§6.3](#63-runs-on-main-queue)).
+Runs on `main` overlap: each has its own concurrency group, so none waits
+for or cancels another (a PR's runs share one group, and a new push
+cancels the old run). So an older run can finish after a newer one. To
+keep the tag moving forward anyway
+([PR #151](https://github.com/fpgas-online/fpgas.online-infra/pull/151)):
+
+- the Promote jobs run one at a time (a job-level concurrency group);
+- each first runs
+  [`nfsroot_promote_guard.py`](../tests/ci/nfsroot_promote_guard.py). It
+  finds the last successful promotion through the Actions API, and lets
+  the copy run only if this run is newer: a newer commit on `main`
+  (checked with `git merge-base --is-ancestor`), or a later run of the same
+  commit, whose packages are fresher. Otherwise the copy is skipped, and
+  the job summary says why, for example
+  `91bfdc5 is newer than the promoted c3874fb`
+  ([example job](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36306604591)).
+
+If a third promotion arrives while one runs and one waits, GitHub replaces
+the waiting one, which then shows as cancelled; the newest build still
+gets promoted.
 
 [`tests/test_nfsroot_promotion.py`](../tests/test_nfsroot_promotion.py)
 fails if any build starts publishing `bookworm-armhf` again, or if the
@@ -867,11 +882,13 @@ The daily full rebuild runs the stages job and then the image build one
 after the other, about 10 minutes before the image exists, so the server
 waits and the run takes **about 16 minutes** of work.
 
-### 6.3 Runs on `main` queue
+### 6.3 Runs on `main`: queueing
 
-Runs on `main` never overlap ([§4](#4-promotion-the-image-production-pulls)),
-and GitHub's runners are sometimes all busy. So a `main` run's total can be
-much longer than its work. Some of the longest:
+From [PR #119](https://github.com/fpgas-online/fpgas.online-infra/pull/119)
+until [PR #151](https://github.com/fpgas-online/fpgas.online-infra/pull/151)
+(merged 2026-09-27), runs on `main` never overlapped, so merges that landed
+close together queued behind each other. GitHub's runners are also
+sometimes all busy. Some of the longest runs from that period:
 
 | Run | Total | Waiting for the previous `main` run | Waiting for a runner | Work |
 |---|---|---|---|---|
@@ -880,6 +897,11 @@ much longer than its work. Some of the longest:
 | [36286645309](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36286645309) (scheduled, full) | 29:44 | 13:34 | 0:05 | 16:05 |
 | [36295058552](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36295058552) | 23:41 | 0:00 | 10:21 | 13:20 |
 | [36296701678](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678) (no queue) | 13:22 | 0:00 | 0:04 | 13:17 |
+
+Since #151, a `main` run no longer waits for the one before it; the first
+such run, [36306604591](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36306604591),
+took 12:17. Waiting for a free runner remains, and more overlapping runs
+can make it more frequent when many PRs are active.
 
 ### 6.4 Where the 13 minutes go (reuse case, [run 36296701678](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678/job/108556769748))
 
@@ -965,3 +987,4 @@ column.
 | build log: `… descends from base X, this checkout's is Y: building on the upgraded RasPiOS stage instead` | the base key changed, or the production image has no label | expected after a base change: the run takes the stage path |
 | `nfsroot / stages` fails | the RasPiOS download, or `apt upgrade` in the base | the stages job log; the run's image is not built or promoted |
 | `Promote to bookworm-armhf` fails | GHCR auth, or the copied tag is not a plain manifest | the promote job log. Production stays on the previous image |
+| Promote is green but `bookworm-armhf` did not move | the guard found a newer build already promoted ([§4](#4-promotion-the-image-production-pulls)): expected when runs finish out of order | the promote job summary ("NOT promoting … because …") |
