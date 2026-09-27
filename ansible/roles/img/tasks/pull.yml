@@ -73,6 +73,8 @@
     - name: Mount the image
       ansible.builtin.command: podman image mount {{ img_nfsroot_image }}
       register: img_mnt
+      # Transient: the always: below unmounts it (and reports no change).
+      changed_when: false
 
     # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
     # fpgas-online/nfsroot-watchdog (update.lock, generation, inhibit). They
@@ -109,6 +111,8 @@
            ' --exclude=/root/.ssh/authorized_keys --exclude=/home/pi/.ssh/authorized_keys'
            if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
+      # The block only runs for a new image digest, so the tree changes.
+      changed_when: true
       loop:
         - boot
         - root

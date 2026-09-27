@@ -21,3 +21,5 @@
 - name: Disable the qemu-arm binfmt handler (shadows native AArch32)
   ansible.builtin.shell: echo -1 > /proc/sys/fs/binfmt_misc/qemu-arm
   when: "'qemu-arm' in ci_nfsroot_binfmt.stdout_lines"
+  # Only runs while the handler is registered, and writing -1 removes it.
+  changed_when: true

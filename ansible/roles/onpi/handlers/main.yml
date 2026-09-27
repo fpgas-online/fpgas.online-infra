@@ -2,3 +2,4 @@
 - name: Reload-systemd
   ansible.builtin.command: systemctl daemon-reload
   failed_when: false
+  changed_when: true  # a handler: runs only when notified
