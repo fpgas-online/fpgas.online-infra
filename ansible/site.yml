@@ -2,6 +2,9 @@
 - name: Configure the server network interfaces
   hosts: nbp
   roles:
+    # First: every later role that installs a package on the server goes
+    # through the site apt proxy it configures.
+    - apt_client
     - netif
 
 # The Pi NFS root image is several GB: start pulling it now (after netif,

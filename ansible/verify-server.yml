@@ -10,6 +10,12 @@
   hosts: nbp
   become: true
   tasks:
+    - name: Verify apt-client
+      ansible.builtin.include_role:
+        name: apt_client
+        tasks_from: verify/main.yml
+      tags: [verify, apt-client]
+
     - name: Verify operators
       ansible.builtin.include_role:
         name: operators
