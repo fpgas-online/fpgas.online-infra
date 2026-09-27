@@ -1,9 +1,10 @@
 ---
 # The account Ansible itself logs in as on the server (host_vars'
 # ansible_user). The Debian preseed creates it on a fresh install (locked
-# password, passwordless sudo, pxe scripts/ansible_authorized_keys); this
-# role makes the converge own it too, so a hand-edited or half-installed
-# server is put back rather than silently depended on.
+# password, passwordless sudo, and pxe scripts/ansible_authorized_keys: the
+# fpgas.online-ansible key only); from then on this role owns it, so a
+# hand-edited or half-installed server is put back rather than silently
+# depended on.
 automation_user_name: ansible
 
 # The public half of the key ansible connects with: the fpgas.online-ansible

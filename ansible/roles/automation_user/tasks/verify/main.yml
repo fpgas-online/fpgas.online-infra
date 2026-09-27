@@ -13,13 +13,21 @@
     src: "{{ getent_passwd[automation_user_name][4] }}/.ssh/authorized_keys"
   register: automation_user_v_keys
 
-- name: "Verify: assert the automation key is authorized"
+# Exactly one key, and it is the automation key (tasks/main.yml writes the
+# file exclusively).
+- name: "Verify: assert the automation key is the only authorized key"
   ansible.builtin.assert:
     that:
-      - automation_user_public_key.split()[1] in (automation_user_v_keys.content | b64decode)
+      - automation_user_v_key_lines | length == 1
+      - automation_user_v_key_lines[0].split()[:2] == automation_user_public_key.split()[:2]
     fail_msg: >-
-      {{ getent_passwd[automation_user_name][4] }}/.ssh/authorized_keys does
-      not carry the automation key ({{ automation_user_public_key.split()[2] | default('no comment') }})
+      {{ getent_passwd[automation_user_name][4] }}/.ssh/authorized_keys should hold
+      only the automation key ({{ automation_user_public_key.split()[2] | default('no comment') }});
+      it holds {{ automation_user_v_key_lines | map('split') | map('last') | list }}
+  vars:
+    automation_user_v_key_lines: >-
+      {{ (automation_user_v_keys.content | b64decode).splitlines()
+         | reject('match', '^\\s*(#|$)') | list }}
 
 # The end-to-end proof: a fresh SSH login as the account with the automation
 # key, then sudo with no password (-n fails instead of prompting). Task vars

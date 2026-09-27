@@ -1,6 +1,7 @@
 ---
 # The server's automation account: exists, passwordless sudo, trusts the
-# automation key. Human operators get their own accounts (roles/operators).
+# fpgas.online-ansible automation key and no other. Human operators get
+# their own accounts (roles/operators).
 #
 # The password is left alone: the preseed locks it ("!") and
 # ansible.builtin.user without `password` neither sets nor unlocks it.
@@ -23,17 +24,42 @@
   tags:
     - automation-user
 
-# Additive, not exclusive: the preseed's authorized_keys is the only other
-# writer and serves exactly this key today, but the live file on an
-# already-installed server is not audited here, and an exclusive write
-# would silently drop any key another automation (hetzner-ansible's
-# ansible@hetzner-infrastructure, say) was added with. Converging over an
-# unknown file must never lock anything out of the account every play
-# connects as.
-- name: Authorize the automation key
+# Exclusive: the account trusts the automation key and nothing else (the
+# design since rebuild #2 P2-1, and what tweed's live file held when this
+# role took it over: exactly the fpgas.online-ansible key). A key added by
+# hand is removed on the next converge instead of lingering unaudited.
+#
+# An exclusive write of the WRONG key would lock every play out of the
+# server, so first prove the public key about to be written is the one the
+# controller authenticates with: derive it from the private key itself
+# (passphrase-less by design; -P '' fails instead of prompting) and compare.
+- name: Derive the public key from the controller's automation private key
+  ansible.builtin.command:
+    argv: [ssh-keygen, -y, -P, "", -f, "{{ ansible_ssh_private_key_file }}"]
+  delegate_to: localhost
+  become: false
+  run_once: true
+  changed_when: false
+  register: automation_user_derived_key
+  tags:
+    - automation-user
+
+- name: Assert the key to authorize is the one ansible connects with
+  ansible.builtin.assert:
+    that:
+      - automation_user_derived_key.stdout.split()[:2] == automation_user_public_key.split()[:2]
+    fail_msg: >-
+      {{ ansible_ssh_private_key_file }}.pub does not match
+      {{ ansible_ssh_private_key_file }}: refusing to make it the only key
+      the {{ automation_user_name }} account trusts.
+  tags:
+    - automation-user
+
+- name: Authorize the automation key, and only it
   ansible.posix.authorized_key:
     user: "{{ automation_user_name }}"
     key: "{{ automation_user_public_key }}"
+    exclusive: true
     state: present
   tags:
     - automation-user
