@@ -105,8 +105,10 @@
 
 # The effective values, as the reloaded daemon will apply them. Fails the
 # converge (before the reload) if an earlier-sorting drop-in overrides ours.
+# Imported, not included: an include's tags do not reach the tasks it
+# includes, so `--tags sshd` would skip the check.
 - name: Check the effective sshd settings
-  ansible.builtin.include_tasks: verify/main.yml
+  ansible.builtin.import_tasks: verify/main.yml
   when: sshd_pubkey_only
   tags:
     - sshd
