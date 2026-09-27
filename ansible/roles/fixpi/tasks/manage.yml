@@ -15,3 +15,4 @@
 - name: Put the pi boot system into maintenance mode
   ansible.builtin.command: maintenance.sh
   when: false
+  changed_when: true  # switches the boot system's mode on every run
