@@ -12,6 +12,7 @@ def create_seed_iso(
     eth_local_mac: str = "52:54:00:aa:bb:02",
     eth_local_ip: str = "10.21.0.1/24",
     legacy_server_user: str = "testuser",
+    password: str | None = None,
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
@@ -23,7 +24,18 @@ def create_seed_iso(
     `admin`: a keypair and a running service that runs as it. The test
     inventory renames it (server_user_rename_from), so every run exercises
     roles/server_user's in-place rename; run_tests.py checks the result.
+
+    With a password the user can also log in with it, and cloud-init turns
+    sshd password login on (ssh_pwauth writes `PasswordAuthentication yes`
+    to sshd_config.d/50-cloud-init.conf): the drop-in roles/sshd writes must
+    win over it, and the harness proves the password is then refused.
     """
+    password_auth = (
+        f"    lock_passwd: false\n    plain_text_passwd: {password}\n"
+        if password else ""
+    )
+    # Only with a password: without one the image default stays in force.
+    ssh_pwauth = "ssh_pwauth: true\n" if password else ""
     user_data = f"""#cloud-config
 hostname: {hostname}
 manage_etc_hosts: true
@@ -34,10 +46,11 @@ users:
     shell: /bin/bash
     ssh_authorized_keys:
       - {ssh_pubkey}
-  - name: {legacy_server_user}
+{password_auth}  - name: {legacy_server_user}
     shell: /bin/bash
     lock_passwd: true
 
+{ssh_pwauth}
 # Stands in for the app servers that run as the account on tweed
 # (gunicorn, daphne, ...): the rename must stop it, rewrite it, restart it.
 write_files:

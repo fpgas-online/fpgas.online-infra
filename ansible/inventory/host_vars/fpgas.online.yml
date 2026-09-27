@@ -11,6 +11,12 @@ ansible_host: 10.99.21.2
 ansible_user: ansible
 ansible_become: true
 
+# SSH login to tweed is public-key only (roles/sshd). Every account used
+# here has keys: ansible (fpgas.online-ansible), the operators (GitHub via
+# ssh-import-id) and the jump account pi; the role refuses to converge if
+# any of them has none. The Pis keep their password login (web terminal).
+sshd_pubkey_only: true
+
 # Uplink = point-to-point transit to ten64 (10.99.21.1), static, owned by
 # systemd-networkd via the netif role (MAC-matched .link -> eth-uplink).
 # eth_uplink_static_address doubles as the firewall's DNAT target and
