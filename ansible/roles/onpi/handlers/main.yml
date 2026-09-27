@@ -1,5 +1,9 @@
 ---
-- name: Reload-systemd
+# noqa: command-instead-of-module -- onpi also runs against the NFS root
+# through the chroot connection (ci-nfsroot.yml), where there is no running
+# systemd; failed_when: false makes the reload best effort everywhere, while
+# systemd_service's daemon_reload only tolerates failure in a detected chroot.
+- name: Reload-systemd  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl daemon-reload
   failed_when: false
   changed_when: true  # a handler: runs only when notified

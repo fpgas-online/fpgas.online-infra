@@ -1,5 +1,8 @@
 ---
-- name: Check dnsmasq service active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts reports only
+# running/stopped, not the ActiveState string the assert and its message use.
+- name: Check dnsmasq service active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active dnsmasq
   changed_when: false
   register: pxe_dnsmasq_active

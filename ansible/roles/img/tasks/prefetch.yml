@@ -27,7 +27,11 @@
   # would SIGPIPE the echo and fail a retryable error.
   ansible.builtin.shell: |
     for attempt in $(seq {{ img_pull_retries | int + 1 }}); do
-      err=$(podman pull --quiet {{ img_nfsroot_image }} 2>&1 >/dev/null) && exit 0
+      start=$(date +%s)
+      if err=$(podman pull --quiet {{ img_nfsroot_image }} 2>&1 >/dev/null); then
+        echo "pulled in $(( $(date +%s) - start )) s (attempt $attempt)"
+        exit 0
+      fi
       echo "$err" >&2
       grep -Eq {{ img_pull_retryable | quote }} <<<"$err" || exit 1
       sleep {{ img_pull_delay }}

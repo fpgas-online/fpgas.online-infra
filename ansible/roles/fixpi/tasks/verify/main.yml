@@ -94,3 +94,52 @@
     that: fixpi_verify_sunxi_payload.results | map(attribute='stat.exists') | list == [true, true, true]
     fail_msg: "sunxi/vmlinuz, sunxi/initrd.img or {{ sunxi_default_dtb }} missing from {{ tftp_root }}/sunxi"
   when: sunxi_boards is defined
+
+# --- The ansible automation account in the NFS root (netboot.yml builds it
+# into the image, authorized_keys.yml authorizes the key per site) ---
+- name: Check the ansible user in the NFS root's passwd (fixed uid/gid)
+  ansible.builtin.command: >-
+    grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:"
+    {{ nfs_root }}/root/etc/passwd
+  changed_when: false
+
+# Locked ("!..."), never a usable password: the account is key-only.
+- name: Read the ansible user's shadow entry in the NFS root
+  ansible.builtin.command: grep "^{{ fixpi_ansible_user }}:" {{ nfs_root }}/root/etc/shadow
+  changed_when: false
+  check_mode: false  # read-only; the assert below needs the real entry
+  no_log: true
+  register: fixpi_verify_ansible_shadow
+
+- name: Assert the ansible user's password is locked
+  ansible.builtin.assert:
+    that: fixpi_verify_ansible_shadow.stdout.split(':')[1] is match('[!*]')
+    fail_msg: "{{ fixpi_ansible_user }} has a usable password in {{ nfs_root }}/root/etc/shadow"
+
+- name: Check the ansible user's sudoers file in the NFS root is valid
+  ansible.builtin.command: visudo -cf {{ nfs_root }}/root/etc/sudoers.d/010_{{ fixpi_ansible_user }}-nopasswd
+  changed_when: false
+
+- name: Stat the ansible user's authorized_keys in the NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+  register: fixpi_verify_ansible_keys_stat
+
+- name: Read the ansible user's authorized_keys in the NFS root
+  ansible.builtin.slurp:
+    src: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+  register: fixpi_verify_ansible_keys
+
+# sshd (StrictModes) ignores a key file the user does not own or others can
+# write, so owner and mode are part of "the key works".
+# Exactly one key (its fixpi_authorized_keys_files entry is `key_sources: [controller]`).
+- name: Assert the automation key is the ansible user's only key
+  ansible.builtin.assert:
+    that:
+      - (fixpi_verify_ansible_keys.content | b64decode).splitlines() | select | list | length == 1
+      - fixpi_ansible_public_key.split()[1] in (fixpi_verify_ansible_keys.content | b64decode)
+      - fixpi_verify_ansible_keys_stat.stat.uid == fixpi_ansible_uid | int
+      - fixpi_verify_ansible_keys_stat.stat.mode == '0600'
+    fail_msg: >-
+      {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys does not hold
+      exactly the automation key or is not {{ fixpi_ansible_uid }}-owned 0600

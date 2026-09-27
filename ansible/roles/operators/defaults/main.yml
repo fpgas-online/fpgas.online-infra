@@ -4,3 +4,19 @@
 #   - name: <unix user>
 #     ssh_import_ids: [gh:<github-user>, ...]
 operators_accounts: []
+
+# Static keys deleted from every operator account (see ssh_public_keys_revoked
+# in inventory/group_vars/all/ssh_keys.yml). ssh-import-id only ever adds, so
+# a key that has left an operator's GitHub account stays until it is revoked.
+operators_revoked_public_keys: "{{ ssh_public_keys_revoked | default([]) }}"
+
+# Login accounts no role manages any more, deleted with their home directory,
+# group and /etc/sudoers.d/<name> file. piroot is the old roles/nspawn-pi
+# chroot-shell account (a shell into the Pi NFS root with passwordless sudo
+# for chroot): its role went in 7765f67 without deleting it.
+operators_retired_accounts:
+  - piroot
+# Files those accounts' roles installed outside their home directories.
+# /usr/local/bin/chroot-shell was piroot's login shell and nothing else's.
+operators_retired_files:
+  - /usr/local/bin/chroot-shell

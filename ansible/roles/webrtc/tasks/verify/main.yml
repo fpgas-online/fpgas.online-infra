@@ -1,5 +1,9 @@
 ---
-- name: Check mediamtx service is active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), so it cannot just check; here
+# `systemctl is-active` failing the task (rc 3) on anything but "active" is the
+# check itself.
+- name: Check mediamtx service is active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active mediamtx
   changed_when: false
   register: webrtc_verify_active

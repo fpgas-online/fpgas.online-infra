@@ -30,14 +30,15 @@ on:
   schedule:
     - cron: "47 * * * *"
 
-# PRs: a new push supersedes the run in progress. main (pushes, schedules,
-# dispatches): runs never overlap and are never cancelled mid-run, so the
-# rolling tag is promoted in order and a merge is never left untested by a
-# schedule that started after it (a queued run is superseded by a newer
-# one, which tests a checkout that includes it).
+# PRs: a new push supersedes the run in progress (one group per PR).
+# main (pushes, schedules, dispatches): a group per run, so runs overlap
+# and none waits for or cancels another -- serialising them queued merges
+# up to 17 minutes behind each other. What must stay ordered is the
+# rolling tag, and only the promote job touches it: it runs one at a time
+# and refuses to move the tag backwards (tests/ci/nfsroot_promote_guard.py).
 concurrency:
-  group: vm-test-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: vm-test-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # Build the Pi NFS root image from THIS checkout and publish it (dated
@@ -177,19 +178,40 @@ jobs:
   # when both jobs passed: a failed or cancelled run leaves production's
   # tag on the last image that passed. ci-<run_id> is this run's own tag
   # (the dated tag is shared by every build of a commit on a day).
+  #
+  # main runs overlap, so an older run can finish after a newer one. The
+  # promote jobs therefore run one at a time, and each first checks that
+  # the last promotion was not of a newer commit (or a newer run of the
+  # same commit) before moving the tag. A third promote arriving while one
+  # runs and one waits replaces the waiting one, which shows as cancelled;
+  # the newest build still gets promoted.
   promote:
     name: Promote to bookworm-armhf
     needs: [nfsroot, vm-test]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: promote-bookworm-armhf
+      cancel-in-progress: false
     permissions:
+      actions: read
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          # the guard compares commits with git merge-base
+          fetch-depth: 0
+
+      - name: Check no newer image has been promoted
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tests/ci/nfsroot_promote_guard.py
 
       - name: Log in to GHCR
+        if: steps.guard.outputs.promote == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -197,4 +219,5 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Point bookworm-armhf at the tested image
+        if: steps.guard.outputs.promote == 'true'
         run: python3 tests/ci/nfsroot_publish.py --promote ghcr.io/fpgas-online/nfsroot:ci-${{ github.run_id }}

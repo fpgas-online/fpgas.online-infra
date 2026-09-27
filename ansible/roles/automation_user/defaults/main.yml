@@ -1,0 +1,19 @@
+---
+# The account Ansible itself logs in as on the server (host_vars'
+# ansible_user). The Debian preseed creates it on a fresh install (locked
+# password, passwordless sudo, and pxe scripts/ansible_authorized_keys: the
+# fpgas.online-ansible key only); from then on this role owns it, so a
+# hand-edited or half-installed server is put back rather than silently
+# depended on.
+automation_user_name: ansible
+
+# Off by default and switched on per host (inventory/host_vars), like
+# sshd_pubkey_only: tweed and the CI test VM set it; ps1.fpgas.online is
+# left alone until someone decides it should be managed the same way.
+automation_user_manage: false
+
+# The public half of the key ansible connects with: the fpgas.online-ansible
+# automation key in production (inventory/group_vars/all/controller.yml),
+# the VM harness's per-run key under test. Same lookup fixpi/userconf.yml
+# uses to authorize it on the Pis.
+automation_user_public_key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"

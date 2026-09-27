@@ -72,6 +72,68 @@ def pi_password_from_inventory() -> str:
         return yaml.safe_load(f)["pi_pw"]
 
 
+# Accounts an earlier converge gave the static ssh_public_keys: the jump
+# account (roles/jump) and an operator (roles/operators). The seed ISO
+# creates them already trusting ssh_public_keys_revoked; the converge must
+# delete those keys.
+REVOKED_KEY_USERS = ("pi", "tim")
+
+
+def revoked_keys_from_inventory() -> list[str]:
+    """The key lines the inventory revokes (ssh_public_keys_revoked)."""
+    with open(TEST_INVENTORY.parent / "group_vars" / "all" / "ssh_keys.yml") as f:
+        return yaml.safe_load(f).get("ssh_public_keys_revoked") or []
+
+
+def revoked_keys_check(server: VMManager, key_path: Path, keys: list[str], present: bool) -> bool:
+    """Check every REVOKED_KEY_USERS account still holds (present) or no longer holds each revoked key."""
+    script = "set -e\n" + "".join(
+        f"sudo grep -qF {key.split()[1]} /home/{user}/.ssh/authorized_keys"
+        f" && echo '{user}: {key.split()[2]} present' || echo '{user}: {key.split()[2]} absent'\n"
+        for user in REVOKED_KEY_USERS for key in keys
+    )
+    out = server_run(server, key_path, script)
+    when = "before" if present else "after"
+    print(f"[server] revoked static keys {when} converge:\n{out}")
+    want, bad = ("present", "absent") if present else ("absent", "present")
+    ok = out.startswith("rc=0\n") and f" {bad}" not in out and out.count(f" {want}") == len(REVOKED_KEY_USERS) * len(keys)
+    if not ok:
+        print(f"ERROR: the revoked static keys are not all {want} {when} the converge")
+    return ok
+
+
+# tweed's leftover piroot account from the removed roles/nspawn-pi (seeded by
+# cloud_init.py's legacy_piroot): roles/operators (operators_retired_accounts)
+# must delete the account, its group, home, sudoers file and login shell.
+PIROOT_PRESENT_CHECK = """set -ex
+getent passwd piroot | grep -qx 'piroot:.*:/home/piroot:/usr/local/bin/chroot-shell'
+getent group piroot
+sudo test -s /home/piroot/.ssh/authorized_keys
+sudo visudo -cf /etc/sudoers.d/piroot
+test -x /usr/local/bin/chroot-shell
+"""
+PIROOT_ABSENT_CHECK = """set -x
+rc=0
+if getent passwd piroot; then rc=1; fi
+if getent group piroot; then rc=1; fi
+for f in /home/piroot /etc/sudoers.d/piroot /usr/local/bin/chroot-shell; do
+  if sudo test -e "$f"; then echo "$f left"; rc=1; fi
+done
+exit $rc
+"""
+
+
+def piroot_check(server: VMManager, key_path: Path, present: bool) -> bool:
+    """Check the legacy piroot account is all there (present) or all gone."""
+    out = server_run(server, key_path, PIROOT_PRESENT_CHECK if present else PIROOT_ABSENT_CHECK)
+    when = "before" if present else "after"
+    print(f"[server] legacy piroot account {when} converge:\n{out}")
+    if not out.startswith("rc=0\n"):
+        print(f"ERROR: the legacy piroot account is not {'all there' if present else 'gone'} {when} the converge")
+        return False
+    return True
+
+
 def pi_password_login_works(host: str, password: str, key_path: Path, proxy_jump: str) -> bool:
     """Log in to the Pi as `pi` with the shared password, as the web terminal does.
 
@@ -259,7 +321,10 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # Download and prepare
     download_image(image_url, image_path)
     key_path, pubkey = generate_ssh_keypair(workdir / "test_key")
-    seed_iso = create_seed_iso(workdir / "seed.iso", pubkey, password=SERVER_PASSWORD)
+    revoked_keys = revoked_keys_from_inventory()
+    seed_iso = create_seed_iso(workdir / "seed.iso", pubkey, password=SERVER_PASSWORD,
+                               revoked_key_users=REVOKED_KEY_USERS, revoked_keys=revoked_keys,
+                               legacy_piroot=True)
     overlay = create_overlay(image_path, workdir / "server-overlay.qcow2")
 
     # Boot server
@@ -288,6 +353,14 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     if not server_password_login_accepted(key_path):
         print("ERROR: the fresh server VM does not accept its password, so the "
               "public-key-only check after the converge would prove nothing.")
+        server.shutdown()
+        return None
+
+    if revoked_keys and not revoked_keys_check(server, key_path, revoked_keys, present=True):
+        server.shutdown()
+        return None
+
+    if not piroot_check(server, key_path, present=True):
         server.shutdown()
         return None
 
@@ -338,6 +411,18 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # roles/sshd has reloaded sshd by the end of its play: the running daemon,
     # not just its configuration, must now refuse the password.
     if not server_pubkey_only(key_path):
+        if not args.keep_vm:
+            server.shutdown()
+            server.cleanup()
+        return None
+
+    if revoked_keys and not revoked_keys_check(server, key_path, revoked_keys, present=False):
+        if not args.keep_vm:
+            server.shutdown()
+            server.cleanup()
+        return None
+
+    if not piroot_check(server, key_path, present=False):
         if not args.keep_vm:
             server.shutdown()
             server.cleanup()
