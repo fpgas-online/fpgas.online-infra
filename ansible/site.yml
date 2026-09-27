@@ -1,5 +1,6 @@
 ---
-- hosts: nbp
+- name: Configure the server network interfaces
+  hosts: nbp
   roles:
     - netif
 
@@ -8,20 +9,25 @@
 # the root's extraction below, which waits for it.
 # Facts gathered by the first play hold for the rest of the run (netif
 # re-gathers them itself after a reboot), so later nbp plays skip gathering.
-- hosts: nbp
+- name: Start pulling the Pi NFS root image
+  hosts: nbp
   gather_facts: false
   tasks:
     - name: Start pulling the Pi NFS root image
-      include_role:
+      ansible.builtin.include_role:
         name: img
         tasks_from: prefetch.yml
       tags: [img]
 
-- hosts: nbp
+- name: Configure the server services
+  hosts: nbp
   gather_facts: false
   roles:
+    - {role: automation_user, when: automation_user_manage | default(false) | bool}
     - operators
     - jump
+    # After operators and jump: its lockout guard needs their keys in place.
+    - sshd
     - lldp
     - firewall
     - {role: vlan_ports, when: switches is defined}
@@ -33,17 +39,20 @@
     # has created (empty on a fresh server) and the last play fills.
     - pxe
 
-- hosts: uhubctl
+- name: Configure USB hub power control
+  hosts: uhubctl
   roles:
     - uhubctl
 
-# Web tier (site, wssh, cam/stream_server, ttsite) -- see web.yml.
-- import_playbook: web.yml
+# Web tier (site, wssh, stream_server, ttsite) -- see web.yml.
+- name: Import the web tier playbook
+  import_playbook: web.yml
 
 # The Pi NFS root last: every service the Pis boot against is in place
 # before the root they boot changes, and the image pull has had the whole
 # run to finish.
-- hosts: nbp
+- name: Update the Pi NFS root
+  hosts: nbp
   gather_facts: false
   tasks:
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
@@ -60,20 +69,20 @@
       tags: [always]
 
     - name: Extract the pulled Pi NFS root
-      import_role:
+      ansible.builtin.import_role:
         name: img
       tags: [img]
 
     # A fresh extract restores the image's upstream apt sources; point
     # them back at this site's cache.
     - name: Point the NFS root's apt sources at the site cache
-      import_role:
+      ansible.builtin.import_role:
         name: apt_cache
         tasks_from: nfsroot.yml
       tags: [apt-cache]
 
     - name: Apply the site layer to the NFS root
-      import_role:
+      ansible.builtin.import_role:
         name: fixpi
       tags: [fixpi]
 

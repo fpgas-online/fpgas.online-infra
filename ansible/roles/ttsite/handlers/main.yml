@@ -1,11 +1,11 @@
 ---
 - name: Reload nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: reloaded
 
 - name: Restart django services
-  systemd:
+  ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
   loop:

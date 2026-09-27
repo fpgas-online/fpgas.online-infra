@@ -12,7 +12,7 @@
 # The first apt install in site.yml (right after netif), so it refreshes
 # the package lists: a freshly installed server may have none yet.
 - name: Install podman and rsync
-  apt:
+  ansible.builtin.apt:
     name:
       - podman
       - rsync
@@ -22,14 +22,23 @@
 
 - name: Start pulling the nfsroot image in the background
   # Retries only the errors img_pull_retryable names, like pull.yml.
-  shell: |
+  # A here-string, not `echo | grep -q` (ansible-lint risky-shell-pipe):
+  # under pipefail, grep -q exiting before it read all of a long error
+  # would SIGPIPE the echo and fail a retryable error.
+  ansible.builtin.shell: |
     for attempt in $(seq {{ img_pull_retries | int + 1 }}); do
-      err=$(podman pull --quiet {{ img_nfsroot_image }} 2>&1 >/dev/null) && exit 0
+      start=$(date +%s)
+      if err=$(podman pull --quiet {{ img_nfsroot_image }} 2>&1 >/dev/null); then
+        echo "pulled in $(( $(date +%s) - start )) s (attempt $attempt)"
+        exit 0
+      fi
       echo "$err" >&2
-      echo "$err" | grep -Eq {{ img_pull_retryable | quote }} || exit 1
+      grep -Eq {{ img_pull_retryable | quote }} <<<"$err" || exit 1
       sleep {{ img_pull_delay }}
     done
     exit 1
+  args:
+    executable: /bin/bash
   async: "{{ (img_pull_retries | int + 1) * (img_pull_delay | int + 300) }}"
   poll: 0
   register: img_prefetch

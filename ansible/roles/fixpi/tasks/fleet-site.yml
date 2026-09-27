@@ -5,13 +5,13 @@
 # this site's broker on the server's local address.
 
 - name: Create /etc/fpgas-online in the NFS root
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/fpgas-online"
     state: directory
     mode: "0755"
 
 - name: Bake fleet.toml into the NFS root
-  template:
+  ansible.builtin.template:
     src: "{{ role_path }}/../onpi/templates/fleet.toml.j2"
     dest: "{{ nfs_root }}/root/etc/fpgas-online/fleet.toml"
     mode: "0644"

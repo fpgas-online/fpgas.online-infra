@@ -1,16 +1,16 @@
 ---
 - name: Restart dnsmasq
-  systemd:
+  ansible.builtin.systemd:
     name: dnsmasq
     # state: restarted
 
 - name: Reload nginx
-  systemd:
+  ansible.builtin.systemd:
     name: nginx
     state: restarted
 
 - name: Restart django services
-  systemd:
+  ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
   loop:
@@ -19,11 +19,11 @@
     - uvicorn
 
 - name: Restart fleet-consumer
-  systemd:
+  ansible.builtin.systemd:
     name: fleet-consumer
     state: restarted
   when: fleet_broker | default(false)
 
 - name: Reload systemd
-  systemd:
+  ansible.builtin.systemd:
     daemon_reload: true

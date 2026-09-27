@@ -1,6 +1,6 @@
 ---
 - name: Install packages
-  apt:
+  ansible.builtin.apt:
     name:
       - unzip
       - parted
@@ -14,12 +14,12 @@
     - img
 
 - name: Create pib cache dir
-  file:
+  ansible.builtin.file:
     path: "{{ img_cache_dir }}"
     state: directory
 
 - name: Download pi sd card img file
-  get_url:
+  ansible.builtin.get_url:
     url: "{{ img_host }}/{{ img_path }}/{{ zip_name }}"
     dest: "{{ img_cache_dir }}"
     force: false
@@ -28,7 +28,7 @@
     - img
 
 - name: Extract files from raspios.img.xz
-  script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
+  ansible.builtin.script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
   args:
     chdir: "{{ img_cache_dir }}"
     creates: "{{ nfs_root }}/root/home"

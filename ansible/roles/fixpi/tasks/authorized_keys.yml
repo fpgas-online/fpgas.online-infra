@@ -1,0 +1,125 @@
+---
+# The NFS root's authorized_keys files (/root, /home/pi, /home/ansible:
+# fixpi_authorized_keys_files) belong to the site, not to the image:
+#   - the CI image ships none of them (ci-nfsroot.yml removes them),
+#   - the img pull's rsync excludes them all, so a pull neither restores an
+#     image copy nor --deletes the site's,
+#   - and this file builds the complete key list and writes each file once,
+#     exclusively, with `copy` (which leaves an identical file alone).
+# So a converge with no key change touches none of them. That matters: every
+# rewrite is a rename, i.e. a new inode, which the booted boards' overlay
+# over NFS answers with ESTALE, and it counts as a root change for
+# nfsroot_generation, so the whole fleet reboots. A key dropped from the
+# configuration disappears from the root at the next converge.
+#
+# The keys:
+#   - the server user's (user_name) id_rsa.pub, read on the server,
+#   - the controller's automation key (ansible_ssh_private_key_file .pub),
+#   - the operators' GitHub keys (fixpi_github_key_users), fetched on the
+#     server, each tagged with a "gh:<user>" comment (a transient fetch
+#     failure keeps that user's current lines; a 404 drops them),
+#   - pi only: the gateway jump account's key (roles/jump), so someone
+#     logged in to it can `ssh pi@10.21.S.P` onward.
+# A file whose fixpi_authorized_keys_files entry names `key_sources` gets only those
+# sources: the ansible automation account's (home/ansible) is `[controller]`,
+# the automation key alone.
+
+- name: Read the server user's public key
+  ansible.builtin.slurp:
+    src: "{{ fixpi_server_user_pubkey }}"
+  register: fixpi_server_user_key
+
+# site.yml runs roles/jump (which makes this key) before fixpi.
+- name: Read the gateway jump account's public key
+  ansible.builtin.slurp:
+    src: "{{ fixpi_jump_ssh_pubkey }}"
+  register: fixpi_jump_key
+  when: fixpi_jump_ssh_pubkey | length > 0
+
+# The current files: where a GitHub fetch fails transiently, that user's
+# keys are kept as they are, so an outage neither drops the keys nor
+# rewrites the files.
+- name: Read the current authorized_keys
+  ansible.builtin.slurp:
+    src: "{{ nfs_root }}/root/{{ item }}/.ssh/authorized_keys"
+  register: fixpi_current_authkeys
+  failed_when: false
+  loop: "{{ fixpi_authorized_keys_files | map(attribute='path') | list }}"
+
+# A read-only GET, so it runs in --check too (uri would otherwise skip and
+# leave no status): a check run then shows the real difference.
+- name: Fetch the operators' GitHub keys
+  ansible.builtin.uri:
+    url: "{{ fixpi_github_keys_base_url }}/{{ item }}.keys"
+    return_content: true
+  register: fixpi_github_fetch
+  failed_when: false
+  check_mode: false
+  loop: "{{ fixpi_github_key_users }}"
+
+# How each answer is used (Build below applies the same rule):
+#   200                          -> exactly the keys GitHub lists now
+#   no status / -1 (transport),  -> keep the gh:<user> lines already in the
+#   403 or 429 (rate limits), 5xx   root: an outage must not drop them
+#   anything else (404: no such  -> no keys for that user: GitHub says so
+#   user)
+- name: Warn about GitHub keys that could not be fetched
+  ansible.builtin.debug:
+    msg: >-
+      {{ fixpi_github_keys_base_url }}/{{ item.item }}.keys answered
+      {{ item.status | default(-1) }} ({{ item.msg | default('no message') }}):
+      {{ 'keeping the gh:' ~ item.item ~ ' keys the NFS root already has'
+         if (item.status | default(-1)) in [-1, 403, 429] or (item.status | default(-1)) >= 500
+         else 'dropping every gh:' ~ item.item ~ ' key from the NFS root' }}.
+  when: (item.status | default(-1)) != 200
+  loop: "{{ fixpi_github_fetch.results }}"
+  loop_control:
+    label: "gh:{{ item.item }}"
+
+- name: Build the NFS root's authorized_keys
+  ansible.builtin.set_fact:
+    fixpi_authorized_keys: >-
+      {%- set current = {} -%}
+      {%- for r in fixpi_current_authkeys.results -%}
+        {%- set _ = current.update({r.item: (r.content | default('') | b64decode).splitlines()}) -%}
+      {%- endfor -%}
+      {%- set files = {} -%}
+      {%- for entry in fixpi_authorized_keys_files -%}
+        {%- set path = entry.path -%}
+        {%- set sources = entry.key_sources | default(['server', 'controller', 'github', 'jump']) -%}
+        {%- set keys = [] -%}
+        {%- if 'server' in sources -%}
+          {%- set _ = keys.append((fixpi_server_user_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- if 'controller' in sources and ansible_ssh_private_key_file is defined -%}
+          {%- set _ = keys.append(lookup('file', ansible_ssh_private_key_file + '.pub').strip()) -%}
+        {%- endif -%}
+        {%- for r in fixpi_github_fetch.results if 'github' in sources -%}
+          {%- set status = r.status | default(-1) -%}
+          {%- if status == 200 -%}
+            {%- for line in r.content.splitlines() if line.strip() and not line.startswith('#') -%}
+              {%- set _ = keys.append((line.split()[:2] | join(' ')) ~ ' gh:' ~ r.item) -%}
+            {%- endfor -%}
+          {%- elif status in [-1, 403, 429] or status >= 500 -%}
+            {%- for line in current[path] if line.endswith(' gh:' ~ r.item) -%}
+              {%- set _ = keys.append(line) -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if 'jump' in sources and path == 'home/pi' and fixpi_jump_key.content is defined -%}
+          {%- set _ = keys.append((fixpi_jump_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- set _ = files.update({path: keys | unique | join('\n') ~ '\n'}) -%}
+      {%- endfor -%}
+      {{ files }}
+
+- name: Write the NFS root's authorized_keys (only when the key list changed)
+  ansible.builtin.copy:
+    content: "{{ fixpi_authorized_keys[item.path] }}"
+    dest: "{{ nfs_root }}/root/{{ item.path }}/.ssh/authorized_keys"
+    owner: "{{ item.id }}"
+    group: "{{ item.id }}"
+    mode: "0600"
+  loop: "{{ fixpi_authorized_keys_files }}"
+  loop_control:
+    label: "{{ item.path }}"

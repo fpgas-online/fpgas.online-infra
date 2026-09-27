@@ -1,5 +1,6 @@
 ---
 - name: Udev-reload
+  changed_when: true  # a handler: runs only when notified
   ansible.builtin.shell:
     cmd: |
       udevadm control --reload-rules

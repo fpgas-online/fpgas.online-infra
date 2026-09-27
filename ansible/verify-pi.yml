@@ -31,7 +31,7 @@
     # checks that need root, another host, or Orange Pi hardware still run
     # on their own.
     - name: Collect the Pi's state
-      command:
+      ansible.builtin.command:
         argv: [python3, -c, "{{ verify_pi_collector }}"]
       changed_when: false
       register: verify_pi_collected
@@ -61,6 +61,7 @@
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
+          acorn_report = read("/run/fpgas-online/acorn-verify.json")
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -80,6 +81,9 @@
               "cam": run("systemctl", "is-enabled", "fpgas-cam"),
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
+              "acorn_enabled": run("systemctl", "is-enabled", "fpgas-acorn-verify.service"),
+              "acorn_report": ({"content": base64.b64encode(acorn_report).decode()}
+                               if acorn_report is not None else {"msg": "not readable or missing"}),
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
               "dt_model": ({"content": base64.b64encode(model).decode()} if model is not None else {}),
               "model": {"rc": 0 if model is not None else 1,
@@ -99,7 +103,7 @@
       tags: [always]
 
     - name: Results of the collected checks
-      set_fact:
+      ansible.builtin.set_fact:
         verify_pi_mounts: "{{ verify_pi_state.mounts }}"
         verify_pi_addrs: "{{ verify_pi_state.addrs }}"
         verify_pi_ping: "{{ verify_pi_state.ping }}"
@@ -116,6 +120,8 @@
         verify_pi_cam: "{{ verify_pi_state.cam }}"
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
+        verify_pi_acorn_enabled: "{{ verify_pi_state.acorn_enabled }}"
+        verify_pi_acorn_report: "{{ verify_pi_state.acorn_report }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
         verify_pi_model: "{{ verify_pi_state.model }}"
@@ -134,13 +140,13 @@
 
     # Boot infrastructure
     - name: Assert NFS mount present
-      assert:
+      ansible.builtin.assert:
         that: "'nfs' in verify_pi_mounts.stdout"
         fail_msg: "No NFS mount found on Pi"
       tags: [verify, boot]
 
     - name: Check overlayfs mount present
-      assert:
+      ansible.builtin.assert:
         that: "'overlay' in verify_pi_mounts.stdout"
         fail_msg: "No overlayfs mount found on Pi (expected overlayroot tmpfs)"
       tags: [verify, boot]
@@ -150,14 +156,14 @@
     # correct only for the CI VM's sw1p1 test Pi; it failed on every real
     # Pi on any other port (tweed rebuild D1-1, 2026-08-26).
     - name: Derive expected per-port address from hostname
-      set_fact:
+      ansible.builtin.set_fact:
         verify_pi_expected_ip: >-
           {{ ansible_hostname
              | regex_replace('^pi-sw(\d+)-p(\d+)$', '10.21.\1.\2') }}
       tags: [verify, network]
 
     - name: Assert per-port address present
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_expected_ip != ansible_hostname
           - verify_pi_expected_ip in verify_pi_addrs.stdout
@@ -167,13 +173,13 @@
       tags: [verify, network]
 
     - name: Assert the Pi can reach the server
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_ping.rc == 0
         fail_msg: "ping 10.21.0.1 failed: {{ verify_pi_ping.stdout }} {{ verify_pi_ping.stderr }}"
       tags: [verify, network]
 
     - name: Assert SSH service is active
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_ssh.stdout == "active"
         fail_msg: "SSH service is not active on Pi"
       tags: [verify, services]
@@ -183,14 +189,14 @@
     # account with the password locked ("L"); fixpi/userconf.yml writing the
     # hash into the NFS root is what makes it usable ("P").
     - name: Check the pi user has a usable password
-      command: passwd -S {{ user | default('pi') }}
+      ansible.builtin.command: passwd -S {{ user | default('pi') }}
       become: true  # reads /etc/shadow
       changed_when: false
       register: verify_pi_passwd
       tags: [verify, services]
 
     - name: Assert the pi user's password is set (the web terminal logs in with it)
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_passwd.stdout.split()[1] == 'P'
         fail_msg: >-
           `passwd -S` reports '{{ verify_pi_passwd.stdout }}' -- the pi
@@ -199,8 +205,44 @@
           writes it into the NFS root.
       tags: [verify, services]
 
+    # The automation account (fixpi: netboot.yml builds it into the image,
+    # authorized_keys.yml authorizes the key per site): a fresh SSH login as
+    # it with the automation key, then sudo with no password (-n fails
+    # instead of prompting), and its own password locked (key-only). Task
+    # vars outrank the inventory's ansible_user, so this logs in as the
+    # automation account whoever the rest of the play connects as.
+    - name: Log in as the ansible user and sudo without a password
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -c
+          - id -un && sudo -n id -un && sudo -n passwd -S "$(id -un)"
+      vars:
+        ansible_user: "{{ fixpi_ansible_user | default('ansible') }}"
+        # The variable, not the keyword: an inventory's ansible_become
+        # would outrank the keyword and make id -un report root.
+        ansible_become: false
+      changed_when: false
+      check_mode: false  # read-only; --check needs the real answer
+      # A refused login is this check failing, not the Pi being down:
+      # report it through the assert below.
+      ignore_unreachable: true
+      register: verify_pi_ansible_login
+      tags: [verify, services]
+
+    - name: Assert the ansible user's key login, passwordless sudo and locked password
+      ansible.builtin.assert:
+        that:
+          - (verify_pi_ansible_login.stdout_lines | default([]))[:2] == [fixpi_ansible_user | default('ansible'), 'root']
+          - ((verify_pi_ansible_login.stdout_lines | default([])) + ['', '', '- -'])[2].split()[1] == 'L'
+        fail_msg: >-
+          login as {{ fixpi_ansible_user | default('ansible') }} + sudo -n gave
+          {{ verify_pi_ansible_login.stdout_lines | default(verify_pi_ansible_login.msg | default('')) }}
+          (expected the user, root, and a locked (L) password)
+      tags: [verify, services]
+
     - name: Assert python3 is available
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_python3.rc == 0
         fail_msg: "python3 --version failed on the Pi: {{ verify_pi_python3.stderr }}"
       tags: [verify, system]
@@ -210,7 +252,7 @@
     # shape is correct; name<->port consistency is covered by the address
     # assertion above (10.21.S.P derived from this hostname).
     - name: Assert hostname matches the per-port naming scheme
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_hostname.stdout is match('^pi-sw[0-9]+-p[0-9]+$')
         fail_msg: >-
           Pi hostname is '{{ verify_pi_hostname.stdout }}', expected the
@@ -218,13 +260,13 @@
       tags: [verify, system]
 
     - name: Assert overlayroot installed
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_overlayroot.rc == 0
         fail_msg: "overlayroot package not installed on Pi"
       tags: [verify, packages]
 
     - name: Assert lldpd installed
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_lldpd.rc == 0
         fail_msg: >-
           lldpd package not installed on Pi (a Pi booted before the NFS
@@ -232,7 +274,7 @@
       tags: [verify, packages]
 
     - name: Assert lldpd service is active
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_lldpd_active.stdout == "active"
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
       tags: [verify, services]
@@ -247,7 +289,7 @@
     # about to fail: the arm unit's own account of why, which is otherwise
     # only in the Pi's journal (root: the system journal).
     - name: Read the nfsroot-watchdog arm unit's status and journal
-      shell: >-
+      ansible.builtin.shell: >-
         systemctl status --no-pager --lines=0 nfsroot-watchdog-arm.service;
         journalctl --no-pager -b -u nfsroot-watchdog-arm.service
       become: true
@@ -258,7 +300,7 @@
       tags: [verify, services, fpgas-apt]
 
     - name: Assert the nfsroot-watchdog arm service and timer are active
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_watchdog_active.stdout_lines == ["active", "active"]
         fail_msg: >-
           nfsroot-watchdog-arm.service / nfsroot-watchdog.timer not active
@@ -267,7 +309,7 @@
       tags: [verify, services, fpgas-apt]
 
     - name: Ask the staged nfsroot-watchdog what it sees
-      command: nfsroot-watchdog status
+      ansible.builtin.command: nfsroot-watchdog status
       # Packages before nfsroot-watchdog 0.0.post20 install the CLI in
       # /usr/sbin, off the login user's PATH (rc 2 = command not found);
       # later ones in /usr/bin. Either way no root is needed.
@@ -279,7 +321,7 @@
       tags: [verify, services, fpgas-apt]
 
     - name: Assert nfsroot-watchdog is armed on the NFS lower layer
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_watchdog_status.rc == 0
           - "'NFS root:          /media/root-ro' in verify_pi_watchdog_status.stdout_lines"
@@ -316,7 +358,7 @@
     #
     # dpkg -l exits 0 for a removed ("rc") package, so read the status field.
     - name: Assert the fpgas.online openFPGALoader and OpenOCD are installed
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_fpgatools.rc == 0
           - "'openfpgaloader-fpgasonline-git install ok installed' in verify_pi_fpgatools.stdout_lines"
@@ -330,7 +372,7 @@
       tags: [verify, packages, rp1-jtag, fpgas-apt]
 
     - name: Assert openFPGALoader was built with the rp1pio cable
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_cables.rc == 0
           - verify_pi_cables.stdout_lines | select('match', '^rp1pio ') | list | length == 1
@@ -346,7 +388,7 @@
     # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
     # own nightly upgrade -- once that repository stops serving Packages.
     - name: Assert the retired rp1-jtag apt source is gone
-      assert:
+      ansible.builtin.assert:
         that: not verify_pi_rp1jtag_list.stat.exists
         fail_msg: >-
           /etc/apt/sources.list.d/rp1-jtag.list is still on the root. mithro/rp1-jtag
@@ -357,7 +399,7 @@
 
     # Hardware-dependent services (tag-based skip)
     - name: Assert fpgas-cam service enabled
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_cam.stdout == "enabled"
         fail_msg: "fpgas-cam service not enabled"
       tags: [verify, hw-camera]
@@ -369,21 +411,50 @@
     # the service checks carry fpgas-apt too, and are skipped alongside the
     # install by a run that skips the tag.
     - name: Assert fpgas-tt service enabled
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_tt.stdout == "enabled"
         fail_msg: "fpgas-tt service not enabled"
       tags: [verify, tt, fpgas-apt]
 
     - name: Assert FPGA demo bitstreams present
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
 
+    # The Acorn boot check (roles/onpi/tasks/acorn.yml). Installed and enabled on every Pi: that part is
+    # software and carries fpgas-apt like its install. What it found is hardware (hw-fpga): "pass" is an
+    # Acorn running the pinned release's operational build with both flash slots matching it, "none" is a
+    # Pi with no FPGA on PCIe. Anything else is a board that is not right, and says why. The collector
+    # reads both the unit's state and the report (written 0644 by the root service, so no become).
+    - name: Assert the Acorn boot check is enabled
+      ansible.builtin.assert:
+        that: verify_pi_acorn_enabled.stdout == "enabled"
+        fail_msg: >-
+          fpgas-acorn-verify.service is '{{ verify_pi_acorn_enabled.stdout }}'
+          ({{ verify_pi_acorn_enabled.stderr }}) -- fpgas-online-acorn-tools is not in the NFS root, or
+          roles/onpi/tasks/acorn.yml has not run against it
+      tags: [verify, acorn, fpgas-apt]
+
+    - name: Assert the Acorn boot check passed (or found no FPGA)
+      vars:
+        report: "{{ verify_pi_acorn_report.content | b64decode | from_json if verify_pi_acorn_report.content is defined else {} }}"
+      ansible.builtin.assert:
+        that:
+          - verify_pi_acorn_report.content is defined
+          - (report.result | default('')) in ['pass', 'none']
+        fail_msg: >-
+          {% if verify_pi_acorn_report.content is not defined %}No /run/fpgas-online/acorn-verify.json: the
+          check has not run this boot ({{ verify_pi_acorn_report.msg | default('') }}).{% else %}Acorn check
+          result '{{ report.result }}' (release {{ report.release or '-' }}):
+          {% for b in report.boards %}{{ b.bdf }} {{ b.kind }} {{ b.variant }} {{ b.result }}{% if b.reason
+          is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% endif %}
+      tags: [verify, acorn, hw-fpga]
+
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
     # neither fail nor stall the boot.
     - name: Assert ifupdown is masked and not failed
-      assert:
+      ansible.builtin.assert:
         that:
           - "'networking.service' not in verify_pi_failed.stdout"
           - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
@@ -392,7 +463,7 @@
 
     # --- Orange Pi H3 boards + their FEL-boot host (tag hw-sunxi; hardware only) ---
     - name: Assert a sunxi board runs the armmp kernel from the shared root
-      assert:
+      ansible.builtin.assert:
         that:
           - ansible_kernel is search('armmp')
           - ansible_architecture == 'armv7l'
@@ -401,7 +472,7 @@
       tags: [verify, hw-sunxi]
 
     - name: Sunxi boards declared for this site
-      set_fact:
+      ansible.builtin.set_fact:
         verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
       tags: [verify, hw-sunxi]
 
@@ -409,14 +480,14 @@
     # journal is volatile and rotates within minutes under systemd debug
     # logging, and finished oneshot instances are unloaded from systemctl.
     - name: List FEL-boot success markers on the hub host
-      find:
+      ansible.builtin.find:
         paths: /run/fpgas-felboot
       register: verify_pi_felboot
       when: verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | list | length > 0
       tags: [verify, hw-sunxi]
 
     - name: Assert every attached board was FEL-booted from this host
-      assert:
+      ansible.builtin.assert:
         that: >-
           verify_pi_sunxi | selectattr('host', 'equalto', ansible_hostname) | map(attribute='usb') | list
           | difference(verify_pi_felboot.files | map(attribute='path') | map('basename') | list) | length == 0
@@ -428,14 +499,14 @@
     # probe has Oopsed the kernel at boot on three boards. Assert the modules
     # stayed out on Orange Pi hardware.
     - name: List loaded modules
-      command: lsmod
+      ansible.builtin.command: lsmod
       changed_when: false
       register: verify_pi_lsmod
       when: verify_pi_dt_model.content is defined and (verify_pi_dt_model.content | b64decode) is search('Orange Pi')
       tags: [verify, hw-sunxi]
 
     - name: Assert the blacklisted sunxi audio modules are not loaded
-      assert:
+      ansible.builtin.assert:
         that:
           - "'sun4i_codec' not in verify_pi_lsmod.stdout"
           - "'sun8i_codec_analog' not in verify_pi_lsmod.stdout"
@@ -453,10 +524,12 @@
     # write reads from offset 1: found on hardware). Signature = "R-Pi".
     - name: Read the HAT ID EEPROM through the kernel I2C bus (TWI1)
       become: true  # /dev/i2c-*
-      shell: |
-        set -e
+      ansible.builtin.shell: |
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r4
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_eeprom
       failed_when: false
@@ -464,7 +537,7 @@
       tags: [verify, hw-sunxi]
 
     - name: Assert the HAT ID EEPROM is visible on TWI1
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_hat_eeprom.stdout_lines | last | default('') == '0x52 0x2d 0x50 0x69'
         fail_msg: >-
           {{ ansible_hostname }}: no HAT ID EEPROM via the kernel TWI1 bus
@@ -482,7 +555,7 @@
     # reverse word order -- NOT a straight hex dump of the 16 bytes -- hence
     # the python3 formatter.
     - name: Sunxi_boards row for this board
-      set_fact:
+      ansible.builtin.set_fact:
         verify_pi_sunxi_self: >-
           {{ verify_pi_sunxi
              | selectattr('switch', 'eq', ansible_hostname | regex_replace('^pi-sw([0-9]+)-p([0-9]+)$', '\1') | int)
@@ -492,8 +565,8 @@
 
     - name: Read the Pmod HAT product uuid from the ID EEPROM
       become: true  # /dev/i2c-*
-      shell: |
-        set -e
+      ansible.builtin.shell: |
+        set -eo pipefail
         dev=$(ls -d /sys/bus/platform/devices/1c2b000.i2c/i2c-* | head -1)
         i2ctransfer -y "${dev##*i2c-}" w2@0x50 0x00 0x00 r36 | python3 -c '
         import struct, sys
@@ -502,6 +575,8 @@
         assert struct.unpack_from("<H", b, 12)[0] == 1, "vendor atom not first"
         s1, s2, s3, s4 = struct.unpack_from("<IIII", b, 20)
         print(f"{s4:08x}-{s3 >> 16:04x}-{s3 & 0xffff:04x}-{s2 >> 16:04x}-{s2 & 0xffff:04x}{s1:08x}")'
+      args:
+        executable: /bin/bash
       changed_when: false
       register: verify_pi_hat_uuid
       failed_when: false
@@ -512,7 +587,7 @@
       tags: [verify, hw-sunxi]
 
     - name: Assert the board on this switch port is the one the inventory placed there
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_hat_uuid.stdout_lines | default([]) | last | default('') == verify_pi_sunxi_self.hat_uuid
         fail_msg: >-
           {{ ansible_hostname }}: HAT uuid {{ verify_pi_hat_uuid.stdout | default('') }}
@@ -532,7 +607,7 @@
     # every Acorn host went without a serial link. Model-gated, so the VM test's
     # virtual Pi 4B skips both assertions.
     - name: Assert the header UART is enabled on Pi 5
-      assert:
+      ansible.builtin.assert:
         that: verify_pi_ttyama0.stat.exists
         fail_msg: >-
           /dev/ttyAMA0 missing on a Pi 5 -- the RP1 header UART (GPIO14/15) is
@@ -548,7 +623,7 @@
     # bytes that SysRq reads as reboot/crash. The Pi 5s must stay on their
     # dedicated debug UART (ttyAMA10) via `[pi5] cmdline=cmdline-pi5.txt`.
     - name: Assert the kernel console is off the header UART on Pi 5
-      assert:
+      ansible.builtin.assert:
         that: "'console=ttyAMA0' not in verify_pi_cmdline.stdout"
         fail_msg: >-
           Pi 5 kernel console is on ttyAMA0, the FPGA's UART. An FPGA design
@@ -561,7 +636,7 @@
     # fpgas-online-setup-pi's udev rule loads g_serial when a USB device
     # controller appears: ttyGS0 streams the kernel log, ttyGS1 runs a getty.
     - name: Assert the gadget console runs on every board with a UDC
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_usb_console.stdout_lines == ['active', 'active']
         fail_msg: >-
@@ -577,14 +652,14 @@
     # fleet.toml into the root (fixpi/tasks/fleet-site.yml), so a missing
     # file, an inactive agent or a board the server never heard of all fail.
     - name: Fleet settings of this Pi's server
-      set_fact:
+      ansible.builtin.set_fact:
         verify_pi_server: "{{ groups['nbp'][0] }}"
         verify_pi_fleet: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"
       when: groups['nbp'] is defined and groups['nbp'] | length > 0
       tags: [verify, fleet]
 
     - name: Assert the fleet agent unit and config are present
-      assert:
+      ansible.builtin.assert:
         that: item.stat.exists
         fail_msg: "{{ item.item }} missing on the Pi -- the fleet agent cannot run"
       loop: "{{ verify_pi_fleet_files.results }}"
@@ -594,7 +669,7 @@
       tags: [verify, fleet]
 
     - name: Assert the fleet agent is active
-      assert:
+      ansible.builtin.assert:
         that:
           - verify_pi_identity.stdout_lines | length == 3
           - verify_pi_identity.stdout_lines[0] | length > 0
@@ -607,7 +682,7 @@
     # for this board's fleet page: it must exist, show the board online and
     # carry the boot id of the boot running now -- i.e. this boot registered.
     - name: Server has registered this Pi in the fleet
-      command: >-
+      ansible.builtin.command: >-
         curl --silent --show-error --fail
         --unix-socket /run/gunicorn.sock
         --header 'Host: {{ hostvars[verify_pi_server].domain_name }}'
@@ -624,3 +699,40 @@
       delay: 5
       when: verify_pi_fleet | default(false)
       tags: [verify, fleet]
+
+    # The gateway's jump account (roles/jump) can hop on to this board with
+    # its own key, as someone logged in to it does: `ssh pi@<board>` from
+    # its restricted login shell. fixpi authorizes that key in the NFS
+    # root. BatchMode: a missing key must fail, not fall back to asking
+    # for the password. Also records the board's host key in the jump
+    # account's known_hosts (accept-new), as a person's first hop would.
+    - name: The gateway jump account reaches this Pi with its own key
+      ansible.builtin.command:
+        argv:
+          - su
+          - "-"
+          - "{{ verify_pi_jump_user | default('pi') }}"
+          - "-c"
+          - >-
+            ssh -o BatchMode=yes -o ConnectTimeout=60
+            {{ user | default('pi') }}@{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} id -un
+      delegate_to: "{{ groups['nbp'][0] }}"
+      become: true
+      changed_when: false
+      register: verify_pi_jump_hop
+      until: verify_pi_jump_hop.rc == 0
+      retries: 3
+      delay: 10
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+      tags: [verify, jump]
+
+    - name: Assert the jump hop logged in as the Pi user
+      ansible.builtin.assert:
+        that:
+          - verify_pi_jump_hop.stdout == (user | default('pi'))
+        fail_msg: >-
+          ssh from {{ groups['nbp'][0] }}'s jump account to
+          {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} said
+          {{ verify_pi_jump_hop.stdout }} / {{ verify_pi_jump_hop.stderr }}
+      when: verify_pi_jump_hop is not skipped
+      tags: [verify, jump]

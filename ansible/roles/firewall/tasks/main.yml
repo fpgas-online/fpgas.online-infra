@@ -33,13 +33,13 @@
     - forwarding
 
 - name: Install nftables
-  apt:
+  ansible.builtin.apt:
     name:
       - nftables
       - nmap
 
 - name: Write nftables rules
-  template:
+  ansible.builtin.template:
     src: templates/nftables.conf.j2
     dest: /etc/nftables.conf
     mode: "0755"
@@ -48,7 +48,7 @@
     nftables
 
 - name: Enable nftables service
-  systemd:
+  ansible.builtin.systemd:
     service: nftables.service
     enabled: true
     state: restarted

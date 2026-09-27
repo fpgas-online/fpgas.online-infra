@@ -10,7 +10,7 @@
 # handles). A re-run with an unchanged image digest skips extraction.
 
 - name: Install podman and rsync
-  apt:
+  ansible.builtin.apt:
     name:
       - podman
       - rsync
@@ -21,7 +21,7 @@
 # prefetch.yml started the download early in site.yml; wait for it here.
 # Its outcome is not trusted: the pull below is what must succeed.
 - name: Wait for the background pull started by prefetch.yml
-  async_status:
+  ansible.builtin.async_status:
     jid: "{{ img_prefetch.ansible_job_id }}"
   register: img_prefetch_job
   until: img_prefetch_job.finished
@@ -31,8 +31,17 @@
   tags:
     - img
 
+# How long the successful download took, apart from any wait for the image
+# to be published (see LAYERS in tests/ci/nfsroot_publish.py).
+- name: Report the background pull
+  ansible.builtin.debug:
+    msg: "{{ img_prefetch_job.stdout | default('no report') }}"
+  when: img_prefetch.ansible_job_id is defined
+  tags:
+    - img
+
 - name: Pull the nfsroot image
-  command: podman pull {{ img_nfsroot_image }}
+  ansible.builtin.command: podman pull {{ img_nfsroot_image }}
   register: img_pull
   until: img_pull.rc == 0 or not (img_pull.stderr is search(img_pull_retryable))
   retries: "{{ img_pull_retries }}"
@@ -42,7 +51,7 @@
     - img
 
 - name: Read the pulled image digest
-  command: >-
+  ansible.builtin.command: >-
     podman image inspect --format {% raw %}{{.Digest}}{% endraw %}
     {{ img_nfsroot_image }}
   register: img_digest
@@ -51,7 +60,7 @@
     - img
 
 - name: Read the extraction stamp
-  command: cat {{ nfs_root }}/.image-digest
+  ansible.builtin.command: cat {{ nfs_root }}/.image-digest
   register: img_stamp
   failed_when: false
   changed_when: false
@@ -59,7 +68,7 @@
     - img
 
 - name: Create the NFS root directory
-  file:
+  ansible.builtin.file:
     path: "{{ nfs_root }}"
     state: directory
   tags:
@@ -71,8 +80,10 @@
     - img
   block:
     - name: Mount the image
-      command: podman image mount {{ img_nfsroot_image }}
+      ansible.builtin.command: podman image mount {{ img_nfsroot_image }}
       register: img_mnt
+      # Transient: the always: below unmounts it (and reports no change).
+      changed_when: false
 
     # root/etc/nfsroot-watchdog/ holds the server-side protocol files of
     # fpgas-online/nfsroot-watchdog (update.lock, generation, inhibit). They
@@ -80,22 +91,49 @@
     # mid-run would make every board see a change and start rebooting,
     # deleting update.lock drops the hold, and deleting inhibit silently undoes
     # a person's fleet-wide stop. Excluded paths are also exempt from --delete.
+    #
+    # root/etc/ssh/ssh_host_* are the site's Pi host keys. The image carries
+    # none (ci-nfsroot.yml strips them; fixpi_generate_host_keys: false), so
+    # without the exclude --delete removes them and fixpi's create-if-absent
+    # "Pre-generate SSH host keys in NFS root" makes NEW ones: every new image
+    # digest changed the host key of every board and broke anything that had
+    # pinned it (seen on tweed 2026-09-25). Excluded, the keys survive with
+    # their inode and fixpi's task stays a no-op.
+    #
+    # Every account's authorized_keys (root/root/.ssh, root/home/*/.ssh)
+    # belongs to the site as well (fixpi authorized_keys.yml builds pi's,
+    # root's and the ansible automation account's); the image ships none. Excluded, a pull neither restores
+    # an image copy nor --deletes the site's, so fixpi finds them unchanged
+    # and leaves them alone: no rewrite, no ESTALE.
+    #
+    # --checksum: rsync replaces every file it transfers with a temp file
+    # renamed into place, i.e. a NEW inode, and every replaced inode goes
+    # ESTALE on the booted boards' overlayroot until they reboot. Without it
+    # the quick check (size + mtime) re-transfers every file whose mtime moved
+    # in a CI rebuild even though its bytes did not; with it an identical
+    # file keeps its inode and only its attributes are updated. It also stops the quick check from skipping
+    # a changed file whose size and mtime second happen to match. The cost is
+    # reading both trees once per new image digest.
     - name: Rsync boot/ and root/ from the image
-      command: >-
-        rsync -aHAX --delete --numeric-ids
-        {{ '--exclude=/etc/nfsroot-watchdog/' if item == 'root' else '' }}
+      ansible.builtin.command: >-
+        rsync -aHAX --delete --numeric-ids --checksum
+        {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*'
+           ' --exclude=/root/.ssh/authorized_keys --exclude=/home/*/.ssh/authorized_keys'
+           if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
+      # The block only runs for a new image digest, so the tree changes.
+      changed_when: true
       loop:
         - boot
         - root
 
     - name: Record the extraction stamp
-      copy:
+      ansible.builtin.copy:
         content: "{{ img_digest.stdout }}\n"
         dest: "{{ nfs_root }}/.image-digest"
         mode: "0644"
   always:
     - name: Unmount the image
-      command: podman image umount {{ img_nfsroot_image }}
+      ansible.builtin.command: podman image umount {{ img_nfsroot_image }}
       failed_when: false
       changed_when: false

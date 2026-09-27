@@ -1,14 +1,14 @@
 ---
 # pip install is in fpgas-online-site.yml.
 - name: Copy uvicorn systemd file to /etc/systemd/system/uvicorn.service
-  template:
+  ansible.builtin.template:
     src: templates/uvicorn.service.j2
     dest: /etc/systemd/system/uvicorn.service
   tags:
     - django
 
 - name: Enable services
-  systemd:
+  ansible.builtin.systemd:
     service: "{{ item }}"
     daemon_reload: true
     enabled: true
@@ -19,7 +19,7 @@
     - django
 
 - name: Start/Make sure uvicorn.service systemd service is running
-  systemd:
+  ansible.builtin.systemd:
     daemon_reload: true
     state: started
     name: uvicorn.service

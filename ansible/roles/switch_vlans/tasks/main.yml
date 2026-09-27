@@ -12,7 +12,7 @@
 # "fpgas-switch-setup: command not found".
 
 - name: Install venv/git prerequisites for the switch CLI
-  apt:
+  ansible.builtin.apt:
     name:
       - python3-venv
       # ansible's pip module imports `packaging` on the target's system
@@ -42,14 +42,14 @@
   tags: [switch-vlans]
 
 - name: Create /etc/fpgas directory
-  file:
+  ansible.builtin.file:
     path: /etc/fpgas
     state: directory
     mode: "0755"
   tags: [switch-vlans]
 
 - name: Install switches config
-  template:
+  ansible.builtin.template:
     src: switches.yml.j2
     dest: /etc/fpgas/switches.yml
     mode: "0644"
@@ -60,7 +60,7 @@
 # prints one line per pending/applied action, so non-empty stdout is the
 # reliable changed signal -- rc is not (see Task 6 CLI contract).
 - name: Converge switch VLAN config
-  command: >-
+  ansible.builtin.command: >-
     {{ switch_vlans_cli_venv }}/bin/fpgas-switch-setup --config /etc/fpgas/switches.yml
     --switch {{ item.index }} --apply
   loop: "{{ switches }}"

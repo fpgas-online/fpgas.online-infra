@@ -3,7 +3,7 @@
 # include ttsite_domain when tt_boards is defined); only the TTSITE_* lines
 # are ours.
 - name: Ttsite settings in local_settings.py
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     regexp: "^{{ item.key }} = "
     line: "{{ item.key }} = {{ item.value }}"
@@ -17,7 +17,7 @@
     - Restart django services
 
 - name: Collectstatic (ttsite assets)
-  command: "{{ django_dir }}/venv/bin/python {{ django_dir }}/manage.py collectstatic --noinput"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python {{ django_dir }}/manage.py collectstatic --noinput"
   args:
     chdir: "{{ django_dir }}"
   register: ttsite_collectstatic

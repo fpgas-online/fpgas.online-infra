@@ -21,7 +21,9 @@ inventory (hosts, group_vars, host_vars), and roles.
 runs `ansible/ci-nfsroot.yml` — the RasPiOS download/extract plus the
 Pi-targeted roles over a `community.general.chroot` connection — and publishes
 the provisioned root as a public OCI image at `ghcr.io/fpgas-online/nfsroot`
-(rolling `bookworm-armhf` from main, dated pinnable tags always). The server
+(dated pinnable tags always; the rolling `bookworm-armhf` that production
+pulls is moved only by `vm-test.yml`'s promote job, on main, after the
+virtual Pi has netbooted that image and registered). The server
 runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
 image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
 `fixpi` applies the site layer (pi password, ssh host keys, controller
@@ -40,13 +42,17 @@ The infra repo does NOT embed application source code. Instead, roles install pa
 from other repos:
 - `site` role: `pip install fpgas-online-site fpgas-online-poe[cli]`
 - `onpi` role: `apt install fpgas-online-setup-pi` (baked into the CI image)
-- `cam/pi` role: `apt install fpgas-online-cam` (baked into the CI image)
+- `cam_pi` role: `apt install fpgas-online-cam` (baked into the CI image)
 - `fpgas_apt` role: Adds the fpgas.online apt repository (baked into the CI image)
 
 ### Deployment Flow
 
-1. CI publishes the provisioned NFS root image (every PR/merge via the VM
-   test workflow's `nfsroot` job, plus a weekly cron)
+1. CI publishes the provisioned NFS root image (every PR/merge, plus
+   scheduled rebuilds of main, all through the VM test workflow), and on
+   main promotes it to `bookworm-armhf` once the virtual Pi has booted it.
+   The schedule asks for hourly but GitHub starts it about every 4-6 hours;
+   the first scheduled run once the base stage is a day old rebuilds from
+   the RasPiOS download
 2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
    the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
@@ -56,7 +62,7 @@ from other repos:
 ### Key Files
 
 - `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi
-- `ansible/web.yml` -- Web tier play (site, wssh, cam/stream_server, ttsite); imported by site.yml, runnable alone
+- `ansible/web.yml` -- Web tier play (site, wssh, stream_server, ttsite); imported by site.yml, runnable alone
 - `ansible/verify-server.yml` -- Server-side verification (TFTP, NFS, packages, config)
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
@@ -105,7 +111,7 @@ data -- addresses, names, the switch it cannot reach):
 sudo install -d -m0755 /etc/apt/keyrings
 curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg | sudo tee /etc/apt/keyrings/rpi-qemu.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
-  | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+  | sudo tee /etc/apt/sources.list.d/rpi-qemu.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
 # Full run locally (server + Pi + both verify playbooks); --nfsroot-image
@@ -127,12 +133,14 @@ the last play), then the Pi netboots (~2 min of aarch64 TCG to SSH) while
 lookup) takes about a minute.
 
 The image build (`nfsroot-build.yml`, arm64 runner) is reused whenever no
-image input changed (`tests/ci/nfsroot_inputs.py`), and otherwise converges
-main's latest image (~3 min); the weekly scheduled build starts from
-RasPiOS (~10 min).
+image input changed in the current UTC hour (`tests/ci/nfsroot_inputs.py`),
+and otherwise converges main's latest image (~5 min); a scheduled run
+whose base stage is a day old starts from RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
-push to `main` and on PRs. Serial logs are uploaded as an artifact on every run
+push to `main`, on PRs, and on the image-build schedule (asked for hourly,
+started by GitHub about every 4-6 hours; `nfsroot-build.yml` has no
+triggers of its own). Serial logs are uploaded as an artifact on every run
 (including failures) for post-mortem debugging.
 
 As rpi-qemu increases emulation fidelity (virtual camera, virtual USB hub, etc.),

@@ -1,7 +1,9 @@
 """Generate cloud-init seed ISOs for QEMU VMs."""
 
+import json
 import subprocess
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 
@@ -11,12 +13,46 @@ def create_seed_iso(
     hostname: str = "test-vm",
     eth_local_mac: str = "52:54:00:aa:bb:02",
     eth_local_ip: str = "10.21.0.1/24",
+    legacy_server_user: str = "testuser",
+    password: str | None = None,
+    revoked_key_users: Sequence[str] = (),
+    revoked_keys: Sequence[str] = (),
 ) -> Path:
     """Create a cloud-init NoCloud seed ISO.
 
     Configures the VM's user and SSH key, and brings up the second NIC
     (the VLAN trunk) for the roles to configure.
+
+    It also gives the VM a server account under an OLD name
+    (legacy_server_user), the way tweed had `videoteam` before it became
+    `admin`: a keypair and a running service that runs as it. The test
+    inventory renames it (server_user_rename_from), so every run exercises
+    roles/server_user's in-place rename; run_tests.py checks the result.
+
+    With a password the user can also log in with it, and cloud-init turns
+    sshd password login on (ssh_pwauth writes `PasswordAuthentication yes`
+    to sshd_config.d/50-cloud-init.conf): the drop-in roles/sshd writes must
+    win over it, and the harness proves the password is then refused.
+
+    Each of revoked_key_users is created already trusting revoked_keys (the
+    inventory's ssh_public_keys_revoked), as the accounts on tweed an earlier
+    converge gave them: the roles must delete them (run_tests.py checks the
+    keys are there before the converge and gone after it).
     """
+    password_auth = (
+        f"    lock_passwd: false\n    plain_text_passwd: {password}\n"
+        if password else ""
+    )
+    # Only with a password: without one the image default stays in force.
+    ssh_pwauth = "ssh_pwauth: true\n" if password else ""
+    # JSON strings are YAML double-quoted scalars: a key line's " # ..."
+    # comment must not be read as a YAML comment.
+    revoked_users = "".join(
+        f"  - name: {user}\n    shell: /bin/bash\n    lock_passwd: true\n"
+        "    ssh_authorized_keys:\n"
+        + "".join(f"      - {json.dumps(key)}\n" for key in revoked_keys)
+        for user in revoked_key_users
+    ) if revoked_keys else ""
     user_data = f"""#cloud-config
 hostname: {hostname}
 manage_etc_hosts: true
@@ -27,12 +63,44 @@ users:
     shell: /bin/bash
     ssh_authorized_keys:
       - {ssh_pubkey}
+{password_auth}  - name: {legacy_server_user}
+    shell: /bin/bash
+    lock_passwd: true
+{revoked_users}
+{ssh_pwauth}
+# Stands in for the app servers that run as the account on tweed
+# (gunicorn, daphne, ...): the rename must stop it, rewrite it, restart it.
+write_files:
+  - path: /etc/systemd/system/server-user-probe.service
+    content: |
+      [Unit]
+      Description=Runs as the pre-rename server account (roles/server_user test)
+      [Service]
+      User={legacy_server_user}
+      Group={legacy_server_user}
+      ExecStart=/bin/sleep infinity
+      [Install]
+      WantedBy=multi-user.target
 
 # No packages: the cloud image ships python3, and the roles install what
 # they need themselves (site installs git for its pip installs), as on a
 # fresh tweed. Installing them here was a minute of apt on every boot.
 
 runcmd:
+  # The pre-rename keypair, tagged so the check can tell it from a new one.
+  - install -d -m 0700 -o {legacy_server_user} -g {legacy_server_user} /home/{legacy_server_user}/.ssh
+  - runuser -u {legacy_server_user} -- ssh-keygen -q -t rsa -N "" -C pre-rename -f /home/{legacy_server_user}/.ssh/id_rsa
+  # A key nobody manages, carried along by the rename: the account's
+  # authorized_keys is exclusive, so it must be gone afterwards.
+  - echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHN0YWxlc3RhbGVzdGFsZXN0YWxlc3RhbGVzdGFsZQ stale-key" > /home/{legacy_server_user}/.ssh/authorized_keys
+  - chown {legacy_server_user}:{legacy_server_user} /home/{legacy_server_user}/.ssh/authorized_keys
+  # A subordinate id range, like tweed's videoteam:165536:65536 (replaced,
+  # not added to, in case useradd already gave the account one).
+  - sed -i '/^{legacy_server_user}:/d' /etc/subuid /etc/subgid
+  - echo "{legacy_server_user}:165536:65536" >> /etc/subuid
+  - echo "{legacy_server_user}:165536:65536" >> /etc/subgid
+  - systemctl daemon-reload
+  - systemctl enable --now server-user-probe.service
   - systemctl disable --now systemd-resolved
   - rm -f /etc/resolv.conf
   - echo "nameserver 8.8.8.8" > /etc/resolv.conf

@@ -1,22 +1,22 @@
 ---
 - name: Check lldpd package installed
-  command: dpkg -l lldpd
+  ansible.builtin.command: dpkg -l lldpd
   changed_when: false
   register: lldp_v_pkg
   failed_when: false
 
 - name: Assert lldpd is installed
-  assert:
+  ansible.builtin.assert:
     that: lldp_v_pkg.rc == 0
     fail_msg: "lldpd package is not installed on the server"
 
 - name: Check lldpd service active
-  command: systemctl is-active lldpd
+  ansible.builtin.command: systemctl is-active lldpd
   changed_when: false
   register: lldp_v_active
   failed_when: false
 
 - name: Assert lldpd service is active
-  assert:
+  ansible.builtin.assert:
     that: lldp_v_active.stdout == "active"
     fail_msg: "lldpd is not active on the server (is-active: {{ lldp_v_active.stdout }})"

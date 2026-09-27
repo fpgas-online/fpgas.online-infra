@@ -21,8 +21,12 @@ sshd password settings
 Generate ssh keys for server user
 create .ssh dirs
 Generate ssh keys for pi users pi and root
-Set authorized key for pi root user
-Copy keys to pi pi and root authorized_keys
+Write the NFS root's authorized_keys (authorized_keys.yml): the complete
+key list for root and pi (server user, controller, operators' GitHub keys,
+and for pi the gateway jump account), and for the ansible automation
+account the controller key alone, written once and only when it changed
+(ansible-home.yml, before userconf.yml, checks the account is in the image
+and makes its .ssh dir)
 set perms
 
 

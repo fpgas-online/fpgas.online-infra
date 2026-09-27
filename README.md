@@ -145,7 +145,7 @@ step, what it does and how long it takes.
 sudo install -d -m0755 /etc/apt/keyrings
 curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg | sudo tee /etc/apt/keyrings/rpi-qemu.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
-  | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+  | sudo tee /etc/apt/sources.list.d/rpi-qemu.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
 # Full run (server + Pi + both verify playbooks). --nfsroot-image names the
@@ -195,10 +195,10 @@ test coverage grows correspondingly.
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
 | `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
-| `cam/stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
+| `stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
 | `fpgas_apt` | NFS root (nspawn) | Add fpgas.online apt repository |
-| `cam/pi` | NFS root (nspawn) | Install camera capture package |
+| `cam_pi` | NFS root (nspawn) | Install camera capture package |
 | `onpi` | NFS root (nspawn) | Install Pi environment setup package |
 
 ## Linting

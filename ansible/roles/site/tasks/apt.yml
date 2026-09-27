@@ -1,7 +1,7 @@
 # apt.yml
 ---
 - name: Python and friends
-  apt:
+  ansible.builtin.apt:
     name:
       - python3-venv
       - python3-virtualenv

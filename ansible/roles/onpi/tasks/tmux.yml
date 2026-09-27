@@ -2,7 +2,7 @@
 # Install zsh and tmux
 
 - name: Install packages
-  apt:
+  ansible.builtin.apt:
     name:
       - tmux
       - zsh
@@ -13,7 +13,7 @@
 # Copy tmux.conf to ~/.tmux.conf
 
 - name: Copy zsh and tmux dotfiles to the pi user
-  copy:
+  ansible.builtin.copy:
     src: "files/tmux/{{ item }}"
     dest: "/home/pi/.{{ item }}"
     mode: u+x
@@ -26,7 +26,7 @@
 
 # Set shell for pi user to zsh
 - name: Set shell to zsh
-  user:
+  ansible.builtin.user:
     name: pi
     shell: /usr/bin/zsh
   tags:

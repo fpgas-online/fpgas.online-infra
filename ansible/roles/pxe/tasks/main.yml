@@ -1,13 +1,13 @@
 ---
 - name: Install dnsmasq
-  apt:
+  ansible.builtin.apt:
     name:
       - dnsmasq
   tags:
     - pxe
 
 - name: Configure dnsmasq base (DHCP, TFTP)
-  template:
+  ansible.builtin.template:
     src: templates/dnsmasq-base.conf.j2
     dest: /etc/dnsmasq.d/base.conf
   notify: Restart dnsmasq
@@ -21,13 +21,13 @@
 # via dhcp-option ntp-server; fixpi additionally pins the NFS root's
 # timesyncd at the server.
 - name: Install chrony (LAN NTP server)
-  apt:
+  ansible.builtin.apt:
     name: chrony
   tags:
     - pxe
 
 - name: Allow the Pi LAN to query chrony
-  copy:
+  ansible.builtin.copy:
     content: |
       # Managed by ansible (fpgas.online-infra, pxe role)
       allow {{ pib_network | default('10.21') }}.0.0/16
@@ -38,13 +38,13 @@
     - pxe
 
 - name: Enable Raspberry Pi Boot
-  copy:
+  ansible.builtin.copy:
     src: files/rpi.conf
     dest: /etc/dnsmasq.d/
   notify: Restart dnsmasq
 
 - name: Create dnsmasq.d pib.conf (legacy MAC-table hosts)
-  template:
+  ansible.builtin.template:
     src: templates/pibs.conf.j2
     dest: /etc/dnsmasq.d/pibs.conf
   notify: Restart dnsmasq
@@ -53,14 +53,14 @@
     - pibs
 
 - name: Create dnsmasq.d switch.conf (legacy MAC-table hosts)
-  template:
+  ansible.builtin.template:
     src: templates/switch.conf.j2
     dest: /etc/dnsmasq.d/switch.conf
   notify: Restart dnsmasq
   when: switches is not defined
 
 - name: Create dnsmasq.d ports.conf (per-port hosts)
-  template:
+  ansible.builtin.template:
     src: templates/ports.conf.j2
     dest: /etc/dnsmasq.d/ports.conf
   notify: Restart dnsmasq
@@ -75,7 +75,7 @@
 # refuses to start with both). The per-port base.conf/ports.conf supersede
 # it entirely, so remove it on per-port hosts.
 - name: Remove legacy MAC-table configs (per-port hosts)
-  file:
+  ansible.builtin.file:
     path: "/etc/dnsmasq.d/{{ item }}"
     state: absent
   loop: [pibs.conf, switch.conf, local.conf]
@@ -86,7 +86,7 @@
     - pibs
 
 - name: Configure PXE test clients
-  include_tasks: test_clients.yml
+  ansible.builtin.include_tasks: test_clients.yml
   when: pxe_test_clients is defined
   tags:
     - pxe-test

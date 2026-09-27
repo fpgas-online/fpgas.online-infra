@@ -1,4 +1,11 @@
 ---
+# Public-key-only SSH login, as on tweed (roles/sshd); tests/vm/run_tests.py
+# checks that a password login to the server VM is refused.
+sshd_pubkey_only: true
+
+# The ansible automation account, as on tweed (roles/automation_user).
+automation_user_manage: true
+
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
 # Named, owned and addressed like tweed's (static, networkd, eth-uplink /
@@ -34,7 +41,14 @@ pib_domain: test.fpgas.online
 
 firewall_internal_networks: [10.21.0.0/24]
 
-user_name: testuser
+# The server's own account, named and keyed as on tweed. The VM boots with
+# it under an old name (tests/vm/cloud_init.py: a keypair and a service
+# running as `testuser`), so every run exercises roles/server_user's
+# in-place rename, as tweed's videoteam -> admin; run_tests.py checks it.
+user_name: admin
+server_user_rename_from: testuser
+server_user_sudo: true
+server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: test
 room_name: test
@@ -142,7 +156,7 @@ dnsmasq_auth_interface: eth-uplink
 firewall_dns_query_sources:
   - 10.0.2.2
 
-# WebRTC/WHEP (roles/cam/webrtc): converge + verify in CI. The advertised
+# WebRTC/WHEP (roles/webrtc): converge + verify in CI. The advertised
 # candidate is the TEST-NET uplink address; no browser reaches it in CI.
 webrtc_media_port: 8189
 webrtc_additional_hosts: ["203.0.113.1"]

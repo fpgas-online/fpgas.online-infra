@@ -17,7 +17,7 @@
   ansible.builtin.include_tasks: kernels.yml
 
 - name: Unmount chroot bind mounts
-  shell: |
+  ansible.builtin.shell: |
     umount "{{ nspawn_pi_root }}/dev/pts" 2>/dev/null || true
     umount "{{ nspawn_pi_root }}/dev" 2>/dev/null || true
     umount "{{ nspawn_pi_root }}/sys" 2>/dev/null || true
@@ -28,7 +28,7 @@
   changed_when: false
 
 - name: Remove policy-rc.d
-  file:
+  ansible.builtin.file:
     path: "{{ nspawn_pi_root }}/usr/sbin/policy-rc.d"
     state: absent
 
@@ -40,6 +40,6 @@
     removes: "{{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build"
 
 - name: Remove the build-time dpkg unsafe-io setting
-  file:
+  ansible.builtin.file:
     path: "{{ nspawn_pi_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
     state: absent

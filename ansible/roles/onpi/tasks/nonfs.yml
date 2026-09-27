@@ -3,7 +3,7 @@
   # Remove nfsvers=4.2 from cmdline.txt if present.
   # Path varies: /boot/firmware/cmdline.txt on newer Pi OS, /boot/cmdline.txt on older.
   # fixpi/netboot.yml already sets nfsvers=3, so this is a safety net.
-  replace:
+  ansible.builtin.replace:
     path: "{{ item }}"
     regexp: "nfsvers=4.2"
     replace: ""
