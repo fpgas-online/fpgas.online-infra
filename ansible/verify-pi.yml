@@ -219,6 +219,9 @@
           - id -un && sudo -n id -un && sudo -n passwd -S "$(id -un)"
       vars:
         ansible_user: "{{ fixpi_ansible_user | default('ansible') }}"
+        # The variable, not the keyword: an inventory's ansible_become
+        # would outrank the keyword and make id -un report root.
+        ansible_become: false
       changed_when: false
       # A refused login is this check failing, not the Pi being down:
       # report it through the assert below.

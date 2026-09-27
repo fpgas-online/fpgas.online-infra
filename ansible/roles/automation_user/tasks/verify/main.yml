@@ -25,13 +25,15 @@
 # key, then sudo with no password (-n fails instead of prompting). Task vars
 # outrank the inventory's ansible_user, so this logs in as the automation
 # account whatever user the rest of the play connects as (debian on the
-# VM test's server).
+# VM test's server). become is off through the variable, not the keyword:
+# tweed's host_vars set ansible_become, which outranks the keyword, and a
+# become here would make both commands report root.
 - name: "Verify: log in as the automation account and sudo without a password"
   ansible.builtin.command:
     argv: [sh, -c, "id -un && sudo -n id -un"]
   vars:
     ansible_user: "{{ automation_user_name }}"
-  become: false
+    ansible_become: false
   changed_when: false
   register: automation_user_v_login
 
