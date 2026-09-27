@@ -1,0 +1,39 @@
+---
+# Site layer: authorize the automation key for the NFS root's ansible
+# account (created with its sudoers file by the image build, netboot.yml).
+# Per-site like the pi/root keys in userconf.yml, so the public image
+# carries no site's key; tagged `keys`, which ci-nfsroot.yml skips.
+
+# A root extracted from an image built before the account existed would get
+# a key for a user it does not have: fail here instead of shipping a root
+# whose automation login silently does not work.
+- name: Check the NFS root has the ansible user (built into the image)
+  ansible.builtin.command: grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:" "{{ nfs_root }}/root/etc/passwd"
+  changed_when: false
+  tags:
+    - keys
+
+- name: Create the ansible user's .ssh dir in the NFS root
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh"
+    state: directory
+    owner: "{{ fixpi_ansible_uid }}"
+    group: "{{ fixpi_ansible_uid }}"
+    mode: "0700"
+  tags:
+    - keys
+
+# Exclusive, unlike the server's (roles/automation_user): the file is this
+# task's alone -- the image ships none and nothing else writes it -- so it
+# holds exactly the automation key and a key dropped from the inventory is
+# dropped here too. copy rewrites it only when the content differs (a new
+# file replaces the old inode: see the ESTALE note in userconf.yml).
+- name: Authorize the automation key for the ansible user in the NFS root
+  ansible.builtin.copy:
+    content: "{{ fixpi_ansible_public_key }}\n"
+    dest: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+    owner: "{{ fixpi_ansible_uid }}"
+    group: "{{ fixpi_ansible_uid }}"
+    mode: "0600"
+  tags:
+    - keys
