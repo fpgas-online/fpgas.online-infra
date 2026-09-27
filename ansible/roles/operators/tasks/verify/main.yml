@@ -31,3 +31,27 @@
   loop: "{{ operators_v_keys.results }}"
   loop_control:
     label: "{{ item.item.name }}"
+
+- name: "Verify: read the account database"
+  ansible.builtin.getent:
+    database: passwd
+  when: operators_revoked_public_keys | length > 0
+
+- name: "Verify: read the authorized_keys that may hold revoked keys"
+  ansible.builtin.slurp:
+    path: "{{ getent_passwd[item][4] }}/.ssh/authorized_keys"
+  register: operators_v_authkeys
+  failed_when: false
+  loop: >-
+    {{ (operators_accounts | map(attribute='name')
+        + operators_legacy_key_accounts) | select('in', getent_passwd | default({})) | list }}
+  when: operators_revoked_public_keys | length > 0
+
+- name: "Verify: assert the revoked static keys are gone"
+  ansible.builtin.assert:
+    that:
+      - item.1.split()[1] not in (item.0.content | default('') | b64decode)
+    fail_msg: "{{ item.0.item }}'s authorized_keys still holds the revoked key {{ item.1.split()[2:] | join(' ') }}"
+  loop: "{{ operators_v_authkeys.results | default([]) | product(operators_revoked_public_keys) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}: {{ item.1.split()[2:] | join(' ') }}"

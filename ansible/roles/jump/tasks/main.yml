@@ -126,6 +126,20 @@
   tags:
     - jump
 
+# After the imports: authorized_key matches on the key itself, so this
+# catches a revoked key whatever comment or options its line carries (an
+# ssh-import-id copy too).
+- name: Delete the revoked static keys
+  ansible.posix.authorized_key:
+    user: "{{ jump_user }}"
+    state: absent
+    key: "{{ item }}"
+  loop: "{{ jump_revoked_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[2:] | join(' ') }}"
+  tags:
+    - jump
+
 - name: Check the jump account has authorized_keys
   ansible.builtin.stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"
