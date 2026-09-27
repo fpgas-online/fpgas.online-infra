@@ -98,11 +98,14 @@
 
 # A drop-in cannot be checked on its own (template's validate would run
 # `sshd -t -f` on the fragment, not the configuration that includes it), so
-# check the whole configuration before the handler reloads it.
+# check the whole configuration before the handler reloads it. Only when
+# the role wrote one: removing it cannot break the configuration, and a
+# host that has not opted in is left to its own sshd setup.
 - name: Sshd configuration is still valid
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
   check_mode: false  # read-only
+  when: sshd_pubkey_only
   tags:
     - sshd
 
