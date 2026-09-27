@@ -35,16 +35,17 @@
 - name: "Verify: read the account database"
   ansible.builtin.getent:
     database: passwd
-  when: operators_revoked_public_keys | length > 0
 
-- name: "Verify: read the authorized_keys that may hold revoked keys"
+- name: "Verify: read the group database"
+  ansible.builtin.getent:
+    database: group
+
+- name: "Verify: read the operators' authorized_keys"
   ansible.builtin.slurp:
     path: "{{ getent_passwd[item][4] }}/.ssh/authorized_keys"
   register: operators_v_authkeys
   failed_when: false
-  loop: >-
-    {{ (operators_accounts | map(attribute='name')
-        + operators_legacy_key_accounts) | select('in', getent_passwd | default({})) | list }}
+  loop: "{{ operators_accounts | map(attribute='name') | select('in', getent_passwd) | list }}"
   when: operators_revoked_public_keys | length > 0
 
 - name: "Verify: assert the revoked static keys are gone"
@@ -55,3 +56,29 @@
   loop: "{{ operators_v_authkeys.results | default([]) | product(operators_revoked_public_keys) | list }}"
   loop_control:
     label: "{{ item.0.item }}: {{ item.1.split()[2:] | join(' ') }}"
+
+- name: "Verify: assert the retired accounts and their groups are gone"
+  ansible.builtin.assert:
+    that:
+      - item not in getent_passwd
+      - item not in getent_group
+    fail_msg: "retired account {{ item }} (or its group) still exists"
+  loop: "{{ operators_retired_accounts }}"
+
+- name: "Verify: stat the retired accounts' files"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: operators_v_retired_files
+  loop: >-
+    {{ operators_retired_accounts | map('regex_replace', '^', '/etc/sudoers.d/') | list
+       + operators_retired_accounts | map('regex_replace', '^', '/home/') | list
+       + operators_retired_files }}
+
+- name: "Verify: assert the retired accounts' files are gone"
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: "{{ item.item }} is left over from a retired account"
+  loop: "{{ operators_v_retired_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"

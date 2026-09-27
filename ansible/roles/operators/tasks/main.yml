@@ -46,13 +46,6 @@
   tags:
     - operators
 
-- name: Read the account database
-  ansible.builtin.getent:
-    database: passwd
-  when: operators_revoked_public_keys | length > 0
-  tags:
-    - operators
-
 # After the imports: authorized_key matches on the key itself, so this
 # catches a revoked key whatever comment its line carries (an ssh-import-id
 # "# ssh-import-id gh:<user>" copy too).
@@ -61,10 +54,7 @@
     user: "{{ item.0 }}"
     state: absent
     key: "{{ item.1 }}"
-  loop: >-
-    {{ (operators_accounts | map(attribute='name')
-        + (operators_legacy_key_accounts | select('in', getent_passwd | default({}))))
-       | product(operators_revoked_public_keys) | list }}
+  loop: "{{ operators_accounts | map(attribute='name') | product(operators_revoked_public_keys) | list }}"
   loop_control:
     label: "{{ item.0 }}: {{ item.1.split(' ')[2:] | join(' ') }}"
   tags:
@@ -89,5 +79,45 @@
   loop: "{{ operators_authkeys.results }}"
   loop_control:
     label: "{{ item.item.name }}"
+  tags:
+    - operators
+
+# Retired accounts. No `force`: userdel refuses (rc 8, "user ... is currently
+# used by process N") while the account has a running process, so a live
+# session fails the run loudly instead of being killed; end it, then re-run.
+# The account goes first, so that failure leaves everything else in place.
+# `remove` deletes the home directory (and authorized_keys) and mail spool.
+- name: Delete the retired accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: true
+  loop: "{{ operators_retired_accounts }}"
+  tags:
+    - operators
+
+# userdel drops the user's own group itself (USERGROUPS_ENAB); this catches
+# one it left, e.g. a group another account still named as supplementary.
+- name: Delete the retired accounts' groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ operators_retired_accounts }}"
+  tags:
+    - operators
+
+- name: Delete the retired accounts' sudoers files
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item }}"
+    state: absent
+  loop: "{{ operators_retired_accounts }}"
+  tags:
+    - operators
+
+- name: Delete the files the retired accounts' roles installed
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ operators_retired_files }}"
   tags:
     - operators
