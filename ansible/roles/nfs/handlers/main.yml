@@ -1,3 +1,4 @@
 ---
 - name: Exportfs
   ansible.builtin.command: exportfs -r
+  changed_when: true  # a handler: runs only when notified
