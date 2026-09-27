@@ -1,12 +1,12 @@
 ---
-# The NFS root's /root/.ssh/authorized_keys and /home/pi/.ssh/authorized_keys
-# belong to the site, not to the image:
-#   - the CI image ships neither file (ci-nfsroot.yml removes them),
-#   - the img pull's rsync excludes both, so a pull neither restores an
+# The NFS root's authorized_keys files (/root, /home/pi, /home/ansible:
+# fixpi_authorized_keys_files) belong to the site, not to the image:
+#   - the CI image ships none of them (ci-nfsroot.yml removes them),
+#   - the img pull's rsync excludes them all, so a pull neither restores an
 #     image copy nor --deletes the site's,
 #   - and this file builds the complete key list and writes each file once,
 #     exclusively, with `copy` (which leaves an identical file alone).
-# So a converge with no key change touches neither file. That matters: every
+# So a converge with no key change touches none of them. That matters: every
 # rewrite is a rename, i.e. a new inode, which the booted boards' overlay
 # over NFS answers with ESTALE, and it counts as a root change for
 # nfsroot_generation, so the whole fleet reboots. A key dropped from the
@@ -20,6 +20,9 @@
 #     failure keeps that user's current lines; a 404 drops them),
 #   - pi only: the gateway jump account's key (roles/jump), so someone
 #     logged in to it can `ssh pi@10.21.S.P` onward.
+# A file whose fixpi_authorized_keys_files entry names `key_sources` gets only those
+# sources: the ansible automation account's (home/ansible) is `[controller]`,
+# the automation key alone.
 
 - name: Read the server user's public key
   ansible.builtin.slurp:
@@ -80,14 +83,18 @@
       {%- for r in fixpi_current_authkeys.results -%}
         {%- set _ = current.update({r.item: (r.content | default('') | b64decode).splitlines()}) -%}
       {%- endfor -%}
-      {%- set common = [(fixpi_server_user_key.content | b64decode).strip()] -%}
-      {%- if ansible_ssh_private_key_file is defined -%}
-        {%- set _ = common.append(lookup('file', ansible_ssh_private_key_file + '.pub').strip()) -%}
-      {%- endif -%}
       {%- set files = {} -%}
-      {%- for path in fixpi_authorized_keys_files | map(attribute='path') -%}
-        {%- set keys = common | list -%}
-        {%- for r in fixpi_github_fetch.results -%}
+      {%- for entry in fixpi_authorized_keys_files -%}
+        {%- set path = entry.path -%}
+        {%- set sources = entry.key_sources | default(['server', 'controller', 'github', 'jump']) -%}
+        {%- set keys = [] -%}
+        {%- if 'server' in sources -%}
+          {%- set _ = keys.append((fixpi_server_user_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- if 'controller' in sources and ansible_ssh_private_key_file is defined -%}
+          {%- set _ = keys.append(lookup('file', ansible_ssh_private_key_file + '.pub').strip()) -%}
+        {%- endif -%}
+        {%- for r in fixpi_github_fetch.results if 'github' in sources -%}
           {%- set status = r.status | default(-1) -%}
           {%- if status == 200 -%}
             {%- for line in r.content.splitlines() if line.strip() and not line.startswith('#') -%}
@@ -99,7 +106,7 @@
             {%- endfor -%}
           {%- endif -%}
         {%- endfor -%}
-        {%- if path == 'home/pi' and fixpi_jump_key.content is defined -%}
+        {%- if 'jump' in sources and path == 'home/pi' and fixpi_jump_key.content is defined -%}
           {%- set _ = keys.append((fixpi_jump_key.content | b64decode).strip()) -%}
         {%- endif -%}
         {%- set _ = files.update({path: keys | unique | join('\n') ~ '\n'}) -%}

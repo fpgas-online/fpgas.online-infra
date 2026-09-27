@@ -78,6 +78,21 @@
     fail_msg: "{{ jump_user }} has no authorized_keys"
   when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
 
+- name: "Verify: read the jump account's authorized_keys"
+  ansible.builtin.slurp:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+  register: jump_v_authkeys
+  failed_when: false
+
+- name: "Verify: assert the revoked static keys are gone"
+  ansible.builtin.assert:
+    that:
+      - item.split()[1] not in (jump_v_authkeys.content | default('') | b64decode)
+    fail_msg: "{{ jump_user }}'s authorized_keys still holds the revoked key {{ item.split()[2:] | join(' ') }}"
+  loop: "{{ jump_revoked_public_keys }}"
+  loop_control:
+    label: "{{ item.split()[2:] | join(' ') }}"
+
 - name: "Verify: no sudo for the jump account"
   ansible.builtin.stat:
     path: "/etc/sudoers.d/{{ jump_user }}"

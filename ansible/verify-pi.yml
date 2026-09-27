@@ -205,6 +205,42 @@
           writes it into the NFS root.
       tags: [verify, services]
 
+    # The automation account (fixpi: netboot.yml builds it into the image,
+    # authorized_keys.yml authorizes the key per site): a fresh SSH login as
+    # it with the automation key, then sudo with no password (-n fails
+    # instead of prompting), and its own password locked (key-only). Task
+    # vars outrank the inventory's ansible_user, so this logs in as the
+    # automation account whoever the rest of the play connects as.
+    - name: Log in as the ansible user and sudo without a password
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -c
+          - id -un && sudo -n id -un && sudo -n passwd -S "$(id -un)"
+      vars:
+        ansible_user: "{{ fixpi_ansible_user | default('ansible') }}"
+        # The variable, not the keyword: an inventory's ansible_become
+        # would outrank the keyword and make id -un report root.
+        ansible_become: false
+      changed_when: false
+      check_mode: false  # read-only; --check needs the real answer
+      # A refused login is this check failing, not the Pi being down:
+      # report it through the assert below.
+      ignore_unreachable: true
+      register: verify_pi_ansible_login
+      tags: [verify, services]
+
+    - name: Assert the ansible user's key login, passwordless sudo and locked password
+      ansible.builtin.assert:
+        that:
+          - (verify_pi_ansible_login.stdout_lines | default([]))[:2] == [fixpi_ansible_user | default('ansible'), 'root']
+          - ((verify_pi_ansible_login.stdout_lines | default([])) + ['', '', '- -'])[2].split()[1] == 'L'
+        fail_msg: >-
+          login as {{ fixpi_ansible_user | default('ansible') }} + sudo -n gave
+          {{ verify_pi_ansible_login.stdout_lines | default(verify_pi_ansible_login.msg | default('')) }}
+          (expected the user, root, and a locked (L) password)
+      tags: [verify, services]
+
     - name: Assert python3 is available
       ansible.builtin.assert:
         that: verify_pi_python3.rc == 0

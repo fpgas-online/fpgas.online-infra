@@ -31,6 +31,15 @@
   tags:
     - img
 
+# How long the successful download took, apart from any wait for the image
+# to be published (see LAYERS in tests/ci/nfsroot_publish.py).
+- name: Report the background pull
+  ansible.builtin.debug:
+    msg: "{{ img_prefetch_job.stdout | default('no report') }}"
+  when: img_prefetch.ansible_job_id is defined
+  tags:
+    - img
+
 - name: Pull the nfsroot image
   ansible.builtin.command: podman pull {{ img_nfsroot_image }}
   register: img_pull
@@ -92,8 +101,8 @@
     # their inode and fixpi's task stays a no-op.
     #
     # Every account's authorized_keys (root/root/.ssh, root/home/*/.ssh)
-    # belongs to the site as well (fixpi authorized_keys.yml builds pi's
-    # and root's); the image ships none. Excluded, a pull neither restores
+    # belongs to the site as well (fixpi authorized_keys.yml builds pi's,
+    # root's and the ansible automation account's); the image ships none. Excluded, a pull neither restores
     # an image copy nor --deletes the site's, so fixpi finds them unchanged
     # and leaves them alone: no rewrite, no ESTALE.
     #
