@@ -1,5 +1,4 @@
 skip_list:
-  - command-instead-of-module
   - risky-file-permissions
 
 warn_list:

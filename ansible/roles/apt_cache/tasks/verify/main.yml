@@ -18,7 +18,10 @@
         that: apt_cache_v_dpkg.rc == 0
         fail_msg: apt-cacher-ng is not installed
 
-    - name: Check apt-cacher-ng service active
+    # Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+    # action (state/enabled/masked/daemon_reload), and service_facts reports only
+    # running/stopped, not the ActiveState string the assert and its message use.
+    - name: Check apt-cacher-ng service active  # noqa: command-instead-of-module
       ansible.builtin.command: systemctl is-active apt-cacher-ng
       changed_when: false
       failed_when: false
@@ -131,7 +134,10 @@
     # The TLS path end to end on this host: certificate chain, name, and the
     # proxy to acng. --resolve keeps it independent of which DNS view the
     # gateway itself gets.
-    - name: Fetch through the TLS front end
+    # (noqa: command-instead-of-module: uri has no --resolve, and pinning the
+    # name to 127.0.0.1 while still verifying the certificate for that name is
+    # the point of this check.)
+    - name: Fetch through the TLS front end  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         curl -sS -o /dev/null -w '%{http_code}'
         --resolve {{ apt_cache_host }}:443:127.0.0.1
