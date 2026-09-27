@@ -8,8 +8,8 @@ are exclusive (a key dropped from the configuration disappears), and a
 GitHub fetch that fails keeps that user's keys instead of dropping them.
 """
 
-import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -69,7 +69,12 @@ def converge(tmp_path: Path, variables: dict) -> int:
     env = dict(
         os.environ,
         ANSIBLE_CONFIG=str(config),
-        ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json",
+        # The default callback's PLAY RECAP: the json callback is in
+        # ansible.posix now, and the task file needs no collection at all
+        # (an empty collections path proves it, as in the CI pytest job).
+        ANSIBLE_STDOUT_CALLBACK="ansible.builtin.default",
+        ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "no-collections"),
+        ANSIBLE_NOCOLOR="1",
         ANSIBLE_LOCALHOST_WARNING="False",
         ANSIBLE_INVENTORY_UNPARSED_WARNING="False",
     )
@@ -78,9 +83,10 @@ def converge(tmp_path: Path, variables: dict) -> int:
         env=env, cwd=tmp_path, stdin=subprocess.DEVNULL, capture_output=True, text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    stats = json.loads(result.stdout)["stats"]["localhost"]
-    assert stats["failures"] == 0
-    return stats["changed"]
+    recap = re.search(r"^localhost\s*:.*\bchanged=(\d+).*\bfailed=(\d+)", result.stdout, re.M)
+    assert recap, result.stdout
+    assert recap.group(2) == "0", result.stdout
+    return int(recap.group(1))
 
 
 def keys_of(variables: dict, path: str) -> list[str]:
