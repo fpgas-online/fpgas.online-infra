@@ -18,14 +18,24 @@
 #
 # state: latest for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
 # package, and the mode package depends on exactly its own version of each board's tools, and those on
-# exactly the bitstreams they were built with, so upgrading it moves them all. From the fpgas.online apt repo, so onpi includes this with the fpgas-apt tag.
+# exactly the bitstreams they were built with, so upgrading it moves them all. From the fpgas.online apt
+# repo, so onpi includes this with the fpgas-apt tag.
+#
 # The stopgap on main before this (roles/onpi/tasks/acorn.yml, 65c3a21a) pinned fpgas-online-acorn-tools
 # at 0.0.post621 and put a dpkg hold on it. A root built with that keeps the hold, and the mode package
-# needs exactly its own version of acorn-tools, so release it first.
+# needs exactly its own version of acorn-tools, so release it first. Only when it is there:
+# dpkg_selections fails outright for a package dpkg has never seen, as on a root built from scratch.
+- name: Read the Acorn tools' dpkg selection (the stopgap's hold)
+  ansible.builtin.command: dpkg --get-selections fpgas-online-acorn-tools
+  register: onpi_acorn_selection
+  changed_when: false
+  check_mode: false
+
 - name: Release the stopgap hold on the Acorn tools
   ansible.builtin.dpkg_selections:
     name: fpgas-online-acorn-tools
     selection: install
+  when: onpi_acorn_selection.stdout.split()[1:2] == ['hold']
 
 - name: Install the FPGA boot check for every board, and the images it checks against  # noqa: package-latest
   ansible.builtin.apt:
