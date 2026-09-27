@@ -118,43 +118,13 @@
   tags:
     - keys
 
-- name: Set authorized key for pi root user
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', '/home/{{ user_name }}/.ssh/id_rsa.pub') }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-  tags:
-    - keys
-  when: false
-
-- name: Copy keys to pi pi and root authorized_keys
-  ansible.builtin.copy:
-    remote_src: true
-    src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
-    dest: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  tags:
-    - keys
-
-# The controller's automation key:
-# without it the control node can only reach real Pis through operator
-# keys, and verify-pi against hardware needed a hand-injected key every
-# rebuild (rebuild #2; "ephemeral" hack in rebuild #1's verify phase).
-- name: Authorize the controller key for pi and root (controller key)
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  when: ansible_ssh_private_key_file is defined
+# Who may log in to the boards as pi and root: one exclusive write per file,
+# only when the key list changed (see authorized_keys.yml for why).
+- name: Write the NFS root's authorized_keys
+  ansible.builtin.include_tasks:
+    file: authorized_keys.yml
+    apply:
+      tags: [keys]
   tags:
     - keys
 

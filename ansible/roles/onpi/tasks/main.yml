@@ -21,7 +21,8 @@
 - {name: Install the Tiny Tapeout bridge and site catalogue, ansible.builtin.include_tasks: tt.yml, tags: [tt, fpgas-apt]}
 - {name: Enable the fleet agent units, ansible.builtin.include_tasks: fleet.yml, tags: [fleet, fpgas-apt]}
 - {name: Configure the Pi tftpd, ansible.builtin.include_tasks: tftpd.yml, tags: tftpd}
-- {name: Add the ssh keys, ansible.builtin.include_tasks: sshkeys.yml, tags: sshkeys}
+# No ssh keys here: the site owns the root's authorized_keys (fixpi
+# authorized_keys.yml), and the image ships none.
 - {name: "Create the pi user's upload and download directories", ansible.builtin.include_tasks: tweeks.yml, tags: pitweeks}
 - {name: Install and enable the Acorn boot check, ansible.builtin.include_tasks: acorn.yml, tags: [acorn, fpgas-apt]}
 - {name: Install and configure nfsroot-watchdog, ansible.builtin.include_tasks: stale_root.yml, tags: stale-root}
