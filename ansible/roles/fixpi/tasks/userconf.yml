@@ -118,93 +118,13 @@
   tags:
     - keys
 
-- name: Set authorized key for pi root user
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', '/home/{{ user_name }}/.ssh/id_rsa.pub') }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-  tags:
-    - keys
-  when: false
-
-- name: Copy keys to pi pi and root authorized_keys
-  ansible.builtin.copy:
-    remote_src: true
-    src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
-    dest: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  tags:
-    - keys
-
-# The controller's automation key:
-# without it the control node can only reach real Pis through operator
-# keys, and verify-pi against hardware needed a hand-injected key every
-# rebuild (rebuild #2; "ephemeral" hack in rebuild #1's verify phase).
-- name: Authorize the controller key for pi and root (controller key)
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  when: ansible_ssh_private_key_file is defined
-  tags:
-    - keys
-
-# The gateway's jump account (roles/jump), for `ssh pi@10.21.S.P` from its
-# restricted shell. The pi user only: the jump account is shared, and the
-# boards' root needs no hop from it. After the copy above, which rewrites
-# the file on every run.
-- name: Authorize the gateway jump account's key for pi
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "file://{{ fixpi_jump_ssh_pubkey }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/home/pi/.ssh/authorized_keys"
-  when: fixpi_jump_ssh_pubkey | length > 0
-  tags:
-    - keys
-
-# The operators' current GitHub keys (fixpi_github_key_users). The module
-# fetches https://github.com/<user>.keys on the server, at converge time,
-# so a rotated key reaches the boards at the next converge (and because
-# the copy above rewrites the file every run, a key GitHub no longer lists
-# drops out). Not in the CI image build (keys tag skipped there): the
-# published image carries no site keys. A GitHub outage must not fail the
-# converge (the operators role tolerates it the same way); the warning
-# below says whose keys the root is missing until the next run.
-- name: Authorize the operators' GitHub keys for pi and root
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "https://github.com/{{ item.0 }}.keys"
-    comment: "gh:{{ item.0 }}"
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item.1 }}/.ssh/authorized_keys"
-  loop: "{{ fixpi_github_key_users | product(['root', 'home/pi']) | list }}"
-  loop_control:
-    label: "gh:{{ item.0 }} -> {{ item.1 }}"
-  register: fixpi_github_keys
-  failed_when: false
-  tags:
-    - keys
-
-- name: Warn about GitHub keys that could not be fetched
-  ansible.builtin.debug:
-    msg: >-
-      Could not authorize gh:{{ item.item.0 }} for {{ item.item.1 }} in the
-      NFS root: {{ item.msg | default('unknown error') }}
-  # failed_when: false clears `failed`; a result without `keyfile` is one
-  # the module failed.
-  loop: "{{ fixpi_github_keys.results | rejectattr('keyfile', 'defined') | list }}"
-  loop_control:
-    label: "gh:{{ item.item.0 }} -> {{ item.item.1 }}"
+# Who may log in to the boards as pi and root: one exclusive write per file,
+# only when the key list changed (see authorized_keys.yml for why).
+- name: Write the NFS root's authorized_keys
+  ansible.builtin.include_tasks:
+    file: authorized_keys.yml
+    apply:
+      tags: [keys]
   tags:
     - keys
 

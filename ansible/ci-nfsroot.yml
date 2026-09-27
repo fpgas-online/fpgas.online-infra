@@ -114,6 +114,18 @@
       loop_control:
         label: "{{ item.path }}"
 
+    # authorized_keys are the consuming site's (fixpi authorized_keys.yml),
+    # and the pull never touches them (roles/img excludes both paths). A
+    # warm build converges main's last image, whose copies came from the
+    # old onpi sshkeys.yml, so remove them explicitly.
+    - name: Remove authorized_keys from the image
+      ansible.builtin.file:
+        path: "{{ nfs_root }}/root/{{ item }}/.ssh/authorized_keys"
+        state: absent
+      loop:
+        - root
+        - home/pi
+
     # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
     # `apt upgrade` (cam_pi) can pull a new kernel into root/boot/firmware
     # -- leaving boot/ stale in a one-shot build: the exact mismatched

@@ -89,6 +89,11 @@
     # pinned it (seen on tweed 2026-09-25). Excluded, the keys survive with
     # their inode and fixpi's task stays a no-op.
     #
+    # root/{root,home/pi}/.ssh/authorized_keys belong to the site as well
+    # (fixpi authorized_keys.yml builds and owns them). Excluded, a pull
+    # neither restores an image copy nor --deletes the site's, so fixpi
+    # finds them unchanged and leaves them alone: no rewrite, no ESTALE.
+    #
     # --checksum: rsync replaces every file it transfers with a temp file
     # renamed into place, i.e. a NEW inode, and every replaced inode goes
     # ESTALE on the booted boards' overlayroot until they reboot. Without it
@@ -100,7 +105,9 @@
     - name: Rsync boot/ and root/ from the image
       ansible.builtin.command: >-
         rsync -aHAX --delete --numeric-ids --checksum
-        {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*' if item == 'root' else '' }}
+        {{ '--exclude=/etc/nfsroot-watchdog/ --exclude=/etc/ssh/ssh_host_*'
+           ' --exclude=/root/.ssh/authorized_keys --exclude=/home/pi/.ssh/authorized_keys'
+           if item == 'root' else '' }}
         {{ img_mnt.stdout }}/{{ item }}/ {{ nfs_root }}/{{ item }}/
       loop:
         - boot
