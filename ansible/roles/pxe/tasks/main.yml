@@ -10,6 +10,7 @@
   ansible.builtin.template:
     src: templates/dnsmasq-base.conf.j2
     dest: /etc/dnsmasq.d/base.conf
+    mode: "0644"
   notify: Restart dnsmasq
   tags:
     - pxe
@@ -41,12 +42,14 @@
   ansible.builtin.copy:
     src: files/rpi.conf
     dest: /etc/dnsmasq.d/
+    mode: "0644"
   notify: Restart dnsmasq
 
 - name: Create dnsmasq.d pib.conf (legacy MAC-table hosts)
   ansible.builtin.template:
     src: templates/pibs.conf.j2
     dest: /etc/dnsmasq.d/pibs.conf
+    mode: "0644"
   notify: Restart dnsmasq
   when: switches is not defined
   tags:
@@ -56,6 +59,7 @@
   ansible.builtin.template:
     src: templates/switch.conf.j2
     dest: /etc/dnsmasq.d/switch.conf
+    mode: "0644"
   notify: Restart dnsmasq
   when: switches is not defined
 
@@ -63,6 +67,7 @@
   ansible.builtin.template:
     src: templates/ports.conf.j2
     dest: /etc/dnsmasq.d/ports.conf
+    mode: "0644"
   notify: Restart dnsmasq
   when: switches is defined
   tags:

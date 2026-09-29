@@ -31,6 +31,7 @@
   ansible.builtin.template:
     src: nginx-rtmp.conf.j2
     dest: /etc/nginx/nginx-rtmp.conf
+    mode: "0644"
   notify: Reload nginx
   tags:
     - streaming

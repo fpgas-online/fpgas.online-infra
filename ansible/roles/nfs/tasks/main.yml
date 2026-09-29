@@ -16,6 +16,7 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
+    mode: "0755"
   loop:
     - "{{ nfs_root }}"
     - "{{ nfs_root }}/boot"
@@ -31,6 +32,7 @@
   ansible.builtin.template:
     src: templates/exports.j2
     dest: /etc/exports
+    mode: "0644"
   notify: Exportfs
 
 - name: Enable and start server service rpcbind

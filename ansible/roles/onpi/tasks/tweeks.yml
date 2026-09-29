@@ -6,6 +6,7 @@
     owner: pi
     group: pi
     # mode: "0755"
+    mode: "0755"
   with_items:
     - "Uploads"
     - "Downloads"

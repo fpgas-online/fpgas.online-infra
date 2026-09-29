@@ -2,6 +2,7 @@
   ansible.builtin.template:
     src: "files/{{ item }}.service"
     dest: "/etc/systemd/system/{{ item }}.service"
+    mode: "0644"
   notify: Reload-systemd
   with_items:
     - pistat_ssh

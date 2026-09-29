@@ -3,3 +3,4 @@
   ansible.builtin.file:
     path: "{{ static_dir }}"
     state: directory
+    mode: "0755"

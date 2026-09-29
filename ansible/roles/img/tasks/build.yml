@@ -17,12 +17,14 @@
   ansible.builtin.file:
     path: "{{ img_cache_dir }}"
     state: directory
+    mode: "0755"
 
 - name: Download pi sd card img file
   ansible.builtin.get_url:
     url: "{{ img_host }}/{{ img_path }}/{{ zip_name }}"
     dest: "{{ img_cache_dir }}"
     force: false
+    mode: "0644"
   # creates: "{{ img_cache_dir }}/{{ zip_name }}"
   tags:
     - img
