@@ -57,6 +57,9 @@
       tags: [cam]
     - role: onpi
       tags: [onpi]
+    - role: usbboot
+      tags: [usbboot]
+      when: usbboot_enabled | default(true)
 
 - name: Finish, clean and check the NFS root image
   hosts: nbp
