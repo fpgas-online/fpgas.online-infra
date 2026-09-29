@@ -2,13 +2,7 @@
 # Human operator accounts with passwordless sudo. The server's ansible user
 # deliberately trusts ONLY the fpgas.online-ansible automation key (rebuild
 # #2 P2-1), so operators get their own accounts, keyed from their GitHub
-# accounts via ssh-import-id (same pattern onpi uses for the pi user).
-- name: Install ssh-import-id
-  ansible.builtin.apt:
-    name: ssh-import-id
-  tags:
-    - operators
-
+# accounts (https://github.com/<user>.keys, via roles/ssh_key_fetch).
 - name: Create operator accounts
   ansible.builtin.user:
     name: "{{ item.name }}"
@@ -16,6 +10,7 @@
   loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
+  register: operators_created
   tags:
     - operators
 
@@ -31,24 +26,58 @@
   tags:
     - operators
 
-# Tolerate a transient GitHub outage (don't fail a rebuild over it) but
-# never SILENTLY leave an operator without keys - the assert below trips
-# if the account has no authorized_keys at all.
-- name: Import operator ssh keys from GitHub
-  ansible.builtin.command: "ssh-import-id {{ item.ssh_import_ids | join(' ') }}"
-  become: true
-  become_user: "{{ item.name }}"
-  loop: "{{ operators_accounts }}"
-  loop_control:
-    label: "{{ item.name }}"
-  changed_when: false
-  failed_when: false
+# Every operator's keys are downloaded before any is written, and an id
+# that yields no key (empty answer, non-200, no answer, after the retries)
+# fails the play HERE, naming the account and the URL. Not ssh-import-id:
+# its gh: import reads the rate-limited GitHub API, whose empty answers on
+# shared CI addresses were swallowed by the old failed_when: false.
+- name: Download the operators' ssh keys
+  ansible.builtin.include_role:
+    name: ssh_key_fetch
+    apply:
+      tags: [operators]
+  vars:
+    ssh_key_fetch_requests: >-
+      {%- set requests = [] -%}
+      {%- for account in operators_accounts -%}
+        {%- for id in account.ssh_import_ids | default([]) -%}
+          {%- set _ = requests.append({'account': account.name, 'id': id}) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ requests }}
   tags:
     - operators
 
-# After the imports: authorized_key matches on the key itself, so this
-# catches a revoked key whatever comment its line carries (an ssh-import-id
-# "# ssh-import-id gh:<user>" copy too).
+# Additive, as ssh-import-id was: a key an operator's account already holds
+# stays (the revoked ones go below). Each line is tagged as ssh-import-id
+# tagged its own ("# ssh-import-id gh:<user>"); authorized_key matches on
+# the key itself, so a key an earlier ssh-import-id run added is not
+# duplicated, only its comment brought in line. In --check a fresh account
+# does not exist yet, so there is nothing to look its keys up in.
+- name: Authorize the operators' downloaded keys
+  ansible.posix.authorized_key:
+    user: "{{ item.item.name }}"
+    key: >-
+      {%- set lines = [] -%}
+      {%- for id in item.item.ssh_import_ids | default([]) -%}
+        {%- for key in ssh_key_fetch_keys[id] -%}
+          {%- set _ = lines.append(key ~ ' # ssh-import-id ' ~ (id if ':' in id else 'lp:' ~ id)) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ lines | join('\n') }}
+    state: present
+  loop: "{{ operators_created.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when:
+    - item.item.ssh_import_ids | default([]) | length > 0
+    - not (ansible_check_mode and item is changed)
+  tags:
+    - operators
+
+# After the downloads: authorized_key matches on the key itself, so this
+# catches a revoked key whatever comment its line carries (one tagged
+# "# ssh-import-id gh:<user>" too).
 - name: Delete the revoked static keys
   ansible.posix.authorized_key:
     user: "{{ item.0 }}"
@@ -70,12 +99,13 @@
   tags:
     - operators
 
+# A backstop: the download above already failed on an id with no key.
 - name: Assert every operator has at least one key
   ansible.builtin.assert:
     that:
       - item.stat.exists
       - item.stat.size > 0
-    fail_msg: "operator {{ item.item.name }} has no authorized_keys (ssh-import-id failed?)"
+    fail_msg: "operator {{ item.item.name }} has no authorized_keys (were all its keys revoked?)"
   loop: "{{ operators_authkeys.results }}"
   loop_control:
     label: "{{ item.item.name }}"

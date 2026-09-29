@@ -28,8 +28,10 @@ jump_commands:
 # `ssh pi@10.21.S.P` from the restricted shell offers it). roles/fixpi reads
 # the .pub from the same path (fixpi_jump_ssh_pubkey): keep the two in step.
 jump_ssh_key: "{{ jump_home }}/.ssh/id_ed25519"
-# Who may log in: the static keys (ssh_public_keys) plus the
-# GitHub/Launchpad ids in ssh_imports, both from
+# Who may log in: the static keys (ssh_public_keys) plus the keys the
+# GitHub/Launchpad ids in ssh_imports publish (gh:<user>, lp:<user>, or a
+# bare <user> = lp:<user>; downloaded by roles/ssh_key_fetch, which fails
+# the converge on an id with no key), both from
 # inventory/group_vars/all/ssh_keys.yml. (The Pis trust a different list:
 # see roles/fixpi tasks/authorized_keys.yml.)
 jump_public_keys: "{{ ssh_public_keys | default([]) | map(attribute='keys') | flatten }}"
