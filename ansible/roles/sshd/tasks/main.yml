@@ -5,14 +5,40 @@
 # Runs before the drop-in is written, on every converge: refuse to turn
 # passwords off while any account people (or Ansible) log in with has no key.
 
-# The account this very connection authenticated as (become is on by
-# default in ansible.cfg, so ask without it).
+# The account this very connection authenticated as, asked without
+# become (on by default in ansible.cfg). Off through the VARIABLE, not the
+# `become: false` keyword: tweed's host_vars set `ansible_become: true`,
+# and an inventory variable outranks the task keyword, so the keyword alone
+# ran `id -un` as root and the guard checked root's (absent) keys instead
+# of ansible's (the 2026-09-29 tweed deploy failure). The same pattern as
+# roles/automation_user/tasks/verify/main.yml and verify-pi.yml.
+#
+# Asked of the host rather than taken from `ansible_user`: that variable
+# can be unset (ssh.cfg, a -u flag or the local user then decide who logs
+# in), and `id -un` reports whoever really authenticated.
 - name: Find the account Ansible connects as
   ansible.builtin.command: id -un
-  become: false
+  vars:
+    ansible_become: false
   changed_when: false
   check_mode: false  # read-only; --check needs the real answer
   register: sshd_connecting_user
+  when: sshd_pubkey_only | bool
+  tags:
+    - sshd
+
+# Where the inventory names the login account, the probe must agree: a
+# mismatch means the probe itself ran under become (root) and would check
+# the wrong account's keys.
+- name: Assert the probe saw the inventory's login account
+  ansible.builtin.assert:
+    that:
+      - ansible_user is not defined or sshd_connecting_user.stdout == ansible_user
+    fail_msg: >-
+      id -un reported {{ sshd_connecting_user.stdout }} but Ansible logs in
+      to {{ inventory_hostname }} as {{ ansible_user | default('') }}; the
+      probe ran with become
+    success_msg: "Ansible connects as {{ sshd_connecting_user.stdout }}"
   when: sshd_pubkey_only | bool
   tags:
     - sshd
