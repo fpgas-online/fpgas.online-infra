@@ -4,8 +4,8 @@
 # itself is written by authorized_keys.yml, the single writer of every
 # authorized_keys in the root (its home/ansible entry in
 # fixpi_authorized_keys_files: the controller's automation key alone), which
-# runs after this from userconf.yml. Tagged `keys`, which ci-nfsroot.yml
-# skips, like the key write.
+# runs after this from userconf.yml. Like the key write, never in the CI
+# image build (fixpi/tasks/main.yml gates both on fixpi_image_build).
 #
 # The file lives in /home/ansible/.ssh, which the image does not carry, but
 # the img pull's rsync excludes every /home/*/.ssh/authorized_keys, so a new
@@ -19,8 +19,6 @@
   ansible.builtin.command: grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:" "{{ nfs_root }}/root/etc/passwd"
   changed_when: false
   check_mode: false  # read-only; --check should fail on an old root too
-  tags:
-    - keys
 
 # 0700 and owned by the account: sshd's StrictModes refuses a key in a
 # directory others can write.
@@ -31,5 +29,3 @@
     owner: "{{ fixpi_ansible_uid }}"
     group: "{{ fixpi_ansible_uid }}"
     mode: "0700"
-  tags:
-    - keys

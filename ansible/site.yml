@@ -75,8 +75,8 @@
         name: fixpi
         tasks_from: github_keys.yml
         apply:
-          tags: [fixpi, keys]
-      tags: [fixpi, keys]
+          tags: [fixpi]
+      tags: [fixpi]
 
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
     # the root by roles/onpi) from here until nfsroot_generation below:

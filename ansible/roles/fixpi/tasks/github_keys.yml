@@ -13,8 +13,6 @@
 - name: Download the operators' GitHub keys
   ansible.builtin.include_role:
     name: ssh_key_fetch
-    apply:
-      tags: [keys]
   vars:
     ssh_key_fetch_github_url: "{{ fixpi_github_keys_base_url }}"
     ssh_key_fetch_requests: >-
@@ -23,9 +21,7 @@
         {%- set _ = requests.append({'account': 'the NFS root', 'id': 'gh:' ~ user}) -%}
       {%- endfor -%}
       {{ requests }}
-  tags: [keys]
 
 - name: Keep the NFS root's GitHub keys
   ansible.builtin.set_fact:
     fixpi_github_keys: "{{ ssh_key_fetch_keys }}"
-  tags: [keys]

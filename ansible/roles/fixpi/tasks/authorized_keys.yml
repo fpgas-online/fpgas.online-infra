@@ -46,10 +46,7 @@
 - name: Download the operators' GitHub keys (unless done before the root update)
   ansible.builtin.include_tasks:
     file: github_keys.yml
-    apply:
-      tags: [keys]
   when: fixpi_github_keys is not defined
-  tags: [keys]
 
 - name: Build the NFS root's authorized_keys
   ansible.builtin.set_fact:
