@@ -16,9 +16,10 @@
 #   - the server user's (user_name) id_rsa.pub, read on the server,
 #   - the controller's automation key (ansible_ssh_private_key_file .pub),
 #   - the operators' GitHub keys (fixpi_github_key_users), downloaded on
-#     the server by roles/ssh_key_fetch, each tagged with a "gh:<user>"
+#     the server by roles/ssh_key_fetch (github_keys.yml, which site.yml
+#     runs before the root update begins), each tagged with a "gh:<user>"
 #     comment. A download that fails or holds no key (after its retries)
-#     fails the play there, before any file is written: an outage stops
+#     fails the play there, before the root is touched: an outage stops
 #     the converge rather than dropping or silently keeping a user's keys,
 #   - pi only: the gateway jump account's key (roles/jump), so someone
 #     logged in to it can `ssh pi@10.21.S.P` onward.
@@ -38,21 +39,16 @@
   register: fixpi_jump_key
   when: fixpi_jump_ssh_pubkey | length > 0
 
-# A read-only GET (check_mode: false in the role), so it runs in --check
-# too: a check run then shows the real difference.
-- name: Download the operators' GitHub keys
-  ansible.builtin.include_role:
-    name: ssh_key_fetch
+# Downloaded before the root update began (site.yml runs github_keys.yml
+# ahead of the update lock), or here when nothing has. A read-only GET
+# (check_mode: false in roles/ssh_key_fetch), so it runs in --check too: a
+# check run then shows the real difference.
+- name: Download the operators' GitHub keys (unless done before the root update)
+  ansible.builtin.include_tasks:
+    file: github_keys.yml
     apply:
       tags: [keys]
-  vars:
-    ssh_key_fetch_github_url: "{{ fixpi_github_keys_base_url }}"
-    ssh_key_fetch_requests: >-
-      {%- set requests = [] -%}
-      {%- for user in fixpi_github_key_users -%}
-        {%- set _ = requests.append({'account': 'the NFS root', 'id': 'gh:' ~ user}) -%}
-      {%- endfor -%}
-      {{ requests }}
+  when: fixpi_github_keys is not defined
   tags: [keys]
 
 - name: Build the NFS root's authorized_keys
@@ -70,7 +66,7 @@
           {%- set _ = keys.append(lookup('file', ansible_ssh_private_key_file + '.pub').strip()) -%}
         {%- endif -%}
         {%- for user in fixpi_github_key_users if 'github' in sources -%}
-          {%- for key in ssh_key_fetch_keys['gh:' ~ user] -%}
+          {%- for key in fixpi_github_keys['gh:' ~ user] -%}
             {%- set _ = keys.append((key.split()[:2] | join(' ')) ~ ' gh:' ~ user) -%}
           {%- endfor -%}
         {%- endfor -%}

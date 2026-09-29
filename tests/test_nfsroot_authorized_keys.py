@@ -252,3 +252,49 @@ def test_check_mode_runs_and_changes_nothing(tmp_path, github):
     answers["alice"] = (200, "")
     assert "No ssh keys for the NFS root from gh:alice" in converge(tmp_path, v, check=True, fail=True)
     assert GH_KEY + " gh:alice" in keys_of(v, "root")
+
+
+def test_keys_downloaded_before_the_root_update_are_used(tmp_path, keyserver):
+    """site.yml downloads them (github_keys.yml) before the update lock: not again."""
+    v = {**make_root(tmp_path), "fixpi_github_keys_base_url": keyserver.url,
+         "fixpi_github_key_users": ["alice"], "fixpi_github_keys": {"gh:alice": [GH_KEY]}}
+    converge(tmp_path, v)
+    assert keys_of(v, "root") == [SERVER, CONTROLLER, GH_KEY + " gh:alice"]
+    assert keyserver.hits == {}
+
+
+def test_site_downloads_the_root_keys_before_the_root_update_begins():
+    """An empty or failed GitHub download must fail site.yml before the NFS
+    root update lock is taken and the image extracted into the live root,
+    not half-way through the update with the lock held."""
+    plays = yaml.safe_load((REPO / "ansible/site.yml").read_text())
+    play = next(p for p in plays if p.get("name") == "Update the Pi NFS root")
+    first = play["tasks"][0]
+    assert first["ansible.builtin.include_role"]["name"] == "fixpi"
+    assert first["ansible.builtin.include_role"]["tasks_from"] == "github_keys.yml"
+    assert {"fixpi", "keys"} <= set(first["tags"])
+    assert play["tasks"][1]["name"] == "Take the Pi NFS root update lock"
+
+
+def test_the_early_download_fails_on_an_empty_answer(tmp_path, keyserver):
+    """github_keys.yml, as site.yml runs it ahead of the lock, fails on no keys."""
+    keyserver.answers["alice"] = (200, "")
+    playbook = tmp_path / "early.yml"
+    playbook.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"ssh_key_fetch_delay": 0, "fixpi_github_keys_base_url": keyserver.url,
+                 "fixpi_github_key_users": ["alice"]},
+        "tasks": [{"ansible.builtin.include_role": {"name": "fixpi", "tasks_from": "github_keys.yml"}},
+                  {"name": "Take the Pi NFS root update lock", "ansible.builtin.debug": {"msg": "lock"}}],
+    }]))
+    (tmp_path / "ansible.cfg").write_text("[defaults]\n")
+    env = dict(os.environ, ANSIBLE_CONFIG=str(tmp_path / "ansible.cfg"), ANSIBLE_ROLES_PATH=str(ROLES),
+               ANSIBLE_STDOUT_CALLBACK="ansible.builtin.default", ANSIBLE_NOCOLOR="1",
+               ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "no-collections"),
+               ANSIBLE_LOCALHOST_WARNING="False", ANSIBLE_INVENTORY_UNPARSED_WARNING="False")
+    result = subprocess.run(["ansible-playbook", "-i", "localhost,", str(playbook)], env=env, cwd=tmp_path,
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert f"No ssh keys for the NFS root from gh:alice: {keyserver.url}/alice.keys answered 200" in output
+    assert "TASK [Take the Pi NFS root update lock]" not in output
