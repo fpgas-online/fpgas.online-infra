@@ -62,6 +62,18 @@
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
           fpga_verify_report = read("/run/fpgas-online/verify.json")
+          # The tty behind the device tree's serial0 alias: the 40-pin header UART on
+          # every Raspberry Pi. Not /dev/serial0, which udev points at the DT `console`
+          # alias where there is one (ttyAMA10, the Pi 5's debug UART).
+          def dt_serial0_tty():
+              alias = (read("/proc/device-tree/aliases/serial0") or b"").rstrip(b"\x00").decode()
+              if not alias or not os.path.isdir("/sys/class/tty"):
+                  return ""
+              for tty in sorted(os.listdir("/sys/class/tty")):
+                  node = "/sys/class/tty/" + tty + "/device/of_node"
+                  if os.path.realpath(node) == "/sys/firmware/devicetree/base" + alias:
+                      return tty
+              return ""
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -91,10 +103,9 @@
               "cmdline": {"rc": 0, "stdout": (read("/proc/cmdline") or b"").decode().rstrip("\n")},
               "ttyama0": exists("/dev/ttyAMA0"),
               # The consoles the kernel writes to now (from the cmdline, or the device
-              # tree's stdout-path), and the device serial0 names on a Raspberry Pi.
+              # tree's stdout-path), and the header UART's tty.
               "consoles": {"stdout": (read("/sys/class/tty/console/active") or b"").decode().strip(),
-                           "serial0": (os.path.basename(os.path.realpath("/dev/serial0"))
-                                       if os.path.lexists("/dev/serial0") else "")},
+                           "serial0": dt_serial0_tty()},
               "udc": {"matched": len(udc), "files": [{"path": "/sys/class/udc/" + u} for u in udc]},
               "usb_console": run("systemctl", "is-active", "fpgas-usb-console.service",
                                  "serial-getty@ttyGS1.service") if udc else {"skipped": True},
@@ -640,6 +651,8 @@
     # falls back to the device tree's stdout-path, serial0, which is how every
     # Pi 3/4 had it (#155). Pi 3/4: console=tty1 in cmdline.txt; Pi 5:
     # console=ttyAMA10, its debug UART, via `[pi5] cmdline=cmdline-pi5.txt`.
+    # The header UART is the tty behind the DT serial0 alias (the collector's
+    # consoles.serial0), plus ttyAMA0 by name for a root without the alias.
     # verify_pi_header_uart_console is set only for the VM test's Pi, whose
     # U-Boot appends console=ttyAMA0: that is the serial port QEMU captures.
     - name: Assert no kernel console is on the header UART
