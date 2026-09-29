@@ -2,7 +2,17 @@
 
 Who can log in to the Welland gateway (tweed, inventory host `fpgas.online`)
 and to the netbooted Pi fleet, with what, and which role and variable decide
-it. Everything here is what `main` configures.
+it. Everything here is what `main` configures. It was deployed to tweed
+(`main` 4de0b24) and checked live on 2026-09-29:
+
+- a password-only login to tweed gets `Permission denied (publickey)`;
+- `ansible` (automation key), and `admin` and `tim` (GitHub keys), log in and
+  get `sudo -n` to root, and `carl` holds exactly his GitHub key;
+- the jump account refuses commands, and its `authorized_keys` holds only Tim's
+  and Carl's GitHub keys (the Launchpad lines are gone);
+- through `-J pi@tweed`, `pi@` and `root@` a board work with Tim's key, and
+  `ansible@` a board works with the automation key, including `sudo`;
+- the jump account's own key logs in to `pi@` a board.
 
 No secrets are recorded here. The only private material involved is the
 `fpgas.online-ansible` automation key (vaulted as
@@ -32,13 +42,18 @@ split-horizon DNS (looked up 2026-09-29):
 | public (ns1/ns2.rollernet.us) | `87.121.95.37`, which is **ten64** (PTR `ten64.welland.mithis.com`) | `2404:e80:a137:2100::1`, `2404:e80:a137:9921::2` (tweed) |
 | inside the site | `10.99.21.2` (uplink), `10.21.0.1` (eth-local) | the same two |
 
-So the name reaches tweed's sshd from inside the site, over the wg route, and
-over IPv6. From outside over IPv4 it reaches ten64, not tweed. Ansible
-connects from ten64 to the uplink address `10.99.21.2` (`ansible_host`).
+Which path reaches tweed's sshd (checked 2026-09-29, after infra `main`
+4de0b24 was deployed):
+
+| From | Use | Why |
+|---|---|---|
+| inside the site, or over the wg route | `tweed.welland.mithis.com` | resolves to `10.21.0.1` / `10.99.21.2`, which reach tweed directly |
+| ten64 | `10.99.21.2` | the transit link; this is also Ansible's `ansible_host` |
+| outside, IPv6 | `2404:e80:a137:2100::1` | reaches tweed. `2404:e80:a137:9921::2` port 22 times out from outside, so use the address rather than the name, which also lists `9921::2` |
+| outside, IPv4 only | `-J <you>@ten64.welland.mithis.com`, then `10.99.21.2`, if you have an account on ten64 | the public A record is ten64, not tweed |
+
 tweed's own firewall accepts SSH on every interface
 ([`roles/firewall`](../ansible/roles/firewall/templates/nftables.conf.j2)).
-Whether ten64 passes port 22 through to tweed's IPv6 addresses from the
-internet is not set in this repository and has not been verified.
 
 | Account | uid | sudo | `authorized_keys` | Managed by |
 |---|---|---|---|---|
@@ -172,8 +187,9 @@ rewritten `/etc/shadow` makes every booted board refuse SSH until it reboots.
 | a board, as root | `ssh -J <you>@tweed.welland.mithis.com root@10.21.S.P` | your GitHub key at both hops |
 | a board, with the password | the board page's terminal on welland.fpgas.online, or `ssh pi@10.21.S.P` from tweed | `pi_pw` |
 
-Every `tweed.welland.mithis.com` in this table needs a path that reaches
-tweed (see [tweed](#tweed)); from ten64, use `10.99.21.2` instead.
+Every `tweed.welland.mithis.com` in this table assumes you are inside the site
+or on the wg route. From ten64 use `10.99.21.2`, and from outside use
+`2404:e80:a137:2100::1` (see [tweed](#tweed)).
 
 With `-J`, your own key must be trusted at both ends. The jump account trusts
 `ssh_public_keys` and `ssh_imports`. The boards trust only the GitHub keys of
