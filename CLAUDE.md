@@ -75,7 +75,8 @@ from other repos:
   (idempotent, gated on state or an inventory variable); don't skip it.
 - Work that is not ready to deploy stays behind a variable that defaults
   to off; merged code on `main` is deployable.
-- Tags are being removed: do not add new ones.
+- Do not add tags. The only one left is `always`, which goes once the
+  partial-run workarounds it exists for are removed.
 
 ### Key Files
 
@@ -108,8 +109,8 @@ from [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838
 GENET ethernet emulation on `raspi4b`), and runs `verify-pi.yml`. Only the inventory
 differs between test and production.
 
-**End-to-end coverage** (nothing is skipped: the harness passes no
-`--skip-tags`, and the test inventory differs from production only in site
+**End-to-end coverage** (nothing is skipped: the harness has no tag
+options, and the test inventory differs from production only in site
 data -- addresses, names, the switch it cannot reach):
 
 - `site.yml` converges a fresh Debian 13 server (tweed's OS), pulling and
