@@ -68,6 +68,9 @@ The roles install packages from other fpgas-online repos rather than embedding s
 
 Collections: `uv run ansible-galaxy collection install -r requirements.yml`.
 
+Deploys and verification run whole playbooks, never with `--tags` or
+`--skip-tags`; scope a run with `--limit` and `-e` only (issue #157).
+
 `ansible.cfg` supplies the inventory and `become`; the only thing to add is
 the vault password for hosts with vaulted vars (tweed's switch communities):
 

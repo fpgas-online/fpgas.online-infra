@@ -59,6 +59,20 @@ from other repos:
 4. Pis PXE boot from the fully-provisioned server
 5. `verify-pi.yml` checks running Pis (NFS mount, overlayfs, services, packages)
 
+**Deploys run whole playbooks** (issue #157):
+
+- A deploy or a verification runs the whole playbook -- `site.yml` (or
+  `web.yml`), `verify-server.yml`, `verify-pi.yml` -- never with `--tags`
+  or `--skip-tags`. A partial run leaves production out of step with
+  `main`, and a tagged verify can pass while asserting nothing.
+- Scope a run only with `--limit` (which hosts) and `-e` (e.g. a pinned
+  `img_nfsroot_image`), never by skipping parts of the playbook.
+- If a full run is too slow, disruptive or unsafe, fix the role
+  (idempotent, gated on state or an inventory variable); don't skip it.
+- Work that is not ready to deploy stays behind a variable that defaults
+  to off; merged code on `main` is deployable.
+- Tags are being removed: do not add new ones.
+
 ### Key Files
 
 - `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi

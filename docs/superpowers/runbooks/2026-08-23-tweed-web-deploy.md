@@ -20,6 +20,12 @@ Date: 2026-08-23. Spec for the TT part: `docs/superpowers/specs/2026-08-22-tinyt
 
 ## Deploy
 
+Run whole playbooks: no `--tags` or `--skip-tags`, and scope a run only with
+`--limit` and `-e`. If a role is too slow or disruptive for a full run, fix
+the role; unready work waits behind a variable that defaults to off. The
+tagged commands in this runbook predate that rule (issue #157) and are being
+replaced with full runs.
+
 ```bash
 uv run ansible-playbook ansible/web.yml --limit fpgas.online --vault-password-file <file>
 uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --tags site,ttsite,wssh
