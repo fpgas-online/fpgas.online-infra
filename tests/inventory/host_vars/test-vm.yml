@@ -6,6 +6,14 @@ sshd_pubkey_only: true
 # The ansible automation account, as on tweed (roles/automation_user).
 automation_user_manage: true
 
+# become as a host VARIABLE, as tweed's host_vars set it. A variable
+# outranks a task's `become: false` keyword, so a task that needs to run
+# as the connecting user must turn become off through `vars:
+# {ansible_become: false}`; with this set the VM test catches one that
+# uses the keyword (roles/sshd's lockout guard checked root, not ansible,
+# on the 2026-09-29 tweed deploy and CI did not notice).
+ansible_become: true
+
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
 # Named, owned and addressed like tweed's (static, networkd, eth-uplink /
