@@ -10,6 +10,7 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 
 import argparse
 import concurrent.futures
+import os
 import subprocess
 import sys
 import time
@@ -39,6 +40,8 @@ from tests.vm.vm_manager import (
 REPO_ROOT = Path(__file__).parent.parent.parent
 ANSIBLE_DIR = REPO_ROOT / "ansible"
 TEST_INVENTORY = REPO_ROOT / "tests" / "inventory" / "test-hosts"
+# The dry run of roles/server_user ahead of site.yml (see the playbook).
+SERVER_USER_CHECK = Path(__file__).parent / "server_user_check.yml"
 
 SSH_PORT = 2222
 # Switch 1, port 1: 2000 + 100*1 + 1 (see ansible/filter_plugins/port_vlans.py).
@@ -162,10 +165,12 @@ def pi_password_login_works(host: str, password: str, key_path: Path, proxy_jump
     return who == "pi"
 
 
-def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str] | None = None,
+def run_ansible(playbook: str | Path, inventory: Path, limit: str, extra_args: list[str] | None = None,
                 log_path: Path | None = None) -> int:
     """Run an ansible-playbook command and return exit code.
 
+    playbook is a name under ansible/, or a path to a harness playbook
+    elsewhere (its roles come from ansible/roles, via ANSIBLE_ROLES_PATH).
     With log_path the output goes to that file instead of stdout: used for a
     playbook that runs alongside another one, printed once it has finished.
     """
@@ -187,12 +192,13 @@ def run_ansible(playbook: str, inventory: Path, limit: str, extra_args: list[str
     print(f"\n{'='*60}")
     print(f"Running: {' '.join(cmd)}")
     print(f"{'='*60}\n")
+    env = {**os.environ, "ANSIBLE_ROLES_PATH": str(ANSIBLE_DIR / "roles")}
     # Open /dev/null for stdin to avoid Ansible's non-blocking IO detection issue
     if log_path is None:
-        return subprocess.run(cmd, stdin=subprocess.DEVNULL).returncode
+        return subprocess.run(cmd, stdin=subprocess.DEVNULL, env=env).returncode
     with open(log_path, "w") as log:
         return subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=log,
-                              stderr=subprocess.STDOUT).returncode
+                              stderr=subprocess.STDOUT, env=env).returncode
 
 
 def wait_for_pi_boot(pi: VMManager, timeout: int = 300) -> tuple[bool, str | None]:
@@ -381,15 +387,14 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
     # The key and become come from the inventory and ansible.cfg, as in
     # production (tests/inventory/group_vars/all/controller.yml names the
     # key generated above).
-    if args.skip_tags:
-        extra.extend(["--skip-tags", args.skip_tags])
 
     # A check-mode run of the server account role first: the rename is
     # pending, and --check must report it rather than fail (and change
     # nothing -- the rename check after site.yml proves the real run did
-    # the whole job).
+    # the whole job). A playbook of that one role, not a tagged web.yml
+    # (issue #157): see tests/vm/server_user_check.yml.
     if args.inventory != "production":
-        rc = run_ansible("web.yml", inventory, "test-vm", extra + ["--check", "--tags", "server_user"])
+        rc = run_ansible(SERVER_USER_CHECK, inventory, "test-vm", extra + ["--check"])
         if rc != 0 or not check_server_user_untouched(server, key_path):
             print(f"ERROR: the check-mode server_user run failed (rc={rc}) or changed the host")
             if not args.keep_vm:
@@ -646,11 +651,7 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
 
     # Run verify-pi.yml against the running Pi (test-pi in the inventory).
     inventory = TEST_INVENTORY
-    extra = []
-    if args.skip_tags:
-        extra.extend(["--skip-tags", args.skip_tags])
-
-    rc = run_ansible("verify-pi.yml", inventory, "test-pi", extra)
+    rc = run_ansible("verify-pi.yml", inventory, "test-pi")
     if not password_ok.result():
         print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
         rc = rc or 1
@@ -698,9 +699,6 @@ def main():
     parser.add_argument("--keep-vm", action="store_true", help="Don't teardown on success")
     parser.add_argument("--inventory", choices=["minimal", "production"], default="minimal")
     parser.add_argument("--vault-password-file", type=str, help="Vault password file for production inventory")
-    parser.add_argument("--skip-tags", type=str, default="",
-                        help="Comma-separated Ansible tags to skip (debugging only: CI skips nothing, "
-                             "so it runs exactly what a production deploy runs)")
     parser.add_argument("--ssh-to-server", action="store_true", help="Drop into SSH on server after setup")
     parser.add_argument("--ssh-to-pi", action="store_true", help="Drop into SSH on Pi via ProxyJump")
     args = parser.parse_args()
