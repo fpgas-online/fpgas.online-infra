@@ -64,7 +64,10 @@
     # first, so the kernel pruner keeps what the Pis will boot, then finish
     # the chroot session (initramfs refresh, prune, unmount, policy-rc.d),
     # then sync again to pick up the refreshed initramfs images.
-    - name: Sync the upgraded kernel payload before pruning
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Sync the upgraded kernel payload before pruning  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
@@ -75,7 +78,10 @@
         name: nspawn_pi
         tasks_from: stop.yml
 
-    - name: Re-sync kernel+initramfs+DTB payload after the kernel maintenance
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Re-sync kernel+initramfs+DTB payload after the kernel maintenance  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/

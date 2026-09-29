@@ -10,7 +10,10 @@
     that: lldp_v_pkg.rc == 0
     fail_msg: "lldpd package is not installed on the server"
 
-- name: Check lldpd service active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts reports only
+# running/stopped, not the ActiveState string the assert and its message use.
+- name: Check lldpd service active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active lldpd
   changed_when: false
   register: lldp_v_active

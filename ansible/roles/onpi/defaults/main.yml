@@ -25,3 +25,9 @@ onpi_nfsroot_watchdog_spacing: 20
 
 # true: the boards only log "would reboot" (journal + netconsole).
 onpi_nfsroot_watchdog_dry_run: false
+
+# FPGA boot check (tasks/fpga_verify.yml): the fpgas-verify mode package baked into the root. The root is
+# shared by every Pi at a site, so by default it checks whichever boards are attached. A site with one kind
+# of board can name that board's package instead (fpgas-online-acorn, -arty, -netv2, -fomu or -tt-fpga):
+# it installs only that board's tools, and a Pi without that board fails its check.
+onpi_fpga_verify_package: fpgas-online-all-boards

@@ -15,7 +15,10 @@
   tags:
     - nogrow
 
-- name: Don't resize the root fs
+# noqa: command-instead-of-module -- `systemctl --root` masks units in the
+# offline NFS root; systemd_service acts on the running host's systemd and
+# has no --root.
+- name: Don't resize the root fs  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
   register: fixpi_mask
   # systemctl reports "Created symlink ... -> /dev/null" (on stderr) only when

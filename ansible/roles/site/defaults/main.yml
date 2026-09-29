@@ -11,6 +11,13 @@ site_certbot: true
 # Off by default: welland opts in, ps1 is the site being pointed AT.
 site_under_construction: false
 
+# Offer a Pi on the /fpgas/ pages only when its FPGA boot check (fpgas-verify,
+# roles/onpi/tasks/fpga_verify.yml) passed in the boot it is running now; the
+# others still boot and take ssh, for someone to look at. The site learns the
+# result from the fleet app, so only a host with fleet_broker can turn it on:
+# anywhere else no Pi would ever show. Off by default.
+site_require_fpga_verified: false
+
 # pip requirement specs for the site and the PoE/switch package.  Override
 # site_package with `... .git@my-branch` to deploy a site branch for testing.
 site_package: "fpgas-online-site @ git+https://github.com/fpgas-online/fpgas.online-site.git"

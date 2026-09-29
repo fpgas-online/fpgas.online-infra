@@ -61,7 +61,7 @@
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
-          acorn_report = read("/run/fpgas-online/acorn-verify.json")
+          fpga_verify_report = read("/run/fpgas-online/verify.json")
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -81,9 +81,9 @@
               "cam": run("systemctl", "is-enabled", "fpgas-cam"),
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
-              "acorn_enabled": run("systemctl", "is-enabled", "fpgas-acorn-verify.service"),
-              "acorn_report": ({"content": base64.b64encode(acorn_report).decode()}
-                               if acorn_report is not None else {"msg": "not readable or missing"}),
+              "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
+              "fpga_verify_report": ({"content": base64.b64encode(fpga_verify_report).decode()}
+                                     if fpga_verify_report is not None else {"msg": "not readable or missing"}),
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
               "dt_model": ({"content": base64.b64encode(model).decode()} if model is not None else {}),
               "model": {"rc": 0 if model is not None else 1,
@@ -120,8 +120,8 @@
         verify_pi_cam: "{{ verify_pi_state.cam }}"
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
-        verify_pi_acorn_enabled: "{{ verify_pi_state.acorn_enabled }}"
-        verify_pi_acorn_report: "{{ verify_pi_state.acorn_report }}"
+        verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
+        verify_pi_fpga_verify_report: "{{ verify_pi_state.fpga_verify_report }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
         verify_pi_model: "{{ verify_pi_state.model }}"
@@ -422,34 +422,42 @@
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
       tags: [verify, hw-fpga]
 
-    # The Acorn boot check (roles/onpi/tasks/acorn.yml). Installed and enabled on every Pi: that part is
-    # software and carries fpgas-apt like its install. What it found is hardware (hw-fpga): "pass" is an
-    # Acorn running the pinned release's operational build with both flash slots matching it, "none" is a
-    # Pi with no FPGA on PCIe. Anything else is a board that is not right, and says why. The collector
-    # reads both the unit's state and the report (written 0644 by the root service, so no become).
-    - name: Assert the Acorn boot check is enabled
+    # The FPGA boot check, fpgas-verify (roles/onpi/tasks/fpga_verify.yml). Installed and enabled on every
+    # Pi: that part is software and carries fpgas-apt like its install. What it found is hardware (hw-fpga):
+    # "pass" is every board it looked for found and checked out. Anything else fails, and says why --
+    # including "missing", a Pi with no board attached: every Pi it checks is meant to have one, and one
+    # without is kept off the site (site_require_fpga_verified) until someone looks. The collector reads
+    # both the unit's state and the report (written 0644 by the root service, so no become).
+    # verify_pi_fpga_expect (default "pass") is the result a Pi must report: the VM test's Pi has no board,
+    # so its inventory expects "missing", which checks the no-board path end to end.
+    - name: Assert the FPGA boot check is enabled
       ansible.builtin.assert:
-        that: verify_pi_acorn_enabled.stdout == "enabled"
+        that: verify_pi_fpga_verify_enabled.stdout == "enabled"
         fail_msg: >-
-          fpgas-acorn-verify.service is '{{ verify_pi_acorn_enabled.stdout }}'
-          ({{ verify_pi_acorn_enabled.stderr }}) -- fpgas-online-acorn-tools is not in the NFS root, or
-          roles/onpi/tasks/acorn.yml has not run against it
-      tags: [verify, acorn, fpgas-apt]
+          fpgas-verify.service is '{{ verify_pi_fpga_verify_enabled.stdout }}'
+          ({{ verify_pi_fpga_verify_enabled.stderr }}) -- no fpgas-verify mode package
+          (fpgas-online-all-boards, or one board's) in the NFS root, or
+          roles/onpi/tasks/fpga_verify.yml has not run against it
+      tags: [verify, fpga-verify, acorn, fpgas-apt]
 
-    - name: Assert the Acorn boot check passed (or found no FPGA)
+    - name: Assert the FPGA boot check gave the expected result
       vars:
-        report: "{{ verify_pi_acorn_report.content | b64decode | from_json if verify_pi_acorn_report.content is defined else {} }}"
+        report: "{{ verify_pi_fpga_verify_report.content | b64decode | from_json if verify_pi_fpga_verify_report.content is defined else {} }}"
+        expect: "{{ verify_pi_fpga_expect | default('pass') }}"
       ansible.builtin.assert:
         that:
-          - verify_pi_acorn_report.content is defined
-          - (report.result | default('')) in ['pass', 'none']
+          - verify_pi_fpga_verify_report.content is defined
+          - (report.result | default('')) == expect
         fail_msg: >-
-          {% if verify_pi_acorn_report.content is not defined %}No /run/fpgas-online/acorn-verify.json: the
-          check has not run this boot ({{ verify_pi_acorn_report.msg | default('') }}).{% else %}Acorn check
-          result '{{ report.result }}' (release {{ report.release or '-' }}):
-          {% for b in report.boards %}{{ b.bdf }} {{ b.kind }} {{ b.variant }} {{ b.result }}{% if b.reason
-          is defined %} -- {{ b.reason }}{% endif %}; {% endfor %}{% endif %}
-      tags: [verify, acorn, hw-fpga]
+          {% if verify_pi_fpga_verify_report.content is not defined %}No /run/fpgas-online/verify.json: the
+          check has not finished this boot ({{ verify_pi_fpga_verify_report.msg | default('') }}).{% else %}FPGA
+          check result '{{ report.result }}', expected '{{ expect }}' (mode {{ report.mode | default('-') }},
+          {{ report.chosen_by | default('-') }}){% if report.reason | default('') %}: {{ report.reason }}{% endif %}.
+          {% for b in report.boards | default([]) %}{{ b.board }} {{ b.get('variant') or '-' }} {{ b.result
+          }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (report.state
+          | default({})).changes | default([]) %}changed: {{ c }}; {% endfor %}`journalctl -b -u
+          fpgas-verify` on the Pi has the rest.{% endif %}
+      tags: [verify, fpga-verify, acorn, hw-fpga]
 
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
     # neither fail nor stall the boot.
@@ -681,20 +689,24 @@
     # Ask the server's Django app (gunicorn's socket, as site verify does)
     # for this board's fleet page: it must exist, show the board online and
     # carry the boot id of the boot running now -- i.e. this boot registered.
+    # follow_redirects: none, like curl without -L; uri's default
+    # status_code (200) fails an attempt as curl --fail did, and the until
+    # retries it. content can be absent on a failed attempt, hence default.
     - name: Server has registered this Pi in the fleet
-      ansible.builtin.command: >-
-        curl --silent --show-error --fail
-        --unix-socket /run/gunicorn.sock
-        --header 'Host: {{ hostvars[verify_pi_server].domain_name }}'
-        http://localhost/fleet/{{ verify_pi_identity.stdout_lines[0] }}/
+      ansible.builtin.uri:
+        url: http://localhost/fleet/{{ verify_pi_identity.stdout_lines[0] }}/
+        unix_socket: /run/gunicorn.sock
+        headers:
+          Host: "{{ hostvars[verify_pi_server].domain_name }}"
+        follow_redirects: none
+        return_content: true
       delegate_to: "{{ verify_pi_server }}"
       become: true
-      changed_when: false
       register: verify_pi_fleet_page
       until: >-
-        verify_pi_fleet_page.rc == 0
-        and 'badge online' in verify_pi_fleet_page.stdout
-        and verify_pi_identity.stdout_lines[1] in verify_pi_fleet_page.stdout
+        verify_pi_fleet_page.status == 200
+        and 'badge online' in (verify_pi_fleet_page.content | default('', true))
+        and verify_pi_identity.stdout_lines[1] in (verify_pi_fleet_page.content | default('', true))
       retries: 24
       delay: 5
       when: verify_pi_fleet | default(false)
