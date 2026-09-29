@@ -1,5 +1,7 @@
 # Orange Pi H3 netboot on the fpgas.online Welland rack — spike results and design
 
+> **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
+
 Status: **spike complete, design awaiting Tim's approval** (2026-08-28).
 Companion: `docs/hardware/2026-08-28-orange-pi-h3-boards.md` (port/USB/MAC mapping).
 

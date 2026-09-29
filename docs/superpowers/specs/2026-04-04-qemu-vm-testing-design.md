@@ -1,5 +1,7 @@
 # QEMU VM Testing for Ansible Playbooks
 
+> **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
+
 **Date:** 2026-04-04
 **Status:** Approved
 

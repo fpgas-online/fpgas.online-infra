@@ -1,5 +1,7 @@
 # VLAN-per-port network: hardware prototype runbook
 
+> **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
+
 Site: welland (tweed.welland.mithis.com + s3300 + s2/GSM7252PS).
 Spec: `docs/superpowers/specs/2026-08-14-vlan-per-port-network-design.md`
 (read the "Rollout" and "Risks to verify FIRST" sections before starting).
