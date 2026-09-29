@@ -64,9 +64,13 @@
     - netboot
 
 # The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
-# cmdline.txt.j2 no longer puts a kernel console there, and this disables
-# SysRq so any stray bytes the FPGA drives onto that line can never be
-# parsed as reboot/crash/poweroff. See files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
+# cmdline.txt.j2 keeps the kernel console off it with console=tty1. Naming
+# no console= at all is not enough: the kernel then takes the firmware's
+# /chosen/stdout-path, which is serial0 on every Pi 3/4, and systemd's boot
+# status lands on the FPGA's UART (fpgas.online-infra#155; fixpi's verify
+# checks the token). This disables SysRq so any stray bytes the FPGA drives
+# onto that line can never be parsed as reboot/crash/poweroff. See
+# files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
 - name: Disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
   ansible.builtin.copy:
     src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"

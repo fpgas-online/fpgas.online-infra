@@ -65,6 +65,21 @@
     that: "'nfsroot=' in fixpi_cmdline.stdout"
     fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"
 
+# The Pi 3/4 header UART (ttyAMA0 / serial0) is the FPGA board's serial link.
+# The command line must name a console, and not that one: with no console= the
+# kernel falls back to the firmware's stdout-path, serial0 (#155).
+- name: Assert cmdline.txt keeps the kernel console off the header UART
+  vars:
+    consoles: "{{ fixpi_cmdline.stdout.split() | select('match', '^console=') | list }}"
+  ansible.builtin.assert:
+    that:
+      - consoles | length > 0
+      - consoles | select('match', '^console=(serial0|ttyAMA0)(,|$)') | list | length == 0
+    fail_msg: >-
+      {{ nfs_root }}/boot/cmdline.txt names console(s) {{ consoles }}. It must name
+      one (console=tty1), and not serial0/ttyAMA0: otherwise the kernel console, and
+      systemd's boot status, go to the FPGA's UART.
+
 # --- Orange Pi (sunxi) netboot files (fixpi/tasks/sunxi.yml) ---
 - name: Read the sunxi PXE config
   ansible.builtin.slurp:
