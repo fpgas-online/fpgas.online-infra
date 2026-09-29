@@ -542,10 +542,9 @@
 
     # Tiny Tapeout: roles/onpi/tasks/tt.yml bakes the daemon (every Pi, when
     # the site has tt_boards) and the FPGA demo bitstreams into the NFS root.
-    # The demos check is fpga-specific (hw-fpga). The daemon comes from the
-    # fpgas.online apt repo, so onpi includes tt.yml with tags [fpgas-apt];
-    # the service checks carry fpgas-apt too, and are skipped alongside the
-    # install by a run that skips the tag.
+    # Both are software in the shared root, so every Pi has them. The daemon
+    # comes from the fpgas.online apt repo, so onpi includes tt.yml with tags
+    # [fpgas-apt]; the service check carries fpgas-apt too.
     - name: Assert fpgas-tt service enabled
       ansible.builtin.assert:
         that: verify_pi_tt.stdout == "enabled"
@@ -556,16 +555,18 @@
       ansible.builtin.assert:
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
-      tags: [hw-fpga]
 
     # The FPGA boot check, fpgas-verify (roles/onpi/tasks/fpga_verify.yml). Installed and enabled on every
-    # Pi: that part is software and carries fpgas-apt like its install. What it found is hardware (hw-fpga):
-    # "pass" is every board it looked for found and checked out. Anything else fails, and says why --
-    # including "missing", a Pi with no board attached: every Pi it checks is meant to have one, and one
-    # without is kept off the site (site_require_fpga_verified) until someone looks. The collector reads
-    # both the unit's state and the report (written 0644 by the root service, so no become).
-    # verify_pi_fpga_expect (default "pass") is the result a Pi must report: the VM test's Pi has no board,
-    # so its inventory expects "missing", which checks the no-board path end to end.
+    # Pi: that part is software and carries fpgas-apt like its install. It looks for the boards itself
+    # (USB and PCI IDs, then a JTAG probe) and writes what it found to /run/fpgas-online/verify.json
+    # (0644 from the root service, so no become), which verify-pi asserts on:
+    #   no report:                                    fail (the check did not run, or has not finished)
+    #   "pass" (every board found checked out):       pass
+    #   "missing" in mode auto, no board recorded as
+    #   here before (nothing attached):               pass, and says so
+    #   anything else -- "fail", "degraded", "driver-bound", "changed", "error", or "missing" when a board
+    #   was configured (fpga-board = <board>) or recorded here before:  fail, and says why
+    # The site still keeps a Pi without a verified board off the board list (site_require_fpga_verified).
     - name: Assert the FPGA boot check is enabled
       ansible.builtin.assert:
         that: verify_pi_fpga_verify_enabled.stdout == "enabled"
@@ -576,24 +577,42 @@
           roles/onpi/tasks/fpga_verify.yml has not run against it
       tags: [fpgas-apt]
 
-    - name: Assert the FPGA boot check gave the expected result
-      vars:
-        report: "{{ verify_pi_fpga_verify_report.content | b64decode | from_json if verify_pi_fpga_verify_report.content is defined else {} }}"
-        expect: "{{ verify_pi_fpga_expect | default('pass') }}"
+    - name: What the FPGA boot check found
+      ansible.builtin.set_fact:
+        verify_pi_fpga: >-
+          {{ verify_pi_fpga_verify_report.content | b64decode | from_json
+             if verify_pi_fpga_verify_report.content is defined else {} }}
+
+    - name: Whether an FPGA board is attached
+      ansible.builtin.set_fact:
+        verify_pi_fpga_found: >-
+          {{ not (verify_pi_fpga.result | default('') == 'missing'
+                  and verify_pi_fpga.mode | default('') == 'auto'
+                  and verify_pi_fpga.boards | default([]) | length == 0
+                  and (verify_pi_fpga.state | default({})).changes | default([]) | length == 0) }}
+
+    - name: Say that this Pi has no FPGA board, so there is none to check
+      ansible.builtin.debug:
+        msg: >-
+          No FPGA board on {{ ansible_hostname }}: fpgas-verify looked and found
+          none ({{ verify_pi_fpga.reason | default('-') }}).
+      when: verify_pi_fpga_verify_report.content is defined and not verify_pi_fpga_found
+
+    - name: Assert the FPGA boot check passed on the board it found
       ansible.builtin.assert:
         that:
           - verify_pi_fpga_verify_report.content is defined
-          - (report.result | default('')) == expect
+          - not verify_pi_fpga_found or verify_pi_fpga.result | default('') == 'pass'
         fail_msg: >-
           {% if verify_pi_fpga_verify_report.content is not defined %}No /run/fpgas-online/verify.json: the
           check has not finished this boot ({{ verify_pi_fpga_verify_report.msg | default('') }}).{% else %}FPGA
-          check result '{{ report.result }}', expected '{{ expect }}' (mode {{ report.mode | default('-') }},
-          {{ report.chosen_by | default('-') }}){% if report.reason | default('') %}: {{ report.reason }}{% endif %}.
-          {% for b in report.boards | default([]) %}{{ b.board }} {{ b.get('variant') or '-' }} {{ b.result
-          }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (report.state
+          check result '{{ verify_pi_fpga.result | default('-') }}' (mode {{ verify_pi_fpga.mode | default('-') }},
+          {{ verify_pi_fpga.chosen_by | default('-') }}){% if verify_pi_fpga.reason | default('') %}:
+          {{ verify_pi_fpga.reason }}{% endif %}.
+          {% for b in verify_pi_fpga.boards | default([]) %}{{ b.board }} {{ b.get('variant') or '-' }} {{ b.result
+          }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (verify_pi_fpga.state
           | default({})).changes | default([]) %}changed: {{ c }}; {% endfor %}`journalctl -b -u
           fpgas-verify` on the Pi has the rest.{% endif %}
-      tags: [hw-fpga]
 
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
     # neither fail nor stall the boot.
