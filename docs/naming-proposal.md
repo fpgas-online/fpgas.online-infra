@@ -75,12 +75,12 @@ and what it acts on.
 | `apt_client` | keep | gw | the gateway's own apt proxy config (`01site-proxy`) | clear | – |
 | `automation_user` | keep | gw | the `ansible` automation account | clear | – |
 | `cam_pi` | **`nfsroot_cam`** | CI chroot | installs GStreamer and `fpgas-online-cam` into the NFS root, enables `fpgas-cam.service` | clear: the family prefix says it is the camera software inside the root, apart from `stream_server`/`webrtc` on the web tier | C |
-| — (new) | **`chrony`** | gw | chrony as the board LAN's NTP server (install + `allow <lan>/16` + handler), moved out of `pxe` | clear: named after the one daemon it manages; the gateway's own time sync is the same daemon | X |
+| — (new, from PR #45) | **`timesync`** (decision 11; replaces this proposal's `chrony` role) | gw | chrony as the board LAN's NTP server plus the fake-hwclock reference, moved out of `pxe` by #45 | #45's name; kept | X |
 | `firewall` | keep | gw | nftables rules + IPv4/IPv6 forwarding | clear (alt `nftables` names the tool, not the job) | – |
 | `fixpi` | **split** into `nfsroot_netboot` + `nfsroot_site` (map in 2.10) | CI + gw | file-level edits to the root and its boot/TFTP tree. Today both runs do almost all of it; only the ARM-code tasks are gated to CI by `fixpi_image_build` | see the two rows below | D C M |
 | — (from `fixpi`) | **`nfsroot_netboot`** | CI only | turns the RasPiOS tree into a read-only netboot root: cmdline/fstab, users and sudo, sshd on, first-boot/resize/swap off, config.txt, sunxi kernel bake, nfs-common | candidates: `nfsroot_netboot` (risk: "netboot" also names the whole DHCP/TFTP chain, and fpgas.online-netboot-pi; the `nfsroot_` prefix confines it to the root, and its main file is already `netboot.yml`); `nfsroot_base` (collides with the CI **base stage**, `ci-nfsroot-base.yml`); `nfsroot_boot` (reads as the `boot/` partition only); `nfsroot_diskless` (accurate, but not a word used anywhere in the project). **Pick `nfsroot_netboot`** | C |
 | — (from `fixpi`) | **`nfsroot_site`** | gw only | applies this location's values to the pulled root and publishes its boot files: pi password, logins and keys, ssh host keys, authorized_keys, TT catalogue, fleet.toml, `pistat_host`, timesyncd server, the legacy TFTP tree and the sunxi TFTP payload | candidates: `nfsroot_site` (site = location, the convention's meaning; matches the existing "site layer", `tt-site.yml`, `fleet-site.yml`; the old `site` role is gone by then); `nfsroot_local` (clashes with `eth-local` and Ansible's `local` connection); `nfsroot_values` (misses the TFTP publishing and host keys); `nfsroot_deploy` (reads as the pull, which is `nfsroot_image`). **Pick `nfsroot_site`** | D |
-| `fpgas_apt` | **`nfsroot_apt`** | CI chroot; **also gw**: `nfsroot_generation/tasks/install.yml` includes its `tasks/nfsroot-watchdog.yml` to add the nfsroot-watchdog source on the gateway itself | adds the fpgas.online, fpga-tools and nfsroot-watchdog apt repos inside the NFS root (and that one repo on the gateway) | clear once `apt_cache/tasks/nfsroot.yml` is renamed `root-sources.yml` (row above). Could read as "installs packages"; its README says "repos and keys only; packages are `nfsroot_packages`". The gateway use does not fit the `nfsroot_` meaning; open question for the owner | C (+ the `nfsroot_generation` include and its two `fpgas_apt_nfsroot_watchdog_*` vars) |
+| `fpgas_apt` | **`nfsroot_apt`** | CI chroot only, once `nfsroot_generation` stops including its `tasks/nfsroot-watchdog.yml` on the gateway (decision 13) | adds the fpgas.online, fpga-tools and nfsroot-watchdog apt repos inside the NFS root | clear once `apt_cache/tasks/nfsroot.yml` is renamed `root-sources.yml` (row above). Could read as "installs packages"; its README says "repos and keys only; packages are `nfsroot_packages`". `nfsroot_generation` writes the gateway's own nfsroot-watchdog source itself | C (+ `nfsroot_generation/tasks/install.yml`) |
 | `img` | **`nfsroot_image`** | CI + gw | CI base stage: downloads and extracts RasPiOS (`build.yml`). Gateway: podman pull of the GHCR image and extraction to `nfs_root` (`prefetch.yml`, `pull.yml`) | minor risk: could read as "builds/publishes the image" (that is the workflow + `tests/ci`). Alternatives: `nfsroot_fetch` (collides with `ansible.builtin.fetch`), `nfsroot_pull` (wrong for CI's download), `nfsroot_extract` (misses the prefetch). Keep `nfsroot_image`: both halves turn an image into the root tree | D C |
 | `jump` | keep | gw | the restricted jump account (`pi`) used to hop to the Pis | minor: can read as a verb; the account name `pi` also equals the Pi login (`pi_user`). Alt `ssh_jump`. Keep | – |
 | `lldp` | keep | gw | lldpd | clear | – |
@@ -91,7 +91,7 @@ and what it acts on.
 | `nspawn_pi` | **`nfsroot_chroot`** | CI (+ gw verify) | CI: bind mounts, policy-rc.d, the deb cache, initramfs suppression and kernel pruning so apt can run inside the root. Its verify runs on the **gateway** (verify-server.yml) and installs `/usr/local/sbin/nfsroot-kernels` there. No systemd-nspawn any more | clear: matches the `community.general.chroot` connection it prepares | C D |
 | `onpi` | **`nfsroot_packages`** | CI chroot | apt upgrade, setup-pi, TT bridge, fleet units, the Pi's own atftpd port, FPGA boot check, nfsroot-watchdog, drops `nfsvers` from cmdline.txt. Never runs on a Pi (only in the CI chroot) | risk: "packages INTO the root, or packages that SERVE it?" The `nfsroot_` family means "the root's content"; the NFS server is `nfs_server`, so it reads INTO. Not unique: `nfsroot_cam` and `nfsroot_apt` also install into the root; this is the general set. Alternatives: `nfsroot_software` (vaguer), `pi_packages` (leaves the family), `nfsroot_pi` (reads as the host). Keep | D C |
 | `operators` | keep | gw | operator accounts, keys, sudo, retired accounts | clear | – |
-| `pxe` | **`dnsmasq`** (decided; chrony moves to `chrony`) | gw | dnsmasq DHCP/TFTP/auth DNS (`base.conf`, `ports.conf`, legacy MAC tables, the "Raspberry Pi Boot" service). The Pis do not PXE | clear once chrony is out: named after the one daemon it manages | D C (`site/tasks/pistat.yml` reads `../pxe/files/send_stat.conf`) |
+| `pxe` | **`dnsmasq`** (decided; chrony moves to `timesync` in #45) | gw | dnsmasq DHCP/TFTP/auth DNS (`base.conf`, `ports.conf`, legacy MAC tables, the "Raspberry Pi Boot" service). The Pis do not PXE | clear once chrony is out: named after the one daemon it manages | D C (`site/tasks/pistat.yml` reads `../pxe/files/send_stat.conf`) |
 | — (new) | **`serial_monitor`** | gw | the gateway side of watching a Pi's serial console: remove brltty, install tio, add the server user to `dialout`, mask the ttyAMA0 getty; on a Pi gateway, enable `/dev/serial0`. Moved out of fixpi's `tweeks.yml`; replaces `fixpi_server_monitor` | candidates: `serial_monitor` (says "watch serial lines"); `serial_console` (reads as *providing* a console on the gateway, the opposite of masking its getty); `tio` (the role does more than install tio); `console_tap` (unfamiliar). **Pick `serial_monitor`**. Minor risk: "monitor" as in monitoring; the README says "serial lines, not metrics" | X |
 | `server_user` | keep | web | the host's own admin login (`user_name`), incl. the in-place rename from `videoteam` | minor: "server" beside the `gateway` group. It runs in web.yml, so a host-neutral word is right. Keep | – |
 | `site` | **`website`** | web | nginx vhost + certbot, the fpgas-online-site Django install, gunicorn/uvicorn/daphne, fleet consumer, pistat (redis + a dnsmasq drop-in) and the PoE env | clear. Minor risk: could be read as the apex fpgas.online landing site; the README says "this location's Django site". Alternatives: `web_app`, `django_site` (reads as Django's Sites framework), `django` (reads as "installs Django"). Keep `website` | D C (heavy) |
@@ -206,7 +206,7 @@ times in `onpi/tasks`, not 6.
 | `fixture_path` | `site_fixture` | the site repo's Django board fixture file | clear (per-location data) | D |
 | `fleet_broker` | **`fleet_enabled`** | bool: this site runs fleet self-registration (broker, consumer, fleet.toml, verify). Not the broker's address | clear. `fleet` alone would clash with the concept | D C |
 | `fleet_site` | keep | fleet site id (`welland`, `ps1`) | clear | – |
-| `switch` | **`snmp_switch`** (was `poe_switch`) | dict: the SNMP PoE target (creds, `mac`, `oid`, `mpi_port`) + `nos`. Read only on the legacy MAC-table scheme (ps1): `site/tasks/snmp.yml` needs `switch.mpi_port`, and pxe/firewall/fixpi read it only when `switches` is undefined. welland and test-vm still set it, but nothing reads it there (their PoE env comes from `switches`, via `gunicorn-poe.conf.j2`) | `poe_switch` reads as "the PoE switch" when every entry in `switches` is also a PoE switch. `snmp_switch` matches the live `SNMP_SWITCH_*` env keys and `snmp_switch.conf` | D C (tests/vm, 26 site refs) |
+| `switch` | **`snmp_switch`** (was `poe_switch`) | dict: the SNMP PoE target (creds, `mac`, `oid`, `mpi_port`) + `nos`. Read only on the legacy MAC-table scheme (ps1): `site/tasks/snmp.yml` needs `switch.mpi_port`, and pxe/firewall/fixpi read it only when `switches` is undefined. welland and test-vm still set it, but nothing reads it there (their PoE env comes from `switches`, via `gunicorn-poe.conf.j2`): **delete those two blocks** (decision 12); only legacy single-switch sites (ps1) keep it, renamed | `poe_switch` reads as "the PoE switch" when every entry in `switches` is also a PoE switch. `snmp_switch` matches the live `SNMP_SWITCH_*` env keys and `snmp_switch.conf` | D C (tests/vm, 26 site refs) |
 | `switch.nos` | `snmp_switch.pis` | the Pi list (port, MAC, serial) for the legacy MAC-table scheme | clear. Alt `.boards` (board = the FPGA) | D |
 | `switches` | keep | per-port-VLAN switch list | clear | – |
 | `switches_manage` | `switch_vlans_manage` | lets `switch_vlans` push config | clear | D |
@@ -243,6 +243,7 @@ Renaming a role renames every var in its defaults and every `register`/`set_fact
 | | `fixpi_sunxi_dtbs`, `fixpi_sunxi_i2c_nodes` | `nfsroot_site_sunxi_*` (the TFTP publish runs on the gateway) | clear | D |
 | | `fixpi_sunxi_kernel_package`, `fixpi_sunxi_debian_keyring_*` | `nfsroot_netboot_sunxi_*` (the kernel bake runs in CI) | clear | C |
 | fpgas_apt → nfsroot_apt | `fpgas_apt_*` | `nfsroot_apt_*` | clear | C |
+| | `fpgas_apt_nfsroot_watchdog_{url,upstream_url,suite,key_fingerprint}` | `nfsroot_apt_watchdog_*` (not `nfsroot_apt_nfsroot_watchdog_*`) | the double prefix reads badly; the role prefix already says NFS root | C |
 | cam_pi → nfsroot_cam | `cam_pi_*` (if any) | `nfsroot_cam_*` | clear | C |
 | img → nfsroot_image | `img_nfsroot_image` | `nfsroot_image_ref` | clear (OCI "image reference") | D (branch-deploy override) |
 | | `img_cache_dir` (`/var/cache/pib`) | `nfsroot_image_raspios_cache` (value `/var/cache/raspios`) | clear | C (the value is also hard-coded in `.github/actions/nfsroot-setup/action.yml`: `install -d` and the actions/cache path; change both or the download cache silently stops hitting) |
@@ -267,7 +268,7 @@ Renaming a role renames every var in its defaults and every `register`/`set_fact
 | `Exportfs` | nfs | `Reload NFS exports` | runs `exportfs -r` | X |
 | `Reload sshd for pubkey-only` | sshd | keep | the suffix keeps it apart from jump's `Reload sshd` | – |
 | `Restart network-manager`, `Restart networking` | pxe | **delete** | nothing notifies them (checked) | X |
-| `Restart chrony` | pxe | moves to the new `chrony` role | | X |
+| `Restart chrony` | pxe | moves to #45's `timesync` role | | X |
 | `Restart dnsmasq` | site | keep; moves with `pistat.yml`'s dnsmasq drop-in if that goes to `dnsmasq` | the website role notifying dnsmasq is surprising; see 2.7 | X |
 | `Restart apt-cacher-ng (apt-cache)`, `Reload nginx (apt-cache)` | apt_cache | keep | the suffix pattern is fine | – |
 | `Reload nginx` | site, ttsite, wssh, stream_server, webrtc | keep | same action everywhere | – |
@@ -348,7 +349,7 @@ pins an older image keeps that image's generic layer.
 |---|---|---|---|
 | `netboot.yml` | back up stock files; write `cmdline.txt`/`cmdline-pi5.txt` and `fstab` (they hard-code `10.21.0.1` and the `nfs_root` path, so they are generic); disable SysRq; pi and ansible users + sudo; hostname service; chroot `resolv.conf`; nfs-common; kernel payload sync; enable ssh.service; disable `regenerate_ssh_host_keys`; mask `userconfig` | `nfsroot_netboot/tasks/main.yml` | CI |
 | `netboot.yml` | SSH host keys (generate when absent) | `nfsroot_site/tasks/host-keys.yml` | gw |
-| `netboot.yml` | timesyncd → `eth_local_address` (a per-site value) | `nfsroot_site/tasks/timesyncd.yml` | gw |
+| `netboot.yml` | timesyncd → `eth_local_address` | none: PR #45 deletes these tasks (the root runs chrony from its `pi-clock` role) and lands first (decision 11) | – |
 | `netboot.yml` | `/srv/tftp`, `bootcode.bin` link, per-serial links (legacy MAC-table sites) | `nfsroot_site/tasks/tftp.yml` | gw |
 | `sunxi-image.yml` | bake the armmp kernel into the image | `nfsroot_netboot/tasks/sunxi-kernel.yml` | CI |
 | `sunxi.yml` | publish the kernel, initrd and DTBs to TFTP, install `device-tree-compiler`, fix up the I2C nodes, write the U-Boot PXE config | `nfsroot_site/tasks/sunxi-tftp.yml` | gw |
@@ -595,13 +596,13 @@ Each step is one small PR that stands alone and is based on main. **One role per
 | 10 | `wssh` → `webssh` | role only; the unit stays `wssh` | X |
 | 11 | `netif` → `nics` | | X |
 | 12 | `nfs` → `nfs_server` | | X |
-| 13 | new role `chrony` | chrony tasks + handler out of `pxe` (decision 4) | X |
+| 13 | (dropped) | PR #45 moves chrony out of `pxe` into `timesync` and lands before step 14 (decision 11) | – |
 | 14 | `pxe` → `dnsmasq` | + `dhcp_range`, `pxe_test_clients`, `site/tasks/pistat.yml`'s path | D |
 | 15 | `site` → `website` | + `site_*` → `website_*`, group_vars `site.yml` → `website.yml`, task files | D C |
 | 16 | `ttsite` → `tt_website` | + `ttsite_*`, `ttsite_domain` → `tt_fqdn`, drop `ttsite_pi_network`, the two `../ttsite/` reads | D C |
 | 17 | extract `nfsroot_site` from `fixpi` | move the gateway tasks per 2.10; site.yml runs `nfsroot_site`; `fixpi` becomes CI-only; drop `fixpi_image_build`, `fixpi_generate_host_keys` and CI's `--skip-tags pipw,keys`; `fixpi_ansible_*` → `nfsroot_ansible_*` (into `srv.yml` for now; step 24 renames the file) | D C (upgrade-stage rebuild) |
 | 18 | `fixpi` → `nfsroot_netboot` | rename the now CI-only role + its task files | C |
-| 19 | `fpgas_apt` → `nfsroot_apt` | + `apt_cache/tasks/nfsroot.yml` → `root-sources.yml` and the two README notes (decision 2); `nfsroot_generation/tasks/install.yml`'s gateway include of `tasks_from: nfsroot-watchdog.yml` and its two vars | C |
+| 19 | `fpgas_apt` → `nfsroot_apt` | + `apt_cache/tasks/nfsroot.yml` → `root-sources.yml` and the two README notes (decision 2); `fpgas_apt_nfsroot_watchdog_*` → `nfsroot_apt_watchdog_*`. **Before it**, a separate PR gives `nfsroot_generation` its own task for the gateway's nfsroot-watchdog apt source and drops its include of `fpgas_apt` (decision 13) | C |
 | 20 | `cam_pi` → `nfsroot_cam` | | C |
 | 21 | `onpi` → `nfsroot_packages` | + `tftpd_port` moved in (delete group_vars `ci.yml`, its two symlinks and its INPUTS/UPGRADE_INPUTS entries), `fleet.toml.j2` moved to `nfsroot_site` | C (upgrade-stage rebuild) |
 | 22 | `nspawn_pi` → `nfsroot_chroot` | + `nfsroot_build_deb_cache` | C (upgrade stage rebuild) |
@@ -611,7 +612,7 @@ Each step is one small PR that stands alone and is based on main. **One role per
 | 26 | account vars | `user` → `pi_user`, `user_name` → `server_user_name`, `pi_pw` → `pi_password` (`tests/vm/run_tests.py` reads `pi_pw` from test-vm's host_vars by name) | D C (upgrade-stage rebuild: `user` is in `srv.yml`) |
 | 27 | LAN vars | `pib_network*` → `lan_ip4_base`/`lan_ip6_base`, `pib_domain` → `lan_domain`; `dnsmasq_auth_zone` defaults to `lan_domain` and is removed from welland's host_vars (decision 10); move the template's auth-block gate off `dnsmasq_auth_zone is defined` (2.5.1) | D |
 | 28 | name vars | `domain_name` → `site_fqdn`, `streaming_frontend_*`, `conference_name` → `nginx_file_prefix`, `fleet_broker` → `fleet_enabled` | D (upgrade-stage rebuild: CI inventory sets `domain_name`) |
-| 29 | switch vars | `switch` → `snmp_switch`, `nos` → `pis`, `switches_manage` | D C |
+| 29 | switch vars | delete the dead `switch:` blocks in welland's and test-vm's host_vars; ps1's `switch` → `snmp_switch`, `nos` → `pis`; `switches_manage` (decision 12) | D C |
 | 30 | groups | `nbp` → `gateway`, `pig` → `web`, CI `pi` → `pi_chroot` (incl. `hosts:` in all three `ci-nfsroot*.yml`, README's `--limit nbp,uhubctl,pig` / `nbp,pi`) | D C (base stage rebuild: `ci-nfsroot-base.yml`) |
 | 31 | runner task file | `ci-nfsroot-runner.yml` → `tasks/ci-runner.yml` | C (base stage rebuild: it is in `BASE_FILES`) |
 | 32 | `tests/ci/` → `ci/` | + `tests/inventory/test-hosts` → `tests/inventory/hosts` (2.3; `run_tests.py`, verify-pi's usage line). `nfsroot_inputs.py` finds the repo as `parents[2]`, which becomes `parents[1]` | C |
@@ -651,9 +652,11 @@ known-good boards, before relying on them):
 ### 5.2 Open PRs that touch the same names (2026-09-29)
 
 "One PR open at a time" applies to this sequence only; these PRs from other
-sessions are already open and collide with it. Each one that lands first
-must be carried through the later rename steps; each one still open when a
-step renames what it touches has to be rebased by its owner.
+sessions are already open and collide with it. Nobody asks those sessions
+to rename anything (decision 14): each PR lands as written, the rename step
+it collides with is rebased onto it, and its own roles are renamed **after
+it merges**, as extra steps (R1–R6 below). A step that renames something an
+open PR still touches leaves that PR for its owner to rebase.
 
 | PR | touches | collides with |
 |---|---|---|
@@ -667,6 +670,17 @@ step renames what it touches has to be rebased by its owner.
 | #59 hypervisor, #54 welland pull, #51 fpgas-apt domain | `inventory/hosts`; `host_vars/fpgas.online.yml`; `roles/fpgas-apt` (pre-underscore path) | steps 30, 34; step 19 |
 | #129 NFS root generations spec | per-generation root dirs under the `nfs_root` path | section 4's "keep `/srv/nfs/rpi/<dist>`"; step 25 |
 
+Extra rename steps, each run only after its PR has merged:
+
+| # | after | rename | blast |
+|---|---|---|---|
+| R1 | #45 | image role `pi-clock` → `nfsroot_clock` (`timesync` keeps its name) | C |
+| R2 | #122 | `felboot` → `nfsroot_felboot` | C |
+| R3 | #123 | `usbboot` → `nfsroot_usbboot` | C |
+| R4 | #88 | `fleet-watchdog` → `fleet_watchdog` | X (D if it has `-e`/host_vars knobs) |
+| R5 | #58 | `board-access` → `board_access` | X (D if it has `-e`/host_vars knobs) |
+| R6 | #37, #51 | nothing new: they use the pre-underscore `roles/fpgas-apt` path and must be rebased onto `fpgas_apt`/`nfsroot_apt` by their owners |  – |
+
 ---
 
 ## 6. Decisions (settled)
@@ -676,13 +690,27 @@ step renames what it touches has to be rebased by its owner.
 | 1 | `fixpi`: rename whole or split? | split: **`nfsroot_netboot`** (CI: make the root netbootable) + **`nfsroot_site`** (gateway: per-site values and boot-file publishing) | 2.1, 2.10, steps 17–18 |
 | 2 | `fpgas_apt`, `cam_pi` | **`nfsroot_apt`**, **`nfsroot_cam`**; `apt_cache/tasks/nfsroot.yml` → `root-sources.yml` + README notes | 2.1, steps 19–20 |
 | 3 | `mqtt` | **keep** | 2.1 |
-| 4 | `pxe` | **`dnsmasq`** + a new **`chrony`** role | 2.1, steps 13–14 |
+| 4 | `pxe` | **`dnsmasq`**; chrony goes to #45's **`timesync`** (decision 11) | 2.1, step 14 |
 | 5 | host `fpgas.online` | **`welland.fpgas.online`**, its own announced PR near the end | 4.1, step 34 |
 | 6 | `uhubctl` | **keep**; move it into the NFS root and add a safe verify-pi check | 5.1, step U |
 | 7 | `fixpi_server_monitor` tasks | move to a new gateway role, **`serial_monitor`** | 2.1, step 7 |
 | 8 | `resolve.conf.j2` | **delete** with its task and manifest entry | step 5 |
 | 9 | `letsencrypt_account_email` | **`admin@fpgas.online`** | step 8 |
 | 10 | `dnsmasq_auth_zone` vs `lan_domain` | `dnsmasq_auth_zone` **defaults to `lan_domain`**; set it only where they differ | step 27 |
+| 11 | #45 vs the `chrony` role | adopt #45's **`timesync`**; #45 lands first; the `chrony` step is dropped; 2.10 follows #45's removal of fixpi's timesyncd tasks | 2.1, 2.10, step 13 |
+| 12 | welland/test-vm `switch:` | **delete** the dead blocks; legacy single-switch sites' `switch` → **`snmp_switch`** | 2.5.1, step 29 |
+| 13 | `nfsroot_apt` on the gateway | move the gateway use out: `nfsroot_generation` installs its own nfsroot-watchdog source; vars `nfsroot_apt_watchdog_*` | 2.1, 2.5.2, step 19 |
+| 14 | other sessions' open PRs | do not ask them to rename; rename their roles **after** they merge, as extra steps | 5.2 (R1–R6) |
+
+**Open** (for the owner):
+
+| # | question | options / note | where |
+|---|---|---|---|
+| O1 | removal of `boot/userconf.txt` and the password marker | on the gateway (`nfsroot_site`, as the map has it now) or in CI (`nfsroot_netboot`), since the image is the only source of those files after the split | 2.10 |
+| O2 | `docs/hardware/` (dated, but not a plan or spec) names `fixpi` paths | update it in the rename PRs, or leave it as history | section 5 intro |
+| O3 | stale gateway files after the split: `/usr/local/sbin/{maintenance,production}.sh`, `/usr/local/sbin/chroot-mount-pi-fs.bash` | add a one-off `state: absent` task (in `nfsroot_site`), or remove them by hand | 2.8, steps 5, 17 |
+| O4 | uhubctl hub locations | name them per model (Pi 4: `-l 1-1` and `-l 2`; Pi 5: its root hubs) instead of relying on uhubctl acting on every hub when `-l` is missing | 5.1 |
+| O5 | two handler bugs in `site` | "Restart dnsmasq" has its `state:` commented out, so it restarts nothing; "Reload nginx" does `state: restarted`. Fix each in its own bug-fix PR, not in a rename PR | 2.6 |
 
 ## 7. Changes from the first draft
 
@@ -724,7 +752,7 @@ step renames what it touches has to be rebased by its owner.
 | `fpgas_apt` → keep | `nfsroot_apt` | decision 2 |
 | `cam_pi` → keep | `nfsroot_cam` | decision 2 |
 | `apt_cache/tasks/nfsroot.yml` → keep | `root-sources.yml` | removes the clash with `nfsroot_apt` |
-| `pxe` → `dnsmasq` (chrony undecided) | `dnsmasq` + new role `chrony` | decision 4 |
+| `pxe` → `dnsmasq` (chrony undecided) | `dnsmasq` + new role `chrony` (since replaced by #45's `timesync`, decision 11) | decision 4 |
 | `uhubctl` → keep or delete | keep; runs in the NFS root; `[uhubctl]` group and gateway plays deleted | decision 6; section 5.1 |
 | `maintenance.sh`, `production.sh`, `manage.yml` → `mode-scripts.yml` | delete | they are TODO stubs; the only caller is `when: false` |
 | `chroot-mount-pi-fs.bash` → keep, installed on the gateway | moves to `nfsroot_netboot`, not installed on the gateway | only CI-only tasks use it |
