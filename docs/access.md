@@ -251,18 +251,12 @@ Re-run once GitHub answers again.
 
 Converge from ten64. tweed's host_vars hold vaulted values, so give Ansible
 the vault password as the README's Deploy section does
-(`ANSIBLE_VAULT_PASSWORD_FILE`, or `--vault-password-file`). The whole server:
+(`ANSIBLE_VAULT_PASSWORD_FILE`, or `--vault-password-file`). Always the
+whole playbook, never a `--tags` subset (issue #157):
 
 ```bash
 export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
 uv run ansible-playbook ansible/site.yml --limit fpgas.online
-```
-
-or only the parts that hold keys:
-
-```bash
-uv run ansible-playbook ansible/site.yml --limit fpgas.online \
-  --tags operators,jump,sshd,server_user,keys
 ```
 
 The automation key itself is never in these lists. Rotating it means changing
@@ -273,20 +267,22 @@ writes the new key exclusively on tweed and fixpi writes it into the Pi root
 
 ## Verifying
 
-| Playbook | Checks |
+Both playbooks run in full; the table lists the checks in them that cover
+access.
+
+| Playbook, role | Checks |
 |---|---|
-| [`verify-server.yml`](../ansible/verify-server.yml) `--tags automation-user` | `ansible` exists, its sudoers file is valid, its `authorized_keys` is exactly the automation key, and a fresh login as it gets `sudo -n` to root |
-| `--tags operators` | each operator exists, has a valid sudoers file and a non-empty `authorized_keys` without revoked keys; retired accounts, their groups and their files are gone |
-| `--tags jump` | the rbash shell, `~/bin` exactly `ssh` and `ssh-keyscan`, the keypair, no sudoers file, no revoked keys, `sshd -T` shows the ForceCommand, and the wrapper refuses other commands |
-| `--tags sshd` | the drop-in exists, and `sshd -T` for `ansible`, `pi` and `root` gives key-only login and `PermitRootLogin prohibit-password` |
-| `--tags server_user` | `admin` exists with home `/home/admin`, `videoteam` is gone, no unit runs as it, `authorized_keys` equals the published GitHub keys exactly, and `sudo -n` works |
-| `--tags fixpi` | among its other NFS root checks, the root's `ansible` account: uid and gid 1001, locked password, valid sudoers file, and exactly the automation key, owned by 1001 and mode 0600 |
-| [`verify-pi.yml`](../ansible/verify-pi.yml) `--tags services` | on a booted board: `pi`'s password is usable (`passwd -S` = `P`), and `ansible` logs in with the automation key, gets `sudo -n` to root and has a locked password |
-| `--tags jump` | tweed's jump account reaches the board as `pi` with its own key (`BatchMode`) |
+| [`verify-server.yml`](../ansible/verify-server.yml): `automation_user` | `ansible` exists, its sudoers file is valid, its `authorized_keys` is exactly the automation key, and a fresh login as it gets `sudo -n` to root |
+| `operators` | each operator exists, has a valid sudoers file and a non-empty `authorized_keys` without revoked keys; retired accounts, their groups and their files are gone |
+| `jump` | the rbash shell, `~/bin` exactly `ssh` and `ssh-keyscan`, the keypair, no sudoers file, no revoked keys, `sshd -T` shows the ForceCommand, and the wrapper refuses other commands |
+| `sshd` | the drop-in exists, and `sshd -T` for `ansible`, `pi` and `root` gives key-only login and `PermitRootLogin prohibit-password` |
+| `server_user` | `admin` exists with home `/home/admin`, `videoteam` is gone, no unit runs as it, `authorized_keys` equals the published GitHub keys exactly, and `sudo -n` works |
+| `fixpi` | among its other NFS root checks, the root's `ansible` account: uid and gid 1001, locked password, valid sudoers file, and exactly the automation key, owned by 1001 and mode 0600 |
+| [`verify-pi.yml`](../ansible/verify-pi.yml) | on a booted board: `pi`'s password is usable (`passwd -S` = `P`), and `ansible` logs in with the automation key, gets `sudo -n` to root and has a locked password |
+| `verify-pi.yml` | tweed's jump account reaches the board as `pi` with its own key (`BatchMode`) |
 
 ```bash
-uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online \
-  --tags automation-user,operators,jump,sshd,server_user,fixpi
+uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online
 ```
 
 The VM test ([`vm-test.yml`](../.github/workflows/vm-test.yml)) runs both
