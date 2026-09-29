@@ -1,6 +1,8 @@
 ---
+# findmnt --list prints the same mount table `mount` does (source, target,
+# fstype), so the substring check below is unchanged.
 - name: Check NFS mount present
-  ansible.builtin.command: mount
+  ansible.builtin.command: findmnt --list --noheadings --output SOURCE,TARGET,FSTYPE
   changed_when: false
   register: fixpi_pi_mounts
 

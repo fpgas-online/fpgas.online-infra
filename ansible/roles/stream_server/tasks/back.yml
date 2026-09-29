@@ -60,6 +60,7 @@
   ansible.builtin.template:
     src: templates/pib.conf.j2
     dest: /etc/nginx/rtmp/pib.conf
+    mode: "0644"
   # A reload only gives NEW workers the new config: publishers stay attached
   # to the old worker (and its old application settings) until they
   # reconnect. See the WebRTC runbook's deploy ordering.
@@ -71,5 +72,6 @@
   ansible.builtin.template:
     src: templates/live-hls.conf.j2
     dest: "/etc/nginx/includes/{{ conference_name }}-live-hls.conf"
+    mode: "0644"
   tags:
     - streaming

@@ -74,8 +74,8 @@ the vault password for hosts with vaulted vars (tweed's switch communities):
 ```bash
 export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
 
-# Full deployment of tweed (server + its Pi NFS root via the piroot chroot host `pi`)
-uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi
+# Full deployment of tweed (server + its prebuilt Pi NFS root)
+uv run ansible-playbook ansible/site.yml --limit fpgas.online
 
 # Full deployment (every host)
 uv run ansible-playbook ansible/site.yml

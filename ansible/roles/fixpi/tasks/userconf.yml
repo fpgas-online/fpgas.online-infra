@@ -3,11 +3,13 @@
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/issue.d"
     state: directory
+    mode: "0755"
 
 - name: Display IP, pw and things on console
   ansible.builtin.copy:
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
+    mode: "0644"
 
 # useradd (netboot.yml "create pi user") leaves the account's password locked.
 # pi_pw is the PLAINTEXT shared password: roles/site hands it (base64) to the
@@ -80,17 +82,20 @@
   ansible.builtin.file:
     path: "{{ nfs_root }}/boot/ssh"
     state: touch
+    mode: "0644"
 
 - name: Get fixed sshswitch
   ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/RPi-Distro/raspberrypi-sys-mods/{{ dist }}/debian/raspberrypi-sys-mods.sshswitch.service"
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/sshswitch.service"
+    mode: "0644"
   when: false
 
 - name: Sshd password settings
   ansible.builtin.copy:
     src: "files/etc/ssh/sshd_config.d/password.conf"
     dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/password.conf"
+    mode: "0644"
 
 - name: Generate ssh keys for server user
   ansible.builtin.user:
@@ -103,6 +108,7 @@
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
+    mode: "0755"
   with_items:
     - root
     - home/pi

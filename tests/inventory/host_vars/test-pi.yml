@@ -1,0 +1,5 @@
+---
+# The emulated Pi has no FPGA attached, so fpgas-verify must report "missing":
+# verify-pi.yml then checks the no-board path (the check runs, fails, and the
+# Pi still boots and takes ssh) instead of a pass it can never give.
+verify_pi_fpga_expect: missing

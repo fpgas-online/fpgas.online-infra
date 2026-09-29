@@ -21,6 +21,7 @@
   ansible.builtin.copy:
     src: "files/etc/systemd/system/{{ item }}"
     dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
   with_items:
     - wssh.socket
   notify:
@@ -32,6 +33,7 @@
   ansible.builtin.template:
     src: templates/wssh.service.j2
     dest: /etc/systemd/system/wssh.service
+    mode: "0644"
   notify:
     - Reload systemd
     - Restart wssh
@@ -52,11 +54,13 @@
   ansible.builtin.file:
     path: /etc/nginx/includes
     state: directory
+    mode: "0755"
 
 - name: Deploy nginx conf
   ansible.builtin.template:
     src: "files/etc/nginx/includes/wssh.conf"
     dest: "/etc/nginx/includes/{{ conference_name }}-wssh.conf"
+    mode: "0644"
   tags:
     - pibsite
   notify:

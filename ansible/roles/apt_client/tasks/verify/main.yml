@@ -17,7 +17,9 @@
       not {{ apt_client_proxy }}
   when: apt_client_proxy | length > 0
 
-- name: List the repositories apt fetches from
+# Read-only query (noqa: command-instead-of-module): the apt module installs
+# and removes packages; it cannot list the index targets apt resolves.
+- name: List the repositories apt fetches from  # noqa: command-instead-of-module
   ansible.builtin.command: apt-get indextargets --format '$(REPO_URI)'
   changed_when: false
   register: apt_client_v_repos

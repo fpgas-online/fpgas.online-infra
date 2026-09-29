@@ -13,6 +13,7 @@
   ansible.builtin.copy:
     src: files/arty_blink/arty_blink.service
     dest: /etc/systemd/system/arty_blink.service
+    mode: "0644"
   notify: Reload-systemd
   tags:
     - ab

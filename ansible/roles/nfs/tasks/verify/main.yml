@@ -9,7 +9,10 @@
     that: nfs_dpkg_nfsd.rc == 0
     fail_msg: "nfs-kernel-server package is not installed"
 
-- name: Check nfs-kernel-server service active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts reports only
+# running/stopped, not the ActiveState string the assert and its message use.
+- name: Check nfs-kernel-server service active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active nfs-kernel-server
   changed_when: false
   register: nfs_server_active
@@ -20,7 +23,10 @@
     that: nfs_server_active.stdout == "active"
     fail_msg: "nfs-kernel-server service is not active (got: {{ nfs_server_active.stdout }})"
 
-- name: Check rpcbind service active
+# Read-only probe (noqa: command-instead-of-module): systemd_service needs an
+# action (state/enabled/masked/daemon_reload), and service_facts reports only
+# running/stopped, not the ActiveState string the assert and its message use.
+- name: Check rpcbind service active  # noqa: command-instead-of-module
   ansible.builtin.command: systemctl is-active rpcbind
   changed_when: false
   register: nfs_rpcbind_active

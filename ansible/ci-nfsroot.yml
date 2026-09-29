@@ -73,7 +73,10 @@
     # it (modules, headers, initramfs rebuilds: ~250 MB and a minute of
     # build) although no Pi ever boots it -- the server's fixpi re-syncs the
     # upgraded payload. Sync first, so "served" is what the Pis will boot.
-    - name: Sync the upgraded kernel payload before pruning
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Sync the upgraded kernel payload before pruning  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
@@ -133,7 +136,10 @@
     # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
     # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
     # design doc's "ordering is load-bearing" requirement.
-    - name: Re-sync kernel+initramfs+DTB payload after chroot apt upgrades
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Re-sync kernel+initramfs+DTB payload after chroot apt upgrades  # noqa: command-instead-of-module
       ansible.builtin.command: >-
         rsync -a --exclude=cmdline.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
@@ -182,6 +188,8 @@
         # mithro/rp1-jtag).
         - openfpgaloader-fpgasonline-git
         - openocd-fpgasonline-git
+        # roles/onpi/tasks/fpga_verify.yml: the FPGA boot check for every board.
+        - fpgas-online-all-boards
         # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
         - linux-image-armmp
       tags: [verify]
