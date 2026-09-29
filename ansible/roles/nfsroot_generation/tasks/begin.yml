@@ -1,44 +1,13 @@
 ---
-# Start of a site.yml run: tell the boards the root is about to change.
+# Start of site.yml's Pi NFS root update: tell the boards the root is about
+# to change.
 #
 # Every netbooted board polls this lock through its NFS lower layer
 # (nfsroot-watchdog, installed by roles/onpi) and will not reboot while it
 # exists, even if files are already going stale under it: rebooting into a
 # half-updated root is worse than waiting. The lock's ctime is also what
-# end.yml measures every file against.
-
-- name: Install nfsroot-generation on the gateway
-  when: nfsroot_generation_install | bool
-  block:
-    # This is the first task of site.yml, so on a freshly installed gateway
-    # nothing has installed gpg yet; fpgas_apt's repo.yml needs it to check
-    # the key's fingerprint.
-    #
-    # No update_cache: the gateway's nfsroot-watchdog source may still be the
-    # one an earlier run wrote, and it is only rewritten below. When that
-    # source moves behind a site apt cache (roles/apt_client), the old one is
-    # an https URL the proxy refuses to tunnel to, so an update here fails the
-    # run before the rewrite (tweed, 2026-09-27). The installer's package
-    # lists are enough for these two, and the update below runs once the
-    # source is right.
-    - name: Install what the pinned-key apt source needs on the gateway
-      ansible.builtin.apt:
-        name: [gnupg, ca-certificates]
-        state: present
-
-    - name: Add the nfsroot-watchdog apt repository on the gateway
-      ansible.builtin.include_role:
-        name: fpgas_apt
-        tasks_from: nfsroot-watchdog.yml
-      vars:
-        fpgas_apt_nfsroot_watchdog_url: "{{ nfsroot_generation_apt_url }}"
-        fpgas_apt_nfsroot_watchdog_suite: "{{ nfsroot_generation_apt_suite }}"
-
-    - name: Install nfsroot-watchdog-server
-      ansible.builtin.apt:
-        name: nfsroot-watchdog-server
-        state: latest  # noqa: package-latest -- rolling release
-        update_cache: true
+# end.yml measures every file against. The nfsroot-generation command it
+# runs is installed by install.yml, in site.yml's first play.
 
 - name: Find the Pi NFS root
   ansible.builtin.stat:

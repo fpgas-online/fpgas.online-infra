@@ -1,0 +1,43 @@
+---
+# nfsroot-generation on the gateway, from the nfsroot-watchdog apt
+# repository. site.yml runs this in its first play, right after apt_client
+# and before any other role refreshes the gateway's package lists: the
+# source is rewritten here, and until it is, it may be one an earlier run
+# wrote. When that source moves behind a site apt cache (roles/apt_client),
+# the old one is an https URL the proxy refuses to tunnel to, so any update
+# before the rewrite fails the run (tweed, 2026-09-27; #150).
+
+- name: Install nfsroot-generation on the gateway
+  when: nfsroot_generation_install | bool
+  block:
+    - name: Read the gateway's installed packages
+      ansible.builtin.package_facts:
+        manager: apt
+
+    # fpgas_apt's repo.yml needs gpg to check the key's fingerprint. Refresh
+    # the package lists only when one of these is missing: a fresh gateway
+    # may have no lists yet, and it has no earlier source to trip over,
+    # while one with an earlier source wrote it with these installed.
+    - name: Install what the pinned-key apt source needs on the gateway
+      ansible.builtin.apt:
+        name: "{{ nfsroot_generation_gpg_packages }}"
+        state: present
+        update_cache: >-
+          {{ nfsroot_generation_gpg_packages
+             | difference(ansible_facts.packages.keys()) | length > 0 }}
+      vars:
+        nfsroot_generation_gpg_packages: [gnupg, ca-certificates]
+
+    - name: Add the nfsroot-watchdog apt repository on the gateway
+      ansible.builtin.include_role:
+        name: fpgas_apt
+        tasks_from: nfsroot-watchdog.yml
+      vars:
+        fpgas_apt_nfsroot_watchdog_url: "{{ nfsroot_generation_apt_url }}"
+        fpgas_apt_nfsroot_watchdog_suite: "{{ nfsroot_generation_apt_suite }}"
+
+    - name: Install nfsroot-watchdog-server
+      ansible.builtin.apt:
+        name: nfsroot-watchdog-server
+        state: latest  # noqa: package-latest -- rolling release
+        update_cache: true
