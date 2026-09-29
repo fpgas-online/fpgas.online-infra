@@ -1,27 +1,33 @@
 ---
 # Human operator accounts on the servers (operators role): own unix user,
-# passwordless sudo, keys imported from GitHub each converge. The ansible
-# user itself trusts only the fpgas.online-ansible automation key
-# (roles/automation_user on the server, fixpi in the Pi NFS root).
+# passwordless sudo, keys downloaded from https://github.com/<user>.keys
+# each converge (roles/ssh_key_fetch: an id with no key fails the run).
+# The ansible user itself trusts only the fpgas.online-ansible automation
+# key (roles/automation_user on the server, fixpi in the Pi NFS root).
 operators_accounts:
     - name: tim
       ssh_import_ids: [gh:mithro]
     - name: carl
       ssh_import_ids: [gh:CarlFK]
 
-# ssh-import-id ids the tweed jump account (roles/jump) trusts.
+# GitHub ids (gh:<user>) whose https://github.com/<user>.keys the tweed
+# jump account (roles/jump) trusts. GitHub only: Carl's used to be the bare
+# `carlfk`, i.e. Launchpad's lp:carlfk (revoked below).
 ssh_imports:
-    - carlfk
+    - gh:CarlFK
     - gh:mithro
 
     # - gh:iiie
 
-# Ids that no longer get access (Tim, 2026-09-27). ssh-import-id only ever
+# Ids that no longer get access (Tim, 2026-09-27). The import only ever
 # adds, so dropping an id from ssh_imports leaves its keys in place: the
-# jump role deletes the lines ssh-import-id imported for these.
+# jump role deletes the lines imported for these ("# ssh-import-id <id>").
 ssh_imports_revoked:
     - gh:asinghani
     - gh:bjonnh
+    # Carl's Launchpad keys (the old bare `carlfk` id, an ssh-dss key among
+    # them): his GitHub keys replace them (2026-09-29).
+    - lp:carlfk
 
 ssh_public_keys:
     - keys:
