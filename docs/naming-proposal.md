@@ -49,6 +49,7 @@ and what it acts on.
 | Tags | None. See #157. |
 | Handler names | `Restart <unit>` or `Reload <unit>`, using the systemd unit name. Add a ` (<role>)` suffix only when two roles in one play need different actions under the same name. |
 | Task names | See the style rule below. |
+| Per-Pi variables | None (owner rule): every Pi should be as identical as possible, so no inventory var describes one Pi or one board. A check that differs between Pis decides from what it detects on the Pi (model, attached hardware, what is in use), with the same logic everywhere. Existing per-Pi vars are removed and replaced with detection, not renamed. |
 | Task files | Name each task file for what it does, in `kebab-case` (the most common style in the repo today), e.g. `pi-password.yml` rather than `userconf.yml`. Never `tweaks.yml`, `misc.yml` or similar. |
 
 **Task-name style rule**
@@ -159,7 +160,7 @@ touch a tag. Notes for the #157 work:
 | tag use | where | what should replace it |
 |---|---|---|
 | `--skip-tags pipw,keys` | `.github/workflows/nfsroot-build.yml`, comment in `ci-nfsroot.yml` | The fixpi split (decision 1) removes it: the pi password and keys move to `nfsroot_site`, which CI never runs. If #157 lands first, gate `userconf.yml` and `ansible-home.yml` on `not fixpi_image_build` as a stopgap. |
-| `--skip-tags hw-camera,hw-fpga` | `README.md` (verify-pi) | Per-Pi host vars in the existing `verify_pi_` family: `verify_pi_camera: false` and `verify_pi_fpga: false` (default true). `verify_pi_fpga_expect: missing` (test-pi) already covers the boot-check half. |
+| `--skip-tags hw-camera,hw-fpga` | `README.md` (verify-pi) | On-Pi detection, no variables: the camera and FPGA checks run only when the Pi detects a camera or an FPGA board (#157 part 3, branch `tags-verify-pi-hw`). |
 | `web.yml --check --tags server_user`, and the `--skip-tags` option | `tests/vm/run_tests.py` (lines 385, 392, 651, 701) | **Missed by #157's table.** Replace it with a small playbook that runs only `server_user` in check mode, and drop the option. |
 | `always` | site.yml, verify-pi, server_user, apt_cache, nfsroot_generation | #157 drops them with their partial-run workarounds |
 | docs that describe tags | comments in `verify-server.yml` (`--skip-tags django`), `web.yml`, `verify-pi.yml` header, `nspawn_pi/tasks/verify/main.yml` (`--tags nspawn-pi`) | rewrite them in #157 |
@@ -211,7 +212,7 @@ times in `onpi/tasks`, not 6.
 | `switches` | keep | per-port-VLAN switch list | clear | – |
 | `switches_manage` | `switch_vlans_manage` | lets `switch_vlans` push config | clear | D |
 | `eth_uplink*`, `eth_local*` | keep | NIC names/addresses | clear | – |
-| `sunxi_boards`, `sunxi_default_dtb` | keep | Orange Pi boards and DTB | clear (alt `opi_boards`) | – |
+| `sunxi_boards`, `sunxi_default_dtb` | keep for now; see open O7 | Orange Pi boards (per board: `host`, `usb`, `hat_uuid`) and DTB | clear (alt `opi_boards`) | – |
 | `streaming`, `tt_boards`, `tt_install` | keep | | clear | – |
 | `ttsite_domain` | **`tt_fqdn`** (was `tt_website_domain`) | TT vhost name. An **inventory** var read by `ttsite`, `site` and `webrtc`, so it takes a topic prefix, not a role prefix | pairs with `site_fqdn` | D |
 | `tt_commander_embed_version/_sha256`, `tt_commander_legacy_embed_version/_sha256` | keep | Commander bundle pins (inventory, `tt_` topic prefix) | clear | – |
@@ -226,8 +227,9 @@ times in `onpi/tasks`, not 6.
 | `fixpi_ansible_user`, `fixpi_ansible_uid` | **`nfsroot_ansible_user`, `nfsroot_ansible_uid`** in group_vars `nfsroot.yml` (`srv.yml` until step 24 renames it) | the automation account inside the root. Both halves of the split and `verify-pi.yml` read it, so it becomes an inventory var with the topic prefix | clear | C |
 | `img_pull_retries`, `img_pull_delay` | `nfsroot_image_pull_*` | set in the test-vm host_vars | clear | C |
 | `automation_user_manage`, `sshd_pubkey_only`, `server_user_*`, `apt_client_*`, `apt_cache_enabled`, `firewall_dns_query_sources`, `webrtc_*`, `site_under_construction`, `site_require_fpga_verified` | keep (the `site_*` ones → `website_*`) | | the `site_*` ones collide with the location word until renamed | D (site_* only) |
-| `verify_pi_fpga_expect`, `verify_pi_header_uart_console`, `verify_pi_hosts` | keep | | clear | – |
-| — (new) | `verify_pi_usb_power_cycle` | bool, default false: allow verify-pi's active USB power-cycle check on this Pi (5.1) | clear, in the play's `verify_pi_` family | – |
+| `verify_pi_hosts` | keep | the play's target pattern (a run option, not per-Pi data) | clear | – |
+| `verify_pi_fpga_expect`, `verify_pi_header_uart_console` | **remove, replace with detection** (per-Pi vars, convention 1). Their only setter is `tests/inventory/host_vars/test-pi.yml`, which then goes too: expect `missing` when no FPGA board is detected; judge the console from the served `cmdline.txt` / what the Pi detects, not from a flag (open O6) | per-Pi expectations for the virtual Pi | – | C |
+| — | (no `verify_pi_usb_power_cycle`) | the active USB check decides by detection (5.1) | – | – |
 
 #### 2.5.2 Role defaults (122 vars)
 
@@ -645,9 +647,9 @@ known-good boards, before relying on them):
 | role | `uhubctl` runs in `ci-nfsroot.yml` against `pi_chroot`, after the Pi packages. It installs uhubctl (drop it from onpi's package list). No udev rule at first: `pi` already has passwordless sudo. Retarget or drop `uhubctl_usb_hubs` (it names the D-Link hub) |
 | delete | site.yml's "Configure USB hub power control" play, verify-server's "Verify uhubctl" play, the `[uhubctl]` group in both inventories |
 | verify-pi, passive check (every run) | run `uhubctl` with no action, which only lists hubs (with `become`: without the udev rule uhubctl needs root to open the hubs, and verify-pi runs `become: false`). On a Pi 4/5, assert that it reports a hub with power switching. On other models and the VM Pi, skip with a message instead of failing. Take the model from `/proc/device-tree/model` in the existing collector call |
-| verify-pi, active check (opt-in) | runs only when **all** hold: `verify_pi_usb_power_cycle: true` for that Pi; the model is a Pi 4/5; no login session other than the verifier's (`loginctl list-sessions`, which also covers the web terminal, since it logs in over ssh); no process holds a USB serial/JTAG device (`fuser` on `/dev/ttyUSB*`, `/dev/ttyACM*` and the device nodes `/dev/bus/usb/*/*`: `fuser` on the directory itself checks nothing beneath it); no openFPGALoader/openocd running. It records `lsusb`, cycles both root hubs (`uhubctl -a cycle -d 3`), waits up to 30 s, and asserts the same devices came back. An `always:` block runs `uhubctl -a on`, so a failed check never leaves the ports off. Afterwards it restarts `fpgas-cam.service` if a USB grabber was on the hub |
-| why it does not disturb a board in use | off by default; skipped when anyone is logged in or a tool holds the board; never on a Pi 3 or earlier; tried first on the known-good boards. When it does run, the FPGA reloads from its flash, which is the same result as the PoE reset the site already offers |
-| VM test | rpi-qemu has no switchable hub, so the passive check takes its skip path and the active check is never enabled |
+| verify-pi, active check (detection-based, same logic on every Pi) | runs only when **all** of these are detected on the Pi: the model (`/proc/device-tree/model`) is a Pi 4/5; uhubctl finds a hub with power switching; no login session other than the verifier's (`loginctl list-sessions`, which also covers the web terminal, since it logs in over ssh); no process holds a USB serial/JTAG device (`fuser` on `/dev/ttyUSB*`, `/dev/ttyACM*` and the device nodes `/dev/bus/usb/*/*`: `fuser` on the directory itself checks nothing beneath it); no openFPGALoader/openocd running. It records `lsusb`, cycles both root hubs (`uhubctl -a cycle -d 3`), waits up to 30 s, and asserts the same devices came back. An `always:` block runs `uhubctl -a on`, so a failed check never leaves the ports off. Afterwards it restarts `fpgas-cam.service` if a USB grabber was on the hub |
+| why it does not disturb a board in use | no per-Pi switch: it is skipped whenever the Pi detects anyone logged in or a tool holding the board; never on a Pi 3 or earlier; tried first on the known-good boards. When it does run, the FPGA reloads from its flash, which is the same result as the PoE reset the site already offers |
+| VM test | rpi-qemu has no switchable hub, so both checks detect no switchable hub and take their skip path |
 
 ### 5.2 Open PRs that touch the same names (2026-09-29)
 
@@ -711,12 +713,14 @@ Extra rename steps, each run only after its PR has merged:
 | O3 | stale gateway files after the split: `/usr/local/sbin/{maintenance,production}.sh`, `/usr/local/sbin/chroot-mount-pi-fs.bash` | add a one-off `state: absent` task (in `nfsroot_site`), or remove them by hand | 2.8, steps 5, 17 |
 | O4 | uhubctl hub locations | name them per model (Pi 4: `-l 1-1` and `-l 2`; Pi 5: its root hubs) instead of relying on uhubctl acting on every hub when `-l` is missing | 5.1 |
 | O5 | two handler bugs in `site` | "Restart dnsmasq" has its `state:` commented out, so it restarts nothing; "Reload nginx" does `state: restarted`. Fix each in its own bug-fix PR, not in a rename PR | 2.6 |
+| O6 | detection to replace `verify_pi_fpga_expect` and `verify_pi_header_uart_console` (test-pi's only host_vars) | FPGA: accept fpgas-verify's `missing` exactly when no board is detected on USB/JTAG. Console: the VM's U-Boot appends `console=ttyAMA0`; check the served `cmdline.txt` rather than `/proc/cmdline`, or detect that no FPGA is on the header UART. Design it in #157 part 3 or a follow-up | 2.5.1 |
+| O7 | other per-board inventory data: `sunxi_boards` (host, USB path, `hat_uuid`, used by verify-pi's placement assert), `tt_boards` (the TT catalogue, per switch/port), legacy `switch.nos` / `snmp_switch.pis` (per-Pi MAC and serial) | the rule says "almost all": decide which are site data the gateway needs (DHCP, TFTP, the site's catalogue) and which verify-pi can replace with detection | 2.5.1 |
 
 ## 7. Changes from the first draft
 
 | from | to | reason |
 |---|---|---|
-| tags: rename to role names (section 2.4, convention row, PR steps) | tags removed by #157; no tag renames | owner decision. Kept only the #157 notes: `pipw,keys` → reuse `fixpi_image_build`; `hw-camera,hw-fpga` → `verify_pi_camera`/`verify_pi_fpga`; plus the `run_tests.py` use that #157 missed |
+| tags: rename to role names (section 2.4, convention row, PR steps) | tags removed by #157; no tag renames | owner decision. Kept only the #157 notes: `pipw,keys` → reuse `fixpi_image_build`; `hw-camera,hw-fpga` → on-Pi detection, no variables (#157 part 3); plus the `run_tests.py` use that #157 missed |
 | `mqtt` → `fleet_broker` | keep `mqtt` | the broker is shared with sensors2mqtt, and `fleet_broker` is the bool var being retired |
 | `wssh` → `web_terminal` | `webssh` | names the component (pip `webssh`); `web_terminal` could mean the Django page or ttyd |
 | `vlan_ports` → `port_vlans` | `vlan_ifaces` | `port_vlans` beside `switch_vlans` reads as switch-side, and it reuses the name of the shared filter |
