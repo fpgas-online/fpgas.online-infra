@@ -354,7 +354,7 @@ def cmd_protect(args: argparse.Namespace) -> int:
     linux-image-6.6.31+rpt-rpi-v6 ... v7 ... v7l ... v8").
 
     Marking them manual makes autoremove leave them alone.  Moving the fleet
-    to a different kernel stays the `netboot` tag's job: publish the payload
+    to a different kernel stays fixpi's netboot.yml's job: publish the payload
     first, and the kernel this protects moves with it.
     """
     nfs_root = Path(args.nfs_root)
@@ -406,9 +406,9 @@ def cmd_prune(args: argparse.Namespace) -> int:
             "nfsroot-kernels: no served kernel image matches an installed "
             "kernel -- keeping all "
             + str(len(plan["installed"]))
-            + " kernels rather than guessing.  Publish a payload with the "
-            "`netboot` tag (a separate, deliberate change to what the fleet "
-            "boots), or name the kernels to keep in nspawn_pi_kernel_keep.",
+            + " kernels rather than guessing.  Publish a payload with "
+            "fixpi's netboot.yml (a separate, deliberate change to what the "
+            "fleet boots), or name the kernels to keep in nspawn_pi_kernel_keep.",
             file=sys.stderr,
         )
         return 0

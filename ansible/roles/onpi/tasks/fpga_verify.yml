@@ -19,7 +19,7 @@
 # state: latest for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
 # package, and the mode package depends on exactly its own version of each board's tools, and those on
 # exactly the bitstreams they were built with, so upgrading it moves them all. From the fpgas.online apt
-# repo, so onpi includes this with the fpgas-apt tag.
+# repo.
 #
 # The stopgap on main before this (roles/onpi/tasks/acorn.yml, 65c3a21a) pinned fpgas-online-acorn-tools
 # at 0.0.post621 and put a dpkg hold on it. A root built with that keeps the hold, and the mode package

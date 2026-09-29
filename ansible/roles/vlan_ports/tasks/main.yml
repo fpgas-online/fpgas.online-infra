@@ -2,7 +2,6 @@
 - name: Compute port vlan map
   ansible.builtin.set_fact:
     vlan_ports_port_map: "{{ switches | port_vlan_map(pib_network, pib_network6_base) }}"
-  tags: [vlan-ports]
 
 - name: Create vlan netdevs
   ansible.builtin.template:
@@ -13,7 +12,6 @@
   loop_control:
     label: "{{ item.iface }}"
   notify: Reload networkd
-  tags: [vlan-ports]
 
 - name: Create vlan networks
   ansible.builtin.template:
@@ -24,7 +22,6 @@
   loop_control:
     label: "{{ item.iface }}"
   notify: Reload networkd
-  tags: [vlan-ports]
 
 - name: Configure eth-local trunk
   ansible.builtin.template:
@@ -32,14 +29,12 @@
     dest: /etc/systemd/network/30-eth-local.network
     mode: "0644"
   notify: Reload networkd
-  tags: [vlan-ports]
 
 - name: Find stale vlan config files
   ansible.builtin.find:
     paths: /etc/systemd/network
     patterns: "40-v*"
   register: vlan_ports_vlan_files
-  tags: [vlan-ports]
 
 - name: Remove stale vlan config files
   ansible.builtin.file:
@@ -52,7 +47,6 @@
     (item.path | basename | regex_replace('^40-(v\\d+)\\..*$', '\\1'))
     not in (vlan_ports_port_map | map(attribute='iface') | list)
   notify: Reload networkd
-  tags: [vlan-ports]
 
 # Apply the networkd config NOW rather than via end-of-play handlers: a
 # later-role failure aborts the play and eats notified handlers, leaving

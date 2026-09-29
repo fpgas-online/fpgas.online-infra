@@ -1,6 +1,6 @@
 ---
 # Standalone check that the Pi NFS root's kernel set has not crept back up,
-# runnable without a rebuild: `verify-server.yml --tags nspawn-pi`.
+# runnable without a rebuild: it is part of verify-server.yml.
 #
 # The rebuild asserts the same thing at the end of every chroot session
 # (tasks/kernels.yml), but the growth this guards against happens between

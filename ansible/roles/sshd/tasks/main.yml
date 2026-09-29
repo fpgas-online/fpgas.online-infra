@@ -24,8 +24,6 @@
   check_mode: false  # read-only; --check needs the real answer
   register: sshd_connecting_user
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 # Where the inventory names the login account, the probe must agree: a
 # mismatch means the probe itself ran under become (root) and would check
@@ -40,22 +38,16 @@
       probe ran with become
     success_msg: "Ansible connects as {{ sshd_connecting_user.stdout }}"
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 - name: Accounts that must keep a working key
   ansible.builtin.set_fact:
     sshd_key_users: "{{ ([sshd_connecting_user.stdout] + sshd_pubkey_only_key_users) | unique }}"
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 - name: Read the account database
   ansible.builtin.getent:
     database: passwd
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 - name: Assert every key-login account exists
   ansible.builtin.assert:
@@ -66,8 +58,6 @@
       disable SSH password login
   loop: "{{ sshd_key_users }}"
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 # ssh-keygen -l parses the file and prints one fingerprint per usable key,
 # so a file holding only comments or garbage counts as key-less.
@@ -80,8 +70,6 @@
   check_mode: false  # read-only; --check needs the real answer
   failed_when: false
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 - name: Assert every key-login account has at least one usable key
   ansible.builtin.assert:
@@ -97,8 +85,6 @@
   loop_control:
     label: "{{ item.item }}"
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 # --- Configuration ----------------------------------------------------------
 - name: Public-key-only sshd drop-in
@@ -110,8 +96,6 @@
     mode: "0644"
   notify: Reload sshd for pubkey-only
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 - name: No public-key-only drop-in when the host does not ask for it
   ansible.builtin.file:
@@ -119,8 +103,6 @@
     state: absent
   notify: Reload sshd for pubkey-only
   when: not (sshd_pubkey_only | bool)
-  tags:
-    - sshd
 
 # A drop-in cannot be checked on its own (template's validate would run
 # `sshd -t -f` on the fragment, not the configuration that includes it), so
@@ -132,8 +114,6 @@
   changed_when: false
   check_mode: false  # read-only
   when: sshd_pubkey_only | bool
-  tags:
-    - sshd
 
 # The effective values, as the reloaded daemon will apply them. Fails the
 # converge (before the reload) if an earlier-sorting drop-in overrides ours.
@@ -144,5 +124,3 @@
 - name: Check the effective sshd settings
   ansible.builtin.import_tasks: verify/main.yml
   when: (sshd_pubkey_only | bool) and not ansible_check_mode
-  tags:
-    - sshd

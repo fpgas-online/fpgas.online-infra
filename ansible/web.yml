@@ -9,7 +9,7 @@
     # The server's own account (and its rename, which runs on every run,
     # tagged or not) before anything that runs as it or reads its key:
     # site here, fixpi in site.yml's last play.
-    - {role: server_user, tags: [server_user]}
+    - server_user
     - site
     - wssh
     - stream_server
@@ -22,6 +22,5 @@
     # (and the CI test-vm) define it.
     - {role: webrtc, when: webrtc_additional_hosts is defined}
     # ttsite deploys INTO the site role's Django install (manage.py, venv),
-    # so it carries the django tag as well: `--skip-tags django` must skip it
-    # too, or it fails on a host with no Django deploy.
-    - {role: ttsite, when: tt_boards is defined, tags: [django, ttsite]}
+    # so it comes after site.
+    - {role: ttsite, when: tt_boards is defined}

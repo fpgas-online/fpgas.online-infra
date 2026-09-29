@@ -20,25 +20,21 @@
         name: automation_user
         tasks_from: verify/main.yml
       when: automation_user_manage | default(false) | bool
-      tags: [automation-user]
 
     - name: Verify operators
       ansible.builtin.include_role:
         name: operators
         tasks_from: verify/main.yml
-      tags: [operators]
 
     - name: Verify jump
       ansible.builtin.include_role:
         name: jump
         tasks_from: verify/main.yml
-      tags: [jump]
 
     - name: Verify sshd
       ansible.builtin.include_role:
         name: sshd
         tasks_from: verify/main.yml
-      tags: [sshd]
 
     - name: Verify lldp
       ansible.builtin.include_role:
@@ -49,7 +45,6 @@
       ansible.builtin.include_role:
         name: firewall
         tasks_from: verify/main.yml
-      tags: [firewall]
 
     - name: Verify nfs
       ansible.builtin.include_role:
@@ -65,7 +60,6 @@
       ansible.builtin.include_role:
         name: fixpi
         tasks_from: verify/main.yml
-      tags: [fixpi]
 
     # The NFS root's kernel set, which grows between rebuilds and turns the
     # next one into a two-hour emulated initramfs marathon if nobody looks.
@@ -73,13 +67,11 @@
       ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: verify/main.yml
-      tags: [nspawn-pi]
 
     - name: Verify pxe
       ansible.builtin.include_role:
         name: pxe
         tasks_from: verify/main.yml
-      tags: [pxe]
 
     - name: Verify apt-cache
       ansible.builtin.include_role:
@@ -95,7 +87,6 @@
       changed_when: false
       register: verify_networkctl_list
       when: switches is defined
-      tags: [switch-vlans]
 
     # Diagnostic: surface the actual networkd state in the log so a
     # missing v* interface can be diagnosed without another CI round trip.
@@ -108,20 +99,17 @@
         - journalctl -u systemd-networkd --no-pager -n 40
       register: verify_networkd_diag
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Show networkd diagnostics
       ansible.builtin.debug:
         msg: "{{ verify_networkctl_list.stdout_lines + (verify_networkd_diag.results | map(attribute='stdout_lines') | list) }}"
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Assert networkctl list shows a v* per-port VLAN interface
       ansible.builtin.assert:
         that: verify_networkctl_list.stdout | regex_search('\\bv[0-9]+\\b') is not none
         fail_msg: "networkctl list does not show a v* per-port VLAN interface"
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Check dnsmasq config is valid
       ansible.builtin.command: dnsmasq --test
@@ -129,42 +117,36 @@
       register: verify_dnsmasq_test
       failed_when: false
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Assert dnsmasq --test exits 0
       ansible.builtin.assert:
         that: verify_dnsmasq_test.rc == 0
         fail_msg: "dnsmasq --test failed: {{ verify_dnsmasq_test.stderr }}"
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Get nft forward chain
       ansible.builtin.command: nft list chain inet filter forward
       changed_when: false
       register: verify_nft_forward_chain
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Assert nft forward chain has policy drop
       ansible.builtin.assert:
         that: "'policy drop' in verify_nft_forward_chain.stdout"
         fail_msg: "nft chain inet filter forward missing 'policy drop'"
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Check /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.stat:
         path: /etc/dnsmasq.d/ports.conf
       register: verify_ports_conf_stat
       when: switches is defined
-      tags: [switch-vlans]
 
     - name: Assert /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.assert:
         that: verify_ports_conf_stat.stat.exists
         fail_msg: "/etc/dnsmasq.d/ports.conf not found"
       when: switches is defined
-      tags: [switch-vlans]
 
     # NFS root package verification — check the packages the pulled
     # prebuilt image is supposed to carry (baked in by the CI build).
@@ -188,7 +170,6 @@
       changed_when: false
       register: verify_nfsroot_watchdog
       failed_when: false
-      tags: [fpgas-apt]
 
     - name: Assert nfsroot-watchdog installed in NFS root
       ansible.builtin.assert:
@@ -197,7 +178,6 @@
           nfsroot-watchdog and busybox-static not both installed in the NFS
           root (got {{ verify_nfsroot_watchdog.stdout }}, rc
           {{ verify_nfsroot_watchdog.rc }}: {{ verify_nfsroot_watchdog.stderr }})
-      tags: [fpgas-apt]
 
     - name: Check nfsroot-watchdog-server installed on the server
       ansible.builtin.command: dpkg-query -W -f=${db:Status-Status} nfsroot-watchdog-server
@@ -320,28 +300,22 @@
       ansible.builtin.include_role:
         name: server_user
         tasks_from: verify/main.yml
-      tags: [server_user]
 
     - name: Verify site
       ansible.builtin.include_role:
         name: site
         tasks_from: verify/main.yml
-      tags: [site]
 
-    # ttsite is part of the Django deployment (web.yml tags the role django as
-    # well), so its verification must be skipped by the same --skip-tags django.
     - name: Verify ttsite
       ansible.builtin.include_role:
         name: ttsite
         tasks_from: verify/main.yml
       when: tt_boards is defined
-      tags: [ttsite, django]
 
     - name: Verify wssh
       ansible.builtin.include_role:
         name: wssh
         tasks_from: verify/main.yml
-      tags: [wssh]
 
     - name: Verify stream_server
       ansible.builtin.include_role:

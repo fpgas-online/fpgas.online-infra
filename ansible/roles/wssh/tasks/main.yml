@@ -26,8 +26,6 @@
     - wssh.socket
   notify:
     - Reload systemd
-  tags:
-    - wssh
 
 - name: Systemd files
   ansible.builtin.template:
@@ -37,8 +35,6 @@
   notify:
     - Reload systemd
     - Restart wssh
-  tags:
-    - wssh
 
 - name: Enable services
   ansible.builtin.systemd:

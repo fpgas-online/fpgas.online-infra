@@ -16,8 +16,8 @@
 #
 # None of this touches which kernel the fleet boots: the served kernel is
 # identified by the sha256 of the TFTP payload and is never a purge candidate,
-# and publishing a new payload stays the `netboot` tag's separate, deliberate
-# job.
+# and publishing a new payload stays fixpi's netboot.yml's separate,
+# deliberate job.
 
 - name: Copy the kernel maintenance helper to the server
   ansible.builtin.copy:

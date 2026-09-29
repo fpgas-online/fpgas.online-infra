@@ -40,13 +40,9 @@
     dest: /etc/nftables.conf
     mode: "0755"
   notify: Reload nftables
-  tags:
-    nftables
 
 - name: Enable nftables service
   ansible.builtin.systemd:
     service: nftables.service
     enabled: true
     state: restarted
-  tags:
-    nftables

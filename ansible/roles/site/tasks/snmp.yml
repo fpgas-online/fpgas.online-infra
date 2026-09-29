@@ -56,5 +56,3 @@
         value: "/srv/nfs/rpi/{{ dist }}/boot"
       - key: nfs_root
         value: "/srv/nfs/rpi/{{ dist }}/root"
-  tags:
-    - snmp

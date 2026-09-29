@@ -18,7 +18,6 @@
     name: "{{ user_name }}"
     shell: "{{ '/bin/bash' if server_user_ssh_import_ids | length > 0 else omit }}"
   register: server_user_account
-  tags: [server_user]
 
 - name: Passwordless sudo for the server account
   ansible.builtin.copy:
@@ -29,7 +28,6 @@
     mode: "0440"
     validate: "visudo -cf %s"
   when: server_user_sudo | bool
-  tags: [server_user]
 
 # The account's authorized_keys is site-managed and EXCLUSIVE: exactly the
 # keys the ids below publish, nothing else. With NOPASSWD sudo, a stale
@@ -41,8 +39,6 @@
 - name: Download the server account's keys
   ansible.builtin.include_role:
     name: ssh_key_fetch
-    apply:
-      tags: [server_user]
   vars:
     ssh_key_fetch_requests: >-
       {%- set requests = [] -%}
@@ -51,7 +47,6 @@
       {%- endfor -%}
       {{ requests }}
   when: server_user_ssh_import_ids | length > 0
-  tags: [server_user]
 
 # In check mode a pending rename has not created the account yet, so there
 # is no user to look up: skip rather than fail.
@@ -68,4 +63,3 @@
   when:
     - server_user_ssh_import_ids | length > 0
     - not (ansible_check_mode and server_user_account is changed)
-  tags: [server_user]

@@ -9,9 +9,8 @@
       - (tt_commander_embed_version | length == 0) or (tt_commander_embed_sha256 | length == 64)
       - (tt_commander_legacy_embed_version | length == 0) or (tt_commander_legacy_embed_sha256 | length == 64)
     fail_msg: "tt_commander_(legacy_)embed_sha256 must be the 64-hex sha256 when the matching version is set"
-  tags: [ttsite]
 
-- {name: Load the TT board catalogue, ansible.builtin.include_tasks: boards.yml, tags: [ttsite]}
-- {name: Configure the ttsite Django settings, ansible.builtin.include_tasks: django.yml, tags: [ttsite]}
-- {name: Install the Commander embed bundles, ansible.builtin.include_tasks: embed.yml, tags: [ttsite]}
-- {name: Configure the ttsite nginx vhost and certificate, ansible.builtin.include_tasks: nginx.yml, tags: [ttsite]}
+- {name: Load the TT board catalogue, ansible.builtin.include_tasks: boards.yml}
+- {name: Configure the ttsite Django settings, ansible.builtin.include_tasks: django.yml}
+- {name: Install the Commander embed bundles, ansible.builtin.include_tasks: embed.yml}
+- {name: Configure the ttsite nginx vhost and certificate, ansible.builtin.include_tasks: nginx.yml}

@@ -1,24 +1,24 @@
 ---
-- {name: Install the web tier Python packages, ansible.builtin.include_tasks: apt.yml, tags: django}
+- {name: Install the web tier Python packages, ansible.builtin.include_tasks: apt.yml}
 
 - {name: Configure nginx, ansible.builtin.include_tasks: nginx.yml}
 - {name: Obtain the TLS certificate with certbot, ansible.builtin.include_tasks: certbot.yml}
 - {name: Create the static content directory, ansible.builtin.include_tasks: index.yml}
-- {name: Include the JS player tasks (now empty), ansible.builtin.include_tasks: js_player.yml, tags: django}
+- {name: Include the JS player tasks (now empty), ansible.builtin.include_tasks: js_player.yml}
 
-- {name: Install the fpgas.online Django site packages, ansible.builtin.include_tasks: fpgas-online-site.yml, tags: [django]}
+- {name: Install the fpgas.online Django site packages, ansible.builtin.include_tasks: fpgas-online-site.yml}
 
-- {name: Set the PoE switch management environment, ansible.builtin.include_tasks: snmp.yml, tags: [snmp, django]}
-- {name: Set up pistat, ansible.builtin.include_tasks: pistat.yml, tags: [django]}
-- {name: Include the pibdemos tasks (now empty), ansible.builtin.include_tasks: pibdemos.yml, tags: [django]}
-- {name: Include the pibup tasks (now empty), ansible.builtin.include_tasks: pibup.yml, tags: [django]}
-- {name: Include the pibfpgas tasks (now empty), ansible.builtin.include_tasks: pibfpgas.yml, tags: [django]}
+- {name: Set the PoE switch management environment, ansible.builtin.include_tasks: snmp.yml}
+- {name: Set up pistat, ansible.builtin.include_tasks: pistat.yml}
+- {name: Include the pibdemos tasks (now empty), ansible.builtin.include_tasks: pibdemos.yml}
+- {name: Include the pibup tasks (now empty), ansible.builtin.include_tasks: pibup.yml}
+- {name: Include the pibfpgas tasks (now empty), ansible.builtin.include_tasks: pibfpgas.yml}
 
-- {name: Install and configure the Django project, ansible.builtin.include_tasks: django.yml, tags: [django]}
+- {name: Install and configure the Django project, ansible.builtin.include_tasks: django.yml}
 
-- {name: Set up the gunicorn service, ansible.builtin.include_tasks: gunicorn.yml, tags: django}
-- {name: Set up the uvicorn service, ansible.builtin.include_tasks: uvicorn.yml, tags: django}
-- {name: Set up the daphne service, ansible.builtin.include_tasks: daphne.yml, tags: django}
-- {name: Set up the fleet consumer service, ansible.builtin.include_tasks: fleet.yml, tags: [django], when: fleet_broker | default(false)}
+- {name: Set up the gunicorn service, ansible.builtin.include_tasks: gunicorn.yml}
+- {name: Set up the uvicorn service, ansible.builtin.include_tasks: uvicorn.yml}
+- {name: Set up the daphne service, ansible.builtin.include_tasks: daphne.yml}
+- {name: Set up the fleet consumer service, ansible.builtin.include_tasks: fleet.yml, when: fleet_broker | default(false)}
 
 - {name: Include the switch tasks (not yet implemented), ansible.builtin.include_tasks: switch.yml}

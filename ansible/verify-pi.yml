@@ -243,7 +243,6 @@
       ansible.builtin.assert:
         that: verify_pi_ssh.stdout == "active"
         fail_msg: "SSH service is not active on Pi"
-      tags: [services]
 
     # The board pages' web terminal (webssh on the server) logs in as the pi
     # user with the shared password; it has no key. useradd creates the
@@ -254,7 +253,6 @@
       become: true  # reads /etc/shadow
       changed_when: false
       register: verify_pi_passwd
-      tags: [services]
 
     - name: Assert the pi user's password is set (the web terminal logs in with it)
       ansible.builtin.assert:
@@ -264,7 +262,6 @@
           account's password is locked (L) or empty (NP), so the web
           terminal's password login fails. fixpi/userconf.yml writes it
           into the NFS root on the gateway.
-      tags: [services]
 
     # The automation account (fixpi: netboot.yml builds it into the image,
     # authorized_keys.yml authorizes the key per site): a fresh SSH login as
@@ -289,7 +286,6 @@
       # report it through the assert below.
       ignore_unreachable: true
       register: verify_pi_ansible_login
-      tags: [services]
 
     - name: Assert the ansible user's key login, passwordless sudo and locked password
       ansible.builtin.assert:
@@ -300,7 +296,6 @@
           login as {{ fixpi_ansible_user | default('ansible') }} + sudo -n gave
           {{ verify_pi_ansible_login.stdout_lines | default(verify_pi_ansible_login.msg | default('')) }}
           (expected the user, root, and a locked (L) password)
-      tags: [services]
 
     - name: Assert python3 is available
       ansible.builtin.assert:
@@ -334,7 +329,6 @@
       ansible.builtin.assert:
         that: verify_pi_lldpd_active.stdout == "active"
         fail_msg: "lldpd is not active on Pi (is-active: {{ verify_pi_lldpd_active.stdout }})"
-      tags: [services]
 
     # Stale-NFS-root watchdog (nfsroot-watchdog, roles/onpi stale_root.yml):
     # the arm unit stages a static busybox and the checker into /run at boot,
@@ -354,7 +348,6 @@
       register: verify_pi_watchdog_journal
       failed_when: false
       when: verify_pi_watchdog_active.stdout_lines != ["active", "active"]
-      tags: [services, fpgas-apt]
 
     - name: Assert the nfsroot-watchdog arm service and timer are active
       ansible.builtin.assert:
@@ -363,7 +356,6 @@
           nfsroot-watchdog-arm.service / nfsroot-watchdog.timer not active
           (is-active: {{ verify_pi_watchdog_active.stdout_lines }}).
           Arm unit: {{ verify_pi_watchdog_journal.stdout_lines | default([]) }}
-      tags: [services, fpgas-apt]
 
     - name: Ask the staged nfsroot-watchdog what it sees
       ansible.builtin.command: nfsroot-watchdog status
@@ -375,7 +367,6 @@
       changed_when: false
       register: verify_pi_watchdog_status
       failed_when: false
-      tags: [services, fpgas-apt]
 
     - name: Assert nfsroot-watchdog is armed on the NFS lower layer
       ansible.builtin.assert:
@@ -387,13 +378,11 @@
           (rc={{ verify_pi_watchdog_status.rc }},
           out={{ verify_pi_watchdog_status.stdout }}
           err={{ verify_pi_watchdog_status.stderr }})
-      tags: [services, fpgas-apt]
 
     # JTAG tools: roles/onpi/tasks/apt.yml installs the fpgas.online builds
     # from fpgas.online-fpga-tools (source: roles/fpgas_apt/tasks/
-    # fpga-tools.yml) in place of Debian's openocd / openfpgaloader. They come
-    # from a third-party apt source under the fpgas-apt tag, so these checks
-    # carry it too: a run skipping the tag skips them with the install.
+    # fpga-tools.yml) in place of Debian's openocd / openfpgaloader, from a
+    # third-party apt source.
     #
     # SCOPE OF THESE TWO CHECKS -- they are about the software on the root,
     # not about JTAG working. Together they prove exactly:
@@ -426,7 +415,6 @@
           predates the fpgas.online-fpga-tools apt source and may still carry
           the superseded openfpgaloader-rp1pio / openocd-rp1pio, or Debian's
           openocd / openfpgaloader were reinstalled over them
-      tags: [fpgas-apt]
 
     - name: Assert openFPGALoader was built with the rp1pio cable
       ansible.builtin.assert:
@@ -439,7 +427,6 @@
           {{ verify_pi_cables.rc }}: {{ verify_pi_cables.stderr | default('') }}).
           This says nothing either way about whether the RP1 PIO device is
           usable on this Pi -- see the comment above.
-      tags: [fpgas-apt]
 
     # mithro/rp1-jtag's apt repository is retired (roles/fpgas_apt/tasks/
     # rp1-jtag.yml). A root that still lists it fails `apt update` -- and its
@@ -452,7 +439,6 @@
           no longer publishes packages, so apt update fails once its repository
           goes away; roles/fpgas_apt removes it, so the root has not been
           reconverged since.
-      tags: [fpgas-apt]
 
     # The camera. fpgas-cam is enabled on every Pi (the root is shared, so
     # this is software). What it streams depends on what is attached, so
@@ -543,13 +529,11 @@
     # Tiny Tapeout: roles/onpi/tasks/tt.yml bakes the daemon (every Pi, when
     # the site has tt_boards) and the FPGA demo bitstreams into the NFS root.
     # Both are software in the shared root, so every Pi has them. The daemon
-    # comes from the fpgas.online apt repo, so onpi includes tt.yml with tags
-    # [fpgas-apt]; the service check carries fpgas-apt too.
+    # comes from the fpgas.online apt repo.
     - name: Assert fpgas-tt service enabled
       ansible.builtin.assert:
         that: verify_pi_tt.stdout == "enabled"
         fail_msg: "fpgas-tt service not enabled"
-      tags: [fpgas-apt]
 
     - name: Assert FPGA demo bitstreams present
       ansible.builtin.assert:
@@ -575,7 +559,6 @@
           ({{ verify_pi_fpga_verify_enabled.stderr }}) -- no fpgas-verify mode package
           (fpgas-online-all-boards, or one board's) in the NFS root, or
           roles/onpi/tasks/fpga_verify.yml has not run against it
-      tags: [fpgas-apt]
 
     - name: What the FPGA boot check found
       ansible.builtin.set_fact:
@@ -622,7 +605,6 @@
           - "'networking.service' not in verify_pi_failed.stdout"
           - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
         fail_msg: "ifupdown units still failing on the Pi: {{ verify_pi_failed.stdout }}"
-      tags: [services]
 
     # --- Orange Pi H3 boards + their FEL-boot host (hardware only) ---
     - name: Assert a sunxi board runs the armmp kernel from the shared root
@@ -885,7 +867,6 @@
       retries: 3
       delay: 10
       when: groups['nbp'] is defined and groups['nbp'] | length > 0
-      tags: [jump]
 
     - name: Assert the jump hop logged in as the Pi user
       ansible.builtin.assert:
@@ -896,4 +877,3 @@
           {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} said
           {{ verify_pi_jump_hop.stdout }} / {{ verify_pi_jump_hop.stderr }}
       when: verify_pi_jump_hop is not skipped
-      tags: [jump]
