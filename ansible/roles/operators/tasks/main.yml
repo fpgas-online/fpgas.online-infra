@@ -52,15 +52,19 @@
 # stays (the revoked ones go below). Each line is tagged as ssh-import-id
 # tagged its own ("# ssh-import-id gh:<user>"); authorized_key matches on
 # the key itself, so a key an earlier ssh-import-id run added is not
-# duplicated, only its comment brought in line. In --check a fresh account
+# duplicated, only its comment brought in line; a key two of an operator's
+# ids both publish is taken from the first only, or its comment would flip
+# between them on every run. In --check a fresh account
 # does not exist yet, so there is nothing to look its keys up in.
 - name: Authorize the operators' downloaded keys
   ansible.posix.authorized_key:
     user: "{{ item.item.name }}"
     key: >-
       {%- set lines = [] -%}
+      {%- set seen = [] -%}
       {%- for id in item.item.ssh_import_ids | default([]) -%}
-        {%- for key in ssh_key_fetch_keys[id] -%}
+        {%- for key in ssh_key_fetch_keys[id] if key.split()[1] not in seen -%}
+          {%- set _ = seen.append(key.split()[1]) -%}
           {%- set _ = lines.append(key ~ ' # ssh-import-id ' ~ (id if ':' in id else 'lp:' ~ id)) -%}
         {%- endfor -%}
       {%- endfor -%}

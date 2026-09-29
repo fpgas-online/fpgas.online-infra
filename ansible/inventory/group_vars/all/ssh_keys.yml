@@ -10,10 +10,11 @@ operators_accounts:
     - name: carl
       ssh_import_ids: [gh:CarlFK]
 
-# ssh-import-id style ids (gh:<user>, lp:<user>, bare <user> = lp:) whose
-# published keys the tweed jump account (roles/jump) trusts.
+# GitHub ids (gh:<user>) whose https://github.com/<user>.keys the tweed
+# jump account (roles/jump) trusts. GitHub only: Carl's used to be the bare
+# `carlfk`, i.e. Launchpad's lp:carlfk (revoked below).
 ssh_imports:
-    - carlfk
+    - gh:CarlFK
     - gh:mithro
 
     # - gh:iiie
@@ -24,6 +25,9 @@ ssh_imports:
 ssh_imports_revoked:
     - gh:asinghani
     - gh:bjonnh
+    # Carl's Launchpad keys (the old bare `carlfk` id, an ssh-dss key among
+    # them): his GitHub keys replace them (2026-09-29).
+    - lp:carlfk
 
 ssh_public_keys:
     - keys:
