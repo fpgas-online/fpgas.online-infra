@@ -14,8 +14,6 @@
     reload: true
     state: present
   when: firewall_ip_forward_v4
-  tags:
-    - forwarding
 
 # See defaults/main.yml: this also stops the host honouring Router
 # Advertisements, which is safe here only because the gateways' IPv6 default
@@ -29,8 +27,6 @@
     reload: true
     state: present
   when: firewall_ip_forward_v6
-  tags:
-    - forwarding
 
 - name: Install nftables
   ansible.builtin.apt:

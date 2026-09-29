@@ -20,7 +20,6 @@
     netif_uplink_cur: >-
       {{ eth_uplink if eth_uplink in ansible_facts.interfaces
          else (ansible_facts | iface_by_mac(eth_uplink_mac_address | default(''))) }}
-  tags: [netif]
 
 # systemd-networkd ships in the `systemd` package on every Debian release we
 # target (there is no separate systemd-networkd package on bookworm, and the
@@ -39,7 +38,6 @@
     - item.mac | length > 0
     - item.name != eth_local or eth_local_mac_address is defined
     - item.name != eth_uplink or netif_uplink_manage
-  tags: [netif]
 
 - name: Uplink network (systemd-networkd)
   ansible.builtin.template:
@@ -48,7 +46,6 @@
     mode: "0644"
   notify: Reload networkd
   when: netif_uplink_manage
-  tags: [netif]
 
 - name: Static resolv.conf (networkd without systemd-resolved)
   ansible.builtin.template:
@@ -57,14 +54,12 @@
     mode: "0644"
     follow: false
   when: netif_uplink_manage and eth_uplink_dns_server is defined
-  tags: [netif]
 
 - name: Is the host running ifupdown
   ansible.builtin.stat:
     path: /etc/network/interfaces
   register: netif_ifupdown
   when: netif_uplink_manage
-  tags: [netif]
 
 # A host installed without ifupdown (networkd only) has nothing to take.
 - name: Take the uplink away from ifupdown
@@ -74,14 +69,12 @@
     regexp: '^(\s*)(auto|allow-hotplug|iface)(\s+)({{ ([eth_uplink, netif_uplink_cur] | reject("equalto", "") | map("regex_escape") | join("|")) }})(\s|$)'
     replace: '\1#\2\3\4\5'
   when: netif_uplink_manage and netif_ifupdown.stat.exists
-  tags: [netif]
 
 - name: Enable systemd-networkd
   ansible.builtin.systemd:
     name: systemd-networkd
     enabled: true
     state: started
-  tags: [netif]
 
 - name: Reboot so the .link renames take effect
   ansible.builtin.reboot:
@@ -90,11 +83,9 @@
   when:
     - netif_allow_reboot
     - (netif_local_cur != eth_local) or (netif_uplink_manage and netif_uplink_cur != eth_uplink)
-  tags: [netif]
 
 - name: Re-gather facts after rename
   ansible.builtin.setup:
   when:
     - netif_allow_reboot
     - (netif_local_cur != eth_local) or (netif_uplink_manage and netif_uplink_cur != eth_uplink)
-  tags: [netif]

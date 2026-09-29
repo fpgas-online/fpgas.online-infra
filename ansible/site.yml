@@ -28,7 +28,6 @@
       ansible.builtin.include_role:
         name: img
         tasks_from: prefetch.yml
-      tags: [img]
 
 - name: Configure the server services
   hosts: nbp
@@ -95,7 +94,6 @@
     - name: Extract the pulled Pi NFS root
       ansible.builtin.import_role:
         name: img
-      tags: [img]
 
     # A fresh extract restores the image's upstream apt sources; point
     # them back at this site's cache.
@@ -103,7 +101,6 @@
       ansible.builtin.import_role:
         name: apt_cache
         tasks_from: nfsroot.yml
-      tags: [apt-cache]
 
     - name: Apply the site layer to the NFS root
       ansible.builtin.import_role:

@@ -9,14 +9,12 @@
     dest: /etc/apt/apt.conf.d/01site-proxy
     mode: '0644'
   when: apt_client_proxy | length > 0 or apt_client_https_cache | length > 0
-  tags: [apt-client]
 
 - name: Remove the site apt proxy configuration
   ansible.builtin.file:
     path: /etc/apt/apt.conf.d/01site-proxy
     state: absent
   when: apt_client_proxy | length == 0 and apt_client_https_cache | length == 0
-  tags: [apt-client]
 
 # The Debian installer writes the proxy it was given to /etc/apt/apt.conf,
 # which apt reads after apt.conf.d, so it would override 01site-proxy.
@@ -26,11 +24,9 @@
     regexp: '^\s*Acquire::http::Proxy\s'
     state: absent
   when: apt_client_proxy | length > 0
-  tags: [apt-client]
 
 - name: Remove retired apt proxy configuration
   ansible.builtin.file:
     path: "/etc/apt/apt.conf.d/{{ item }}"
     state: absent
   loop: "{{ apt_client_retired_confs }}"
-  tags: [apt-client]

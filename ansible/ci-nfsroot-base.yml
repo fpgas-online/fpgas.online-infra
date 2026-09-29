@@ -21,4 +21,3 @@
       ansible.builtin.include_role:
         name: img
         tasks_from: build.yml
-      tags: [img]
