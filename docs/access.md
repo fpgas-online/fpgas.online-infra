@@ -2,8 +2,7 @@
 
 Who can log in to the Welland gateway (tweed, inventory host `fpgas.online`)
 and to the netbooted Pi fleet, with what, and which role and variable decide
-it. Everything here is what `main` configures. It was checked against a live
-tweed and fleet on 2026-09-27 to 2026-09-29.
+it. Everything here is what `main` configures.
 
 No secrets are recorded here. The only private material involved is the
 `fpgas.online-ansible` automation key (vaulted as
@@ -25,10 +24,21 @@ through tweed.
 
 ## tweed
 
-`tweed.welland.mithis.com` resolves to tweed itself: A `10.21.0.1` (eth-local,
-inside the site) and AAAA `2404:e80:a137:9921::2` (the uplink, 2026-09-29).
-Ansible connects from ten64 to the uplink address `10.99.21.2`
-(`ansible_host`).
+tweed is not publicly addressable over IPv4. `tweed.welland.mithis.com` is
+split-horizon DNS (looked up 2026-09-29):
+
+| Resolver | A | AAAA |
+|---|---|---|
+| public (ns1/ns2.rollernet.us) | `87.121.95.37`, which is **ten64** (PTR `ten64.welland.mithis.com`) | `2404:e80:a137:2100::1`, `2404:e80:a137:9921::2` (tweed) |
+| inside the site | `10.99.21.2` (uplink), `10.21.0.1` (eth-local) | the same two |
+
+So the name reaches tweed's sshd from inside the site, over the wg route, and
+over IPv6. From outside over IPv4 it reaches ten64, not tweed. Ansible
+connects from ten64 to the uplink address `10.99.21.2` (`ansible_host`).
+tweed's own firewall accepts SSH on every interface
+([`roles/firewall`](../ansible/roles/firewall/templates/nftables.conf.j2)).
+Whether ten64 passes port 22 through to tweed's IPv6 addresses from the
+internet is not set in this repository and has not been verified.
 
 | Account | uid | sudo | `authorized_keys` | Managed by |
 |---|---|---|---|---|
@@ -36,7 +46,7 @@ Ansible connects from ten64 to the uplink address `10.99.21.2`
 | `admin` | 1001 | NOPASSWD (`server_user_sudo: true`) | exactly the keys published at `https://github.com/mithro.keys` and `https://github.com/CarlFK.keys`. Written `exclusive`, after every id has downloaded (see [Where the keys come from](#where-the-keys-come-from)) | [`roles/server_user`](../ansible/roles/server_user) (`user_name: admin`, `server_user_ssh_import_ids` = the operators' ids). The account was `videoteam` until #141 renamed it in place (`server_user_rename_from`) |
 | `tim`, `carl` | | NOPASSWD (`/etc/sudoers.d/<name>`) | the GitHub keys of `operators_accounts[].ssh_import_ids` (`gh:mithro`, `gh:CarlFK`), added (not exclusive), minus `ssh_public_keys_revoked` | [`roles/operators`](../ansible/roles/operators) |
 | `pi` | | none (the role deletes any `/etc/sudoers.d/pi`) | `ssh_public_keys` (static) plus the GitHub keys of `ssh_imports` (`gh:CarlFK`, `gh:mithro`), added (not exclusive), minus `ssh_imports_revoked` and `ssh_public_keys_revoked` | [`roles/jump`](../ansible/roles/jump) |
-| `root` | 0 | | not managed by any role. Password locked (2026-09-27) | sshd: `PermitRootLogin prohibit-password` |
+| `root` | 0 | | not managed by any role. Password locked (observed 2026-09-27) | sshd: `PermitRootLogin prohibit-password` |
 
 `admin` runs the site: gunicorn, daphne, uvicorn and the fleet consumer are
 `User={{ user_name }}` ([`roles/site`](../ansible/roles/site/templates)). Its
@@ -87,8 +97,10 @@ before that fix the probe ran as root and the guard checked root's keys). After
 writing, the role checks `sshd -t` and the effective `sshd -T` values for
 `ansible`, `pi` and `root`.
 
-ps1.fpgas.online runs the same `operators` and `jump` roles, but not
-`automation_user` or `sshd`, and its `user_name` is still `videoteam`.
+ps1.fpgas.online runs the same `operators`, `jump` and `sshd` roles. It does
+not run `automation_user` (`automation_user_manage` is false). Its
+`sshd_pubkey_only` is false, so `sshd` only makes sure the drop-in is absent,
+and its `user_name` is still `videoteam`.
 
 ## The Pi NFS root
 
@@ -152,13 +164,16 @@ rewritten `/etc/shadow` makes every booted board refuse SSH until it reboots.
 
 | To | Command | Authenticates with |
 |---|---|---|
-| tweed, as yourself | `ssh tim@tweed.welland.mithis.com` (from ten64: `ssh tim@10.99.21.2`) | your GitHub key |
+| tweed, as yourself | inside the site, over wg or over IPv6: `ssh <you>@tweed.welland.mithis.com`; from ten64: `ssh <you>@10.99.21.2` | your GitHub key |
 | tweed, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes ansible@10.99.21.2` | the automation key |
 | a board, through the jump account | `ssh -J pi@tweed.welland.mithis.com pi@10.21.2.29` | your key at both hops (see the note below) |
 | a board, hopping from the jump shell | `ssh pi@tweed.welland.mithis.com`, then `ssh pi@10.21.2.29` | the jump account's own key at the board |
-| a board, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes -J tweed.welland.mithis.com ansible@10.21.S.P` | your own login at tweed, the automation key at the board |
-| a board, as root | `ssh -J tim@tweed.welland.mithis.com root@10.21.S.P` | your GitHub key at both hops |
+| a board, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes -J <you>@10.99.21.2 ansible@10.21.S.P` | your own key at tweed, the automation key at the board |
+| a board, as root | `ssh -J <you>@tweed.welland.mithis.com root@10.21.S.P` | your GitHub key at both hops |
 | a board, with the password | the board page's terminal on welland.fpgas.online, or `ssh pi@10.21.S.P` from tweed | `pi_pw` |
+
+Every `tweed.welland.mithis.com` in this table needs a path that reaches
+tweed (see [tweed](#tweed)); from ten64, use `10.99.21.2` instead.
 
 With `-J`, your own key must be trusted at both ends. The jump account trusts
 `ssh_public_keys` and `ssh_imports`. The boards trust only the GitHub keys of
@@ -217,9 +232,12 @@ down or returns nothing:
 
 Re-run once GitHub answers again.
 
-Converge from ten64, the whole server:
+Converge from ten64. tweed's host_vars hold vaulted values, so give Ansible
+the vault password as the README's Deploy section does
+(`ANSIBLE_VAULT_PASSWORD_FILE`, or `--vault-password-file`). The whole server:
 
 ```bash
+export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
 uv run ansible-playbook ansible/site.yml --limit fpgas.online
 ```
 
