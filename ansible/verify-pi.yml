@@ -9,11 +9,57 @@
 #   # a live Pi by address (the static inventory has no per-Pi hosts):
 #   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
-# The camera and FPGA checks are tagged hw-camera and hw-fpga, for a board
-# without that hardware (see README.md); the VM test runs them all.
+# Every Pi runs every check (#157: no --tags / --skip-tags). The camera and
+# FPGA checks look for that hardware on the Pi itself, as the Pi's own
+# services do, and then assert on what they found: no camera or no FPGA is
+# said and passes; one that is there but not working fails. The VM test's Pi
+# has neither, so it passes because nothing is found, not because anything
+# was skipped.
 
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
+  vars:
+    # The camera fpgas-cam would use, found the way it finds one
+    # (find_camera() in fpgas.online-cam's gst-libcam.sh): a CSI sensor the
+    # kernel bound (a v4l-subdev named "<driver> <i2c bus>-<addr>", e.g.
+    # "ov5647 10-0036"), else a USB capture device. And whether it streams:
+    # an established TCP connection to an RTMP port (1935), which only
+    # fpgas-cam's rtmpsink makes. Paths are parameters so a test can point
+    # them at a scratch tree. No `{{`/`{%` in here: it is templated.
+    verify_pi_camera_probe: |
+      import glob, json, os, re, subprocess
+      def camera(v4l="/sys/class/video4linux", byid="/dev/v4l/by-id", net="/proc/net"):
+          csi = []
+          for path in sorted(glob.glob(v4l + "/v4l-subdev*/name")):
+              try:
+                  with open(path) as f:
+                      name = f.read().strip()
+              except OSError:
+                  continue
+              if re.search(r" [0-9]+-00[0-9a-f]{2}$", name):
+                  csi.append(name)
+          usb = sorted(glob.glob(byid + "/usb-*-video-index0"))
+          rtmp = 0
+          for table in ("tcp", "tcp6"):
+              try:
+                  with open(net + "/" + table) as f:
+                      rows = f.read().splitlines()[1:]
+              except OSError:
+                  continue
+              for row in rows:
+                  fields = row.split()
+                  # st 01 = ESTABLISHED; rem_address ends :078F = port 1935 (hex)
+                  if len(fields) > 3 and fields[3] == "01" and fields[2].endswith(":078F"):
+                      rtmp += 1
+          return {"csi": csi, "usb": usb, "rtmp": rtmp}
+      def cam_unit():
+          try:
+              out = subprocess.run(["systemctl", "show", "fpgas-cam.service", "-p",
+                                    "ActiveState,SubState,Result,ExecMainStatus,NRestarts"],
+                                   capture_output=True, text=True, timeout=60).stdout
+          except (OSError, subprocess.TimeoutExpired) as e:
+              return {"error": str(e)}
+          return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
   # Checks run as the login user; only the few that need root say so.
   # Every sudo costs ~5 s on the TCG-emulated Pi (and real time on a
   # loaded board), and almost every check here reads world-readable state.
@@ -38,6 +84,7 @@
       vars:
         verify_pi_collector: |
           import base64, json, os, subprocess
+          {{ verify_pi_camera_probe }}
           def run(*argv):
               try:
                   r = subprocess.run(argv, capture_output=True, text=True, timeout=60)
@@ -91,6 +138,7 @@
               "cables": run("openFPGALoader", "--list-cables"),
               "rp1jtag_list": exists("/etc/apt/sources.list.d/rp1-jtag.list"),
               "cam": run("systemctl", "is-enabled", "fpgas-cam"),
+              "camera": dict(camera(), unit=cam_unit()),
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
               "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
@@ -134,6 +182,7 @@
         verify_pi_cables: "{{ verify_pi_state.cables }}"
         verify_pi_rp1jtag_list: "{{ verify_pi_state.rp1jtag_list }}"
         verify_pi_cam: "{{ verify_pi_state.cam }}"
+        verify_pi_camera_collected: "{{ verify_pi_state.camera }}"
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
         verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
@@ -405,12 +454,91 @@
           reconverged since.
       tags: [fpgas-apt]
 
-    # Hardware-dependent services (tag-based skip)
+    # The camera. fpgas-cam is enabled on every Pi (the root is shared, so
+    # this is software). What it streams depends on what is attached, so
+    # verify-pi looks for a camera the way fpgas-cam does (verify_pi_camera_probe)
+    # and asserts on what it finds:
+    #   camera found, fpgas-cam running and connected to the stream server: pass
+    #   camera found, not streaming (after up to a minute):                  fail
+    #   no camera found, fpgas-cam not streaming (it gives up with exit 78,
+    #   which cam.service does not restart):                  pass, and says so
+    #   no camera found, yet fpgas-cam streams: fail -- the probe no longer
+    #   matches fpgas-cam's own detection and must be updated.
     - name: Assert fpgas-cam service enabled
       ansible.builtin.assert:
         that: verify_pi_cam.stdout == "enabled"
         fail_msg: "fpgas-cam service not enabled"
-      tags: [hw-camera]
+
+    # A camera found but not streaming yet may only be starting (the collector
+    # can run seconds after boot, and cam.service restarts after 1 s on any
+    # failure but "no camera"): look again for up to a minute before failing.
+    - name: Wait for the camera found on this Pi to stream
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ verify_pi_camera_probe }}\nprint(json.dumps(dict(camera(), unit=cam_unit())))"
+      changed_when: false
+      register: verify_pi_camera_wait
+      until: >-
+        (verify_pi_camera_wait.stdout | from_json).rtmp > 0
+        and (verify_pi_camera_wait.stdout | from_json).unit.ActiveState | default('') == 'active'
+      retries: 12
+      delay: 5
+      failed_when: false
+      when:
+        - (verify_pi_camera_collected.csi + verify_pi_camera_collected.usb) | length > 0
+        - >-
+          not (verify_pi_camera_collected.rtmp > 0
+          and verify_pi_camera_collected.unit.ActiveState | default('') == 'active')
+
+    - name: What the camera probe found
+      ansible.builtin.set_fact:
+        verify_pi_camera: >-
+          {{ verify_pi_camera_wait.stdout | from_json
+             if verify_pi_camera_wait.stdout | default('') | length > 0
+             else verify_pi_camera_collected }}
+
+    - name: What the camera checks decided
+      ansible.builtin.set_fact:
+        verify_pi_camera_found: "{{ (verify_pi_camera.csi + verify_pi_camera.usb) | length > 0 }}"
+        verify_pi_camera_streaming: >-
+          {{ verify_pi_camera.rtmp > 0 and verify_pi_camera.unit.ActiveState | default('') == 'active' }}
+
+    - name: Say that this Pi has no camera, so there is no stream to check
+      ansible.builtin.debug:
+        msg: >-
+          No camera on {{ ansible_hostname }}: no CSI sensor bound (v4l-subdev) and
+          no USB capture device (/dev/v4l/by-id/usb-*-video-index0), so there is no
+          stream to check. fpgas-cam: {{ verify_pi_camera.unit }} (exit 78 is its
+          own "no camera"). A CSI camera connected since needs a power cycle.
+      when: not verify_pi_camera_found and not verify_pi_camera_streaming
+
+    # Only when the assert below is about to fail: fpgas-cam's own account
+    # (root: the system journal).
+    - name: Read fpgas-cam's status and journal
+      ansible.builtin.shell: >-
+        systemctl status --no-pager --lines=0 fpgas-cam.service;
+        journalctl --no-pager -b -n 30 -u fpgas-cam.service
+      become: true
+      changed_when: false
+      register: verify_pi_camera_journal
+      failed_when: false
+      when: verify_pi_camera_found != verify_pi_camera_streaming
+
+    - name: Assert the camera streams if, and only if, this Pi has one
+      ansible.builtin.assert:
+        that: verify_pi_camera_found == verify_pi_camera_streaming
+        fail_msg: >-
+          {% if verify_pi_camera_found %}A camera is attached
+          ({{ (verify_pi_camera.csi + verify_pi_camera.usb) | join(', ') }}) but
+          fpgas-cam is not streaming it: {{ verify_pi_camera.rtmp }} RTMP
+          connection(s), unit {{ verify_pi_camera.unit }}.{% else %}No camera found
+          (no bound CSI sensor, no USB capture device), yet fpgas-cam is streaming
+          ({{ verify_pi_camera.rtmp }} RTMP connection(s), unit
+          {{ verify_pi_camera.unit }}): verify_pi_camera_probe no longer matches
+          find_camera() in fpgas.online-cam's gst-libcam.sh.{% endif %}
+          fpgas-cam: {{ verify_pi_camera_journal.stdout_lines | default([]) }}
 
     # Tiny Tapeout: roles/onpi/tasks/tt.yml bakes the daemon (every Pi, when
     # the site has tt_boards) and the FPGA demo bitstreams into the NFS root.
