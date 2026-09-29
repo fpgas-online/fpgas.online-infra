@@ -58,6 +58,19 @@
   hosts: nbp
   gather_facts: false
   tasks:
+    # The one step of the root update that depends on another site: the
+    # operators' GitHub keys for the root's authorized_keys (fixpi). Done
+    # first, so a GitHub outage fails the run here, before the lock is
+    # taken and the image extracted into the live root, rather than
+    # half-way through the update with the lock held.
+    - name: Download the NFS root's GitHub keys before the root update
+      ansible.builtin.include_role:
+        name: fixpi
+        tasks_from: github_keys.yml
+        apply:
+          tags: [fixpi, keys]
+      tags: [fixpi, keys]
+
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
     # the root by roles/onpi) from here until nfsroot_generation below:
     # img, apt_cache and fixpi all change the root, and a board must never

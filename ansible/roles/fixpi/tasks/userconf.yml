@@ -104,11 +104,14 @@
   tags:
     - keys
 
+# 0700, like the ansible user's (ansible-home.yml) and the jump host's .ssh:
+# only the owner needs to list them. home/pi's is chowned to pi (uid 1000)
+# by "Set perms" below; root's stays root's.
 - name: Create .ssh dirs
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
-    mode: "0755"
+    mode: "0700"
   with_items:
     - root
     - home/pi

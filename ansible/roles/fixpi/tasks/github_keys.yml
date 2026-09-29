@@ -1,0 +1,31 @@
+---
+# The operators' GitHub keys for the NFS root (fixpi_github_key_users),
+# downloaded by roles/ssh_key_fetch into fixpi_github_keys ({gh:<user>:
+# [key line, ...]}). A download that fails or holds no key, after the
+# retries, fails the play here.
+#
+# site.yml runs this FIRST in its "Update the Pi NFS root" play, before
+# the update lock is taken and the image extracted into the live root: a
+# GitHub outage then stops the run before the root is touched, instead of
+# half-way through its update with the lock held. authorized_keys.yml uses
+# the result, and runs this itself only when nothing has (a run of fixpi
+# alone, or the tests).
+- name: Download the operators' GitHub keys
+  ansible.builtin.include_role:
+    name: ssh_key_fetch
+    apply:
+      tags: [keys]
+  vars:
+    ssh_key_fetch_github_url: "{{ fixpi_github_keys_base_url }}"
+    ssh_key_fetch_requests: >-
+      {%- set requests = [] -%}
+      {%- for user in fixpi_github_key_users -%}
+        {%- set _ = requests.append({'account': 'the NFS root', 'id': 'gh:' ~ user}) -%}
+      {%- endfor -%}
+      {{ requests }}
+  tags: [keys]
+
+- name: Keep the NFS root's GitHub keys
+  ansible.builtin.set_fact:
+    fixpi_github_keys: "{{ ssh_key_fetch_keys }}"
+  tags: [keys]

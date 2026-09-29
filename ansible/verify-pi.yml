@@ -62,6 +62,18 @@
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
           fpga_verify_report = read("/run/fpgas-online/verify.json")
+          # The tty behind the device tree's serial0 alias: the 40-pin header UART on
+          # every Raspberry Pi. Not /dev/serial0, which udev points at the DT `console`
+          # alias where there is one (ttyAMA10, the Pi 5's debug UART).
+          def dt_serial0_tty():
+              alias = (read("/proc/device-tree/aliases/serial0") or b"").rstrip(b"\x00").decode()
+              if not alias or not os.path.isdir("/sys/class/tty"):
+                  return ""
+              for tty in sorted(os.listdir("/sys/class/tty")):
+                  node = "/sys/class/tty/" + tty + "/device/of_node"
+                  if os.path.realpath(node) == "/sys/firmware/devicetree/base" + alias:
+                      return tty
+              return ""
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
@@ -90,6 +102,10 @@
                         "stdout": (model or b"").decode(errors="replace").rstrip("\x00\n")},
               "cmdline": {"rc": 0, "stdout": (read("/proc/cmdline") or b"").decode().rstrip("\n")},
               "ttyama0": exists("/dev/ttyAMA0"),
+              # The consoles the kernel writes to now (from the cmdline, or the device
+              # tree's stdout-path), and the header UART's tty.
+              "consoles": {"stdout": (read("/sys/class/tty/console/active") or b"").decode().strip(),
+                           "serial0": dt_serial0_tty()},
               "udc": {"matched": len(udc), "files": [{"path": "/sys/class/udc/" + u} for u in udc]},
               "usb_console": run("systemctl", "is-active", "fpgas-usb-console.service",
                                  "serial-getty@ttyGS1.service") if udc else {"skipped": True},
@@ -127,6 +143,7 @@
         verify_pi_model: "{{ verify_pi_state.model }}"
         verify_pi_cmdline: "{{ verify_pi_state.cmdline }}"
         verify_pi_ttyama0: "{{ verify_pi_state.ttyama0 }}"
+        verify_pi_consoles: "{{ verify_pi_state.consoles }}"
         verify_pi_udc: "{{ verify_pi_state.udc }}"
         verify_pi_usb_console: "{{ verify_pi_state.usb_console }}"
         verify_pi_fleet_files: "{{ verify_pi_state.fleet_files }}"
@@ -625,19 +642,31 @@
       when: "'Raspberry Pi 5' in verify_pi_model.stdout"
       tags: [verify, uart]
 
-    # Enabling uart0 makes the firmware resolve `console=serial0` to ttyAMA0,
-    # which would put the kernel console -- and the getty systemd derives from
-    # it -- on the FPGA's serial pins. A design driving K2 then feeds the console
-    # bytes that SysRq reads as reboot/crash. The Pi 5s must stay on their
-    # dedicated debug UART (ttyAMA10) via `[pi5] cmdline=cmdline-pi5.txt`.
-    - name: Assert the kernel console is off the header UART on Pi 5
+    # The header UART is the FPGA's serial link on every Pi model, so no kernel
+    # console may be on it: its output (systemd's boot status while
+    # fpgas-verify runs) lands in the board's UART tests, the getty systemd
+    # derives from it fights them for the port, and a design driving TX feeds
+    # it bytes that SysRq reads as reboot/crash. What the kernel actually
+    # writes to is checked, not the command line: with no console= the kernel
+    # falls back to the device tree's stdout-path, serial0, which is how every
+    # Pi 3/4 had it (#155). Pi 3/4: console=tty1 in cmdline.txt; Pi 5:
+    # console=ttyAMA10, its debug UART, via `[pi5] cmdline=cmdline-pi5.txt`.
+    # The header UART is the tty behind the DT serial0 alias (the collector's
+    # consoles.serial0), plus ttyAMA0 by name for a root without the alias.
+    # verify_pi_header_uart_console is set only for the VM test's Pi, whose
+    # U-Boot appends console=ttyAMA0: that is the serial port QEMU captures.
+    - name: Assert no kernel console is on the header UART
+      vars:
+        header_uarts: "{{ ['ttyAMA0', verify_pi_consoles.serial0] | select | unique | list }}"
+        on_header: "{{ verify_pi_consoles.stdout.split() | intersect(header_uarts) }}"
       ansible.builtin.assert:
-        that: "'console=ttyAMA0' not in verify_pi_cmdline.stdout"
+        that: on_header | length == 0
         fail_msg: >-
-          Pi 5 kernel console is on ttyAMA0, the FPGA's UART. An FPGA design
-          driving serial TX can trigger SysRq (reboot/crash) and will fight the
-          getty for the port. Expected console=ttyAMA10 via cmdline-pi5.txt.
-      when: "'Raspberry Pi 5' in verify_pi_model.stdout"
+          The kernel console includes {{ on_header }} (active consoles:
+          '{{ verify_pi_consoles.stdout }}'), the header UART that carries the
+          FPGA's serial link. Expected console=tty1 in cmdline.txt (Pi 3/4) or
+          console=ttyAMA10 via cmdline-pi5.txt (Pi 5); cmdline: {{ verify_pi_cmdline.stdout }}
+      when: not (verify_pi_header_uart_console | default(false))
       tags: [verify, uart]
 
     # --- USB gadget console (tag hw-usb-gadget; boards with a UDC only) ---

@@ -16,8 +16,8 @@ ansible_become: true
 automation_user_manage: true
 
 # SSH login to tweed is public-key only (roles/sshd). Every account used
-# here has keys: ansible (fpgas.online-ansible), the operators (GitHub via
-# ssh-import-id) and the jump account pi; the role refuses to converge if
+# here has keys: ansible (fpgas.online-ansible), the operators (GitHub, via
+# roles/ssh_key_fetch) and the jump account pi; the role refuses to converge if
 # any of them has none. The Pis keep their password login (web terminal).
 sshd_pubkey_only: true
 

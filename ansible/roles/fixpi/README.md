@@ -26,7 +26,10 @@ key list for root and pi (server user, controller, operators' GitHub keys,
 and for pi the gateway jump account), and for the ansible automation
 account the controller key alone, written once and only when it changed
 (ansible-home.yml, before userconf.yml, checks the account is in the image
-and makes its .ssh dir)
+and makes its .ssh dir). The GitHub keys come from
+https://github.com/<user>.keys via roles/ssh_key_fetch: a download that
+fails or holds no key, after a few retries, fails the run there, before
+any file is written (no keep-on-outage, no drop-on-404)
 set perms
 
 

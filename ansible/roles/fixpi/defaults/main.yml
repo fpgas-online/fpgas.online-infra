@@ -45,7 +45,8 @@ fixpi_server_user_pubkey: "/home/{{ user_name }}/.ssh/id_rsa.pub"
 # Carl), from the gh: ids of operators_accounts (inventory
 # group_vars/all/ssh_keys.yml), so adding an operator there covers the
 # boards too.
-# Where <user>.keys is fetched from (the tests point it at a local server).
+# Where <user>.keys is downloaded from (the tests point it at a local
+# server); roles/ssh_key_fetch fails the run on a user with no key.
 fixpi_github_keys_base_url: https://github.com
 
 fixpi_github_key_users: >-
