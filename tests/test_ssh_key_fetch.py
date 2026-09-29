@@ -72,10 +72,11 @@ def run(tmp_path: Path, keyserver, requests: list[dict], check: bool = False,
 
 
 def failed_task(output: str) -> str:
-    """The name of the task the play failed at (its first fatal:/failed: line)."""
-    fatal = re.search(r"^(fatal|failed): ", output, re.M)
-    assert fatal, output
-    return re.findall(r"^TASK \[(?:[^:\]]+ : )?([^\]]+)\]", output[:fatal.start()], re.M)[-1]
+    """The task the play stopped at: the one holding the last fatal:/failed:
+    line (a rescued failure comes before the rescue's own)."""
+    failures = list(re.finditer(r"^(fatal|failed): ", output, re.M))
+    assert failures, output
+    return re.findall(r"^TASK \[(?:[^:\]]+ : )?([^\]]+)\]", output[:failures[-1].start()], re.M)[-1]
 
 
 def test_keys_are_downloaded_per_id(tmp_path, keyserver):

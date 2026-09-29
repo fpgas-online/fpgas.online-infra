@@ -48,12 +48,11 @@
       ansible.builtin.fail:
         msg: >-
           {% for r in ansible_failed_result.results | default([]) if r.failed | default(false) -%}
+          {% set status = r.status | default(-1) -%}
+          {% set said = '(OK) with no key in it' if status == 200 else '(' ~ r.msg | default('no message') ~ ')' -%}
           No ssh keys for {{ r.item.account }} from {{ r.item.id }}:
-          {{ r.url | default('the download') }} answered
-          {{ r.status | default(-1) }}
-          {{ '(OK) with no key in it' if r.status | default(-1) == 200
-             else '(' ~ (r.msg | default('no message')) ~ ')' }}
-          after {{ r.attempts | default(1) }} attempt(s).
+          {{ r.url | default('the download') }} answered {{ status }} {{ said }}
+          after {{ ssh_key_fetch_retries }} retries.
           {% else -%}
           The ssh key download failed: {{ ansible_failed_result.msg | default('no message') }}
           {%- endfor %}
