@@ -4,15 +4,14 @@ These tests fail if:
   - any task, role or include under ansible/ carries a tag other than
     `always` (kept for now for the partial-run workarounds it exists for),
   - the VM harness passes --tags or --skip-tags to a playbook,
-  - the harness's dry run of roles/server_user stops being a valid playbook
-    of exactly that role,
+  - the harness's dry run of roles/server_user stops being a playbook of
+    exactly that role (the VM test runs it; the pytest job has no ansible
+    collections for a syntax-check),
   - a live doc (README, CLAUDE.md, docs/access.md, the runbooks) gives a
     --tags / --skip-tags command.
 """
 
-import os
 import re
-import subprocess
 from pathlib import Path
 
 import yaml
@@ -68,15 +67,6 @@ def test_server_user_check_plays_exactly_the_server_user_role():
     assert plays[0]["roles"] == ["server_user"]
     assert web[0]["roles"][0] == "server_user"
     assert not {"tasks", "pre_tasks", "post_tasks", "tags"} & plays[0].keys()
-
-
-def test_server_user_check_syntax():
-    env = {**os.environ, "ANSIBLE_ROLES_PATH": str(ANSIBLE / "roles")}
-    result = subprocess.run(
-        ["ansible-playbook", "-i", "tests/inventory/test-hosts", "--syntax-check", str(SERVER_USER_CHECK)],
-        cwd=REPO, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_live_docs_give_no_tag_commands():
