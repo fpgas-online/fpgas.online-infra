@@ -15,8 +15,6 @@
       - podman
       - rsync
     install_recommends: false
-  tags:
-    - img
 
 # prefetch.yml started the download early in site.yml; wait for it here.
 # Its outcome is not trusted: the pull below is what must succeed.
@@ -28,8 +26,6 @@
   retries: "{{ ((img_pull_retries | int + 1) * (img_pull_delay | int + 300)) // 5 }}"
   delay: 5
   when: img_prefetch.ansible_job_id is defined
-  tags:
-    - img
 
 # How long the successful download took, apart from any wait for the image
 # to be published (see LAYERS in tests/ci/nfsroot_publish.py).
@@ -37,8 +33,6 @@
   ansible.builtin.debug:
     msg: "{{ img_prefetch_job.stdout | default('no report') }}"
   when: img_prefetch.ansible_job_id is defined
-  tags:
-    - img
 
 - name: Pull the nfsroot image
   ansible.builtin.command: podman pull {{ img_nfsroot_image }}
@@ -47,8 +41,6 @@
   retries: "{{ img_pull_retries }}"
   delay: "{{ img_pull_delay }}"
   changed_when: false
-  tags:
-    - img
 
 - name: Read the pulled image digest
   ansible.builtin.command: >-
@@ -56,29 +48,21 @@
     {{ img_nfsroot_image }}
   register: img_digest
   changed_when: false
-  tags:
-    - img
 
 - name: Read the extraction stamp
   ansible.builtin.command: cat {{ nfs_root }}/.image-digest
   register: img_stamp
   failed_when: false
   changed_when: false
-  tags:
-    - img
 
 - name: Create the NFS root directory
   ansible.builtin.file:
     path: "{{ nfs_root }}"
     state: directory
     mode: "0755"
-  tags:
-    - img
 
 - name: Extract the nfsroot image
   when: img_stamp.stdout | default('') != img_digest.stdout
-  tags:
-    - img
   block:
     - name: Mount the image
       ansible.builtin.command: podman image mount {{ img_nfsroot_image }}

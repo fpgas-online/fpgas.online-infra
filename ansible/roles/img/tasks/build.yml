@@ -10,8 +10,6 @@
       # rebuild B1-5, 2026-08-25).
       - xz-utils
     install_recommends: true
-  tags:
-    - img
 
 - name: Create pib cache dir
   ansible.builtin.file:
@@ -25,14 +23,10 @@
     dest: "{{ img_cache_dir }}"
     force: false
     mode: "0644"
-  # creates: "{{ img_cache_dir }}/{{ zip_name }}"
-  tags:
-    - img
+    # creates: "{{ img_cache_dir }}/{{ zip_name }}"
 
 - name: Extract files from raspios.img.xz
   ansible.builtin.script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
   args:
     chdir: "{{ img_cache_dir }}"
     creates: "{{ nfs_root }}/root/home"
-  tags:
-    - img

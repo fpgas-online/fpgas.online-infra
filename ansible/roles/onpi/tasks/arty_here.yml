@@ -3,8 +3,6 @@
   ansible.builtin.apt:
     name:
       - expect
-  tags:
-    - ia
 
 - name: Arty_here
   ansible.builtin.copy:
@@ -14,8 +12,6 @@
   with_items:
     - arty_here.sh
     - arty_here.exp
-  tags:
-    - ia
 
 - name: Install systemd arty_here service
   ansible.builtin.copy:
@@ -23,13 +19,9 @@
     dest: /etc/systemd/system/arty_here.service
     mode: "0644"
   notify: Reload-systemd
-  tags:
-    - ia
 
 - name: Enable arty_here.service
   ansible.builtin.systemd:
     name: arty_here.service
     enabled: true
   failed_when: false
-  tags:
-    - ia

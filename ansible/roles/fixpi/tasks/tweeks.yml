@@ -21,7 +21,6 @@
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
   tags:
-    - hostname
     - fixpi
 
 # - name: pi etc/hosts
@@ -44,7 +43,6 @@
     line: "pistat_host={{ domain_name }}"
     mode: "0644"
   tags:
-    - hostname
     - fixpi
 
 - name: Etc overrides
@@ -71,7 +69,6 @@
     line: '{% raw %}PS1="\D{%T} $PS1"{% endraw %}'
   when: true
   tags:
-    - bashrc
     - fixpi
 
 # Disable the onboard radios in the read-only netboot image. Because config.txt
@@ -148,7 +145,6 @@
       [all]
   tags:
     - fixpi
-    - cmdline
 # USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
 # USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
 # in peripheral mode a laptop on that port gets the kernel log + a getty.
@@ -177,8 +173,6 @@
   ansible.builtin.stat:
     path: /boot/firmware/config.txt
   register: fixpi_is_pi
-  tags:
-    - ispi
 
 - name: Enable /dev/serial0
   ansible.builtin.lineinfile:
@@ -188,8 +182,6 @@
   with_items:
     - dtoverlay=disable-bt
   when: fixpi_is_pi.stat.exists
-  tags:
-    - ispi
 
 # https://bugs.debian.org/667616
 # brltty greedily grabs serial ports, ftdi_sio loses connection
@@ -224,8 +216,6 @@
     state: stopped
     name: serial-getty@ttyAMA0.service
   when: fixpi_server_monitor | default(true)
-  tags:
-    - ispi
 
 # ifupdown is unused on the netbooted root (kernel ip=dhcp + NetworkManager):
 # networking.service fails on every Pi and ifupdown-pre.service (udevadm

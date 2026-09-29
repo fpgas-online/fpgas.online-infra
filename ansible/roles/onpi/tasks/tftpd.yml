@@ -4,16 +4,12 @@
     regexp: "ListenDatagram=69"
     line: "ListenDatagram={{ tftpd_port }}"
   notify: Reload-systemd
-  tags:
-    - tftpd
 
 - name: Tftpd port conf
   ansible.builtin.replace:
     path: /etc/default/atftpd
     regexp: "--port 69"
     replace: "--port {{ tftpd_port }}"
-  tags:
-    - tftpd
 
 - name: Pi tftp dir user writable
   ansible.builtin.file:
@@ -21,5 +17,3 @@
     owner: "pi"
     mode: "u+w"
     state: directory
-  tags:
-    - tftpd

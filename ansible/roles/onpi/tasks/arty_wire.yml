@@ -6,8 +6,6 @@
     mode: u+x
   with_items:
     - arty_wire.sh
-  tags:
-    - ia
 
 - name: Install systemd arty_wire service
   ansible.builtin.copy:
@@ -15,13 +13,9 @@
     dest: /etc/systemd/system/arty_wire.service
     mode: "0644"
   notify: Reload-systemd
-  tags:
-    - ia
 
 - name: Enable arty_wire.service
   ansible.builtin.systemd:
     name: arty_wire.service
     enabled: true
   failed_when: false
-  tags:
-    - ia

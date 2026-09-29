@@ -58,4 +58,3 @@
         value: "/srv/nfs/rpi/{{ dist }}/root"
   tags:
     - snmp
-    - manage

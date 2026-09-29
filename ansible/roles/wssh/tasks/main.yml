@@ -61,7 +61,5 @@
     src: "files/etc/nginx/includes/wssh.conf"
     dest: "/etc/nginx/includes/{{ conference_name }}-wssh.conf"
     mode: "0644"
-  tags:
-    - pibsite
   notify:
     - Reload nginx

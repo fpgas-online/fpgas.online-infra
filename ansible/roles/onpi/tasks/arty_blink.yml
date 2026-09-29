@@ -6,8 +6,6 @@
     mode: u+x
   with_items:
     - arty_blink.sh
-  tags:
-    - ab
 
 - name: Install systemd arty_blink service
   ansible.builtin.copy:
@@ -15,13 +13,9 @@
     dest: /etc/systemd/system/arty_blink.service
     mode: "0644"
   notify: Reload-systemd
-  tags:
-    - ab
 
 - name: Enable arty_blink.service
   ansible.builtin.systemd:
     name: arty_blink.service
     enabled: true
   failed_when: false
-  tags:
-    - ab

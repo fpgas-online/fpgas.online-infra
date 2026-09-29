@@ -28,7 +28,6 @@
   ansible.builtin.stat:
     path: /usr/bin/certbot
   register: site_certbot_bin
-  tags: le
 
 # python3-certbot-nginx is deliberately NOT installed: it is the plugin that
 # rewrites nginx config, and nothing here should be able to do that any more.
@@ -37,20 +36,17 @@
     name:
       - certbot
   when: not site_certbot_bin.stat.exists
-  tags: le
 
 - name: ACME webroot
   ansible.builtin.file:
     path: /var/www/html
     state: directory
     mode: "0755"
-  tags: le
 
 - name: Check for an existing certificate
   ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
   register: site_cert
-  tags: le
 
 # Both are certbot artefacts rather than package files, so they can legitimately
 # be missing (the CI VM's certificate is a cloud-init self-signed stub and
@@ -59,13 +55,11 @@
   ansible.builtin.stat:
     path: /etc/letsencrypt/options-ssl-nginx.conf
   register: site_ssl_options
-  tags: le
 
 - name: Check for certbot's DH parameters
   ansible.builtin.stat:
     path: /etc/letsencrypt/ssl-dhparams.pem
   register: site_ssl_dhparams
-  tags: le
 
 # The pre-2026-08-30 filename, written by the old template and then rewritten
 # in place by `certbot --nginx`.  It carries the same server_name as the vhost
@@ -76,7 +70,6 @@
     path: "/etc/nginx/sites-enabled/{{ domain_name }}-https.conf"
     state: absent
   notify: Reload nginx
-  tags: le
 
 # Rendered at most twice: plain-http first (so http-01 can be answered from
 # /var/www/html), then again with the https server once the certificate exists.
@@ -90,11 +83,9 @@
     site_ssl_options_exists: "{{ site_ssl_options.stat.exists }}"
     site_ssl_dhparams_exists: "{{ site_ssl_dhparams.stat.exists }}"
   notify: Reload nginx
-  tags: le
 
 - name: Flush handlers so nginx serves the vhost before certbot
   ansible.builtin.meta: flush_handlers
-  tags: le
 
 - name: Obtain certificate (webroot http-01 via the port-80 vhost)
   ansible.builtin.command: >-
@@ -104,7 +95,6 @@
     creates: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
   when: site_certbot and not site_cert.stat.exists
   register: site_certonly
-  tags: le
 
 # Second pass of the two-pass vhost render (noqa: it belongs right after the
 # certificate issues, not deferred to the end of the play as a handler).
@@ -119,7 +109,6 @@
     site_ssl_dhparams_exists: "{{ site_ssl_dhparams.stat.exists }}"
   when: site_certonly is changed  # noqa: no-handler
   notify: Reload nginx
-  tags: le
 
 # --- migrate a lineage created by the old `certbot --nginx` -----------------
 # Without this, `certbot renew` re-runs the nginx authenticator+installer on
@@ -130,14 +119,12 @@
   ansible.builtin.stat:
     path: "/etc/letsencrypt/renewal/{{ domain_name }}.conf"
   register: site_renewal_conf
-  tags: le
 
 - name: Read the renewal config
   ansible.builtin.slurp:
     src: "/etc/letsencrypt/renewal/{{ domain_name }}.conf"
   register: site_renewal_raw
   when: site_renewal_conf.stat.exists
-  tags: le
 
 - name: Detect a lineage still pinned to the nginx plugin
   ansible.builtin.set_fact:
@@ -145,7 +132,6 @@
       {{ site_renewal_conf.stat.exists
          and (site_renewal_raw.content | b64decode)
              is search('^(authenticator|installer)\s*=\s*nginx\s*$', multiline=True) }}
-  tags: le
 
 - name: Repoint the lineage at the webroot authenticator
   ansible.builtin.lineinfile:
@@ -153,7 +139,6 @@
     regexp: '^authenticator\s*='
     line: "authenticator = webroot"
   when: site_renewal_uses_nginx
-  tags: le
 
 - name: Drop the nginx installer from the lineage
   ansible.builtin.lineinfile:
@@ -161,7 +146,6 @@
     regexp: '^installer\s*='
     state: absent
   when: site_renewal_uses_nginx
-  tags: le
 
 # The trailing comma is certbot's own list syntax, not a typo.
 - name: Give the lineage a webroot path
@@ -171,7 +155,6 @@
     line: "webroot_path = /var/www/html,"
     insertafter: '^authenticator\s*='
   when: site_renewal_uses_nginx
-  tags: le
 
 - name: Give the lineage a webroot map
   ansible.builtin.blockinfile:
@@ -181,7 +164,6 @@
       {{ domain_name }} = /var/www/html
     marker: "# {mark} ANSIBLE MANAGED webroot_map"
   when: site_renewal_uses_nginx
-  tags: le
 
 # certbot reports an unparseable renewal config as a warning on stdout and still
 # exits 0, so assert on the content rather than trusting the return code.
@@ -193,7 +175,6 @@
   changed_when: false
   register: site_renewal_check
   when: site_renewal_uses_nginx and not ansible_check_mode
-  tags: le
 
 - name: Assert the migrated renewal config is still valid
   ansible.builtin.assert:
@@ -204,4 +185,3 @@
       certbot no longer reads the renewal config for {{ domain_name }} after the
       webroot migration: {{ site_renewal_check.stdout }}
   when: site_renewal_uses_nginx and not ansible_check_mode
-  tags: le

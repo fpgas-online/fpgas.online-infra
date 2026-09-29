@@ -13,8 +13,6 @@
   ansible.posix.mount:
     path: "{{ streaming.data_root }}/hls"
     state: absent_from_fstab
-  tags:
-    - streaming
 
 - name: Check whether the old hls tmpfs is still mounted
   # NOT ansible_facts.mounts: the mounts fact leaves tmpfs out altogether (on
@@ -27,8 +25,6 @@
   changed_when: false
   failed_when: false
   check_mode: false
-  tags:
-    - streaming
 
 - name: Unmount the old hls tmpfs if it is still mounted
   # Lazy: nginx workers hold fragments open in it. After a lazy unmount new
@@ -38,8 +34,6 @@
   ansible.builtin.command: umount --lazy {{ streaming.data_root }}/hls
   when: stream_server_hls_mount.stdout | trim == "tmpfs"
   changed_when: true
-  tags:
-    - streaming
 
 - name: Create nginx content directories
   ansible.builtin.file:
@@ -53,8 +47,6 @@
     - "www"
     - "hls"
     - "hls/source"
-  tags:
-    - streaming
 
 - name: Install nginx streaming backend rtmp configuration
   ansible.builtin.template:
@@ -65,13 +57,9 @@
   # to the old worker (and its old application settings) until they
   # reconnect. See the WebRTC runbook's deploy ordering.
   notify: Reload nginx
-  tags:
-    - streaming
 
 - name: Install nginx streaming front configuration
   ansible.builtin.template:
     src: templates/live-hls.conf.j2
     dest: "/etc/nginx/includes/{{ conference_name }}-live-hls.conf"
     mode: "0644"
-  tags:
-    - streaming

@@ -4,8 +4,6 @@
     name:
       - nfs-kernel-server
     install_recommends: true
-  tags:
-    - nfs
 
 # The role must create every path /etc/exports references: exportfs runs
 # via flush_handlers at the END OF THIS ROLE, and on a fresh host the

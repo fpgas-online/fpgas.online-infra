@@ -11,5 +11,3 @@
     mode: "0644"
   notify:
     - Udev-reload
-  tags:
-    - staticips

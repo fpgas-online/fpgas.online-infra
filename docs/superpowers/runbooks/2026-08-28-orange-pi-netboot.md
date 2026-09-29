@@ -17,6 +17,12 @@ tweed's TFTP root, and boots the **shared** Pi NFS root with the Debian
 
 ## Deploy / re-converge (tweed)
 
+Run whole playbooks: no `--tags` or `--skip-tags`, and scope a run only with
+`--limit` and `-e`. If a role is too slow or disruptive for a full run, fix
+the role; unready work waits behind a variable that defaults to off. The
+tagged commands in this runbook predate that rule (issue #157) and are being
+replaced with full runs.
+
 ```bash
 cd ~/github/fpgas-online/fpgas.online-infra          # main, or the PR worktree
 uv run ansible-playbook -i ansible/inventory ansible/site.yml \

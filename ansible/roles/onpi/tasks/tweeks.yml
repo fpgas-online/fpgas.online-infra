@@ -10,5 +10,3 @@
   with_items:
     - "Uploads"
     - "Downloads"
-  tags:
-    - tweeks

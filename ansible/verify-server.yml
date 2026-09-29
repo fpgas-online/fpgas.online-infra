@@ -14,62 +14,58 @@
       ansible.builtin.include_role:
         name: apt_client
         tasks_from: verify/main.yml
-      tags: [verify, apt-client]
 
     - name: Verify automation-user
       ansible.builtin.include_role:
         name: automation_user
         tasks_from: verify/main.yml
       when: automation_user_manage | default(false) | bool
-      tags: [verify, automation-user]
+      tags: [automation-user]
 
     - name: Verify operators
       ansible.builtin.include_role:
         name: operators
         tasks_from: verify/main.yml
-      tags: [verify, operators]
+      tags: [operators]
 
     - name: Verify jump
       ansible.builtin.include_role:
         name: jump
         tasks_from: verify/main.yml
-      tags: [verify, jump]
+      tags: [jump]
 
     - name: Verify sshd
       ansible.builtin.include_role:
         name: sshd
         tasks_from: verify/main.yml
-      tags: [verify, sshd]
+      tags: [sshd]
 
     - name: Verify lldp
       ansible.builtin.include_role:
         name: lldp
         tasks_from: verify/main.yml
-      tags: [verify, lldp]
 
     - name: Verify firewall
       ansible.builtin.include_role:
         name: firewall
         tasks_from: verify/main.yml
-      tags: [verify, firewall]
+      tags: [firewall]
 
     - name: Verify nfs
       ansible.builtin.include_role:
         name: nfs
         tasks_from: verify/main.yml
-      tags: [verify, nfs]
 
     - name: Verify img
       ansible.builtin.include_role:
         name: img
         tasks_from: verify/main.yml
-      tags: [verify, img]
 
     - name: Verify fixpi
       ansible.builtin.include_role:
         name: fixpi
         tasks_from: verify/main.yml
-      tags: [verify, fixpi]
+      tags: [fixpi]
 
     # The NFS root's kernel set, which grows between rebuilds and turns the
     # next one into a two-hour emulated initramfs marathon if nobody looks.
@@ -77,19 +73,18 @@
       ansible.builtin.include_role:
         name: nspawn_pi
         tasks_from: verify/main.yml
-      tags: [verify, nspawn-pi]
+      tags: [nspawn-pi]
 
     - name: Verify pxe
       ansible.builtin.include_role:
         name: pxe
         tasks_from: verify/main.yml
-      tags: [verify, pxe]
+      tags: [pxe]
 
     - name: Verify apt-cache
       ansible.builtin.include_role:
         name: apt_cache
         tasks_from: verify/main.yml
-      tags: [verify, apt-cache]
 
     # VLAN-per-port scheme verification — only applies to hosts with
     # `switches:` defined (tweed). Hosts on the legacy MAC-table scheme
@@ -100,7 +95,7 @@
       changed_when: false
       register: verify_networkctl_list
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     # Diagnostic: surface the actual networkd state in the log so a
     # missing v* interface can be diagnosed without another CI round trip.
@@ -113,20 +108,20 @@
         - journalctl -u systemd-networkd --no-pager -n 40
       register: verify_networkd_diag
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Show networkd diagnostics
       ansible.builtin.debug:
         msg: "{{ verify_networkctl_list.stdout_lines + (verify_networkd_diag.results | map(attribute='stdout_lines') | list) }}"
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Assert networkctl list shows a v* per-port VLAN interface
       ansible.builtin.assert:
         that: verify_networkctl_list.stdout | regex_search('\\bv[0-9]+\\b') is not none
         fail_msg: "networkctl list does not show a v* per-port VLAN interface"
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Check dnsmasq config is valid
       ansible.builtin.command: dnsmasq --test
@@ -134,42 +129,42 @@
       register: verify_dnsmasq_test
       failed_when: false
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Assert dnsmasq --test exits 0
       ansible.builtin.assert:
         that: verify_dnsmasq_test.rc == 0
         fail_msg: "dnsmasq --test failed: {{ verify_dnsmasq_test.stderr }}"
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Get nft forward chain
       ansible.builtin.command: nft list chain inet filter forward
       changed_when: false
       register: verify_nft_forward_chain
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Assert nft forward chain has policy drop
       ansible.builtin.assert:
         that: "'policy drop' in verify_nft_forward_chain.stdout"
         fail_msg: "nft chain inet filter forward missing 'policy drop'"
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Check /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.stat:
         path: /etc/dnsmasq.d/ports.conf
       register: verify_ports_conf_stat
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     - name: Assert /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.assert:
         that: verify_ports_conf_stat.stat.exists
         fail_msg: "/etc/dnsmasq.d/ports.conf not found"
       when: switches is defined
-      tags: [verify, switch-vlans]
+      tags: [switch-vlans]
 
     # NFS root package verification — check the packages the pulled
     # prebuilt image is supposed to carry (baked in by the CI build).
@@ -178,13 +173,11 @@
       changed_when: false
       register: verify_overlayroot
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert overlayroot installed in NFS root
       ansible.builtin.assert:
         that: verify_overlayroot.rc == 0
         fail_msg: "overlayroot not installed in NFS root"
-      tags: [verify, nfs-root]
 
     # Stale-NFS-root watchdog: the boards' half (nfsroot-watchdog, roles/onpi)
     # must be in the root, the server's half (nfsroot-watchdog-server,
@@ -195,7 +188,7 @@
       changed_when: false
       register: verify_nfsroot_watchdog
       failed_when: false
-      tags: [verify, nfs-root, fpgas-apt]
+      tags: [fpgas-apt]
 
     - name: Assert nfsroot-watchdog installed in NFS root
       ansible.builtin.assert:
@@ -204,26 +197,23 @@
           nfsroot-watchdog and busybox-static not both installed in the NFS
           root (got {{ verify_nfsroot_watchdog.stdout }}, rc
           {{ verify_nfsroot_watchdog.rc }}: {{ verify_nfsroot_watchdog.stderr }})
-      tags: [verify, nfs-root, fpgas-apt]
+      tags: [fpgas-apt]
 
     - name: Check nfsroot-watchdog-server installed on the server
       ansible.builtin.command: dpkg-query -W -f=${db:Status-Status} nfsroot-watchdog-server
       changed_when: false
       register: verify_nfsroot_watchdog_server
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert nfsroot-watchdog-server installed on the server
       ansible.builtin.assert:
         that: verify_nfsroot_watchdog_server.stdout == "installed"
         fail_msg: "nfsroot-watchdog-server is not installed ({{ verify_nfsroot_watchdog_server.stderr }})"
-      tags: [verify, nfs-root]
 
     - name: Check the NFS root update lock
       ansible.builtin.stat:
         path: "{{ nfs_root }}/root/etc/nfsroot-watchdog/update.lock"
       register: verify_nfsroot_lock
-      tags: [verify, nfs-root]
 
     - name: Assert the NFS root update lock was released
       ansible.builtin.assert:
@@ -232,20 +222,17 @@
           {{ nfs_root }}/root/etc/nfsroot-watchdog/update.lock still exists:
           the last site.yml run did not finish, and no netbooted board will
           reboot itself for a stale root until one does.
-      tags: [verify, nfs-root]
 
     - name: Check nfs-common installed in NFS root
       ansible.builtin.command: dpkg --root={{ nfs_root }}/root -l nfs-common
       changed_when: false
       register: verify_nfs_common
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert nfs-common installed in NFS root
       ansible.builtin.assert:
         that: verify_nfs_common.rc == 0
         fail_msg: "nfs-common not installed in NFS root"
-      tags: [verify, nfs-root]
 
     # NFS root config verification
     - name: Check pi user exists in NFS root
@@ -253,25 +240,21 @@
       changed_when: false
       register: verify_pi_user
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert pi user exists in NFS root
       ansible.builtin.assert:
         that: verify_pi_user.rc == 0
         fail_msg: "User '{{ user }}' not found in NFS root /etc/passwd"
-      tags: [verify, nfs-root]
 
     - name: Check Pi authorized_keys exists
       ansible.builtin.stat:
         path: "{{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
       register: verify_pi_authkeys
-      tags: [verify, nfs-root]
 
     - name: Assert Pi authorized_keys exists
       ansible.builtin.assert:
         that: verify_pi_authkeys.stat.exists
         fail_msg: "Pi authorized_keys not found at {{ nfs_root }}/root/home/{{ user }}/.ssh/authorized_keys"
-      tags: [verify, nfs-root]
 
     # The site layer fixpi applies on top of the pulled image (the image has
     # no site identity): without these the Pis boot but never register with
@@ -283,7 +266,6 @@
       loop: >-
         {{ (['fleet.toml'] if fleet_broker | default(false) else [])
            + (['tt-boards.yaml'] if tt_boards is defined else []) }}
-      tags: [verify, nfs-root]
 
     - name: Assert the site layer's files are in the NFS root
       ansible.builtin.assert:
@@ -292,7 +274,6 @@
       loop: "{{ verify_site_layer.results }}"
       loop_control:
         label: "{{ item.item }}"
-      tags: [verify, nfs-root]
 
     # The onboard radios must be disabled in the read-only netboot image so the
     # setting is re-applied on every boot (see fixpi/tasks/tweeks.yml). On Pi 5
@@ -302,13 +283,11 @@
       changed_when: false
       register: verify_disable_wifi
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert config.txt disables onboard Wi-Fi in NFS root
       ansible.builtin.assert:
         that: verify_disable_wifi.rc == 0
         fail_msg: "dtoverlay=disable-wifi missing from {{ nfs_root }}/boot/config.txt — onboard Wi-Fi would not be disabled"
-      tags: [verify, nfs-root]
 
     # The bootloader EEPROM must be write-protected in the read-only netboot
     # image so the setting is re-applied on every boot (see fixpi/tasks/tweeks.yml
@@ -318,13 +297,11 @@
       changed_when: false
       register: verify_eeprom_wp
       failed_when: false
-      tags: [verify, nfs-root]
 
     - name: Assert config.txt write-protects the EEPROM in NFS root
       ansible.builtin.assert:
         that: verify_eeprom_wp.rc == 0
         fail_msg: "eeprom_write_protect=1 missing from {{ nfs_root }}/boot/config.txt — bootloader EEPROM would be writable"
-      tags: [verify, nfs-root]
 
 - name: Verify uhubctl
   hosts: uhubctl
@@ -334,7 +311,6 @@
       ansible.builtin.include_role:
         name: uhubctl
         tasks_from: verify/main.yml
-      tags: [verify, uhubctl]
 
 - name: Verify web roles (pig)
   hosts: pig
@@ -344,13 +320,13 @@
       ansible.builtin.include_role:
         name: server_user
         tasks_from: verify/main.yml
-      tags: [verify, server_user]
+      tags: [server_user]
 
     - name: Verify site
       ansible.builtin.include_role:
         name: site
         tasks_from: verify/main.yml
-      tags: [verify, site]
+      tags: [site]
 
     # ttsite is part of the Django deployment (web.yml tags the role django as
     # well), so its verification must be skipped by the same --skip-tags django.
@@ -359,23 +335,21 @@
         name: ttsite
         tasks_from: verify/main.yml
       when: tt_boards is defined
-      tags: [verify, ttsite, django]
+      tags: [ttsite, django]
 
     - name: Verify wssh
       ansible.builtin.include_role:
         name: wssh
         tasks_from: verify/main.yml
-      tags: [verify, wssh]
+      tags: [wssh]
 
     - name: Verify stream_server
       ansible.builtin.include_role:
         name: stream_server
         tasks_from: verify/main.yml
-      tags: [verify, cam-stream]
 
     - name: Verify webrtc
       ansible.builtin.include_role:
         name: webrtc
         tasks_from: verify/main.yml
       when: webrtc_additional_hosts is defined
-      tags: [verify, cam-webrtc]

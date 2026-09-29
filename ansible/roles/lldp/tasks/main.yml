@@ -14,13 +14,9 @@
 - name: Install lldpd
   ansible.builtin.apt:
     name: lldpd
-  tags:
-    - lldp
 
 - name: Enable and start lldpd
   ansible.builtin.systemd:
     name: lldpd
     enabled: true
     state: started
-  tags:
-    - lldp
