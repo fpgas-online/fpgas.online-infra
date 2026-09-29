@@ -189,6 +189,13 @@ is a Launchpad id to `ssh-import-id`. `server_user` and `fixpi` fetch
 accepts only `gh:` and `lp:` ids and fails on any other, and `fixpi` uses only
 the `gh:` ones, so give operators `gh:` ids.
 
+This is being changed. #161 (open on 2026-09-29) replaces `ssh-import-id`
+in `operators` and `jump` with a shared `ssh_key_fetch` role. That role reads
+`github.com/<user>.keys` (never the rate-limited GitHub API) and fails the play
+when a download yields no keys. It also moves `server_user` and `fixpi` onto
+the same role, which changes the fetch behaviour described above. Imports
+stay additive, so the revoked lists keep their purpose.
+
 Converge from ten64, the whole server:
 
 ```bash
