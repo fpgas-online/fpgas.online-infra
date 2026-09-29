@@ -8,9 +8,6 @@
     - maintenance.sh
     - production.sh
     - chroot-mount-pi-fs.bash
-  tags:
-    - manage
-    - qemu
 
 - name: Put the pi boot system into maintenance mode
   ansible.builtin.command: maintenance.sh

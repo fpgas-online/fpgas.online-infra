@@ -54,7 +54,6 @@
     - role: fpgas_apt
       tags: [fpgas-apt]
     - role: cam_pi
-      tags: [cam]
     - role: onpi
       tags: [onpi]
 
@@ -168,7 +167,6 @@
         - bcm2711-rpi-4-b.dtb
         - bcm2712-rpi-5-b.dtb
         - overlays
-      tags: [verify]
 
     # dpkg -l exits 0 for a package that is merely known to the database
     # ("rc" after a removal, "un"), so read the status field instead.
@@ -192,12 +190,10 @@
         - fpgas-online-all-boards
         # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
         - linux-image-armmp
-      tags: [verify]
 
     - name: Assert pi user exists in the root
       ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
       changed_when: false
-      tags: [verify]
 
     # The automation account and its sudo (fixpi/netboot.yml). A role task
     # file, so it sees fixpi's defaults (the user name and fixed uid).
@@ -205,6 +201,3 @@
       ansible.builtin.include_role:
         name: fixpi
         tasks_from: verify/image.yml
-        apply:
-          tags: [verify]
-      tags: [verify]

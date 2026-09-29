@@ -49,7 +49,6 @@
     - cmdline.txt
     - cmdline-pi5.txt
   tags:
-    - cmdline
     - netboot
 
 - name: Fstab - replace local fs to nfs
@@ -60,7 +59,6 @@
   with_items:
     - fstab
   tags:
-    - cmdline
     - netboot
 
 # The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
@@ -77,7 +75,6 @@
     dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
     mode: "0644"
   tags:
-    - cmdline
     - netboot
 
 # Image build only (defaults/main.yml fixpi_image_build): useradd executes
@@ -93,7 +90,6 @@
   when: fixpi_image_build | bool
   tags:
     - netboot
-    - qemu
 
 # On stock RPi OS the pi user gets passwordless sudo from the first-boot
 # userconf mechanism -- but we create the user directly (above) and mask that
@@ -111,7 +107,6 @@
     mode: "0440"
   tags:
     - netboot
-    - qemu
 
 # The automation account (defaults/main.yml fixpi_ansible_user), created
 # like pi above: useradd inside the ARM root, image build only, so the
@@ -130,7 +125,6 @@
   when: fixpi_image_build | bool
   tags:
     - netboot
-    - qemu
 
 # Same 0440 root:root rule as pi's file above. Validated with the host's
 # visudo: it only parses the file, so the architecture does not matter.
@@ -144,7 +138,6 @@
     validate: "visudo -cf %s"
   tags:
     - netboot
-    - qemu
 
 # Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
@@ -157,7 +150,6 @@
     mode: "0755"
   tags:
     - netboot
-    - qemu
 
 - name: Install self-hostname /etc/hosts service in NFS root
   ansible.builtin.copy:
@@ -166,7 +158,6 @@
     mode: "0644"
   tags:
     - netboot
-    - qemu
 
 - name: Enable self-hostname /etc/hosts service in NFS root
   ansible.builtin.file:
@@ -179,7 +170,6 @@
     force: true
   tags:
     - netboot
-    - qemu
 
 # The chroot apt runs below resolve names through the NFS root's
 # /etc/resolv.conf. Copy the server's resolver config -- but never the
@@ -243,7 +233,6 @@
     - "apt install -y nfs-common overlayroot"
   tags:
     - netboot
-    - qemu
 
 # The chroot's raspi-firmware hook writes the FULL matched firmware payload
 # (kernel*.img, initramfs*, DTBs, overlays) into the rootfs /boot/firmware,
@@ -264,7 +253,6 @@
   delegate_to: "{{ inventory_hostname }}"
   tags:
     - netboot
-    - qemu
 
 # Enable ssh.service directly in the NFS root. RPi OS ships with ssh.service
 # disabled by default, to be enabled on first boot by sshswitch.service which
@@ -278,7 +266,6 @@
     state: link
   tags:
     - netboot
-    - qemu
 
 # Disable regenerate_ssh_host_keys.service — it unconditionally deletes and
 # regenerates host keys on first boot via ssh-keygen -A. Under QEMU TCG this
@@ -291,7 +278,6 @@
     state: absent
   tags:
     - netboot
-    - qemu
 
 # The RPi OS first-boot user-config wizard (userconfig.service) runs on tty1
 # and applies /boot/firmware/userconf.txt. But our fstab mounts /boot/firmware
@@ -312,7 +298,6 @@
     force: true
   tags:
     - netboot
-    - qemu
 
 # Pre-generate SSH host keys in the NFS root so sshd starts immediately without
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
@@ -329,7 +314,6 @@
   when: fixpi_generate_host_keys | default(true)
   tags:
     - netboot
-    - qemu
 
 - name: Pre-generate SSH host keys in NFS root
   ansible.builtin.command: >-
@@ -346,4 +330,3 @@
     and not fixpi_ssh_host_key_stat.stat.exists
   tags:
     - netboot
-    - qemu

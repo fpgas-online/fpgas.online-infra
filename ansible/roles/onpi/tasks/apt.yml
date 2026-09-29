@@ -92,8 +92,6 @@
       - libjpeg-dev
       - build-essential
     install_recommends: true
-  tags:
-    - img
 
 # openFPGALoader and OpenOCD on the Pis come from fpgas.online-fpga-tools
 # rather than Debian. They carry the fpgas.online patch series: the rp1pio
@@ -146,8 +144,6 @@
       - openocd-fpgasonline-git
     state: latest
   tags:
-    - img
-    - rp1-jtag
     - fpgas-apt
 
 #      - raspberrypi-kernel-headers
@@ -172,8 +168,6 @@
   environment:
     PIPX_HOME: /opt/pipx
     PIPX_BIN_DIR: /usr/local/bin
-  tags:
-    - mp
 
 - name: Install uv via pipx
   ansible.builtin.command: "pipx install uv"
@@ -182,5 +176,3 @@
   environment:
     PIPX_HOME: /opt/pipx
     PIPX_BIN_DIR: /usr/local/bin
-  tags:
-    - mp
