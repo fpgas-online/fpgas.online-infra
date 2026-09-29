@@ -101,6 +101,9 @@ nginx reverse proxy / SNI router on ten64 as `welland.fpgas.online`,
 playbooks from inside the Welland network. Vault-encrypted host vars need
 `--vault-password-file`.
 
+Who can log in to tweed and to the netbooted Pis, with which keys, how to add
+or remove a person, and how to verify it: [docs/access.md](docs/access.md).
+
 ### Verify
 
 Two verification playbooks check the deployment:
