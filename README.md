@@ -115,13 +115,14 @@ Two verification playbooks check the deployment:
 # Verify server setup (TFTP, NFS, dnsmasq, NFS root contents)
 uv run ansible-playbook ansible/verify-server.yml
 
-# Verify running Pi (NFS mount, overlayfs, services, packages)
+# Verify running Pi (NFS mount, overlayfs, services, packages, camera, FPGA)
 # Run after Pis have booted
 uv run ansible-playbook ansible/verify-pi.yml
-
-# Skip hardware-dependent checks (camera, FPGA detection)
-uv run ansible-playbook ansible/verify-pi.yml --skip-tags hw-camera,hw-fpga
 ```
+
+Both always run in full: no `--tags` or `--skip-tags`. verify-pi finds the
+camera and the FPGA board on each Pi itself; a Pi without one passes and
+says so, one whose camera or board is there but not working fails.
 
 ### Test (QEMU VMs)
 
