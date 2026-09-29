@@ -27,7 +27,11 @@ virtual Pi has netbooted that image and registered). The server
 runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
 image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
 `fixpi` applies the site layer (pi password, ssh host keys, controller
-authorized_keys, TT catalogue, per-site config) on top. The old on-server
+authorized_keys, TT catalogue, per-site config) on top. The image build
+keeps the site layer out with `fixpi_image_build` (true only in
+`inventory-ci-nfsroot`), not with tags: the build runs `ci-nfsroot.yml` in
+full, refuses to run without that variable, and fails if the image carries
+a pi password, an authorized_keys or a user keypair. The old on-server
 nspawn/chroot provisioning path is gone.
 
 **Pis boot read-only from the network.** Each Pi PXE boots via:

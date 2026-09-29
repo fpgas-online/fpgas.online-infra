@@ -213,8 +213,8 @@
         fail_msg: >-
           `passwd -S` reports '{{ verify_pi_passwd.stdout }}' -- the pi
           account's password is locked (L) or empty (NP), so the web
-          terminal's password login fails. fixpi/userconf.yml (tag pipw)
-          writes it into the NFS root.
+          terminal's password login fails. fixpi/userconf.yml writes it
+          into the NFS root on the gateway.
       tags: [services]
 
     # The automation account (fixpi: netboot.yml builds it into the image,

@@ -132,8 +132,9 @@ keys and host key.
   `fixpi_image_build`). `ansible`'s uid and gid are pinned by
   `fixpi_ansible_uid` so every image agrees.
 - **The `pi` password.** `pi_pw` (vaulted in host_vars) is the plaintext
-  shared password. `fixpi/tasks/userconf.yml` (tag `pipw`) writes its
-  sha512-crypt hash into the root's `/etc/shadow`. `roles/site` passes it,
+  shared password. `fixpi/tasks/userconf.yml` writes its sha512-crypt hash
+  into the root's `/etc/shadow`, on the gateway only: never in the CI image
+  (`fixpi_image_build`). `roles/site` passes it,
   base64-encoded, to Django as `PI_PW`. The board page's web terminal (wssh)
   and the upload page log in to `pi@10.21.S.P` with it.
   `fixpi/files/etc/ssh/sshd_config.d/password.conf` keeps
