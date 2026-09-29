@@ -1,0 +1,29 @@
+---
+# Downloads the ssh keys GitHub and Launchpad publish for a list of ids,
+# and FAILS, at the download, when any id yields no key. Used by every
+# role that trusts keys from GitHub/Launchpad: operators, jump,
+# server_user (and its verify) and fixpi (the Pi NFS root). Include it with
+#   ansible.builtin.include_role:
+#     name: ssh_key_fetch
+#   vars:
+#     ssh_key_fetch_requests: [{account: tim, id: gh:mithro}, ...]
+# and read the result from the fact ssh_key_fetch_keys: {id: [key line,
+# ...]}, each line as published ("<type> <base64>[ <comment>]").
+#
+# Ids are ssh-import-id's: gh:<user> (https://github.com/<user>.keys),
+# lp:<user> (https://launchpad.net/~<user>/+sshkeys) or a bare <user>,
+# which, as for ssh-import-id, means lp:<user>. `account` only names who
+# the keys are for in the failure message.
+ssh_key_fetch_requests: []
+
+# Where the keys are downloaded from (the tests point these at a local
+# server).
+ssh_key_fetch_github_url: https://github.com
+ssh_key_fetch_launchpad_url: https://launchpad.net
+
+# A download that fails (no answer, non-200) or comes back with no key is
+# retried this many times, ssh_key_fetch_delay seconds apart, so one blip
+# does not fail a converge; after that the play FAILS. There is no
+# fallback: a GitHub outage that outlasts the retries stops the run.
+ssh_key_fetch_retries: 3
+ssh_key_fetch_delay: 5
