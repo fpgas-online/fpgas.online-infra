@@ -16,10 +16,13 @@
 # values back renames it back (the rollback).
 server_user_rename_from: ""
 
-# Ids (gh:<github-user>, lp:<launchpad-user>, as ssh-import-id takes them)
-# whose published keys become the account's authorized_keys -- exclusively:
-# any other key in the file is removed. The account also gets a login
-# shell. Empty = keys and shell are left alone (a pure service account).
+# Ids (gh:<github-user>, lp:<launchpad-user>, or a bare <user> meaning
+# lp:<user>, as ssh-import-id takes them) whose published keys become the
+# account's authorized_keys -- exclusively: any other key in the file is
+# removed. roles/ssh_key_fetch downloads them (https://github.com/<user>.keys)
+# and fails the run at the download on an id with no key. The account also
+# gets a login shell. Empty = keys and shell are left alone (a pure service
+# account).
 server_user_ssh_import_ids: []
 
 # Passwordless sudo for the account (/etc/sudoers.d/<user_name>, as

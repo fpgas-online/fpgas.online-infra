@@ -32,15 +32,19 @@
     fail_msg: "units still name {{ server_user_rename_from }}: {{ server_user_v_units.files | map(attribute='path') | list }}"
   when: server_user_rename_from | length > 0
 
-- name: "Verify: fetch the keys the account should hold"
-  ansible.builtin.uri:
-    url: >-
-      {{ 'https://github.com/' ~ item[3:] ~ '.keys' if item is match('gh:')
-         else 'https://launchpad.net/~' ~ item[3:] ~ '/+sshkeys' }}
-    return_content: true
-  loop: "{{ server_user_ssh_import_ids }}"
-  register: server_user_v_fetch
-  check_mode: false
+# The same download as the converge (roles/ssh_key_fetch): a failed or
+# keyless answer fails here, at the download, after the same retries.
+- name: "Verify: download the keys the account should hold"
+  ansible.builtin.include_role:
+    name: ssh_key_fetch
+  vars:
+    ssh_key_fetch_requests: >-
+      {%- set requests = [] -%}
+      {%- for id in server_user_ssh_import_ids -%}
+        {%- set _ = requests.append({'account': user_name, 'id': id}) -%}
+      {%- endfor -%}
+      {{ requests }}
+  when: server_user_ssh_import_ids | length > 0
 
 - name: "Verify: read the account's authorized_keys"
   ansible.builtin.slurp:
@@ -52,10 +56,9 @@
 # the published keys, none missing and none extra.
 - name: "Verify: authorized_keys holds exactly the published keys"
   vars:
-    server_user_nl: "\n"
     server_user_v_want: >-
-      {{ (server_user_v_fetch.results | map(attribute='content') | join(server_user_nl)).splitlines()
-         | map('trim') | select | map('regex_replace', '^(\S+\s+\S+).*$', '\1') | unique | sort }}
+      {{ server_user_ssh_import_ids | map('extract', ssh_key_fetch_keys) | flatten
+         | map('regex_replace', '^(\S+\s+\S+).*$', '\1') | unique | sort }}
     server_user_v_have: >-
       {{ (server_user_v_keys.content | b64decode).splitlines() | map('trim') | select
          | reject('match', '#') | map('regex_replace', '^.*?((ssh|ecdsa|sk)-\S+\s+\S+).*$', '\1') | unique | sort }}
