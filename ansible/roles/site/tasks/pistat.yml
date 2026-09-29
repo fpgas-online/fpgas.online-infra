@@ -7,8 +7,6 @@
   ansible.builtin.apt:
     name:
       - redis
-  tags:
-    - pistat
 
 - name: Install dnsmasq send_stat.conf
   ansible.builtin.copy:
@@ -16,5 +14,3 @@
     dest: /etc/dnsmasq.d/send_stat.conf
     mode: preserve
   notify: Restart dnsmasq
-  tags:
-    - pistat

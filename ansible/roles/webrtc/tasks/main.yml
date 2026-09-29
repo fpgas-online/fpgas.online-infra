@@ -6,8 +6,6 @@
     shell: /usr/sbin/nologin
     home: /var/lib/mediamtx
     create_home: false
-  tags:
-    - streaming
 
 - name: Create mediamtx directories
   ansible.builtin.file:
@@ -17,8 +15,6 @@
   loop:
     - /etc/mediamtx
     - "/opt/mediamtx/v{{ webrtc_mediamtx_version }}"
-  tags:
-    - streaming
 
 - name: Download mediamtx release tarball
   ansible.builtin.get_url:
@@ -26,8 +22,6 @@
     dest: "/opt/mediamtx/{{ webrtc_mediamtx_tarball }}"
     checksum: "sha256:{{ webrtc_mediamtx_checksums[ansible_architecture] }}"
     mode: "0644"
-  tags:
-    - streaming
 
 - name: Unpack mediamtx
   ansible.builtin.unarchive:
@@ -35,8 +29,6 @@
     dest: "/opt/mediamtx/v{{ webrtc_mediamtx_version }}"
     remote_src: true
     creates: "/opt/mediamtx/v{{ webrtc_mediamtx_version }}/mediamtx"
-  tags:
-    - streaming
 
 - name: Install mediamtx binary
   ansible.builtin.copy:
@@ -45,8 +37,6 @@
     remote_src: true
     mode: "0755"
   notify: Restart mediamtx
-  tags:
-    - streaming
 
 - name: Install mediamtx configuration
   ansible.builtin.template:
@@ -54,8 +44,6 @@
     dest: /etc/mediamtx/mediamtx.yml
     mode: "0644"
   notify: Restart mediamtx
-  tags:
-    - streaming
 
 - name: Install mediamtx systemd unit
   ansible.builtin.template:
@@ -63,8 +51,6 @@
     dest: /etc/systemd/system/mediamtx.service
     mode: "0644"
   notify: Restart mediamtx
-  tags:
-    - streaming
 
 - name: Enable and start mediamtx
   ansible.builtin.systemd:
@@ -72,8 +58,6 @@
     enabled: true
     state: started
     daemon_reload: true
-  tags:
-    - streaming
 
 # WHEP rides the existing HTTPS vhosts: nginx proxies /cam/ to mediamtx's
 # local HTTP listener. Both vhost families pick includes up by glob
@@ -87,5 +71,3 @@
     - "{{ conference_name }}"
     - "{{ ttsite_domain }}"
   notify: Reload nginx
-  tags:
-    - streaming
