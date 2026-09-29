@@ -33,9 +33,9 @@ Ansible connects from ten64 to the uplink address `10.99.21.2`
 | Account | uid | sudo | `authorized_keys` | Managed by |
 |---|---|---|---|---|
 | `ansible` | 1000 | NOPASSWD (`/etc/sudoers.d/ansible`) | exactly the `fpgas.online-ansible` key, `SHA256:D/6/i3vPET3EeQKtO0kv0y0YfukEVg7/ZIF7oW3U6yA` (ED25519). Written `exclusive`, so a key added by hand is removed at the next converge | [`roles/automation_user`](../ansible/roles/automation_user), only where `automation_user_manage: true` (tweed and the CI VM). The Debian preseed creates the account on a fresh install |
-| `admin` | 1001 | NOPASSWD (`server_user_sudo: true`) | exactly the keys published at `https://github.com/mithro.keys` and `https://github.com/CarlFK.keys`. Written `exclusive`, and any failed or empty fetch fails the play before the file is touched | [`roles/server_user`](../ansible/roles/server_user) (`user_name: admin`, `server_user_ssh_import_ids` = the operators' ids). The account was `videoteam` until #141 renamed it in place (`server_user_rename_from`) |
-| `tim`, `carl` | | NOPASSWD (`/etc/sudoers.d/<name>`) | imported with `ssh-import-id` from `operators_accounts[].ssh_import_ids` (`gh:mithro`, `gh:CarlFK`), minus `ssh_public_keys_revoked` | [`roles/operators`](../ansible/roles/operators) |
-| `pi` | | none (the role deletes any `/etc/sudoers.d/pi`) | `ssh_public_keys` (static) plus `ssh-import-id` of `ssh_imports`, minus `ssh_imports_revoked` and `ssh_public_keys_revoked` | [`roles/jump`](../ansible/roles/jump) |
+| `admin` | 1001 | NOPASSWD (`server_user_sudo: true`) | exactly the keys published at `https://github.com/mithro.keys` and `https://github.com/CarlFK.keys`. Written `exclusive`, after every id has downloaded (see [Where the keys come from](#where-the-keys-come-from)) | [`roles/server_user`](../ansible/roles/server_user) (`user_name: admin`, `server_user_ssh_import_ids` = the operators' ids). The account was `videoteam` until #141 renamed it in place (`server_user_rename_from`) |
+| `tim`, `carl` | | NOPASSWD (`/etc/sudoers.d/<name>`) | the GitHub keys of `operators_accounts[].ssh_import_ids` (`gh:mithro`, `gh:CarlFK`), added (not exclusive), minus `ssh_public_keys_revoked` | [`roles/operators`](../ansible/roles/operators) |
+| `pi` | | none (the role deletes any `/etc/sudoers.d/pi`) | `ssh_public_keys` (static) plus the GitHub keys of `ssh_imports` (`gh:CarlFK`, `gh:mithro`), added (not exclusive), minus `ssh_imports_revoked` and `ssh_public_keys_revoked` | [`roles/jump`](../ansible/roles/jump) |
 | `root` | 0 | | not managed by any role. Password locked (2026-09-27) | sshd: `PermitRootLogin prohibit-password` |
 
 `admin` runs the site: gunicorn, daphne, uvicorn and the fleet consumer are
@@ -80,8 +80,12 @@ It sorts first, so it wins over `50-jump.conf` and the main file. Before it
 writes the file, a **lockout guard** checks that the account Ansible is
 connected as, every operator and the jump account (`sshd_pubkey_only_key_users`)
 each have at least one key that `ssh-keygen -l` can parse. If any does not,
-the converge fails. After writing, the role checks `sshd -t` and the effective
-`sshd -T` values for `ansible`, `pi` and `root`.
+the converge fails. The connecting account is found with `id -un` with become
+switched off through the `ansible_become` variable, because tweed's host_vars
+set `ansible_become: true`. It is then asserted to equal `ansible_user` (#162;
+before that fix the probe ran as root and the guard checked root's keys). After
+writing, the role checks `sshd -t` and the effective `sshd -T` values for
+`ansible`, `pi` and `root`.
 
 ps1.fpgas.online runs the same `operators` and `jump` roles, but not
 `automation_user` or `sshd`, and its `user_name` is still `videoteam`.
@@ -118,9 +122,10 @@ keys and host key.
   | github | `https://github.com/<user>.keys` for the `gh:` ids in `operators_accounts` (mithro, CarlFK), each line tagged `gh:<user>` | `fixpi_github_key_users`, `fixpi_github_keys_base_url` |
   | jump | tweed's `/home/pi/.ssh/id_ed25519.pub`, `pi` only | `fixpi_jump_ssh_pubkey` |
 
-  A GitHub fetch that answers 200 gives exactly the keys listed now. A
-  transport error, 403, 429 or 5xx keeps that user's current `gh:` lines, so
-  an outage never drops keys. Any other answer, for example a 404, drops them.
+  The root gets exactly the keys GitHub lists at the time of the converge.
+  The download runs first in site.yml's "Update the Pi NFS root" play, before
+  the update lock and the image extraction, so a failed download stops the
+  run before the root is touched.
 - **Host key.** Every board presents the same ED25519 host key,
   `SHA256:tL3Mm5hn0pSKtUhZxl9CuJTMh5fFpAYxPdFq5tGlRhI` (public key ending
   `…hN/k2`). It is the site's, not the image's. The img pull's rsync
@@ -181,20 +186,36 @@ All the lists are in
 | remove someone from the jump account | take the id out of `ssh_imports` **and** add it to `ssh_imports_revoked`. For a static key, move it from `ssh_public_keys` to `ssh_public_keys_revoked` | the keys are deleted from `pi`. Revoked static keys are also deleted from every operator account |
 | revoke one key that has left someone's GitHub account | add it to `ssh_public_keys_revoked` | deleted from the jump and operator accounts. `admin` and the Pis already follow GitHub |
 
-`ssh-import-id` (used by `operators` and `jump`) only ever adds keys, which is
-why the revoked lists exist. Keep an entry in a revoked list until every host
-has converged without the key. A bare id in `ssh_imports`, such as `carlfk`,
-is a Launchpad id to `ssh-import-id`. `server_user` and `fixpi` fetch
-`github.com/<user>.keys` directly, not through `ssh-import-id`. `server_user`
-accepts only `gh:` and `lp:` ids and fails on any other, and `fixpi` uses only
-the `gh:` ones, so give operators `gh:` ids.
+`operators` and `jump` only ever add keys, which is why the revoked lists
+exist. Keep an entry in a revoked list until every host has converged without
+the key. Imported lines carry a `# ssh-import-id <id>` comment (the format the
+old `ssh-import-id` runs used), and that comment is how `ssh_imports_revoked`
+finds an id's lines to delete. `fixpi` uses only `gh:` ids, so give operators
+`gh:` ids.
 
-This is being changed. #161 (open on 2026-09-29) replaces `ssh-import-id`
-in `operators` and `jump` with a shared `ssh_key_fetch` role. That role reads
-`github.com/<user>.keys` (never the rate-limited GitHub API) and fails the play
-when a download yields no keys. It also moves `server_user` and `fixpi` onto
-the same role, which changes the fetch behaviour described above. Imports
-stay additive, so the revoked lists keep their purpose.
+### Where the keys come from
+
+[`roles/ssh_key_fetch`](../ansible/roles/ssh_key_fetch) is the one place the
+server downloads keys. `operators`, `jump`, `server_user` (and its verify) and
+`fixpi` all use it (#161). It reads `https://github.com/<user>.keys` for a
+`gh:<user>` id and never the rate-limited GitHub API. It reads Launchpad only
+for `lp:` or bare ids, and none are fetched now. `ssh-import-id` is no longer
+used.
+
+Each download is retried `ssh_key_fetch_retries` (3) times,
+`ssh_key_fetch_delay` (5) seconds apart, until it gets a 200 holding at least
+one key line. After that **the play fails at the download**, naming the
+account, the id, the URL and the answer. There is no fallback. So if GitHub is
+down or returns nothing:
+
+- the converge stops at the first role that needs keys, and no
+  `authorized_keys` is written empty or from stale data;
+- `server_user` fails before its exclusive write, so `admin` keeps its current
+  keys;
+- for the Pi root it stops before the update lock is taken and before the image
+  is extracted, so the fleet and its root are left as they were.
+
+Re-run once GitHub answers again.
 
 Converge from ten64, the whole server:
 
