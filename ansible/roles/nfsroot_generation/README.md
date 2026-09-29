@@ -19,7 +19,8 @@ one-board-at-a-time PoE cycle after every root update.
 
 | where | what |
 |-------|------|
-| `site.yml` nbp play, `pre_tasks` (`tasks/begin.yml`, tagged `always`) | installs `nfsroot-watchdog-server` on the gateway, then `nfsroot-generation begin <root>`: the update lock at `/etc/nfsroot-watchdog/update.lock` |
+| `site.yml` first play, right after `apt_client` (`tasks/install.yml`) | installs `nfsroot-watchdog-server` on the gateway, writing its apt source before any other role refreshes the package lists |
+| `site.yml` last play, first task (`tasks/begin.yml`, tagged `always`) | `nfsroot-generation begin <root>`: the update lock at `/etc/nfsroot-watchdog/update.lock` |
 | `img`, `apt_cache`, `fixpi` | the only things that change the root on the gateway: img rsyncs the CI-built image into it (excluding `/etc/nfsroot-watchdog/`, so a pull never deletes the lock, the marker or the fleet inhibit), apt_cache rewrites its apt sources, fixpi applies the site layer |
 | `site.yml` nbp play, the `nfsroot_generation` role right after `fixpi` (`tasks/end.yml`) | `nfsroot-generation end <root>`: bumps `/etc/nfsroot-watchdog/generation` if any file changed (ctime scan), then removes the lock. If a role before it failed, the play has stopped and the lock stays |
 | `roles/fpgas_apt` (`tasks/nfsroot-watchdog.yml`, via the shared `tasks/repo.yml`) | the package's apt source: through the gateway's apt cache (remap `nfsrootwatchdog`) for the Pi root; for the gateway, the site apt cache's `/nfsroot-watchdog` remap when `apt_client_https_cache` is set (`roles/apt_client`), otherwise upstream; key pinned by fingerprint |

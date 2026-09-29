@@ -6,6 +6,14 @@
     # through the site apt proxy it configures.
     - apt_client
     - netif
+  tasks:
+    # Before any other role refreshes the package lists: this rewrites the
+    # gateway's own nfsroot-watchdog source, and until it has, that source
+    # may be one the site apt proxy refuses (tasks/install.yml).
+    - name: Install nfsroot-generation on the gateway
+      ansible.builtin.include_role:
+        name: nfsroot_generation
+        tasks_from: install.yml
 
 # The Pi NFS root image is several GB: start pulling it now (after netif,
 # which may reboot the server) so the download overlaps everything up to
