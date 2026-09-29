@@ -1,0 +1,33 @@
+---
+# A Pi role: runs against the NFS root through the chroot connection plugin in
+# ci-nfsroot.yml, so this installs into the image every board boots rather than
+# onto one host. That is the whole point -- tooling that lives only as hand-made
+# state on one Pi does not survive that Pi being re-imaged.
+
+- name: Install FEL boot tooling
+  ansible.builtin.apt:
+    name: "{{ felboot_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 86400
+  tags: [felboot]
+
+# Verify the EFFECT rather than that apt was asked: the package is the means,
+# the sunxi-fel binary is what an operator needs on the box. This assertion is
+# inside the role, so disabling the role disables the check with it -- unlike
+# ci-nfsroot.yml's dpkg-query loop, which is unconditional and would fail the
+# build for anyone who turned the feature off.
+- name: Stat sunxi-fel
+  ansible.builtin.stat:
+    path: /usr/bin/sunxi-fel
+  register: felboot_sunxi_fel
+  tags: [felboot]
+
+- name: Assert sunxi-fel is present in the NFS root
+  ansible.builtin.assert:
+    that: felboot_sunxi_fel.stat.exists
+    success_msg: "sunxi-fel is in the NFS root"
+    fail_msg: >-
+      sunxi-tools is installed but /usr/bin/sunxi-fel is missing, so no board
+      booting this NFS root could bring up an Allwinner board over USB.
+  tags: [felboot]
