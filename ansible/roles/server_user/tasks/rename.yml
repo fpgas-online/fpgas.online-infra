@@ -219,8 +219,8 @@
           loop: "{{ server_user_subids }}"
 
         # roles/site re-templates its own units from user_name later in
-        # the run, but the rename must not depend on it: a tagged run
-        # (--tags fixpi) runs this file and nothing of roles/site.
+        # the run, but they are started again just below, before it:
+        # still naming the old account, they would not start.
         - name: Point the units at the new name
           ansible.builtin.replace:
             path: "{{ item.path }}"

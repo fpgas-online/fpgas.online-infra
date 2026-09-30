@@ -7,7 +7,6 @@
 # Design: docs/superpowers/specs/2026-09-08-tweed-apt-cache-design.md
 - name: Apt cache facts
   ansible.builtin.import_tasks: facts.yml
-  tags: [always]
 
 - name: Apt cache service
   when: apt_cache_enabled | bool

@@ -1,17 +1,13 @@
 ---
 # The server's own account (see defaults/main.yml).
 
-# The rename runs on EVERY run, tagged or not: each other task keyed on
-# user_name (here, roles/site, roles/fixpi) would otherwise create a
-# fresh, empty account under the new name -- and fixpi would then push a
-# brand-new key into the Pi root in place of the one the Pis trust.
+# The rename runs first: each other task keyed on user_name (here,
+# roles/site, roles/fixpi) would otherwise create a fresh, empty account
+# under the new name -- and fixpi would then push a brand-new key into the
+# Pi root in place of the one the Pis trust.
 - name: Rename the server account in place
-  ansible.builtin.include_tasks:
-    file: rename.yml
-    apply:
-      tags: [always]
+  ansible.builtin.include_tasks: rename.yml
   when: server_user_rename_from | length > 0
-  tags: [always]
 
 - name: Server account
   ansible.builtin.user:
