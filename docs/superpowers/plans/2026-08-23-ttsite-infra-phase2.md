@@ -1,5 +1,7 @@
 # tinytapeout.fpgas.online infra (phase 2) Implementation Plan
 
+> **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Roll phase 2 out: the Pi NFS root gets `fpgas-online-tt-demos` (the demo bitstreams) next to the updated `fpgas-online-tt` daemon, tweed gets the Commander embed `0.2.0` and the site release with the FPGA gallery, and `verify-*.yml` checks it.

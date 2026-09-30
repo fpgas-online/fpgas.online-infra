@@ -20,8 +20,6 @@
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
-  tags:
-    - fixpi
 
 # - name: pi etc/hosts
 #   lineinfile:
@@ -42,8 +40,6 @@
     regexp: '^pistat_host='
     line: "pistat_host={{ domain_name }}"
     mode: "0644"
-  tags:
-    - fixpi
 
 - name: Etc overrides
   ansible.builtin.copy:
@@ -51,16 +47,12 @@
     dest: "{{ nfs_root }}/root/etc/"
     mode: "0644"
     directory_mode: "0755"
-  tags:
-    - fixpi
 
 - name: Resolve.conf
   ansible.builtin.template:
     src: templates/resolve.conf.j2
     dest: "{{ nfs_root }}/root/etc/resolve.conf"
     mode: "0644"
-  tags:
-    - fixpi
 
 - name: Add time to bash prompt
   ansible.builtin.lineinfile:
@@ -68,8 +60,6 @@
     insertafter: '^unset color_prompt force_color_prompt'
     line: '{% raw %}PS1="\D{%T} $PS1"{% endraw %}'
   when: true
-  tags:
-    - fixpi
 
 # Disable the onboard radios in the read-only netboot image. Because config.txt
 # is served from the (read-only) TFTP root, these lines are re-applied on every
@@ -88,8 +78,6 @@
     - dtoverlay=disable-bt
     - enable_uart=1
     - uart_2ndstage=1
-  tags:
-    - fixpi
 
 # Write-protect the bootloader EEPROM. The EEPROM (SPI flash) is the one piece
 # of per-board state that a netbooted Pi does NOT revert on reboot, so it is the
@@ -113,8 +101,6 @@
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: eeprom_write_protect=1
-  tags:
-    - fixpi
 
 # The block above frees the 40-pin header UART on Pi 0-4 only, and does so as a
 # side effect: disable-bt.dtbo is compatible="brcm,bcm2835" and its fragment@1
@@ -143,8 +129,6 @@
       dtoverlay=uart0-pi5
       cmdline=cmdline-pi5.txt
       [all]
-  tags:
-    - fixpi
 # USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
 # USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
 # in peripheral mode a laptop on that port gets the kernel log + a getty.
@@ -162,8 +146,6 @@
       [pi5]
       dtoverlay=dwc2,dr_mode=peripheral
       [all]
-  tags:
-    - fixpi
 
 # the rest of these tasks config the server to monitor client boot spew.
 # They touch the build host, not the NFS root, so the CI nfsroot build
@@ -230,5 +212,3 @@
   loop:
     - networking.service
     - ifupdown-pre.service
-  tags:
-    - fixpi

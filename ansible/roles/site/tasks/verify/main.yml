@@ -27,13 +27,11 @@
   ansible.builtin.stat:
     path: "{{ django_dir }}/venv/bin/python"
   register: site_venv_python_stat
-  tags: [django]
 
 - name: Assert Django venv python exists
   ansible.builtin.assert:
     that: site_venv_python_stat.stat.exists
     fail_msg: "Django venv python not found at {{ django_dir }}/venv/bin/python"
-  tags: [django]
 
 # Read-only probe (noqa: command-instead-of-module): systemd_service needs an
 # action (state/enabled/masked/daemon_reload), and service_facts reports only
@@ -44,7 +42,6 @@
   register: site_app_services
   loop: [gunicorn.socket, gunicorn.service, daphne.service, uvicorn.service, redis-server.service]
   failed_when: false
-  tags: [django]
 
 - name: Assert the Django app services are active
   ansible.builtin.assert:
@@ -53,7 +50,6 @@
   loop: "{{ site_app_services.results }}"
   loop_control:
     label: "{{ item.item }}"
-  tags: [django]
 
 # follow_redirects: none, like curl without -L: a 3xx is the answer. Only a
 # failed connection (status -1) fails the probe itself, as curl's rc did.
@@ -66,13 +62,11 @@
     follow_redirects: none
   register: site_http_probe
   failed_when: site_http_probe.status == -1
-  tags: [django]
 
 - name: Assert the Django app answers (2xx/3xx)
   ansible.builtin.assert:
     that: site_http_probe.status >= 200 and site_http_probe.status < 400
     fail_msg: "GET /fpgas/ via /run/gunicorn.sock returned HTTP {{ site_http_probe.status }}"
-  tags: [django]
 
 # --- under-construction banner ----------------------------------------------
 # The banner is a line in local_settings.py, which nothing else validates: a
@@ -95,7 +89,6 @@
   register: site_v_banner
   # Any HTTP status passes here, as with curl -s; the assert reads the body.
   failed_when: site_v_banner.status == -1
-  tags: [django]
 
 - name: Assert the under-construction banner matches site_under_construction
   ansible.builtin.assert:
@@ -104,7 +97,6 @@
       site_under_construction is {{ site_under_construction | bool }} but the banner is
       {{ 'present' if 'Under construction!' in site_v_banner.content else 'absent' }}
       on GET /fpgas/. Check UNDER_CONSTRUCTION in {{ django_dir }}/pib/local_settings.py.
-  tags: [django]
 
 # --- TLS reachability on BOTH address families ------------------------------
 # welland.fpgas.online spent a week serving the tinytapeout certificate to every

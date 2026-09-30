@@ -69,10 +69,8 @@
   hosts: pi
   roles:
     - role: fpgas_apt
-      tags: [fpgas-apt]
     - role: cam_pi
     - role: onpi
-      tags: [onpi]
 
 - name: Finish, clean and check the NFS root image
   hosts: nbp
@@ -97,7 +95,6 @@
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
-      tags: [netboot]
 
     - name: Finish the chroot session (kernels, mounts, policy-rc.d)
       ansible.builtin.include_role:
@@ -160,7 +157,6 @@
         rsync -a --exclude=cmdline.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
-      tags: [netboot]
 
     # Design doc "Hardware coverage": fail the build before anything is
     # tagged if a board family's boot material is missing, so an upstream

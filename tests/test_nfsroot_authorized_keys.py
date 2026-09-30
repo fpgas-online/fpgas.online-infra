@@ -272,12 +272,12 @@ def test_site_downloads_the_root_keys_before_the_root_update_begins():
     first = play["tasks"][0]
     assert first["ansible.builtin.include_role"]["name"] == "fixpi"
     assert first["ansible.builtin.include_role"]["tasks_from"] == "github_keys.yml"
-    # Runs on every gateway converge: no condition, and no tag a CI or
-    # partial run could skip it by (the image build keeps the site layer
-    # out with fixpi_image_build, tests/test_fixpi_site_layer.py, and never
-    # runs site.yml).
+    # Runs on every gateway converge: no condition and no tag (the image
+    # build keeps the site layer out with fixpi_image_build,
+    # tests/test_fixpi_site_layer.py, and never runs site.yml).
     assert "when" not in first
-    assert set(first.get("tags", [])) <= {"fixpi"}
+    assert "tags" not in first
+    assert "apply" not in first["ansible.builtin.include_role"]
     assert play["tasks"][1]["name"] == "Take the Pi NFS root update lock"
 
 

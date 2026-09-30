@@ -20,8 +20,6 @@
   # hosts (switches defined) have no switch.nos, so this is a no-op there.
   with_items:
     "{{ switch.nos | default([]) }}"
-  tags:
-    - pibs
 
 - name: Save the original config.txt, cmdline.txt, fstab
   ansible.builtin.command: mv "{{ nfs_root }}/{{ item }}" "{{ nfs_root }}/{{ item }}.org"
@@ -33,8 +31,6 @@
     - "boot/cmdline.txt"
     - "boot/user-data"
     - "root/fstab"
-  tags:
-    - netboot
 
 # cmdline-pi5.txt is selected only by the `[pi5] cmdline=` line that
 # roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
@@ -48,8 +44,6 @@
   with_items:
     - cmdline.txt
     - cmdline-pi5.txt
-  tags:
-    - netboot
 
 - name: Fstab - replace local fs to nfs
   ansible.builtin.template:
@@ -58,8 +52,6 @@
     mode: "0644"
   with_items:
     - fstab
-  tags:
-    - netboot
 
 # The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
 # cmdline.txt.j2 keeps the kernel console off it with console=tty1. Naming
@@ -74,8 +66,6 @@
     src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
     dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
     mode: "0644"
-  tags:
-    - netboot
 
 # Image build only (defaults/main.yml fixpi_image_build): useradd executes
 # inside the ARM root. ci-nfsroot.yml asserts the user is in the image.
@@ -88,8 +78,6 @@
   # (no uid on stdout) did useradd run.
   changed_when: fixpi_pi_user.stdout | trim is not match('^[0-9]+$')
   when: fixpi_image_build | bool
-  tags:
-    - netboot
 
 # On stock RPi OS the pi user gets passwordless sudo from the first-boot
 # userconf mechanism -- but we create the user directly (above) and mask that
@@ -105,8 +93,6 @@
     content: "{{ user }} ALL=(ALL) NOPASSWD: ALL\n"
     dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ user }}-nopasswd"
     mode: "0440"
-  tags:
-    - netboot
 
 # The automation account (defaults/main.yml fixpi_ansible_user), created
 # like pi above: useradd inside the ARM root, image build only, so the
@@ -123,8 +109,6 @@
   register: fixpi_ansible_useradd
   changed_when: "'present' not in fixpi_ansible_useradd.stdout"
   when: fixpi_image_build | bool
-  tags:
-    - netboot
 
 # Same 0440 root:root rule as pi's file above. Validated with the host's
 # visudo: it only parses the file, so the architecture does not matter.
@@ -136,8 +120,6 @@
     group: root
     mode: "0440"
     validate: "visudo -cf %s"
-  tags:
-    - netboot
 
 # Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
@@ -148,16 +130,12 @@
     src: files/fpgas-hostname-hosts.sh
     dest: "{{ nfs_root }}/root/usr/local/sbin/fpgas-hostname-hosts.sh"
     mode: "0755"
-  tags:
-    - netboot
 
 - name: Install self-hostname /etc/hosts service in NFS root
   ansible.builtin.copy:
     src: files/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-hostname-hosts.service"
     mode: "0644"
-  tags:
-    - netboot
 
 - name: Enable self-hostname /etc/hosts service in NFS root
   ansible.builtin.file:
@@ -168,8 +146,6 @@
     # with nfs_root/root as /), but it does not exist at that path on the
     # server, so ansible's link src-existence check would fail without force.
     force: true
-  tags:
-    - netboot
 
 # The chroot apt runs below resolve names through the NFS root's
 # /etc/resolv.conf. Copy the server's resolver config -- but never the
@@ -182,8 +158,6 @@
     path: /run/systemd/resolve/resolv.conf
   register: fixpi_resolved_upstream
   when: fixpi_image_build | bool
-  tags:
-    - netboot
 
 - name: Ensure DNS resolution works in chroot
   when: fixpi_image_build | bool
@@ -193,8 +167,6 @@
     dest: "{{ nfs_root }}/root/etc/resolv.conf"
     follow: true
     mode: "0644"
-  tags:
-    - netboot
 
 # Pin the Pi's timesyncd at the server: Pis have no internet and timesyncd
 # does not reliably consume the DHCP ntp-server option under dhcpcd, so
@@ -205,8 +177,6 @@
     path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
     state: directory
     mode: "0755"
-  tags:
-    - netboot
 
 - name: Point Pi timesyncd at the server
   ansible.builtin.copy:
@@ -215,8 +185,6 @@
       NTP={{ eth_local_address | default('10.21.0.1') }}
     dest: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d/fpgas.conf"
     mode: "0644"
-  tags:
-    - netboot
 
 # Image build only; ci-nfsroot.yml asserts both packages are in the image.
 - name: Install nfs-common into pi's fs
@@ -231,8 +199,6 @@
   with_items:
     - "apt update"
     - "apt install -y nfs-common overlayroot"
-  tags:
-    - netboot
 
 # The chroot's raspi-firmware hook writes the FULL matched firmware payload
 # (kernel*.img, initramfs*, DTBs, overlays) into the rootfs /boot/firmware,
@@ -251,8 +217,6 @@
       - "--exclude=cmdline-pi5.txt"
       - "--exclude=config.txt"
   delegate_to: "{{ inventory_hostname }}"
-  tags:
-    - netboot
 
 # Enable ssh.service directly in the NFS root. RPi OS ships with ssh.service
 # disabled by default, to be enabled on first boot by sshswitch.service which
@@ -264,8 +228,6 @@
     src: /lib/systemd/system/ssh.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/ssh.service"
     state: link
-  tags:
-    - netboot
 
 # Disable regenerate_ssh_host_keys.service — it unconditionally deletes and
 # regenerates host keys on first boot via ssh-keygen -A. Under QEMU TCG this
@@ -276,8 +238,6 @@
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/regenerate_ssh_host_keys.service"
     state: absent
-  tags:
-    - netboot
 
 # The RPi OS first-boot user-config wizard (userconfig.service) runs on tty1
 # and applies /boot/firmware/userconf.txt. But our fstab mounts /boot/firmware
@@ -296,8 +256,6 @@
     dest: "{{ nfs_root }}/root/etc/systemd/system/userconfig.service"
     state: link
     force: true
-  tags:
-    - netboot
 
 # Pre-generate SSH host keys in the NFS root so sshd starts immediately without
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
@@ -312,8 +270,6 @@
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
   when: fixpi_generate_host_keys | default(true)
-  tags:
-    - netboot
 
 - name: Pre-generate SSH host keys in NFS root
   ansible.builtin.command: >-
@@ -328,5 +284,3 @@
   when: >-
     fixpi_generate_host_keys | default(true)
     and not fixpi_ssh_host_key_stat.stat.exists
-  tags:
-    - netboot

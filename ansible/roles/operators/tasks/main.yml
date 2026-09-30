@@ -11,8 +11,6 @@
   loop_control:
     label: "{{ item.name }}"
   register: operators_created
-  tags:
-    - operators
 
 - name: Passwordless sudo for operators
   ansible.builtin.copy:
@@ -23,8 +21,6 @@
   loop: "{{ operators_accounts }}"
   loop_control:
     label: "{{ item.name }}"
-  tags:
-    - operators
 
 # Every operator's keys are downloaded before any is written, and an id
 # that yields no key (empty answer, non-200, no answer, after the retries)
@@ -34,8 +30,6 @@
 - name: Download the operators' ssh keys
   ansible.builtin.include_role:
     name: ssh_key_fetch
-    apply:
-      tags: [operators]
   vars:
     ssh_key_fetch_requests: >-
       {%- set requests = [] -%}
@@ -45,8 +39,6 @@
         {%- endfor -%}
       {%- endfor -%}
       {{ requests }}
-  tags:
-    - operators
 
 # Additive, as ssh-import-id was: a key an operator's account already holds
 # stays (the revoked ones go below). Each line is tagged as ssh-import-id
@@ -76,8 +68,6 @@
   when:
     - item.item.ssh_import_ids | default([]) | length > 0
     - not (ansible_check_mode and item is changed)
-  tags:
-    - operators
 
 # After the downloads: authorized_key matches on the key itself, so this
 # catches a revoked key whatever comment its line carries (one tagged
@@ -90,8 +80,6 @@
   loop: "{{ operators_accounts | map(attribute='name') | product(operators_revoked_public_keys) | list }}"
   loop_control:
     label: "{{ item.0 }}: {{ item.1.split(' ')[2:] | join(' ') }}"
-  tags:
-    - operators
 
 - name: Check operator authorized_keys exist
   ansible.builtin.stat:
@@ -100,8 +88,6 @@
   loop_control:
     label: "{{ item.name }}"
   register: operators_authkeys
-  tags:
-    - operators
 
 # A backstop: the download above already failed on an id with no key.
 - name: Assert every operator has at least one key
@@ -113,8 +99,6 @@
   loop: "{{ operators_authkeys.results }}"
   loop_control:
     label: "{{ item.item.name }}"
-  tags:
-    - operators
 
 # Retired accounts. Their sudoers files and the files their roles installed
 # go first: piroot's sudoers entry is NOPASSWD `sudo chroot`, i.e. root, and
@@ -128,16 +112,12 @@
     path: "/etc/sudoers.d/{{ item }}"
     state: absent
   loop: "{{ operators_retired_accounts }}"
-  tags:
-    - operators
 
 - name: Delete the files the retired accounts' roles installed
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   loop: "{{ operators_retired_files }}"
-  tags:
-    - operators
 
 # `remove` deletes the home directory (and authorized_keys) and mail spool.
 - name: Delete the retired accounts
@@ -146,8 +126,6 @@
     state: absent
     remove: true
   loop: "{{ operators_retired_accounts }}"
-  tags:
-    - operators
 
 # userdel drops the user's own group itself (USERGROUPS_ENAB); this catches
 # one it left, e.g. a group another account still named as supplementary.
@@ -156,5 +134,3 @@
     name: "{{ item }}"
     state: absent
   loop: "{{ operators_retired_accounts }}"
-  tags:
-    - operators

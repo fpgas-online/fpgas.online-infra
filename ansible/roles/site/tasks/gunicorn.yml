@@ -14,8 +14,6 @@
     dest: /etc/systemd/system/gunicorn.service
     mode: "0644"
   notify: Restart django services
-  tags:
-    - django
 
 # The PoE views (fpgas-online-poe's snmp_switch, served by gunicorn) find the
 # per-port-VLAN switches through environment variables; see the template.
@@ -26,9 +24,6 @@
     state: directory
     mode: "0755"
   when: switches is defined
-  tags:
-    - django
-    - snmp
 
 - name: Tell gunicorn where the per-port-VLAN switches are (PoE control)
   ansible.builtin.template:
@@ -40,9 +35,6 @@
   notify:
     - Reload systemd
     - Restart django services
-  tags:
-    - django
-    - snmp
 
 - name: No per-port-VLAN switch drop-in on a legacy-scheme host
   ansible.builtin.file:
@@ -52,9 +44,6 @@
   notify:
     - Reload systemd
     - Restart django services
-  tags:
-    - django
-    - snmp
 
 - name: Enable services
   ansible.builtin.systemd:

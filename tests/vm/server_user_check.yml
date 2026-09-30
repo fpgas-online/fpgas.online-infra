@@ -1,0 +1,18 @@
+---
+# The VM harness's dry run of the server account role (tests/vm/run_tests.py),
+# ahead of the real site.yml converge. The test VM starts with its account
+# still under the old name, so the rename is pending: a --check run of the
+# role must report it rather than fail, and change nothing.
+#
+# A whole-playbook --check cannot stand in for this: on the fresh VM the
+# later web.yml roles (site's venv and services) do not exist yet, so their
+# check-mode tasks fail for reasons that have nothing to do with the rename.
+# So this plays exactly what web.yml plays first -- roles/server_user, on
+# the same hosts -- and nothing else. No tags (issue #157).
+#
+# roles/ is not beside this file: the harness runs it with
+# ANSIBLE_ROLES_PATH pointing at ansible/roles.
+- name: Dry-run the server account role
+  hosts: pig
+  roles:
+    - server_user

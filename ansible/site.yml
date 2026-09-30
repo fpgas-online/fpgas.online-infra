@@ -74,9 +74,6 @@
       ansible.builtin.include_role:
         name: fixpi
         tasks_from: github_keys.yml
-        apply:
-          tags: [fixpi]
-      tags: [fixpi]
 
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
     # the root by roles/onpi) from here until nfsroot_generation below:
@@ -105,7 +102,6 @@
     - name: Apply the site layer to the NFS root
       ansible.builtin.import_role:
         name: fixpi
-      tags: [fixpi]
 
     # fixpi is the last task that writes into the root: bump the generation
     # if the root changed, then release the lock. The boards then reboot

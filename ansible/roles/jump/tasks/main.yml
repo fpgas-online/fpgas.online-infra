@@ -9,8 +9,6 @@
     create_home: true
     system: false
   register: jump_account
-  tags:
-    - jump
 
 # rbash refuses to change PATH after login, so the only commands the account
 # can run are what ~/bin holds, and .bash_profile points PATH there and
@@ -22,8 +20,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
     mode: "0755"
-  tags:
-    - jump
 
 - name: Expose only the allowed commands
   ansible.builtin.file:
@@ -33,8 +29,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
   loop: "{{ jump_commands }}"
-  tags:
-    - jump
 
 - name: Lock PATH to the restricted directory
   ansible.builtin.copy:
@@ -43,8 +37,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
     mode: "0644"
-  tags:
-    - jump
 
 - name: Ssh directory
   ansible.builtin.file:
@@ -53,8 +45,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
     mode: "0700"
-  tags:
-    - jump
 
 # The account's own identity for hopping onward from its shell (`ssh
 # pi@10.21.S.P`): roles/fixpi authorizes the .pub for the Pi NFS root's pi
@@ -69,8 +59,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
     mode: "0600"
-  tags:
-    - jump
 
 # The Pis' host keys change whenever the NFS root is rebuilt; the jump
 # account only ever hops onward, so accept new keys and keep them per host.
@@ -84,8 +72,6 @@
     owner: "{{ jump_user }}"
     group: "{{ jump_user }}"
     mode: "0600"
-  tags:
-    - jump
 
 - name: Authorize the static operator keys
   ansible.posix.authorized_key:
@@ -95,8 +81,6 @@
   loop: "{{ jump_public_keys }}"
   loop_control:
     label: "{{ item.split(' ')[-1] }}"
-  tags:
-    - jump
 
 # The shared ids' keys (https://github.com/<user>.keys, or Launchpad's for
 # an lp: or bare id): an id that yields no key fails the play HERE, naming
@@ -106,8 +90,6 @@
 - name: Download the shared ids' ssh keys from GitHub / Launchpad
   ansible.builtin.include_role:
     name: ssh_key_fetch
-    apply:
-      tags: [jump]
   vars:
     ssh_key_fetch_requests: >-
       {%- set requests = [] -%}
@@ -116,8 +98,6 @@
       {%- endfor -%}
       {{ requests }}
   when: jump_ssh_import_ids | length > 0
-  tags:
-    - jump
 
 # Additive, as ssh-import-id was, and each line tagged the way it tagged
 # its own ("# ssh-import-id <id>", a bare id as lp:<id>), so the revoked-id
@@ -150,8 +130,6 @@
     - jump_ssh_import_ids | length > 0
     - jump_imported_lines | length > 0
     - not (ansible_check_mode and jump_account is changed)
-  tags:
-    - jump
 
 # Every imported line is marked "# ssh-import-id <id>" (above, and by the
 # ssh-import-id runs before it), so a revoked id's keys can be found and
@@ -162,8 +140,6 @@
     regexp: "# ssh-import-id {{ (item if ':' in item else 'lp:' ~ item) | regex_escape }}$"
     state: absent
   loop: "{{ jump_ssh_revoked_import_ids }}"
-  tags:
-    - jump
 
 # After the downloads: authorized_key matches on the key itself, so this
 # catches a revoked key whatever comment or options its line carries (an
@@ -176,15 +152,11 @@
   loop: "{{ jump_revoked_public_keys }}"
   loop_control:
     label: "{{ item.split(' ')[2:] | join(' ') }}"
-  tags:
-    - jump
 
 - name: Check the jump account has authorized_keys
   ansible.builtin.stat:
     path: "{{ jump_home }}/.ssh/authorized_keys"
   register: jump_authkeys
-  tags:
-    - jump
 
 # A backstop (the download above already failed on an id with no key), and
 # only when the inventory configures keys: a key-less account is unusable
@@ -196,16 +168,12 @@
       - jump_authkeys.stat.size > 0
     fail_msg: "{{ jump_user }}@{{ inventory_hostname }} has no authorized_keys"
   when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
-  tags:
-    - jump
 
 # Belt and braces: the account must never gain sudo.
 - name: No sudoers entry for the jump account
   ansible.builtin.file:
     path: "/etc/sudoers.d/{{ jump_user }}"
     state: absent
-  tags:
-    - jump
 
 # rbash + .bash_profile only restrict login shells; `ssh jump 'cmd'` runs a
 # non-login shell with the default PATH. sshd's ForceCommand routes every
@@ -217,8 +185,6 @@
     owner: root
     group: root
     mode: "0755"
-  tags:
-    - jump
 
 - name: Sshd drop-in for the jump account
   ansible.builtin.copy:
@@ -239,11 +205,7 @@
     group: root
     mode: "0644"
   notify: Reload sshd
-  tags:
-    - jump
 
 - name: Sshd configuration is still valid
   ansible.builtin.command: /usr/sbin/sshd -t
   changed_when: false
-  tags:
-    - jump

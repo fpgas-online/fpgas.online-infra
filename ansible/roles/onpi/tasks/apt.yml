@@ -134,17 +134,13 @@
 # to whatever landed first. This does not make the play less deterministic
 # than it already is: the blanket dist-upgrade above has the same property.
 #
-# The source is roles/fpgas_apt/tasks/fpga-tools.yml, which runs under the
-# fpgas-apt tag; this task carries fpgas-apt too so that a run skipping that
-# tag skips the install along with the source.
+# The source is roles/fpgas_apt/tasks/fpga-tools.yml.
 - name: Install the fpgas.online openFPGALoader and OpenOCD  # noqa: package-latest
   ansible.builtin.apt:
     name:
       - openfpgaloader-fpgasonline-git
       - openocd-fpgasonline-git
     state: latest
-  tags:
-    - fpgas-apt
 
 #      - raspberrypi-kernel-headers
 
