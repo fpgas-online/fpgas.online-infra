@@ -98,7 +98,7 @@ NOT_FOUND = {"rc": 1, "stdout": "", "stderr": "modinfo: ERROR: Module litepcie n
 def test_verify_pi_wants_the_module_only_where_the_root_carries_the_driver(tmp_path, packages, kernel, modinfo, passes):
     facts = {
         "verify_pi_litepcie": {"packages": {"stdout_lines": packages}, "modinfo": modinfo},
-        "verify_pi_state": {"facts": {"kernel": kernel}},
+        "ansible_kernel": kernel,  # verify-pi sets it from the collector; verify_pi_state itself is gone by here
     }
     rc, output = _run(tmp_path, [_task("Assert litepcie.ko is there for this kernel, where the root carries the driver")],
                       facts)  # fmt: skip

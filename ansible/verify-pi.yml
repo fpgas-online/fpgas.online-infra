@@ -554,13 +554,13 @@
         that: verify_pi_litepcie.modinfo.rc == 0
         fail_msg: >-
           The root has fpgas-online-acorn-litepcie-common but no litepcie.ko for the running kernel
-          {{ verify_pi_state.facts.kernel }} (modinfo: {{ verify_pi_litepcie.modinfo.stderr }}) -- the root
-          has no fpgas-online-acorn-litepcie-modules-{{ verify_pi_state.facts.kernel }}, or this board
+          {{ ansible_kernel }} (modinfo: {{ verify_pi_litepcie.modinfo.stderr }}) -- the root
+          has no fpgas-online-acorn-litepcie-modules-{{ ansible_kernel }}, or this board
           booted a kernel the root no longer carries
         quiet: true
       when:
         - "'fpgas-online-acorn-litepcie-common install ok installed' in verify_pi_litepcie.packages.stdout_lines"
-        - verify_pi_state.facts.kernel is search('-rpi-(v8|2712)$')
+        - ansible_kernel is search('-rpi-(v8|2712)$')
 
     # The FPGA boot check, fpgas-verify (roles/onpi/tasks/fpga_verify.yml). Installed and enabled on every
     # Pi: that part is software and carries fpgas-apt like its install. It looks for the boards itself

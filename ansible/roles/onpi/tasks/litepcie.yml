@@ -42,7 +42,7 @@
 
 # The packages run depmod themselves. This is what the boot check's `modprobe litepcie` needs to be true.
 - name: Find litepcie.ko for each of those kernels
-  ansible.builtin.command: "modinfo -k {{ item | regex_replace('^.*-modules-(.*):[^:]+$', '\\1') }} -F filename litepcie"
+  ansible.builtin.command: "/sbin/modinfo -k {{ item | regex_replace('^.*-modules-(.*):[^:]+$', '\\1') }} -F filename litepcie"
   register: onpi_litepcie_modinfo
   changed_when: false
   check_mode: false
