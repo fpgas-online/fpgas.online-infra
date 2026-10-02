@@ -414,9 +414,10 @@ A board can also fetch files from two versions: the old kernel with the new
 root, or the new kernel with the old root. Either runs with a kernel that does
 not match `/lib/modules`, which only matters when the kernel changed between
 the two versions. The second case reboots by the version rule. The first is on
-the current version and stays until a person or the fleet watchdog (infra
-#88) power-cycles it. Nothing in this design avoids fetching across a swap. No
-board reboots for a new version sooner than 300 s after the swap (C4).
+the current version and stays until a person or the fleet watchdog
+(infra #88) power-cycles it. Nothing in this design avoids fetching across a
+swap. No board reboots for a new version sooner than 300 s after the swap
+(C4).
 
 ## Contract with nfsroot-watchdog (owned by the nfsroot-watchdog repo)
 
