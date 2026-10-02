@@ -104,10 +104,42 @@ removes the cause.
 - **published**: the entry has a marker; an **orphan** is a tree in
   `versions/` that was never published (defined in the contract).
 - **immutable**: once a tree is in `versions/`, nothing under it is written,
-  with one exception: `root/etc/nfsroot-watchdog/`, which only
-  nfsroot-watchdog's server command writes (see the contract).
+  with two exceptions (see "The two exceptions"): `root/etc/nfsroot-watchdog/`
+  and `root/etc/fake-hwclock.data`.
 - **legacy root**: today's in-place tree `/srv/nfs/rpi/bookworm` on tweed. It
   is "version 0". After the cut-over it is as immutable as any other version.
+
+### The two exceptions
+
+Both are written by temp file and rename, never in place.
+
+- (a) `root/etc/nfsroot-watchdog/`, written only by `nfsroot-generation`.
+  Boards read it through plain NFS, which heals after a rename (C1).
+- (b) `root/etc/fake-hwclock.data`, the clock reference, written only by PR
+  #45's timer on the gateway (Tim, 2026-10-03). #45's
+  `fpgas-hwclock-ref.service` runs `/usr/local/sbin/fpgas-hwclock-ref
+  {{ nfs_root }}/root/etc/fake-hwclock.data` on a timer; the script writes a
+  temp file in the same directory and calls `os.replace`.
+
+Exception (b) is exactly the case overlayfs turns into ESTALE for a board that
+already has that dentry cached. It is acceptable because it is confined to one
+file that a board reads once, at boot (`fake-hwclock load`). The condition of
+the exception: nothing on a running board may read `/etc/fake-hwclock.data`
+again through the overlay and treat an error as fatal. #45 removes the
+board-side saves that would. nfsroot-watchdog is not affected: its commands
+touch only `root/etc/nfsroot-watchdog/` and `current`, and its client reads
+only `$LOWER/etc/nfsroot-watchdog/*` and probes `$LOWER/`, so a rename
+elsewhere under `root/etc/` cannot cause a reboot or a false "stale".
+
+What #45 must do to fit (for its author; this spec does not change #45):
+
+- Write into the current version. Its unit path is built from `nfs_root`, which
+  is `/srv/nfs/rpi/current` outside the "Update the Pi NFS root" play, so the
+  unit must not be rendered in that play. Never write into `staging/`.
+- Resolve `current` once per run and do the temp file and the rename inside
+  that one resolved directory, so a publish between the two steps cannot leave
+  the temp file in one version and the rename target in another.
+- Tolerate `current` naming the legacy entry.
 
 ## Layout on the gateway
 
@@ -266,7 +298,9 @@ target, device numbers, ACLs, xattrs (which hold file capabilities) and
 hard-link grouping. That is an rsync dry run with the extraction's `-HAX`
 flags and `--checksum`, without `-t`. Modification times are not compared,
 because every file Ansible writes into a fresh tree has a new one.
-`root/etc/nfsroot-watchdog/` is ignored. The four files that carry the version
+`root/etc/nfsroot-watchdog/` and `root/etc/fake-hwclock.data` are ignored (the
+two exceptions; with #45's timer the second would otherwise always differ).
+The four files that carry the version
 path are compared after each tree's own id is replaced by a fixed token. If
 nothing differs, nothing is published and no board reboots. On a fresh gateway
 (`current` names `empty`) the compare is skipped.
@@ -426,8 +460,8 @@ not match `/lib/modules`, which only matters when the kernel changed between
 the two versions. The second case reboots by the version rule. The first is on
 the current version and stays until someone power-cycles it; `verify-pi.yml`
 finds it by checking that `/lib/modules/$(uname -r)` exists. Nothing in this
-design avoids fetching across a swap. No board reboots for a new version sooner than 300 s after the swap
-(C4).
+design avoids fetching across a swap. No board reboots for a new version
+sooner than 300 s after the swap (C4).
 
 ## Contract with nfsroot-watchdog (owned by the nfsroot-watchdog repo)
 
@@ -459,9 +493,10 @@ and stays recognisable by the missing directory.
   name in `versions/` (the id; for the legacy entry, the symlink's name) into
   any published entry that lacks one, and never changes it. For a new version
   that is step (i) of C3, before `current` names it. For the legacy entry it
-  is the first publish, in step (iii). That is harmless: boards on the legacy
-  root run today's client, which ignores the file. The marker is `<epoch> <iso> <id of the current version>`: one line, first field
-  still the epoch, so old clients and the stagger are unaffected. Client rule:
+  is the first publish, in step (iii). That is right with either client on
+  the legacy root: today's ignores the file, and one with the version rule
+  reboots by it. The marker is `<epoch> <iso> <id of the current version>`:
+  one line, first field still the epoch, so old clients and the stagger are unaffected. Client rule:
   if `$LOWER/etc/nfsroot-watchdog/version` exists, the trigger is "the
   marker's third field is not my version" instead of "the marker differs from
   my boot snapshot". If the file does not exist (single-root sites,
@@ -479,8 +514,8 @@ and stays recognisable by the missing directory.
   "none") and stays put, and a board on an older version sees a change.
   `rollback` follows the same order: target first, swap, then the rest. All
   writes are tmp plus rename, or create/unlink, inside each entry's
-  `root/etc/nfsroot-watchdog/`, never in place. That directory is the one
-  place in a version that is ever written.
+  `root/etc/nfsroot-watchdog/`, never in place. That directory is the only
+  place in a version that nfsroot-watchdog writes.
 - **C4. Reboot timing.** A board's deadline is marker epoch + 420 s + slot x
   20 s + jitter (under 10 s), when its clock finds the epoch plausible (not
   more than 300 s in its future, less than 86400 s old). Otherwise it counts
@@ -511,10 +546,16 @@ and stays recognisable by the missing directory.
   300 s. So the board is broken for roughly 8 to 40 minutes, depending on its
   slot. That path bypasses the update lock and the fleet inhibit; only the
   per-machine inhibit holds it.
-- **C9. Migration.** Boards on today's in-place root run today's client and
-  have `/srv/nfs/rpi/bookworm/root` as their lower. They see the first
-  versioned `publish` as a marker change by string inequality and reboot. The
-  legacy entry gets the marker on every publish for as long as it exists.
+- **C9. Migration.** Boards on today's in-place root have
+  `/srv/nfs/rpi/bookworm/root` as their lower. With today's client they see
+  the first versioned `publish` as a marker change by string inequality and
+  reboot. With a newer client (an in-place converge after the client release
+  puts it into the legacy root) they reboot by the version rule. The legacy
+  entry gets the marker on every publish for as long as it exists.
+- **C10. Three `status` lines are an interface.** `nfsroot-watchdog status`
+  prints `NFS root:`, `root generation:` and, with the version rule,
+  `version:`. Each is label, colon, whitespace, value, and nothing else on the
+  line. That repo tests them; `verify-pi.yml` reads them.
 - Informational: the stale-probe trigger never fires under this layout and
   stays for other sites. Today `roles/nfsroot_generation/tasks/install.yml`
   installs the server package in `site.yml`'s first play (it stays),
@@ -529,7 +570,8 @@ The boundary, and what this repo promises:
 - Everything that writes the root (the img extraction, `apt_cache`'s
   `nfsroot.yml`, fixpi's site layer, the site-state copy) writes the staging
   directory, before the rename. Nothing here touches a tree in `versions/`
-  afterwards. That includes the legacy tree after the cut-over.
+  afterwards, except #45's timer writing `root/etc/fake-hwclock.data` in the
+  current version. That includes the legacy tree after the cut-over.
 - No switch exists to make a reboot slot due at once, and none will be added
   for tests. The watchdog-triggered reboot itself is covered by that repo's
   own tests, not by the VM test here.
@@ -542,7 +584,7 @@ exists; the same client release adds a `version:` line to
 ## Rollback
 
 nfsroot-watchdog's `rollback` swaps `current` back to a kept version and
-writes a fresh marker naming it into every entry. Boards on the bad version
+writes a fresh marker naming it into every published entry. Boards on the bad version
 reboot onto the good one in their slots. Boards already on the good one stay
 put: the marker names their version again. Only a board running an old client
 (no version rule) reboots once too. No image pull and no site-layer run is
@@ -567,8 +609,9 @@ There is no automatic deletion. The procedure:
    a board cannot stay on an old version past its reboot slot unless it is
    inhibited or unreachable, so wait for the stagger to finish. Then run
    `verify-pi.yml`: it fails for any reachable board that is not on the
-   current version, a board still on the legacy root included. For boards it cannot reach, `showmount -a` on the gateway
-   (`/var/lib/nfs/rmtab`) is a second source. It can list mounts that are long
+   current version, a board still on the legacy root included. For boards it
+   cannot reach, `showmount -a` on the gateway (`/var/lib/nfs/rmtab`) is a
+   second source. It can list mounts that are long
    gone, so treat it as a hint. A board that is off does not matter: it boots
    `current`.
 3. Delete with `rm -rf /srv/nfs/rpi/versions/<id>`. Never the one `current`
@@ -592,8 +635,10 @@ Before:
 
 1. Check on tweed: `/srv/nfs/rpi` is one filesystem with at least 8 GB free;
    the names `versions`, `current`, `staging`, `staging.lock`, `site-state`
-   and `empty` are free; no `update.lock`; note which boards hold a
-   per-machine inhibit.
+   and `empty` are free; no `update.lock`; the legacy root has a marker
+   (`bookworm/root/etc/nfsroot-watchdog/generation`), because without one it
+   counts as an orphan, `publish` never writes to it and its boards never
+   reboot; note which boards hold a per-machine inhibit.
 2. Merge the PR that sets `nfsroot_versioned: true` for `fpgas.online`. Run
    the whole `site.yml` with `--limit fpgas.online`.
 3. What is specific to this first run: the layout step creates
@@ -604,8 +649,9 @@ Before:
    from `bookworm/root`. The build differs from the legacy root (the cmdline
    path at least), so it is published. `publish` writes the marker into the
    legacy entry too (C9).
-4. Every board is on the legacy root. Each sees the marker change and reboots
-   in its slot onto `versions/<id>`: no sooner than 300 s after the swap, the
+4. Every board is on the legacy root. Each sees the marker change (or, with
+   a newer client, a marker that names another version) and reboots in its
+   slot onto `versions/<id>`: no sooner than 300 s after the swap, the
    last one about 39 minutes after it. The legacy root was not modified apart
    from `root/etc/nfsroot-watchdog/`, so nothing goes ESTALE while they wait.
 5. The operator checks: `readlink /srv/nfs/rpi/current`; `exportfs -v` shows
@@ -614,12 +660,19 @@ Before:
    Boards with a per-machine inhibit stay on the legacy root until they
    reboot, and `verify-pi.yml` fails for each of them until then: the first
    publish gave the legacy entry a version file, so such a board reports
-   `legacy-bookworm` against a marker that names another version.
-6. If it goes wrong: `rollback` to `legacy-bookworm`.
+   `legacy-bookworm` against a marker that names another version. Then run
+   `site.yml` a second time and check that it publishes nothing. Record that
+   run's recap in a comment on the cut-over PR, with the measured time of the
+   extract and the compare.
+6. If it goes wrong: `rollback` to `legacy-bookworm`. Expect `verify-pi.yml`
+   to fail for every board after that, although each is on the current
+   version: a board on the legacy root with today's client has a version file
+   and no `version:` line.
 7. The legacy root, its link in `versions/` and its two export lines are
    removed by hand, and only once no board is booted from it. That is what
-   a passing `verify-pi.yml` shows (procedure above). Delete the link and the directory, then run `site.yml`: the
-   template drops the legacy lines when the directory is gone.
+   a passing `verify-pi.yml` shows (procedure above). Delete the link and the
+   directory, then run `site.yml`: the template drops the legacy lines when
+   the directory is gone.
 
 ## Changes by file
 
@@ -679,11 +732,14 @@ collector already runs. It prints `NFS root:` and `root generation:` today,
 and the client release with the version rule adds `version:`. The playbook
 does not work out `$LOWER` and does not parse `nfsroot=`.
 
-- With a `version:` line: it equals the marker's third field.
-- With no `version:` line but a `version` file under the printed `NFS root:`
-  path: fail. That is an old client on a versioned root, which is every board
-  still on the legacy root after the cut-over, and any version built from an
-  image without the client rule.
+- With a `version:` line: it equals the third field of the `root generation:`
+  line of the same output.
+- With no `version:` line but a file `etc/nfsroot-watchdog/version` under the
+  printed `NFS root:` path: fail. That is an old client on a versioned root:
+  a board on the legacy root with today's client, or a version built from an
+  image without the client rule. `status` prints `/` for a root with no
+  overlay; a double slash in the joined path resolves, so either way of
+  joining is fine.
 - With neither (a single-root site): skipped.
 - Always: `/lib/modules/$(uname -r)` exists.
 
@@ -709,17 +765,20 @@ the stagger has finished. The publish step prints when the last slot ends.
   escape `nfs_root` today are all in those files. For them the static test
   below is the only guard before the VM run, and no test at all covers "a
   second converge of the full site layer publishes nothing" before tweed. A
-  false difference there would reboot the fleet on every converge; the
-  cut-over PR must show a second run on tweed publishing nothing.
+  false difference there would reboot the fleet on every converge, so the
+  migration checks a second run on tweed (step 5).
 - **Static.** In the style of `tests/test_no_tags.py`: no task file the build
   play includes uses `tftp_root`, `nfsroot_served_dir` or a literal
   `/srv/nfs`. Listed exceptions: the `/srv/tftp` link tasks in `netboot.yml`
   and the new role's compare, which reads `current`. Verify task files are not
   in the build play, so `fixpi/tasks/verify/main.yml:86-110` keeps `tftp_root`.
+  Outside the build play, the only writers of a served tree are
+  `nfsroot-generation` and #45's timer (the two exceptions).
 - The compare's id substitution, the build lock, the site-state seeding and
   its legacy-key check, and the free-space guard.
 - **Where the tool comes from.** The pytest job (`.github/workflows/lint.yml`)
-  checks out fpgas-online/nfsroot-watchdog at a full commit SHA and sets
+  checks out fpgas-online/nfsroot-watchdog at a full commit SHA (`1e72776` or
+  later for now) and sets
   `NFSROOT_GENERATION` to its `src/nfsroot-generation`. Not the package: its
   apt repo publishes bookworm, trixie and sid only, and the runner is Ubuntu.
   A SHA, not a tag: the repo has only `v0.0`. The pin moves in the infra PR
@@ -750,7 +809,9 @@ Added, after `verify-pi.yml` has passed on version A:
    carry A's version file, hard-linked to A's; `publish` step (i) creates the
    directory afresh. Hard links are safe here: the test replaces or unlinks
    entries in B and never edits a file, which leaves A's inodes alone, and
-   every write the server tool makes is tmp plus rename or create/unlink.
+   every write the server tool makes is tmp plus rename or create/unlink. The
+   same holds for `fake-hwclock.data`: a rename in one tree does not touch the
+   other tree's inode.
 2. One exec on the booted Pi (one round trip): read a file B replaced, run a
    binary, then `sudo nfsroot-watchdog check` and `nfsroot-watchdog status`.
    The status shows a pending reboot only after a check has run, and the timer
@@ -763,20 +824,16 @@ Added, after `verify-pi.yml` has passed on version A:
    (`tests/vm/run_tests.py:204-245`) already watches that console. Today it
    returns on the first "Booting Linux" anywhere in the file, so the harness
    records the log's length before the power-cycle and looks only after that
-   offset. It does not wait for the NFS mount or for SSH.
+   offset, or from the start if the file got shorter. It does not wait for the NFS mount or for SSH.
 4. While the Pi reboots, one server-side script checks that `current` names B,
    all markers are equal and TFTP serves B's cmdline. Once step 3 has seen B,
    it runs `rollback` to A and repeats the checks. The Pi is not rebooted
    again.
 
-The harness power-cycles the Pi because nothing can make a reboot slot due at
-once (see the contract). The watchdog-triggered reboot is not tested here.
-
 Estimate: 5-10 s for steps 1 and 4, 3-12 s for step 2, 13-18 s for step 3:
-about 20-40 s. **That does not fit today.** At the median it gives 848-868 s,
-under 900 s, but 17 of 44 runs are already over 900 s without it, and this
-puts more over. Whether to accept that is open question 1. The PR that adds
-the test must state measured before and after totals.
+about 20-40 s, which puts the median at about 848-868 s against the 900 s
+target. Tim accepted the extra time on 2026-10-03, with the power-cycle step
+kept. The PR that adds the test must state measured before and after totals.
 
 ## Implementation order
 
@@ -796,7 +853,9 @@ layout on in the VM.
 6. Publish wiring. **Needs the nfsroot-watchdog release with `publish`.**
 7. `verify-server.yml` and `verify-pi.yml` checks. The `verify-pi.yml` check
    needs the client release with the version rule.
-8. The VM test, and the layout turned on for the CI VM. **Needs `rollback`.**
+8. The VM test, and the layout turned on for the CI VM. **Needs `rollback`,
+   and the client release with the `version:` line in the image**, or
+   `verify-pi.yml`'s old-client case fails there.
 9. Docs: the role README, `docs/access.md`, `CLAUDE.md`. These land with or
    before step 10, not after. After the cut-over the documented
    `touch .../root/etc/nfsroot-watchdog/inhibit` reaches only boards on that
@@ -807,9 +866,9 @@ layout on in the VM.
 
 ## Risks: other open PRs on the same files
 
-- **#45** (netboot clock) adds a timer on the gateway that rewrites
-  `fake-hwclock.data` inside the NFS root. That is a second writer into a
-  published version. See open question 2.
+- **#45** (netboot clock) adds a gateway timer that rewrites
+  `root/etc/fake-hwclock.data`. It is allowed as the second exception to
+  immutability; "The two exceptions" says what it must do to fit.
 - **#88** (fleet watchdog) must skip boards older than the marker, so that it
   does not power-cycle a fleet whose SSH broke after an update. Under this
   layout an update no longer breaks SSH on a booted board, so that rule gets
@@ -826,22 +885,14 @@ layout on in the VM.
 - **#107** (`docs/ci.md`): sections 3.2, 6.4 and 8 describe the in-place
   rsync. Whichever lands second updates them.
 
-## Open questions
+## Decisions that closed the open questions
 
-All three are for Tim.
+Tim, 2026-10-03:
 
-1. The VM budget. The test adds about 20-40 s to a job that takes 709-944 s
-   (median 828 s) against a 900 s target that 17 of 44 runs already miss.
-   (a) Accept the added seconds. (b) Leave out the power-cycle (step 3), which
-   saves 13-18 s; then no VM run shows a board booting the new version after
-   a swap, only the server-side TFTP fetch of B's cmdline.
-2. #45 writes a clock reference into the root on a timer. A file replaced in a
-   published version goes ESTALE for boards that read it through the overlay.
-   (a) #45 changes so that the board reads the reference through `$LOWER`
-   (plain NFS, which heals), as nfsroot-watchdog reads its marker, and
-   "immutable" gets that one file as a second exception. (b) #45 delivers the
-   time some other way and the definition stays as it is.
-3. Optional: should boards report their booted version through fleet
-   self-registration (site `/fleet/<serial>/`, repos fpgas.online-site and
-   fpgas.online-setup-pi)? (a) No: `verify-pi.yml` is enough while clean-up is
-   manual. (b) Yes, and name who owns it.
+- The VM test's extra time is accepted, with the power-cycle step kept.
+- #45's clock reference is the second exception to immutability.
+- Boards will report their booted version through fleet self-registration:
+  fpgas-online/fpgas.online-site#43 (store and show `nfsroot_version`) and
+  fpgas-online/fpgas.online-setup-pi#17 (send the value of the `version:` line
+  of `nfsroot-watchdog status`). It is not part of this work and nothing here
+  depends on it.
