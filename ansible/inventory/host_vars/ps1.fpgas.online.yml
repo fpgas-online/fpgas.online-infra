@@ -13,8 +13,6 @@ eth_local_netmask: 24
 
 dhcp_range: 10.21.0.128,10.21.0.254,6h
 
-firewall_internal_networks: [10.21.0.0/24]
-
 pib_network: 10.21.0
 
 user_name: videoteam
@@ -22,7 +20,6 @@ user_name: videoteam
 time_zone: America/Chicago
 
 conference_name: pib
-room_name: catwalk
 
 domain_name: ps1.fpgas.online
 letsencrypt_account_email: carl@NextDayVideo.com
@@ -38,12 +35,7 @@ fixture_path: ps1.fpgas.online.json
 fleet_broker: true
 fleet_site: ps1
 
-tt06_dev_id: usb-MicroPython_Board_in_FS_mode_de640cb1d3975a26-if00
-
 # some netgear:
-switch_base: base
-
-
 switch:
     # Netgear #2 GS728TPP mac: "b0:39:56:88:22:4c"
 
