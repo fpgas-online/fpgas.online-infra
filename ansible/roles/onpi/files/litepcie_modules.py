@@ -24,7 +24,7 @@ import sys
 PREFIX = "fpgas-online-acorn-litepcie-modules-"
 FLAVOURS = ("rpi-v8", "rpi-2712")
 # linux-image-6.12.109+rpt-rpi-v8, linux-image-6.1.0-rpi8-rpi-2712: a version, then the flavour
-IMAGE_RE = re.compile(r"linux-image-(\d\S*-(?:%s))" % "|".join(re.escape(f) for f in FLAVOURS))
+IMAGE_RE = re.compile(r"linux-image-(\d\S*-(?:{}))".format("|".join(re.escape(f) for f in FLAVOURS)))
 QUERY = ("dpkg-query", "-W", "-f=${Package}\\t${Architecture}\\t${db:Status-Status}\\n", "linux-image-*")
 
 

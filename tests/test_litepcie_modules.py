@@ -8,6 +8,10 @@ with the kernel's architecture.
 import importlib.util
 from pathlib import Path
 
+import pytest
+
+from tests.test_verify_pi_hw_detection import _run, _task
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "ansible/roles/onpi/files/litepcie_modules.py"
 
@@ -78,10 +82,6 @@ def test_an_arm64_root_gets_the_same_package_with_its_own_architecture_named():
 
 
 # -- verify-pi: litepcie.ko for the running kernel, where the root carries the driver ---------------------
-
-import pytest  # noqa: E402
-
-from tests.test_verify_pi_hw_detection import _run, _task  # noqa: E402
 
 COMMON = "fpgas-online-acorn-litepcie-common install ok installed"
 FOUND = {"rc": 0, "stdout": "/lib/modules/6.12.109+rpt-rpi-v8/updates/fpgas-online/litepcie.ko", "stderr": ""}
