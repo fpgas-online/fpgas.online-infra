@@ -17,15 +17,17 @@ tweed's TFTP root, and boots the **shared** Pi NFS root with the Debian
 
 ## Deploy / re-converge (tweed)
 
+Run whole playbooks: no `--tags` or `--skip-tags`, and scope a run only with
+`--limit` and `-e`. If a role is too slow or disruptive for a full run, fix
+the role; unready work waits behind a variable that defaults to off
+(issue #157).
+
 ```bash
 cd ~/github/fpgas-online/fpgas.online-infra          # main, or the PR worktree
 uv run ansible-playbook -i ansible/inventory ansible/site.yml \
-  --limit fpgas.online,pi \
-  --tags fixpi,netboot,sunxi,sunxi-kernel,onpi,fpgas-apt
+  --limit fpgas.online
 ```
 
-* `--limit` must include `pi` (the nspawn provisioning host) or the NFS root
-  is not touched.
 * The first run installs the kernel into the root: ~30 min under qemu
   (`update-initramfs`). Later runs skip it (`creates:` guard); kernel
   upgrades arrive through `onpi`'s apt upgrade like every other package.
@@ -61,10 +63,11 @@ picocom /dev/serial/by-path/platform-xhci-hcd.0-usb-0:1.3.1:2.2   # login getty
 
 ```bash
 uv run ansible-playbook -i 10.21.2.20,10.21.2.21,10.21.2.23,10.21.2.24,10.21.2.30, \
-  ansible/verify-pi.yml -u pi -e verify_pi_hosts=all --skip-tags hw-camera,hw-fpga
+  ansible/verify-pi.yml -u pi -e verify_pi_hosts=all
 ```
 
-`hw-sunxi` asserts each Orange Pi runs an `armmp` kernel on `armv7l` and that
+It runs in full: a board with no camera or FPGA passes those checks and says
+so. Its Orange Pi checks assert each Orange Pi runs an `armmp` kernel on `armv7l` and that
 the hub host has a `fpgas-felboot@<usb>` instance for every board declared
 for it in `sunxi_boards`.
 

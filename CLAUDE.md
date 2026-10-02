@@ -27,7 +27,11 @@ virtual Pi has netbooted that image and registered). The server
 runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
 image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
 `fixpi` applies the site layer (pi password, ssh host keys, controller
-authorized_keys, TT catalogue, per-site config) on top. The old on-server
+authorized_keys, TT catalogue, per-site config) on top. The image build
+keeps the site layer out with `fixpi_image_build` (true only in
+`inventory-ci-nfsroot`), not with tags: the build runs `ci-nfsroot.yml` in
+full, refuses to run without that variable, and fails if the image carries
+a pi password, an authorized_keys or a user keypair. The old on-server
 nspawn/chroot provisioning path is gone.
 
 **Pis boot read-only from the network.** Each Pi PXE boots via:
@@ -58,6 +62,21 @@ from other repos:
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
 4. Pis PXE boot from the fully-provisioned server
 5. `verify-pi.yml` checks running Pis (NFS mount, overlayfs, services, packages)
+
+**Deploys run whole playbooks** (issue #157):
+
+- A deploy or a verification runs the whole playbook -- `site.yml` (or
+  `web.yml`), `verify-server.yml`, `verify-pi.yml` -- never with `--tags`
+  or `--skip-tags`. A partial run leaves production out of step with
+  `main`, and a tagged verify can pass while asserting nothing.
+- Scope a run only with `--limit` (which hosts) and `-e` (e.g. a pinned
+  `img_nfsroot_image`), never by skipping parts of the playbook.
+- If a full run is too slow, disruptive or unsafe, fix the role
+  (idempotent, gated on state or an inventory variable); don't skip it.
+- Work that is not ready to deploy stays behind a variable that defaults
+  to off; merged code on `main` is deployable.
+- Do not add tags. The only one left is `always`, which goes once the
+  partial-run workarounds it exists for are removed.
 
 ### Key Files
 
@@ -90,8 +109,8 @@ from [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838
 GENET ethernet emulation on `raspi4b`), and runs `verify-pi.yml`. Only the inventory
 differs between test and production.
 
-**End-to-end coverage** (nothing is skipped: the harness passes no
-`--skip-tags`, and the test inventory differs from production only in site
+**End-to-end coverage** (nothing is skipped: the harness has no tag
+options, and the test inventory differs from production only in site
 data -- addresses, names, the switch it cannot reach):
 
 - `site.yml` converges a fresh Debian 13 server (tweed's OS), pulling and

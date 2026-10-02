@@ -25,7 +25,6 @@
       # sets switches_manage=false and the converge step is the only consumer
       # (tweed rebuild B1-3, 2026-08-25).
       - snmp
-  tags: [switch-vlans]
 
 - name: Install fpgas-switch-setup (fpgas.online-poe[cli]) into its venv
   ansible.builtin.pip:
@@ -39,21 +38,18 @@
     # ~15 s cost ever matters, switch to pinning an exact commit SHA in the
     # URL instead.
     state: forcereinstall
-  tags: [switch-vlans]
 
 - name: Create /etc/fpgas directory
   ansible.builtin.file:
     path: /etc/fpgas
     state: directory
     mode: "0755"
-  tags: [switch-vlans]
 
 - name: Install switches config
   ansible.builtin.template:
     src: switches.yml.j2
     dest: /etc/fpgas/switches.yml
     mode: "0644"
-  tags: [switch-vlans]
 
 # fpgas-switch-setup exits 0 whether or not it applied changes (with
 # --apply), 1 on error; check-mode-only rc 2 never happens here. The CLI
@@ -71,4 +67,3 @@
   register: switch_vlans_converge_result
   changed_when: switch_vlans_converge_result.stdout | length > 0
   when: switches_manage | default(true)
-  tags: [switch-vlans]

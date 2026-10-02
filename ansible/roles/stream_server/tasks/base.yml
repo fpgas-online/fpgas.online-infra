@@ -6,8 +6,6 @@
       - libnginx-mod-rtmp
       - libnginx-mod-http-fancyindex
   notify: Restart nginx
-  tags:
-    - streaming
 
 - name: Create nginx rtmp socket directory
   ansible.builtin.file:
@@ -16,16 +14,12 @@
     owner: www-data
     group: root
     mode: "0700"
-  tags:
-    - streaming
 
 - name: Create nginx rtmp config directory
   ansible.builtin.file:
     path: /etc/nginx/rtmp
     state: directory
     mode: "0775"
-  tags:
-    - streaming
 
 - name: Install basic nginx rtmp configuration
   ansible.builtin.template:
@@ -33,8 +27,6 @@
     dest: /etc/nginx/nginx-rtmp.conf
     mode: "0644"
   notify: Reload nginx
-  tags:
-    - streaming
 
 - name: Patch nginx.conf to include the rtmp configuration
   ansible.builtin.lineinfile:
@@ -42,8 +34,6 @@
     line: include /etc/nginx/nginx-rtmp.conf;
     state: present
   notify: Reload nginx
-  tags:
-    - streaming
 
 - name: Patch nginx.conf to use 1 worker
   # https://github.com/arut/nginx-rtmp-module/issues/849
@@ -53,5 +43,3 @@
     regexp: ^worker_processes
     state: present
   notify: Reload nginx
-  tags:
-    - streaming

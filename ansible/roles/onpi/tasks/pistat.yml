@@ -9,8 +9,6 @@
     - pistat_cam
     - pistat_info
     - pistat_shutdown
-  tags:
-    - pistat
 
 - name: Enable pistat services
   ansible.builtin.systemd:
@@ -22,5 +20,3 @@
     - pistat_cam
     - pistat_info
     - pistat_shutdown
-  tags:
-    - pistat

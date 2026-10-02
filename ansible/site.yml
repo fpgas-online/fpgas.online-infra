@@ -6,6 +6,14 @@
     # through the site apt proxy it configures.
     - apt_client
     - netif
+  tasks:
+    # Before any other role refreshes the package lists: this rewrites the
+    # gateway's own nfsroot-watchdog source, and until it has, that source
+    # may be one the site apt proxy refuses (tasks/install.yml).
+    - name: Install nfsroot-generation on the gateway
+      ansible.builtin.include_role:
+        name: nfsroot_generation
+        tasks_from: install.yml
 
 # The Pi NFS root image is several GB: start pulling it now (after netif,
 # which may reboot the server) so the download overlaps everything up to
@@ -20,7 +28,6 @@
       ansible.builtin.include_role:
         name: img
         tasks_from: prefetch.yml
-      tags: [img]
 
 - name: Configure the server services
   hosts: nbp
@@ -58,6 +65,16 @@
   hosts: nbp
   gather_facts: false
   tasks:
+    # The one step of the root update that depends on another site: the
+    # operators' GitHub keys for the root's authorized_keys (fixpi). Done
+    # first, so a GitHub outage fails the run here, before the lock is
+    # taken and the image extracted into the live root, rather than
+    # half-way through the update with the lock held.
+    - name: Download the NFS root's GitHub keys before the root update
+      ansible.builtin.include_role:
+        name: fixpi
+        tasks_from: github_keys.yml
+
     # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
     # the root by roles/onpi) from here until nfsroot_generation below:
     # img, apt_cache and fixpi all change the root, and a board must never
@@ -74,7 +91,6 @@
     - name: Extract the pulled Pi NFS root
       ansible.builtin.import_role:
         name: img
-      tags: [img]
 
     # A fresh extract restores the image's upstream apt sources; point
     # them back at this site's cache.
@@ -82,12 +98,10 @@
       ansible.builtin.import_role:
         name: apt_cache
         tasks_from: nfsroot.yml
-      tags: [apt-cache]
 
     - name: Apply the site layer to the NFS root
       ansible.builtin.import_role:
         name: fixpi
-      tags: [fixpi]
 
     # fixpi is the last task that writes into the root: bump the generation
     # if the root changed, then release the lock. The boards then reboot

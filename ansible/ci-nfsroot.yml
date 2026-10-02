@@ -9,14 +9,31 @@
 # "Pi" is reached via the chroot connection plugin (see
 # inventory-ci-nfsroot/hosts).
 #
-# Run with --skip-tags pipw,keys: the site-specific userconf layer (pi
-# password, per-site authorized_keys/keypairs) is applied by the consuming
-# server after extraction, not baked into the published image.
+# Run in full, with no --tags or --skip-tags. The site layer (the pi
+# password, per-site authorized_keys and keypairs: fixpi's userconf.yml and
+# ansible-home.yml) is applied by the consuming server after extraction,
+# never baked into the published image: fixpi skips it when
+# fixpi_image_build is true, which inventory-ci-nfsroot sets. Fail-safe
+# twice over: this playbook refuses to start unless fixpi_image_build is
+# true, and its last play fails the build if the image carries any of the
+# site layer all the same.
 
 - name: Apply the generic fixpi layer to the NFS root
   hosts: nbp
   become: true
   tasks:
+    # fixpi_image_build is what keeps the site layer out of the public
+    # image (fixpi/tasks/main.yml). Run with any other inventory, fixpi
+    # would write this runner's password and keys into it.
+    - name: Check this is the image build (fixpi_image_build is true)
+      ansible.builtin.assert:
+        that: fixpi_image_build | default(false) | bool
+        fail_msg: >-
+          ci-nfsroot.yml builds the public image and must run with
+          fixpi_image_build true (inventory-ci-nfsroot), or fixpi would
+          apply the site layer (pi password, keys) to it.
+        quiet: true
+
     - name: Prepare the runner
       ansible.builtin.import_tasks: ci-nfsroot-runner.yml
 
@@ -52,11 +69,8 @@
   hosts: pi
   roles:
     - role: fpgas_apt
-      tags: [fpgas-apt]
     - role: cam_pi
-      tags: [cam]
     - role: onpi
-      tags: [onpi]
 
 - name: Finish, clean and check the NFS root image
   hosts: nbp
@@ -81,7 +95,6 @@
         rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
-      tags: [netboot]
 
     - name: Finish the chroot session (kernels, mounts, policy-rc.d)
       ansible.builtin.include_role:
@@ -144,7 +157,6 @@
         rsync -a --exclude=cmdline.txt --exclude=config.txt
         {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
       changed_when: true
-      tags: [netboot]
 
     # Design doc "Hardware coverage": fail the build before anything is
     # tagged if a board family's boot material is missing, so an upstream
@@ -168,7 +180,6 @@
         - bcm2711-rpi-4-b.dtb
         - bcm2712-rpi-5-b.dtb
         - overlays
-      tags: [verify]
 
     # dpkg -l exits 0 for a package that is merely known to the database
     # ("rc" after a removal, "un"), so read the status field instead.
@@ -192,12 +203,10 @@
         - fpgas-online-all-boards
         # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
         - linux-image-armmp
-      tags: [verify]
 
     - name: Assert pi user exists in the root
       ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
       changed_when: false
-      tags: [verify]
 
     # The automation account and its sudo (fixpi/netboot.yml). A role task
     # file, so it sees fixpi's defaults (the user name and fixed uid).
@@ -205,6 +214,44 @@
       ansible.builtin.include_role:
         name: fixpi
         tasks_from: verify/image.yml
-        apply:
-          tags: [verify]
-      tags: [verify]
+
+    # The site layer belongs to each consuming server, never to the public
+    # image (fixpi skips it under fixpi_image_build). Check the result, not
+    # only the gate: no password for the pi user, no authorized_keys, no
+    # user keypairs, no plaintext userconf.txt.
+    - name: Read the pi user's password field in the image
+      ansible.builtin.command: "awk -F: '$1 == \"{{ user }}\" {print $2}' {{ nfs_root }}/root/etc/shadow"
+      register: ci_nfsroot_pi_pw
+      changed_when: false
+      no_log: true
+
+    - name: Assert the image has no password for the pi user
+      ansible.builtin.assert:
+        that: not ci_nfsroot_pi_pw.stdout.startswith('$')
+        fail_msg: >-
+          The image's /etc/shadow holds a password hash for {{ user }}: the
+          site layer (fixpi/tasks/userconf.yml) ran in the image build.
+        quiet: true
+
+    # Every .ssh dir in the image's root and home dirs: the site layer's
+    # authorized_keys (root, pi, ansible) and keypairs (root, pi).
+    - name: Find site-layer key files in the image
+      ansible.builtin.command: >-
+        find {{ nfs_root }}/root/root {{ nfs_root }}/root/home -path '*/.ssh/*'
+        ( -name authorized_keys -o -name 'id_*' )
+      register: ci_nfsroot_site_keys
+      changed_when: false
+
+    - name: Assert the image carries no authorized_keys or user keypairs
+      ansible.builtin.assert:
+        that: ci_nfsroot_site_keys.stdout_lines | length == 0
+        fail_msg: >-
+          The image carries site-layer key files:
+          {{ ci_nfsroot_site_keys.stdout_lines }}
+        quiet: true
+
+    - name: Check the image has no userconf.txt
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/boot/userconf.txt"
+      register: ci_nfsroot_userconf
+      failed_when: ci_nfsroot_userconf.stat.exists

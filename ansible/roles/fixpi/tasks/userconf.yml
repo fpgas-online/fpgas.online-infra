@@ -25,8 +25,6 @@
   register: fixpi_pi_pw_hash
   changed_when: false
   no_log: true
-  tags:
-    - pipw
 
 - name: Check whether the NFS root already carries that hash
   ansible.builtin.command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
@@ -34,8 +32,6 @@
   changed_when: false
   failed_when: fixpi_pi_pw_current.rc not in [0, 1]
   no_log: true
-  tags:
-    - pipw
 
 # Rewriting /etc/shadow replaces it (new inode). The running Pis mount this root
 # as the lower layer of an overlayroot over NFS, and their sshd keeps the
@@ -49,8 +45,6 @@
   when: fixpi_pi_pw_current.rc != 0
   register: fixpi_pi_pw_set
   no_log: true
-  tags:
-    - pipw
 
 # Inline, not a handler (noqa): a handler only runs if the rest of the play
 # succeeds, and this warning must not be lost when the shadow was replaced
@@ -61,8 +55,6 @@
       {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
       now refuses SSH until rebooted: PoE-cycle their switch ports.
   when: fixpi_pi_pw_set is changed  # noqa: no-handler
-  tags:
-    - pipw
 
 # Nothing reads these: the RPi OS first-boot wizard that would apply
 # boot/userconf.txt is masked in the NFS root (netboot.yml), and password.txt
@@ -75,8 +67,6 @@
   with_items:
     - "{{ nfs_root }}/boot/userconf.txt"
     - "{{ nfs_root }}/root/etc/ssh/password.txt"
-  tags:
-    - pipw
 
 - name: Enable sshd
   ansible.builtin.file:
@@ -101,19 +91,18 @@
   ansible.builtin.user:
     name: "{{ user_name }}"
     generate_ssh_key: true  # This will not overwrite an existing SSH key.
-  tags:
-    - keys
 
+# 0700, like the ansible user's (ansible-home.yml) and the jump host's .ssh:
+# only the owner needs to list them. home/pi's is chowned to pi (uid 1000)
+# by "Set perms" below; root's stays root's.
 - name: Create .ssh dirs
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
-    mode: "0755"
+    mode: "0700"
   with_items:
     - root
     - home/pi
-  tags:
-    - keys
 
 - name: Generate ssh keys for pi users pi and root
   community.crypto.openssh_keypair:
@@ -121,18 +110,11 @@
   with_items:
     - root
     - home/pi
-  tags:
-    - keys
 
 # Who may log in to the boards as pi and root: one exclusive write per file,
 # only when the key list changed (see authorized_keys.yml for why).
 - name: Write the NFS root's authorized_keys
-  ansible.builtin.include_tasks:
-    file: authorized_keys.yml
-    apply:
-      tags: [keys]
-  tags:
-    - keys
+  ansible.builtin.include_tasks: authorized_keys.yml
 
 - name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
@@ -142,5 +124,3 @@
     group: "1000"
   with_items:
     - home/pi
-  tags:
-    - keys

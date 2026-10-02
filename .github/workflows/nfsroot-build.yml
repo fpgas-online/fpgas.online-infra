@@ -134,7 +134,6 @@ jobs:
           "ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks"
           "$(pwd)/../.venv/bin/ansible-playbook"
           -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
-          --skip-tags pipw,keys
 
       # apt leaves its root-only lock file and partial/ dir in the cache
       # (the save's tar failed on them): keep only the debs, runner-owned.

@@ -68,6 +68,9 @@ The roles install packages from other fpgas-online repos rather than embedding s
 
 Collections: `uv run ansible-galaxy collection install -r requirements.yml`.
 
+Deploys and verification run whole playbooks, never with `--tags` or
+`--skip-tags`; scope a run with `--limit` and `-e` only (issue #157).
+
 `ansible.cfg` supplies the inventory and `become`; the only thing to add is
 the vault password for hosts with vaulted vars (tweed's switch communities):
 
@@ -101,6 +104,9 @@ nginx reverse proxy / SNI router on ten64 as `welland.fpgas.online`,
 playbooks from inside the Welland network. Vault-encrypted host vars need
 `--vault-password-file`.
 
+Who can log in to tweed and to the netbooted Pis, with which keys, how to add
+or remove a person, and how to verify it: [docs/access.md](docs/access.md).
+
 ### Verify
 
 Two verification playbooks check the deployment:
@@ -109,13 +115,14 @@ Two verification playbooks check the deployment:
 # Verify server setup (TFTP, NFS, dnsmasq, NFS root contents)
 uv run ansible-playbook ansible/verify-server.yml
 
-# Verify running Pi (NFS mount, overlayfs, services, packages)
+# Verify running Pi (NFS mount, overlayfs, services, packages, camera, FPGA)
 # Run after Pis have booted
 uv run ansible-playbook ansible/verify-pi.yml
-
-# Skip hardware-dependent checks (camera, FPGA detection)
-uv run ansible-playbook ansible/verify-pi.yml --skip-tags hw-camera,hw-fpga
 ```
+
+Both always run in full: no `--tags` or `--skip-tags`. verify-pi finds the
+camera and the FPGA board on each Pi itself; a Pi without one passes and
+says so, one whose camera or board is there but not working fails.
 
 ### Test (QEMU VMs)
 

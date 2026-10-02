@@ -19,8 +19,6 @@
     - "{{ django_dir }}"
     - "{{ django_dir }}/pib"
     - "{{ static_dir }}"
-  tags:
-    - django
 
 # The Django project package (pib/settings.py, urls.py, asgi.py) ships inside
 # the fpgas-online-site wheel; {{ django_dir }}/pib shadows it on sys.path so
@@ -30,8 +28,6 @@
   ansible.builtin.command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
   register: site_pib_pkg
   changed_when: false
-  tags:
-    - django
 
 - name: Install Django project files from the wheel
   ansible.builtin.copy:
@@ -48,8 +44,6 @@
     - asgi.py
   notify:
     - Restart django services
-  tags:
-    - django
 
 - name: Create local_settings.py if missing (never overwritten)
   ansible.builtin.copy:
@@ -59,8 +53,6 @@
     owner: "{{ user_name }}"
     group: www-data
     mode: "0640"
-  tags:
-    - django
 
 # The wheel ships Django's insecure dev SECRET_KEY and DEBUG=True; production
 # settings come from local_settings.py. The key is generated once per host
@@ -71,16 +63,12 @@
     "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
   args:
     creates: "{{ django_dir }}/.secret_key"
-  tags:
-    - django
 
 - name: Read the SECRET_KEY
   ansible.builtin.slurp:
     src: "{{ django_dir }}/.secret_key"
   register: site_secret_key
   no_log: true
-  tags:
-    - django
 
 - name: SECRET_KEY and DEBUG
   ansible.builtin.lineinfile:
@@ -96,8 +84,6 @@
   no_log: "{{ item.key == 'SECRET_KEY' }}"
   notify:
     - Restart django services
-  tags:
-    - django
 
 # Every name the site answers on: the uplink address, the primary web name,
 # its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
@@ -107,8 +93,6 @@
     site_web_hosts: >-
       {{ ([eth_uplink_static_address, domain_name] + (streaming_frontend_aliases | default([]))
           + ([ttsite_domain] if tt_boards is defined else [])) | unique }}
-  tags:
-    - django
 
 - name: ALLOWED_HOSTS
   ansible.builtin.lineinfile:
@@ -118,8 +102,6 @@
     line: "ALLOWED_HOSTS = {{ site_web_hosts | to_json }}"
   notify:
     - Restart django services
-  tags:
-    - django
 
 - name: CSRF_TRUSTED_ORIGINS
   ansible.builtin.lineinfile:
@@ -130,8 +112,6 @@
       | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
   notify:
     - Restart django services
-  tags:
-    - django
 
 - name: Pass the pi's user pw
   ansible.builtin.lineinfile:
@@ -139,8 +119,6 @@
     state: present
     regexp: '^PI_PW = '
     line: "PI_PW = '{{ pi_pw | b64encode }}'"
-  tags:
-    - django
 
 - name: Sites's domain name
   ansible.builtin.lineinfile:
@@ -148,8 +126,6 @@
     state: present
     regexp: '^DOMAIN_NAME = '
     line: "DOMAIN_NAME = '{{ domain_name }}'"
-  tags:
-    - django
 
 # The mosquitto listener binds eth-local only (roles/mqtt), so the
 # consumer must dial that address -- 127.0.0.1 is not listening.
@@ -162,8 +138,6 @@
   when: fleet_broker | default(false)
   notify:
     - Restart fleet-consumer
-  tags:
-    - django
 
 # Welland runs ahead of the stable ps1 site, so its pages carry a banner
 # pointing visitors there. Written on EVERY host rather than only the ones that
@@ -177,8 +151,6 @@
     line: "UNDER_CONSTRUCTION = {{ 'True' if site_under_construction | bool else 'False' }}"
   notify:
     - Restart django services
-  tags:
-    - django
 
 # Offer a Pi on /fpgas/ only when its FPGA boot check passed this boot (the
 # fleet app's `fpga-verified` event; fpgas-verify from roles/onpi's
@@ -192,8 +164,6 @@
     line: "FPGAS_REQUIRE_VERIFIED = {{ 'True' if site_require_fpga_verified | bool else 'False' }}"
   notify:
     - Restart django services
-  tags:
-    - django
 
 - name: Set static dir
   ansible.builtin.lineinfile:
@@ -201,8 +171,6 @@
     state: present
     regexp: '^STATIC_ROOT = '
     line: "STATIC_ROOT = '{{ static_dir }}'"
-  tags:
-    - django
 
 - name: Manage.py
   ansible.builtin.copy:
@@ -219,8 +187,6 @@
           os.environ.setdefault("DJANGO_SETTINGS_MODULE", "{{ django_project_name }}.settings")
           from django.core.management import execute_from_command_line
           execute_from_command_line(sys.argv)
-  tags:
-    - django
 
 # Management commands run through the generated manage.py as the service
 # user (so db.sqlite3 and STATIC_ROOT end up owned by it), with plain
@@ -235,8 +201,6 @@
   become_user: "{{ user_name }}"
   register: site_migrate
   changed_when: "'No migrations to apply' not in site_migrate.stdout"
-  tags:
-    - django
 
 - name: Run manage.py collectstatic
   ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
@@ -246,8 +210,6 @@
   become_user: "{{ user_name }}"
   register: site_collectstatic
   changed_when: "'0 static files copied' not in site_collectstatic.stdout"
-  tags:
-    - django
 
 # Initial pibfpgas data. The fixture ships INSIDE the installed
 # fpgas-online-site package (pibfpgas/fixtures/, since site PR #20), so
@@ -265,5 +227,3 @@
   become_user: "{{ user_name }}"
   when: fixture_path is defined
   changed_when: true
-  tags:
-    - django
