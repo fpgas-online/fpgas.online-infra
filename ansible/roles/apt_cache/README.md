@@ -80,10 +80,9 @@ https backend through a proxy with CONNECT, and ten64's acng refuses it
 (`503 CONNECT denied (ask the admin to allow HTTPS tunnels)`, tested
 2026-09-13). The default is empty, i.e. direct.
 
-### `--limit` and partial runs
+### `--limit`
 
-The facts are tagged `always`, so `--tags fixpi` or `--tags pi` still see
-`apt_cache_url`. But the `pi` play reads it from the gateway host, so a run
+The `pi` play reads `apt_cache_url` from the gateway host, so a run
 limited to the `pi` host alone (without `fpgas.online`) falls back to the
 upstream URL and rewrites `apt.list` back to upstream. Include the
 gateway in the limit: `--limit fpgas.online,pi`.
