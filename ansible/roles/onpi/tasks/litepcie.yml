@@ -1,0 +1,49 @@
+---
+# litepcie.ko for the Acorn PCIe SoC, prebuilt for the root's kernels, from fpgas.online-test-designs
+# (packaging/acorn-litepcie; its docs/plans/2026-09-25-acorn-litepcie-packages-design.md).
+#
+# fpgas-verify's Acorn `dma` test moves blocks between the Pi's RAM and the board's DDR3 through this driver.
+# Without it the test is not run. The root cannot build the module for itself: it is 32-bit, the kernel a
+# Pi 5 boots is 64-bit, and what DKMS built on a board would be gone at the next boot (the root is read-only
+# under a tmpfs overlay). So the modules come as packages, one per kernel:
+#
+#   fpgas-online-acorn-litepcie-modules-<kernel>   litepcie.ko and liteuart.ko for that kernel
+#   fpgas-online-acorn-litepcie-common             `blacklist litepcie`: nothing loads it at boot; the
+#                                                  boot check loads it for its test and removes it again
+#   fpgas-online-acorn-litepcie-utils              litepcie_util, for a person at the board
+#
+# Which kernels: every installed one a Pi 5 or CM5 can boot (files/litepcie_modules.py). A kernel with no
+# module package fails the build here: a root whose Pi 5 kernel has no driver would boot and quietly leave
+# the test out. The packages for a new Raspberry Pi kernel appear within a day of the kernel.
+#
+# This runs before the boot check is installed (fpga_verify.yml). fpgas-online-acorn-tools recommends
+# `fpgas-online-acorn-litepcie-dkms | fpgas-online-acorn-litepcie-module`: with a modules package already
+# there the recommendation is met, and apt does not bring DKMS's copy in.
+- name: Find the kernels in the root that a Pi 5 boots
+  ansible.builtin.script: litepcie_modules.py
+  args:
+    executable: python3
+  register: onpi_litepcie_packages
+  changed_when: false
+  check_mode: false
+
+- name: Assert the root has a kernel a Pi 5 boots
+  ansible.builtin.assert:
+    that: onpi_litepcie_packages.stdout_lines | length > 0
+    fail_msg: >-
+      No rpi-v8 or rpi-2712 kernel is installed in the root, so there is no kernel to install litepcie.ko
+      for. A Pi 5 cannot boot this root.
+    quiet: true
+
+- name: Install the LitePCIe driver for those kernels, and its tools  # noqa: package-latest
+  ansible.builtin.apt:
+    name: "{{ ['fpgas-online-acorn-litepcie-common', 'fpgas-online-acorn-litepcie-utils'] + onpi_litepcie_packages.stdout_lines }}"
+    state: latest
+
+# The packages run depmod themselves. This is what the boot check's `modprobe litepcie` needs to be true.
+- name: Find litepcie.ko for each of those kernels
+  ansible.builtin.command: "modinfo -k {{ item | regex_replace('^.*-modules-(.*):[^:]+$', '\\1') }} -F filename litepcie"
+  register: onpi_litepcie_modinfo
+  changed_when: false
+  check_mode: false
+  loop: "{{ onpi_litepcie_packages.stdout_lines }}"
