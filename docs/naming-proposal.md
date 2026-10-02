@@ -5,7 +5,9 @@ Based on `origin/main` at `4de0b24` (2026-09-29). Second draft: every proposed
 name was checked for confusion (see the "confusion check" column and the last
 section). Third draft: the owner's decisions are applied (section 6).
 Reviewed against `origin/main` at `1887743` (2026-09-29); the corrections
-are listed at the end of section 7.
+are listed at the end of section 7. Fourth draft: the conventions were
+checked against the Ansible docs, ansible-lint and the Red Hat good
+practices (section 1.1), and the owner's decisions 15–22 are applied.
 
 Many names here come from CarlFK/pici and, before that, the Debian videoteam
 Ansible (`fixpi`, `onpi`, `nbp`, `pig`, `pib`, `conference_name`, `tweeks`).
@@ -41,16 +43,20 @@ and what it acts on.
 
 | subject | rule |
 |---|---|
-| Role names | Name the role after the **component** it manages, in `snake_case`, 1–2 words. Do not prefix by host. Roles that exist to build or maintain the Pi NFS root get the prefix `nfsroot_` (as `nfsroot_generation` already has): `nfsroot_image`, `nfsroot_chroot`, `nfsroot_netboot`, `nfsroot_site`, `nfsroot_apt`, `nfsroot_cam`, `nfsroot_packages`. The one exception is `uhubctl`, which keeps its tool name (decision 6). |
+| Role names | Name the role by its **function** (`firewall`, `timesync`, `nfs_server`), or by the daemon when the role manages exactly one (`dnsmasq`, `lldp`, `webssh`), in `snake_case`, 1–2 words (decision 21). Do not prefix by host. Roles that exist to build or maintain the Pi NFS root get the prefix `nfsroot_` (as `nfsroot_generation` already has): `nfsroot_image`, `nfsroot_chroot`, `nfsroot_netboot`, `nfsroot_site`, `nfsroot_apt`, `nfsroot_cam`, `nfsroot_packages`. The one exception is `uhubctl`: it runs in the NFS root but keeps its tool name, with no `nfsroot_` prefix (decision 6). |
 | Where a role runs | Record where a role runs in the playbook that uses it, not in its name. The gateway roles are in `site.yml`, the web tier roles are in `web.yml`, and the image roles are in `ci-nfsroot*.yml`. Each role's single `README.md` says which of these runs it. |
-| Variable prefix | Every var a role defines (defaults, vars, `set_fact`, `register`) starts with `<role>_`. ansible-lint `var-naming[no-role-prefix]` enforces this, so renaming a role renames all its vars. |
-| Inventory vars | Vars that several roles read (site facts) use a short **topic prefix**: `nfsroot_`, `raspios_`, `lan_`, `site_`, `eth_uplink_`, `eth_local_`, `fleet_`, `tt_`. The word `site` is used **only** for the location (welland, ps1) and never for the Django app. |
-| Cross-role files | A role that reads another role's file (`{{ role_path }}/../<role>/...`) is part of that role's rename. Today there are four: `site/tasks/pistat.yml` → `pxe/files`, `fixpi/tasks/fleet-site.yml` → `onpi/templates`, `fixpi/tasks/tt-site.yml` and `onpi/tasks/tt.yml` → `ttsite/templates`. |
+| Variable prefix | A role's documented inputs (defaults, vars) are `<role>_<name>`. Its `register` and `set_fact` results are `__<role>_<name>` (decision 17). ansible-lint `var-naming[no-role-prefix]` enforces the role part, so renaming a role renames all its vars. The two underscores are a convention only: Ansible gives such a variable no privacy. |
+| Inventory vars | Vars that several roles read (site facts) use a short **topic prefix**: `nfsroot_`, `raspios_`, `lan_`, `site_`, `eth_uplink_`, `eth_local_`, `fleet_`, `tt_`, `pi_`, `nginx_`, `django_`, `snmp_`. Roles read them directly. This is a documented deviation from GPA 4.1.4 and 4.1.15, which want every role input role-prefixed and given a default (decision 16). The lint constraint: a topic-named var is set only in inventory. It is never defined inside a role (defaults, `register`, `set_fact`) and never passed through `include_role … vars:`, because lint demands the role prefix in each of those places. A test covers the other direction: an inventory var may start with `<role>_` only if that role's defaults declare it. The word `site` is used **only** for the location (welland, ps1) and never for the Django app. |
+| Cross-role files | None (decision 19). A role reads only its own `files/` and `templates/`. A file that several roles need lives in the play-level `ansible/templates/` directory, which Ansible searches after the role's own. A test forbids `role_path }}/..` anywhere in the tree. Today's four reads are removed, not re-pointed: `send_stat.conf` moves into `dnsmasq`, `fleet.toml.j2` into `nfsroot_site`, and `tt-boards.yaml.j2` (three readers) to `ansible/templates/`. |
+| Groups in roles | A role's tasks and templates do not name an inventory group. The role takes the host through a role default, e.g. `nfsroot_packages_gateway_host: "{{ groups['gateway'][0] }}"` (decision 20). Playbooks may name groups. |
 | Tags | None. See #157. |
-| Handler names | `Restart <unit>` or `Reload <unit>`, using the systemd unit name. Add a ` (<role>)` suffix only when two roles in one play need different actions under the same name. |
+| Handler names | `Restart <unit>` or `Reload <unit>`, using the systemd unit name. A handler name is defined once per play, or every definition of it is identical (decision 15): Ansible runs only the last one loaded, whichever role notified it. A test enforces this. Add a ` (<role>)` suffix, spelt as the role directory, only when two roles in one play need different actions under the same name. |
 | Task names | See the style rule below. |
 | Per-Pi variables | None (owner rule): every Pi should be as identical as possible, so no inventory var describes one Pi or one board. A check that differs between Pis decides from what it detects on the Pi (model, attached hardware, what is in use), with the same logic everywhere. Existing per-Pi vars are removed and replaced with detection, not renamed. |
-| Task files | Name each task file for what it does, in `kebab-case` (the most common style in the repo today), e.g. `pi-password.yml` rather than `userconf.yml`. Never `tweaks.yml`, `misc.yml` or similar. |
+| Task files | Name each task file for what it does, in `kebab-case` (GPA 3.1 uses hyphens for files, and the Ansible sample layout has `tasks/webservers-extra.yml`), e.g. `pi-password.yml` rather than `userconf.yml`. Never `tweaks.yml`, `misc.yml` or similar. |
+| Entry points | A task file that a playbook or another role calls with `tasks_from` is public interface. Each role's README lists its entry points, and renaming one is never blast X. |
+| Booleans | Positive names. A new boolean ends in `_enabled` when it switches a feature on (`fleet_enabled`) and in `_manage` when it means "this role may touch X" (`switch_vlans_manage`). |
+| Argument specs | Every role has a `meta/argument_specs.yml` that lists its inputs for each entry point (decision 22). |
 
 **Task-name style rule**
 
@@ -61,6 +67,37 @@ and what it acts on.
 5. For verification, use "Check X" for the probe that registers and "Assert X" for the assertion. Do not prefix with "Verify:", because the include is already named "Verify <role>".
 6. Make every name unique within its role, so there are no two "Enable services" or two "Systemd files".
 7. No slang or pici leftovers ("cuz", "netbootie", "and friends", "Apt update/upgrade", "Tweeks").
+8. Put Jinja only at the end of a task name, and never in a play or handler name (ansible-lint `name[template]`).
+9. Do not prefix a name with its task file (`sub | ...`). GPA 4.1.19 and ansible-lint's opt-in `name[prefix]` ask for that prefix; this repo deliberately does not adopt it, because Ansible already prints the role and `-vv` prints the file.
+
+### 1.1 Convention sources
+
+What each rule rests on. `ADOC` is `https://raw.githubusercontent.com/ansible/ansible-documentation/devel/docs/docsite/rst/`, `LINT` is `https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/rules/`, and `GPA` is `https://redhat-cop.github.io/automation-good-practices/` (Red Hat's "Good Practices for Ansible", one page, cited by section number).
+
+**The Ansible docs were read from their rst sources** (`ansible/ansible-documentation`, branch `devel`, commit `7c56be6c`, 2026-09-29), because docs.ansible.com blocks automated fetches; the rendered pages were not read. The ansible-lint rule texts were read from the pinned 26.9.0 package, and the lint behaviour below was tested on a scratch tree at the `production` profile.
+
+| rule | rests on | source |
+|---|---|---|
+| Role name characters | lint `role-name` (`^[a-z][a-z0-9_]*$`); "Role names are now limited to contain only lowercase alphanumeric characters, plus `_` and start with an alpha character" | `LINT/role_name.md`; `ADOC/dev_guide/developing_collections_structure.rst`; GPA 4.1.4 ("Do not use dashes in role names") |
+| Role named by function | "Design roles focused on the functionality provided, not the software implementation" | GPA 4.1.1 |
+| `nfsroot_` family prefix | the `object[_feature]_action` pattern, which sorts related roles together | GPA 9.1 |
+| Role prefix on role vars | lint `var-naming[no-role-prefix]`; checked in defaults, vars, `register`, `set_fact` and `include_role … vars:`, not in inventory | `LINT/var_naming.md`; GPA 4.1.4 |
+| `__<role>_<name>` for results | "internal variables (those that are not expected to be set by users) are to be prefixed by two underscores"; Ansible itself gives underscore names no privacy | GPA 4.1.4; `ADOC/playbook_guide/playbooks_variables.rst` |
+| Topic-named inventory vars (deviation) | GPA wants "All defaults and all arguments to a role" role-prefixed, each with a default in `defaults/main.yml` | GPA 4.1.4, 4.1.15 |
+| Valid and reserved var names | letters, numbers and underscores; no Python or playbook keywords; lint `var-naming[no-reserved]`, `[read-only]` | `ADOC/playbook_guide/playbooks_variables.rst`; `LINT/var_naming.md` |
+| Group names | "Group names should follow the same guidelines as" valid variable names; ansible-core warns when a group and a host share a name | `ADOC/inventory_guide/intro_inventory.rst` |
+| No group names in roles | "store the host name(s) in a (list) variable, or at least make the group name a parameter of your role" | GPA 4.1.18 |
+| Handler names unique per play | "Each handler should have a globally unique name. If multiple handlers are defined with the same name, only the last one loaded into the play ... can be notified and executed" | `ADOC/playbook_guide/playbooks_handlers.rst` |
+| Shared files in `ansible/templates/` | the search order ends "in the current play file's directory" | `ADOC/playbook_guide/playbook_pathing.rst` |
+| No cross-role reads | "Roles that have hard dependencies on external roles or variables have limited flexibility" (lint's `no-relative-paths` does not catch the `role_path` form) | GPA 4.1.1 |
+| Task names: imperative, sentence case, Jinja last | "Write task names in the imperative"; lint `name[casing]`, `name[template]` | GPA 9.1, 9.3; `LINT/name.md` |
+| No task-file prefix (non-adoption) | "Prefix task names in sub-tasks files of roles"; lint `name[prefix]` is opt-in | GPA 4.1.19; `LINT/name.md` |
+| Kebab-case files, `.yml`, `.j2` | "hyphens for repos and files"; `tasks/webservers-extra.yml`; "templates end in .j2". GPA 9.1 says snake_case for YAML files, so GPA disagrees with itself | GPA 3.1, 9.1, 9.2; `ADOC/tips_tricks/sample_setup.rst`; `ADOC/tips_tricks/shared_snippets/role_directory.txt` |
+| `site.yml` as the top playbook | "`site.yml` # main playbook" (GPA 3.3 prefers verb-noun names) | `ADOC/tips_tricks/sample_setup.rst` |
+| Booleans | "Use positive boolean variable names" | GPA 9.2 |
+| Argument specs | role argument validation in `meta/argument_specs.yml` | `ADOC/playbook_guide/playbooks_reuse_roles.rst`; GPA 4.1.20 |
+| `tasks_from` entry points | a documented feature; GPA warns against consumers that depend on "the role names within, and the file names" | `ADOC/playbook_guide/playbooks_reuse_roles.rst`; GPA 4.1.1 |
+| One README per role | "Create a meaningful README file for every role" | GPA 4.1.17 |
 
 ---
 
@@ -92,7 +129,7 @@ and what it acts on.
 | `nspawn_pi` | **`nfsroot_chroot`** | CI (+ gw verify) | CI: bind mounts, policy-rc.d, the deb cache, initramfs suppression and kernel pruning so apt can run inside the root. Its verify runs on the **gateway** (verify-server.yml) and installs `/usr/local/sbin/nfsroot-kernels` there. No systemd-nspawn any more | clear: matches the `community.general.chroot` connection it prepares | C D |
 | `onpi` | **`nfsroot_packages`** | CI chroot | apt upgrade, setup-pi, TT bridge, fleet units, the Pi's own atftpd port, FPGA boot check, nfsroot-watchdog, drops `nfsvers` from cmdline.txt. Never runs on a Pi (only in the CI chroot) | risk: "packages INTO the root, or packages that SERVE it?" The `nfsroot_` family means "the root's content"; the NFS server is `nfs_server`, so it reads INTO. Not unique: `nfsroot_cam` and `nfsroot_apt` also install into the root; this is the general set. Alternatives: `nfsroot_software` (vaguer), `pi_packages` (leaves the family), `nfsroot_pi` (reads as the host). Keep | D C |
 | `operators` | keep | gw | operator accounts, keys, sudo, retired accounts | clear | – |
-| `pxe` | **`dnsmasq`** (decided; chrony moves to `timesync` in #45) | gw | dnsmasq DHCP/TFTP/auth DNS (`base.conf`, `ports.conf`, legacy MAC tables, the "Raspberry Pi Boot" service). The Pis do not PXE | clear once chrony is out: named after the one daemon it manages | D C (`site/tasks/pistat.yml` reads `../pxe/files/send_stat.conf`) |
+| `pxe` | **`dnsmasq`** (decided; chrony moves to `timesync` in #45) | gw | dnsmasq DHCP/TFTP/auth DNS (`base.conf`, `ports.conf`, legacy MAC tables, the "Raspberry Pi Boot" service). The Pis do not PXE | clear once chrony is out: named after the one daemon it manages | D C (`site/tasks/pistat.yml` reads `../pxe/files/send_stat.conf`; step 14 moves that drop-in task into this role, decision 19) |
 | — (new) | **`serial_monitor`** | gw | the gateway side of watching a Pi's serial console: remove brltty, install tio, add the server user to `dialout`, mask the ttyAMA0 getty; on a Pi gateway, enable `/dev/serial0`. Moved out of fixpi's `tweeks.yml`; replaces `fixpi_server_monitor` | candidates: `serial_monitor` (says "watch serial lines"); `serial_console` (reads as *providing* a console on the gateway, the opposite of masking its getty); `tio` (the role does more than install tio); `console_tap` (unfamiliar). **Pick `serial_monitor`**. Minor risk: "monitor" as in monitoring; the README says "serial lines, not metrics" | X |
 | `server_user` | keep | web | the host's own admin login (`user_name`), incl. the in-place rename from `videoteam` | minor: "server" beside the `gateway` group. It runs in web.yml, so a host-neutral word is right. Keep | – |
 | `site` | **`website`** | web | nginx vhost + certbot, the fpgas-online-site Django install, gunicorn/uvicorn/daphne, fleet consumer, pistat (redis + a dnsmasq drop-in) and the PoE env | clear. Minor risk: could be read as the apex fpgas.online landing site; the README says "this location's Django site". Alternatives: `web_app`, `django_site` (reads as Django's Sites framework), `django` (reads as "installs Django"). Keep `website` | D C (heavy) |
@@ -100,7 +137,7 @@ and what it acts on.
 | `sshd` | keep | gw | pubkey-only drop-in with a lockout guard | clear | – |
 | `stream_server` | keep | web | nginx-rtmp ingest from the Pi cameras + HLS output | clear | – |
 | `switch_vlans` | keep | gw | installs `fpgas-switch-setup` and `switches.yml`, converges the **switches'** VLANs | clear once its gateway-side sibling is `vlan_ifaces` | – |
-| `ttsite` | **`tt_website`** | web | the tinytapeout.fpgas.online vhost, Commander embed bundles, the TT board catalogue in Django | clear, pairs with `website`. `tinytapeout` would read as the TT bridge software (that is in `nfsroot_packages`) | D C (inputs list + two `../ttsite/templates` readers) |
+| `ttsite` | **`tt_website`** | web | the tinytapeout.fpgas.online vhost, Commander embed bundles, the TT board catalogue in Django | clear, pairs with `website`. `tinytapeout` would read as the TT bridge software (that is in `nfsroot_packages`) | D C (inputs list; its `tt-boards.yaml.j2` moves to `ansible/templates/`, which ends the two `../ttsite/templates` reads, decision 19) |
 | `uhubctl` | **keep**, and move it into the NFS root (decided; section 5.1) | today: nobody (`[uhubctl]` is empty). After: CI chroot | uhubctl + a udev rule for a pici-era external D-Link DUB-H7 hub. The FPGA boards hang off each **Pi's** USB ports, so switching must run on the Pi | clear. Keeps its tool name (the exception to the `nfsroot_` family) | C |
 | `vlan_ports` | **`vlan_ifaces`** (was `port_vlans`) | gw | the gateway's networkd VLAN netdevs/networks, one per switch port, + the eth-local trunk address | `port_vlans` fails: beside `switch_vlans` it reads as switch-side config, and it takes the name of the `port_vlan_map` filter that firewall and dnsmasq also use. Alternatives: `vlan_netdevs` (networkd jargon), `lan_vlans`. `vlan_ifaces` says "this host's interfaces" | X |
 | `webrtc` | keep | web | mediamtx WHEP leg for the camera streams | clear (alt `cam_webrtc`) | – |
@@ -117,6 +154,7 @@ and what it acts on.
 | `refresh-known-hosts.yml` | keep | re-pins the controller's known_hosts | clear | – |
 | `ci-nfsroot-base.yml`, `ci-nfsroot-upgrade.yml`, `ci-nfsroot.yml` | **keep** (was `nfsroot-*.yml`) | CI stages 1–3 | the `ci-` prefix is the only thing that says WHERE they run. `nfsroot-image.yml` for stage 3 would collide with the role `nfsroot_image`, which stage 3 does not run. Renaming also rekeys the base/upgrade stages | – |
 | `ci-nfsroot-runner.yml` | `tasks/ci-runner.yml` | not a playbook: a task list the three above import (binfmt fix) | clear | C |
+| — (new) | `tasks/retired-vars.yml` | the retired-vars guard, imported in `pre_tasks` of every entry playbook (section 4) | clear | C (the three `ci-nfsroot*.yml` import it) |
 | play "Configure the server network interfaces" | "Configure the gateway NICs" | site.yml play 1 | clear | X |
 | play "Configure the server services" | "Configure the gateway services" | site.yml play 3 | clear | X |
 | play "Start pulling the Pi NFS root image", "Update the Pi NFS root", "Deploy the web tier" | keep | | clear | – |
@@ -133,7 +171,7 @@ and what it acts on.
 
 | current | proposed | what it is | confusion check | blast |
 |---|---|---|---|---|
-| group `nbp` | **`gateway`** | the netboot gateway (tweed, val2). In the CI inventory it is the build runner (`localhost`) standing in for it. Read by `hostvars[groups['nbp'][0]]` in `onpi/tasks/tt.yml`, `fpgas_apt/defaults/main.yml` and `verify-pi.yml` | clear; matches the tweed-split design, where the gateway VM keeps these roles. In CI it means "the host holding the root", which is what the shared lookups need. Alt `server` (clashes with `server_user`, too generic) | D (`--limit nbp`) C |
+| group `nbp` | **`gateway`** | the netboot gateway (tweed, val2). In the CI inventory it is the build runner (`localhost`) standing in for it. Read by `hostvars[groups['nbp'][0]]` in `onpi/tasks/tt.yml`, `fpgas_apt/defaults/main.yml` and `verify-pi.yml`. After step 30 the two roles take the host from a role default and name no group (decision 20) | clear; matches the tweed-split design, where the gateway VM keeps these roles. In CI it means "the host holding the root", which is what the shared lookups need. Alt `server` (clashes with `server_user`, too generic) | D (`--limit nbp`) C |
 | group `pig` | **`web`** | hosts running the web tier (web.yml) | clear, matches `web.yml` and the tweed-split web VM. Alt `web_tier` | D C |
 | group `pxe` | **delete** | defined in `inventory/hosts` but no play targets it | – | D (nil) |
 | group `uhubctl` | **delete** (both inventories) | empty since 2026-09-04; the role moves to the CI build (5.1) | – | D (nil) |
@@ -233,7 +271,7 @@ times in `onpi/tasks`, not 6.
 
 #### 2.5.2 Role defaults (122 vars)
 
-Renaming a role renames every var in its defaults and every `register`/`set_fact` name (the lint rule). Only the name changes that go beyond that prefix swap are listed here.
+Renaming a role renames every var in its defaults to `<new role>_<name>` (the lint rule) and every `register`/`set_fact` name to `__<new role>_<name>` (decision 17). Only the name changes that go beyond that prefix swap are listed here.
 
 | role → new | current | proposed | confusion check | blast |
 |---|---|---|---|---|
@@ -255,26 +293,29 @@ Renaming a role renames every var in its defaults and every `register`/`set_fact
 | nspawn_pi → nfsroot_chroot | `nspawn_pi_sshd_port` | **delete** | unused (nspawn era) | X |
 | | `nspawn_pi_root`, `nspawn_pi_kernel_*`, `nspawn_pi_max_kernel_trees`, `nspawn_pi_suppress_initramfs` | `nfsroot_chroot_*` | clear | C |
 | netif → nics | `netif_uplink_manage`, `netif_allow_reboot` | `nics_uplink_manage`, `nics_allow_reboot` | clear | D (low: not set in inventory) |
-| site → website | `site_certbot`, `site_under_construction`, `site_require_fpga_verified`, `site_package`, `site_poe_package`, `site_poe_package_override`, `site_upload_max_body_size` | `website_*` | clear. `site_package`/`site_poe_package`/`site_poe_package_override` are **documented `-e` overrides** for branch deploys (`_override` is undefined by default, so only the retired-vars guard catches an old name) | D C |
+| site → website | `site_certbot`, `site_under_construction`, `site_require_fpga_verified`, `site_package`, `site_poe_package`, `site_poe_package_override`, `site_upload_max_body_size` | `website_*` | clear. `site_package`/`site_poe_package`/`site_poe_package_override` are **documented `-e` overrides** for branch deploys (`_override` is undefined by default, so only the retired-vars guard catches an old name; add `website_poe_package_override` to the defaults, commented out, so every input is listed in one place) | D C |
 | ttsite → tt_website | `ttsite_boards_path`, `ttsite_daemon_port`, `ttsite_ws_read_timeout` | `tt_website_*` | clear | D |
 | | `ttsite_pi_network` | **delete**; read `lan_ip4_base` | a hard-coded `"10.21"` copy of `pib_network` | D |
 | uhubctl | `uhubctl_usb_hubs` | keep the name; retarget from the D-Link DUB-H7 to the Pi onboard hubs (5.1) | clear | C |
-| everything else (`apt_cache_*`, `apt_client_*`, `automation_user_*`, `firewall_*`, `jump_*`, `nfsroot_generation_*`, `operators_*`, `server_user_*`, `sshd_*`, `ssh_key_fetch_*`, `switch_vlans_*`, `webrtc_*`) | keep | | | – |
+| everything else (`apt_cache_*`, `apt_client_*`, `automation_user_*`, `firewall_*`, `jump_*`, `nfsroot_generation_*`, `operators_*`, `server_user_*`, `sshd_*`, `ssh_key_fetch_*`, `switch_vlans_*`, `webrtc_*`) | keep the defaults; `register`/`set_fact` names become `__<role>_<name>` in step 35 (decision 17) | | | X |
 
 ### 2.6 Handlers (31)
 
 | current | role(s) | proposed | notes | blast |
 |---|---|---|---|---|
-| `Reload-systemd` | cam_pi, onpi, stream_server | `Reload systemd` | site and wssh already use `Reload systemd` | X |
+| `Reload-systemd` | cam_pi, onpi, stream_server | `Reload systemd` | site and wssh already use `Reload systemd`. `cam_pi` (systemd module) and `onpi` (`command`, because the chroot has no running systemd) differ and share the CI play, so today onpi's body runs for both. Step 5a gives `cam_pi` onpi's body first | X |
 | `Udev-reload` | uhubctl | `Reload udev` | | X |
 | `Exportfs` | nfs | `Reload NFS exports` | runs `exportfs -r` | X |
-| `Reload sshd for pubkey-only` | sshd | keep | the suffix keeps it apart from jump's `Reload sshd` | – |
+| `Reload sshd for pubkey-only` | sshd | `Reload sshd` | its body is the same as jump's `Reload sshd` (both reload `ssh`), so the rule wants one name and no suffix; its comment stays | X |
 | `Restart network-manager`, `Restart networking` | pxe | **delete** | nothing notifies them (checked) | X |
 | `Restart chrony` | pxe | moves to #45's `timesync` role | | X |
-| `Restart dnsmasq` | site | keep; moves with `pistat.yml`'s dnsmasq drop-in if that goes to `dnsmasq` | the website role notifying dnsmasq is surprising; see 2.7 | X |
-| `Restart apt-cacher-ng (apt-cache)`, `Reload nginx (apt-cache)` | apt_cache | keep | the suffix pattern is fine | – |
-| `Reload nginx` | site, ttsite, wssh, stream_server, webrtc | keep | same action everywhere | – |
+| `Restart dnsmasq` | site | **delete** in step 14, when the `send_stat.conf` drop-in moves into `dnsmasq` and notifies that role's own handler (decision 19) | its `state:` is commented out, so today it restarts nothing; step 5a restores `state: restarted` until step 14 removes it | X |
+| `Restart apt-cacher-ng (apt-cache)`, `Reload nginx (apt-cache)` | apt_cache | `Restart apt-cacher-ng`, `Reload nginx` | no other role in a gateway play defines either name, so the rule asks for no suffix (and `apt-cache` is not how the role is spelt) | X |
+| `Reload nginx` | site, ttsite, wssh, stream_server, webrtc | keep | all five are in the web play, so only the last one loaded runs. `site`'s body does `state: restarted`, the other four `reloaded`; step 5a makes `site`'s `reloaded`, and then all five are identical | – |
 | `Restart nginx`, `Restart mediamtx`, `Restart mosquitto`, `Restart wssh`, `Restart fleet-consumer`, `Restart django services`, `Reload nftables`, `Reload networkd`, `Reload sshd`, `Reload systemd` | various | keep | | – |
+
+Step 5a also adds `tests/test_handler_names.py`, which fails when two roles
+in one play define the same handler name with different bodies (decision 15).
 
 ### 2.7 Task files, templates and files inside roles
 
@@ -293,14 +334,15 @@ Renaming a role renames every var in its defaults and every `register`/`set_fact
 | onpi | `tasks/stale_root.yml` | **`tasks/nfsroot-watchdog.yml`** (was `watchdog.yml`) | nfsroot-watchdog | `watchdog.yml` could mean the hardware watchdog or the fleet PoE watchdog; use the package name | X C |
 | onpi | `tasks/fpga_verify.yml` | **`tasks/fpgas-verify.yml`** (was `fpga-check.yml`) | the FPGA boot check | the product is `fpgas-verify` (package + unit); `fpga-check.yml` adds a third name and reads like a `verify/` file | X C |
 | onpi | `tasks/tftpd.yml`, `apt.yml`, `fleet.yml`, `tt.yml` | keep | | clear | X C |
-| onpi | `templates/fleet.toml.j2` | move to `nfsroot_site`: its only reader is `fixpi/tasks/fleet-site.yml` | | cross-role read | C |
+| onpi | `templates/fleet.toml.j2` | move to `nfsroot_site` with `fleet-site.yml` (step 17): its only reader is `fixpi/tasks/fleet-site.yml` | | removes the cross-role read | C |
 | site | `tasks/js_player.yml`, `pibdemos.yml`, `pibup.yml`, `pibfpgas.yml`, `switch.yml` | **delete** | empty or placeholder includes | – | X |
 | site | `tasks/pib.yml` | **delete** | not included by anything | – | X |
 | site | `tasks/index.yml` | fold into `django.yml` | creates `static_dir` | – | X |
 | site | `tasks/snmp.yml` | `tasks/poe-env.yml` | PoE switch env in /etc/environment | clear | X |
 | site | `tasks/apt.yml` | `tasks/packages.yml` | | clear | X |
 | site | `tasks/fpgas-online-site.yml` | `tasks/install.yml` | pip-installs site + poe | clear | X |
-| site | `tasks/pistat.yml` | keep; its `send_stat.conf` source must follow `pxe` → `dnsmasq` | redis + a dnsmasq drop-in from `../pxe/files` | cross-role read | C |
+| site | `tasks/pistat.yml` | keep the redis part; the dnsmasq drop-in task moves into `dnsmasq`, beside its `files/send_stat.conf` (decision 19) | redis + a dnsmasq drop-in from `../pxe/files` | removes the cross-role read, and the website role no longer notifies dnsmasq | C |
+| ttsite | `templates/tt-boards.yaml.j2` | `ansible/templates/tt-boards.yaml.j2` (decision 19) | the TT catalogue template; read by `ttsite`, `fixpi/tasks/tt-site.yml` and `onpi/tasks/tt.yml` | play-level, so all three readers use the bare name. Add the new path to `nfsroot_inputs.py` INPUTS in place of the `ttsite` one | C |
 | site | `templates/includes/{pibfpgas,pibup,pistat,snmp_switch}.conf.j2` | keep | named after the site repo's Django apps | | M |
 | pxe | `templates/pibs.conf.j2` | `templates/mac-hosts.conf.j2` (dest stays `pibs.conf`) | legacy MAC-table DHCP hosts | clear | X |
 | pxe | `templates/interfaces-static.j2` | **delete** | unused (checked) | – | X |
@@ -367,7 +409,7 @@ pins an older image keeps that image's generic layer.
 | `userconf.yml` | the server user's own ssh key | `nfsroot_site/tasks/logins.yml`, on the gateway, where the key is used. `server_user` would fit the account better, but it runs in web.yml on the `web` group, which is not the gateway after the tweed split | gw |
 | `userconf.yml` | "Get fixed sshswitch" (`when: false`) | delete | – |
 | `ansible-home.yml`, `authorized_keys.yml`, `github_keys.yml` | automation user's `.ssh`, authorized_keys, GitHub keys | `nfsroot_site/tasks/{ansible-home,authorized-keys,github-keys}.yml` | gw |
-| `tt-site.yml`, `fleet-site.yml` | TT catalogue, fleet.toml | `nfsroot_site` (same names) | gw |
+| `tt-site.yml`, `fleet-site.yml` | TT catalogue, fleet.toml | `nfsroot_site` (same names). `fleet.toml.j2` comes with them; `tt-boards.yaml.j2` is read from `ansible/templates/` (decision 19) | gw |
 | `manage.yml` + `maintenance.sh`/`production.sh` | stub scripts, `when: false` switch | delete | – |
 | `verify/image.yml` | ansible user checks on the image | `nfsroot_netboot/tasks/verify.yml` (ci-nfsroot.yml) | CI |
 | `verify/main.yml` | cmdline, TFTP, sunxi, ansible-user and authorized_keys checks on the served root | `nfsroot_site/tasks/verify.yml` (verify-server.yml); drop all three script checks (`maintenance.sh`, `production.sh`, and `chroot-mount-pi-fs.bash`, which the gateway no longer gets) | gw |
@@ -554,9 +596,9 @@ Do **not** fold these into a rename PR. The recommendation for each is to rename
 | `/etc/environment` keys (`pistat_host`, `SNMP_SWITCH_*`, `mpi_port`, `pi_ports`, `nfs_*`) | setup-pi (in the root), fpgas-online-poe | keep |
 | accounts `pi` (jump), `ansible`, the server user | ssh from operators and the web terminal | keep |
 | inventory host `fpgas.online` → `welland.fpgas.online` | see 4.1 | decided: its own announced PR (step 34) |
-| retired var names in `-e` files and host_vars off-repo (e.g. ten64 vars.json; an old `site_poe_package_override` name already exists in operator notes) | branch deploys | with each var rename PR, add the old name to a **retired-vars guard** (a task at the top of site.yml/web.yml that fails if a retired name is defined), so an old override fails loudly and is not silently ignored |
-| CI stage keys (`nfsroot_inputs.py`) | **base stage** (full RasPiOS download, then the upgrade stage): `BASE_VARS` (`dist`, `img_path`, `img_name`, `zip_name`, looked up by name), `BASE_VAR_FILES` (`srv.yml`, `zz-ci-overrides.yml`) and `BASE_FILES` (`ci-nfsroot-base.yml`, which has `hosts: nbp` and `nfs_root`; `ci-nfsroot-runner.yml`; `img/tasks/build.yml`, which reads `dist`, `img_*`, `zip_name`, `nfs_root`; `img/files/img2files.sh`). **Upgrade stage**: `UPGRADE_INPUTS` (`ci-nfsroot-upgrade.yml`, which has `hosts: nbp`/`pi` and `nfs_root`; the runner file; `roles/nspawn_pi`; `inventory-ci-nfsroot/`; group_vars `ci.yml`, `srv.yml`, `ssh_keys.yml`; `ansible.cfg`; `requirements.yml`) | base-stage rebuild on steps 23, 24, 25, 30 and 31; upgrade-stage rebuild on steps 7, 17, 21, 22, 26, 28 and 34 (each edits a file above). `BASE_VARS`/`BASE_VAR_FILES` must be renamed with the vars (step 24). Every other image-input change only produces a new image. Check that `nfsroot_diff.py` shows no content change before merging. |
-| cross-role file reads (`../pxe/files`, `../onpi/templates`, `../ttsite/templates`) | `site/tasks/pistat.yml`, `fixpi/tasks/{fleet-site,tt-site}.yml`, `onpi/tasks/tt.yml` | update them in the PR that renames the role they point at. A missed one fails at run time, not at lint. |
+| retired var names in `-e` files and host_vars off-repo (e.g. ten64 vars.json; an old `site_poe_package_override` name already exists in operator notes) | branch deploys | with each var rename PR, add the old name to the **retired-vars guard**, `tasks/retired-vars.yml`: one `ansible.builtin.assert` looped over a `{old: new}` map, with `that: query('ansible.builtin.varnames', '^' ~ item.key ~ '$') \| length == 0` and a `fail_msg` that names the new var. It is imported in `pre_tasks` of every entry playbook (`site.yml`, `web.yml`, `verify-server.yml`, `verify-pi.yml` and the three `ci-nfsroot*.yml`), so an old name in `-e` or in host_vars fails loudly and is not silently ignored. `meta/argument_specs.yml` cannot do this job: it accepts names it does not list (tested) |
+| CI stage keys (`nfsroot_inputs.py`) | **base stage** (full RasPiOS download, then the upgrade stage): `BASE_VARS` (`dist`, `img_path`, `img_name`, `zip_name`, looked up by name), `BASE_VAR_FILES` (`srv.yml`, `zz-ci-overrides.yml`) and `BASE_FILES` (`ci-nfsroot-base.yml`, which has `hosts: nbp` and `nfs_root`; `ci-nfsroot-runner.yml`; `img/tasks/build.yml`, which reads `dist`, `img_*`, `zip_name`, `nfs_root`; `img/files/img2files.sh`). **Upgrade stage**: `UPGRADE_INPUTS` (`ci-nfsroot-upgrade.yml`, which has `hosts: nbp`/`pi` and `nfs_root`; the runner file; `roles/nspawn_pi`; `inventory-ci-nfsroot/`; group_vars `ci.yml`, `srv.yml`, `ssh_keys.yml`; `ansible.cfg`; `requirements.yml`) | base-stage rebuild on steps 1 (the stage playbooks import the guard, and `tasks/retired-vars.yml` joins `BASE_FILES`), 23, 24, 25, 30 and 31; upgrade-stage rebuild on steps 7, 17, 21, 22, 26, 28 and 34 (each edits a file above). `BASE_VARS`/`BASE_VAR_FILES` must be renamed with the vars (step 24). Every other image-input change only produces a new image. Check that `nfsroot_diff.py` shows no content change before merging. |
+| cross-role file reads (`../pxe/files`, `../onpi/templates`, `../ttsite/templates`) | `site/tasks/pistat.yml`, `fixpi/tasks/{fleet-site,tt-site}.yml`, `onpi/tasks/tt.yml` | remove them, do not re-point them (decision 19): `send_stat.conf` in step 14, `tt-boards.yaml.j2` in step 16, `fleet.toml.j2` in step 17. Step 17 then adds a test that forbids `role_path }}/..`, because a missed read fails at run time, not at lint. |
 | tags | runbooks, operator notes, `tests/vm/run_tests.py` | not renamed; removed by #157 (section 2.4) |
 
 ---
@@ -582,16 +624,17 @@ host: Ansible only warns and runs nothing, so the change must be announced.
 
 ## 5. Execution order
 
-Each step is one small PR that stands alone and is based on main. **One role per PR, one PR open at a time**, merged before the next is opened. Every PR updates the role's README, CLAUDE.md, the top-level README, `docs/access.md` (it names `fixpi`, `img`, `pi_pw`, `user_name`, `onpi_nfsroot_watchdog_*` and the `fixpi_*` key vars), runbook references, `verify-server.yml` includes, cross-role file reads and `tests/` in the same change. Dated plans and specs are not rewritten. #157 (tag removal) should land before step 9, so that no rename PR has to handle tags.
+Each step is one small PR that stands alone and is based on main. **One role per PR, one PR open at a time**, merged before the next is opened. Every PR updates the role's README, CLAUDE.md, the top-level README, `docs/access.md` (it names `fixpi`, `img`, `pi_pw`, `user_name`, `onpi_nfsroot_watchdog_*` and the `fixpi_*` key vars), runbook references, `verify-server.yml` includes and `tests/` in the same change. Every role-rename PR also renames that role's `register`/`set_fact` names to `__<role>_<name>` (decision 17), adds its `meta/argument_specs.yml` (decision 22) and lists its `tasks_from` entry points in its README. Dated plans and specs are not rewritten. #157 (tag removal) should land before step 9, so that no rename PR has to handle tags.
 
 | # | PR | contents | blast |
 |---|---|---|---|
-| 1 | naming conventions + guard | add section 1 to CLAUDE.md; add the empty retired-vars guard task | X |
+| 1 | naming conventions + guard | add section 1 to CLAUDE.md; add `tasks/retired-vars.yml` with an empty map and import it in every entry playbook (section 4); add the inventory-prefix test (decision 16) with an allow-list of today's 12 offenders (`firewall_dns_query_sources`, `firewall_internal_networks`, `firewall_rules`, `fixpi_generate_host_keys`, `fixpi_server_monitor`, `img_host`, `img_name`, `img_path`, `nfs_root`, `ttsite_certbot`, `ttsite_domain`, `webrtc_additional_hosts`), which later steps empty | X C (base stage rebuild: the stage playbooks import the guard) |
 | 2 | delete dead site tasks | `site/tasks/{pib,js_player,pibdemos,pibup,pibfpgas,switch}.yml`; fold `index.yml` | X |
 | 3 | delete dead onpi tasks | `onpi/tasks/{arty_*,tmux,pistat}.yml` | C (new image, no content change) |
 | 4 | delete dead inventory | orphan host_vars, `[pxe]` group, the unused vars in 2.5.1 (incl. `domain`), `nspawn_pi_sshd_port`, unused pxe handlers + `interfaces-static.j2`, wssh gunicorn copies, verify-pi's dead `:pi` | X |
 | 5 | delete dead fixpi code | `resolve.conf.j2` + its task + its `nfsroot_manifest.py` entry (decision 8); `eth1.conf`; `manage.yml` + the stub scripts; the sshswitch task; `verify/pi.yml`. **Keep a task that installs `chroot-mount-pi-fs.bash`** (move it out of `manage.yml`): the CI build's useradd, nfs-common and sunxi tasks call it from `PATH`. Drop the `maintenance.sh`/`production.sh` checks from `verify/main.yml`, or verify-server fails on the fresh VM | C |
-| 6 | handler names | the 2.6 renames | X |
+| 5a | handler bug fixes + test (decision 15) | a bug-fix PR, before any handler is renamed: `site`'s "Reload nginx" → `state: reloaded`; `cam_pi`'s "Reload-systemd" takes onpi's `command` body; `site`'s "Restart dnsmasq" gets its `state: restarted` back; add `tests/test_handler_names.py` (2.6) | C (new image: `cam_pi` is an image input) |
+| 6 | handler names | the 2.6 renames, including `Reload sshd` in `sshd` and the two `apt_cache` names without their suffix | X |
 | 7 | new role `serial_monitor` | move brltty, tio, dialout, getty mask and `/dev/serial0` out of fixpi; delete `fixpi_server_monitor` (decision 7). Run it **after** the web tier import (e.g. in the last play, where fixpi runs it today): its `ansible.builtin.user` task creates `user_name` if missing, and on a fresh host (the VM test) that pre-empts `server_user`'s rename from `server_user_rename_from`, which fails when the new home already exists | X C (upgrade-stage rebuild: CI inventory edit) |
 | 8 | ACME email | `letsencrypt_account_email: admin@fpgas.online` in group_vars and ps1's host_vars (decision 9). The value is only passed to `certbot certonly` on first issue, so also run `certbot update_account --email admin@fpgas.online` once per gateway (a task, or a noted manual step) | D |
 | 9 | `vlan_ports` → `vlan_ifaces` | dir, task names | X |
@@ -599,30 +642,31 @@ Each step is one small PR that stands alone and is based on main. **One role per
 | 11 | `netif` → `nics` | | X |
 | 12 | `nfs` → `nfs_server` | | X |
 | 13 | (dropped) | PR #45 moves chrony out of `pxe` into `timesync` and lands before step 14 (decision 11) | – |
-| 14 | `pxe` → `dnsmasq` | + `dhcp_range`, `pxe_test_clients`, `site/tasks/pistat.yml`'s path | D |
-| 15 | `site` → `website` | + `site_*` → `website_*`, group_vars `site.yml` → `website.yml`, task files | D C |
-| 16 | `ttsite` → `tt_website` | + `ttsite_*`, `ttsite_domain` → `tt_fqdn`, drop `ttsite_pi_network`, the two `../ttsite/` reads | D C |
-| 17 | extract `nfsroot_site` from `fixpi` | move the gateway tasks per 2.10; site.yml runs `nfsroot_site`; `fixpi` becomes CI-only; drop `fixpi_image_build`, `fixpi_generate_host_keys` and CI's `--skip-tags pipw,keys`; `fixpi_ansible_*` → `nfsroot_ansible_*` (into `srv.yml` for now; step 24 renames the file) | D C (upgrade-stage rebuild) |
+| 14 | `pxe` → `dnsmasq` | + `dhcp_range`, `pxe_test_clients`; the `send_stat.conf` drop-in task moves in from `site/tasks/pistat.yml`, and `site`'s "Restart dnsmasq" handler goes (decision 19) | D |
+| 15 | `site` → `website` | + `site_*` → `website_*`, `static_dir` → `django_static_dir`, group_vars `site.yml` → `website.yml`, task files; `website_poe_package_override` commented out in the defaults | D C |
+| 16 | `ttsite` → `tt_website` | + `ttsite_*`, `ttsite_domain` → `tt_fqdn`, drop `ttsite_pi_network`; `tt-boards.yaml.j2` moves to `ansible/templates/`, its three readers use the bare name, and `nfsroot_inputs.py` INPUTS follows (decision 19) | D C |
+| 17 | extract `nfsroot_site` from `fixpi` | move the gateway tasks per 2.10, with `fleet.toml.j2` from `onpi/templates`; add the test that forbids `role_path }}/..` (the last cross-role read is gone, decision 19); site.yml runs `nfsroot_site`; `fixpi` becomes CI-only; drop `fixpi_image_build`, `fixpi_generate_host_keys` and CI's `--skip-tags pipw,keys`; `fixpi_ansible_*` → `nfsroot_ansible_*` (into `srv.yml` for now; step 24 renames the file) | D C (upgrade-stage rebuild) |
 | 18 | `fixpi` → `nfsroot_netboot` | rename the now CI-only role + its task files | C |
 | 19 | `fpgas_apt` → `nfsroot_apt` | + `apt_cache/tasks/nfsroot.yml` → `root-sources.yml` and the two README notes (decision 2); `fpgas_apt_nfsroot_watchdog_*` → `nfsroot_apt_watchdog_*`. **Before it**, a separate PR gives `nfsroot_generation` its own task for the gateway's nfsroot-watchdog apt source and drops its include of `fpgas_apt` (decision 13) | C |
 | 20 | `cam_pi` → `nfsroot_cam` | | C |
-| 21 | `onpi` → `nfsroot_packages` | + `tftpd_port` moved in (delete group_vars `ci.yml`, its two symlinks and its INPUTS/UPGRADE_INPUTS entries), `fleet.toml.j2` moved to `nfsroot_site` | C (upgrade-stage rebuild) |
+| 21 | `onpi` → `nfsroot_packages` | + `tftpd_port` moved in (delete group_vars `ci.yml`, its two symlinks and its INPUTS/UPGRADE_INPUTS entries) | C (upgrade-stage rebuild) |
 | 22 | `nspawn_pi` → `nfsroot_chroot` | + `nfsroot_build_deb_cache` | C (upgrade stage rebuild) |
 | 23 | `img` → `nfsroot_image` | + `img_nfsroot_image` → `nfsroot_image_ref`; `/var/cache/pib` in `.github/actions/nfsroot-setup/action.yml`; `tests/test_nfsroot_promotion.py` (reads `roles/img/defaults`) | D C (base stage rebuild) |
 | 24 | RasPiOS vars | `srv.yml` → `nfsroot.yml`, `img_host`/`dir_date`/... → `raspios_*`, `dist` → `raspios_release`; also `nfsroot_inputs.py` (`BASE_VARS`, `BASE_VAR_FILES`, INPUTS, UPGRADE_INPUTS), `tests/test_nfsroot_inputs.py`, the action's `hashFiles(.../srv.yml)` cache key and both symlinks | C D (base stage rebuild) |
 | 25 | `nfs_root` → `nfsroot_dir` | one mechanical PR (~250 refs, incl. `img/tasks/build.yml` and both stage playbooks) | D C (base stage rebuild) |
 | 26 | account vars | `user` → `pi_user`, `user_name` → `server_user_name`, `pi_pw` → `pi_password` (`tests/vm/run_tests.py` reads `pi_pw` from test-vm's host_vars by name) | D C (upgrade-stage rebuild: `user` is in `srv.yml`) |
 | 27 | LAN vars | `pib_network*` → `lan_ip4_base`/`lan_ip6_base`, `pib_domain` → `lan_domain`; `dnsmasq_auth_zone` defaults to `lan_domain` and is removed from welland's host_vars (decision 10); move the template's auth-block gate off `dnsmasq_auth_zone is defined` (2.5.1) | D |
-| 28 | name vars | `domain_name` → `site_fqdn`, `streaming_frontend_*`, `conference_name` → `nginx_file_prefix`, `fleet_broker` → `fleet_enabled` | D (upgrade-stage rebuild: CI inventory sets `domain_name`) |
+| 28 | name vars | `domain_name` → `site_fqdn`, `streaming_frontend_*`, `fixture_path` → `site_fixture`, `conference_name` → `nginx_file_prefix`, `fleet_broker` → `fleet_enabled` | D (upgrade-stage rebuild: CI inventory sets `domain_name`) |
 | 29 | switch vars | delete the dead `switch:` blocks in welland's and test-vm's host_vars; ps1's `switch` → `snmp_switch`, `nos` → `pis`; `switches_manage` (decision 12) | D C |
-| 30 | groups | `nbp` → `gateway`, `pig` → `web`, CI `pi` → `pi_chroot` (incl. `hosts:` in all three `ci-nfsroot*.yml`, README's `--limit nbp,uhubctl,pig` / `nbp,pi`) | D C (base stage rebuild: `ci-nfsroot-base.yml`) |
+| 30 | groups | `nbp` → `gateway`, `pig` → `web`, CI `pi` → `pi_chroot` (incl. `hosts:` in all three `ci-nfsroot*.yml`, README's `--limit nbp,uhubctl,pig` / `nbp,pi`). Roles stop naming the group (decision 20): `nfsroot_packages/tasks/tt.yml` reads a new default `nfsroot_packages_gateway_host`, and `nfsroot_apt/defaults/main.yml` builds its cache URL from a new default `nfsroot_apt_gateway_host`; each default is `{{ groups['gateway'][0] }}`, empty when the group is. `apt_cache/README.md` is updated to match. `verify-pi.yml` is a playbook and keeps `groups['gateway']` | D C (base stage rebuild: `ci-nfsroot-base.yml`) |
 | 31 | runner task file | `ci-nfsroot-runner.yml` → `tasks/ci-runner.yml` | C (base stage rebuild: it is in `BASE_FILES`) |
 | 32 | `tests/ci/` → `ci/` | + `tests/inventory/test-hosts` → `tests/inventory/hosts` (2.3; `run_tests.py`, verify-pi's usage line). `nfsroot_inputs.py` finds the repo as `parents[2]`, which becomes `parents[1]` | C |
 | 33 | task-name sweep for the kept roles | section 3 rows for apt_cache, jump, sshd, mqtt, and the verify prefix; `stream_server`'s task files and template (2.7); the play names in 2.2 | X |
 | 34 | host `fpgas.online` → `welland.fpgas.online` | announced; section 4.1 | D M |
+| 35 | kept roles: `__` names, argument specs, entry points | one PR per role that is not renamed (`apt_cache`, `apt_client`, `automation_user`, `firewall`, `jump`, `lldp`, `mqtt`, `nfsroot_generation`, `operators`, `server_user`, `ssh_key_fetch`, `sshd`, `stream_server`, `switch_vlans`, `uhubctl`, `webrtc`): `register`/`set_fact` names → `__<role>_<name>` (decision 17), add `meta/argument_specs.yml` (decision 22), list the entry points in the README. `firewall` and `webrtc` also declare `firewall_dns_query_sources` and `webrtc_additional_hosts` in their defaults (commented out where a default would switch the role on), which empties the inventory-prefix test's allow-list. These PRs depend on no rename and can land any time after step 1 | X (C where the role is an image input) |
 | U | **uhubctl into the NFS root + verify-pi check** | its own PR, not part of any rename; section 5.1. Can land any time, ideally after step 3 | C |
 
-Every step that touches an image input (`nfsroot_inputs.py` INPUTS: steps 3, 5, 6, 7, 16 to 26, 28, 30 to 32, 34 and U, and 27 if it edits `filter_plugins/port_vlans.py`) produces a new NFS root image, so check the image after each (`nfsroot_diff.py`). Steps 23, 24, 25, 30 and 31 also rebuild the CI base stage (a full RasPiOS download), and steps 7, 17, 21, 22, 26, 28 and 34 the upgrade stage (section 4). Steps 24 to 30 touch many files at once, so rebase each onto main right before merging.
+Every step that touches an image input (`nfsroot_inputs.py` INPUTS: steps 1, 3, 5, 5a, 6, 7, 16 to 26, 28, 30 to 32, 34 and U, 27 if it edits `filter_plugins/port_vlans.py`, and the step 35 PRs for roles that are image inputs) produces a new NFS root image, so check the image after each (`nfsroot_diff.py`). Steps 1, 23, 24, 25, 30 and 31 also rebuild the CI base stage (a full RasPiOS download), and steps 7, 17, 21, 22, 26, 28 and 34 the upgrade stage (section 4). Steps 24 to 30 touch many files at once, so rebase each onto main right before merging.
 
 ### 5.1 uhubctl: switch USB power on the Pis (decision 6)
 
@@ -654,11 +698,13 @@ known-good boards, before relying on them):
 ### 5.2 Open PRs that touch the same names (2026-09-29)
 
 "One PR open at a time" applies to this sequence only; these PRs from other
-sessions are already open and collide with it. Nobody asks those sessions
-to rename anything (decision 14): each PR lands as written, the rename step
-it collides with is rebased onto it, and its own roles are renamed **after
-it merges**, as extra steps (R1–R6 below). A step that renames something an
-open PR still touches leaves that PR for its owner to rebase.
+sessions are already open and collide with it. Decision 18 reverses
+decision 14: those sessions are told the conventions now, and each PR
+renames its own new roles **before it merges** (R1–R6 below). It has to:
+ansible-lint is blocking, and a hyphenated role directory fails `role-name`.
+Each PR still lands on its own schedule, and the rename step it collides
+with is rebased onto it. A step that renames something an open PR still
+touches leaves that PR for its owner to rebase.
 
 | PR | touches | collides with |
 |---|---|---|
@@ -672,16 +718,21 @@ open PR still touches leaves that PR for its owner to rebase.
 | #59 hypervisor, #54 welland pull, #51 fpgas-apt domain | `inventory/hosts`; `host_vars/fpgas.online.yml`; `roles/fpgas-apt` (pre-underscore path) | steps 30, 34; step 19 |
 | #129 NFS root generations spec | per-generation root dirs under the `nfs_root` path | section 4's "keep `/srv/nfs/rpi/<dist>`"; step 25 |
 
-Extra rename steps, each run only after its PR has merged:
+Renames each open PR makes itself, before it merges (decision 18). They are
+no longer steps of this sequence:
 
-| # | after | rename | blast |
+| # | PR | rename inside that PR | why |
 |---|---|---|---|
-| R1 | #45 | image role `pi-clock` → `nfsroot_clock` (`timesync` keeps its name) | C |
-| R2 | #122 | `felboot` → `nfsroot_felboot` | C |
-| R3 | #123 | `usbboot` → `nfsroot_usbboot` | C |
-| R4 | #88 | `fleet-watchdog` → `fleet_watchdog` | X (D if it has `-e`/host_vars knobs) |
-| R5 | #58 | `board-access` → `board_access` | X (D if it has `-e`/host_vars knobs) |
-| R6 | #37, #51 | nothing new: they use the pre-underscore `roles/fpgas-apt` path and must be rebased onto `fpgas_apt`/`nfsroot_apt` by their owners |  – |
+| R1 | #45 | image role `pi-clock` → `nfsroot_clock` (`timesync` keeps its name) | fails `role-name`; family prefix |
+| R2 | #122 | `felboot` → `nfsroot_felboot` | family prefix |
+| R3 | #123 | `usbboot` → `nfsroot_usbboot` | family prefix |
+| R4 | #88 | `fleet-watchdog` → `fleet_watchdog` | fails `role-name` |
+| R5 | #58 | `board-access` → `board_access` | fails `role-name` |
+| R6 | #37, #51 | nothing new: they use the pre-underscore `roles/fpgas-apt` path and must be rebased onto `fpgas_apt`/`nfsroot_apt` by their owners | – |
+
+The new roles in these PRs also follow section 1 from the start: `__` names
+for results, `meta/argument_specs.yml`, and handler names that do not clash
+within a play.
 
 ---
 
@@ -702,7 +753,15 @@ Extra rename steps, each run only after its PR has merged:
 | 11 | #45 vs the `chrony` role | adopt #45's **`timesync`**; #45 lands first; the `chrony` step is dropped; 2.10 follows #45's removal of fixpi's timesyncd tasks | 2.1, 2.10, step 13 |
 | 12 | welland/test-vm `switch:` | **delete** the dead blocks; legacy single-switch sites' `switch` → **`snmp_switch`** | 2.5.1, step 29 |
 | 13 | `nfsroot_apt` on the gateway | move the gateway use out: `nfsroot_generation` installs its own nfsroot-watchdog source; vars `nfsroot_apt_watchdog_*` | 2.1, 2.5.2, step 19 |
-| 14 | other sessions' open PRs | do not ask them to rename; rename their roles **after** they merge, as extra steps | 5.2 (R1–R6) |
+| 14 | other sessions' open PRs | ~~do not ask them to rename; rename their roles **after** they merge, as extra steps~~ **reversed by decision 18** | 5.2 (R1–R6) |
+| 15 | handler names | a handler name is defined once per play, or every definition is identical. A bug-fix PR before the renames fixes `site`'s "Reload nginx" (it restarts), `cam_pi`'s differing "Reload-systemd" and the "Restart dnsmasq" that restarts nothing (was O5), and adds a test. The off-rule names are fixed: `Reload sshd for pubkey-only` → `Reload sshd`, and the `(apt-cache)` suffixes go | 1, 2.6, steps 5a, 6 |
+| 16 | shared inventory vars | keep the short topic names, read directly by roles, as a **documented deviation** from GPA 4.1.4/4.1.15. A topic-named var is never defined inside a role and never passed through `include_role … vars:`. The missing prefixes `pi_`, `nginx_`, `django_`, `snmp_` are **declared** (not renamed: `django_dir`, `django_project_name` and the live `SNMP_SWITCH_*` keys already use them). A test: an inventory var may start with `<role>_` only if that role's defaults declare it | 1, steps 1, 35 |
+| 17 | internal variables | **`__<role>_<name>`** for `register` and `set_fact` results; documented inputs stay `<role>_<name>`. Each rename PR does its role; step 35 does the kept roles. A convention only: Ansible gives no privacy | 1, 2.5.2, section 5 intro, step 35 |
+| 18 | other sessions' open PRs (reverses 14) | hyphenated role names fail the blocking `role-name` lint, so those sessions are told the convention now and rename inside their own PRs: `nfsroot_clock`, `fleet_watchdog`, `board_access`, `nfsroot_felboot`, `nfsroot_usbboot` | 5.2 (R1–R6) |
+| 19 | cross-role file reads | **remove** them: `send_stat.conf` moves into `dnsmasq`, `fleet.toml.j2` into `nfsroot_site`, `tt-boards.yaml.j2` to a play-level `ansible/templates/`. A test forbids `role_path }}/..` | 1, 2.6, 2.7, 4, steps 14, 16, 17 |
+| 20 | group names in roles | roles stop naming inventory groups; a role default carries the host (`nfsroot_packages_gateway_host`, `nfsroot_apt_gateway_host`) | 1, 2.3, step 30 |
+| 21 | role naming rule | name a role by its function, or by the daemon when it manages exactly one. The proposed names stay (`dnsmasq`, `webssh`, `mqtt`, `lldp`, `firewall`) | 1 |
+| 22 | argument specs | `meta/argument_specs.yml` per role, added in its rename PR; step 35 covers the kept roles | 1, section 5 intro, step 35 |
 
 **Open** (for the owner):
 
@@ -712,7 +771,7 @@ Extra rename steps, each run only after its PR has merged:
 | O2 | `docs/hardware/` (dated, but not a plan or spec) names `fixpi` paths | update it in the rename PRs, or leave it as history | section 5 intro |
 | O3 | stale gateway files after the split: `/usr/local/sbin/{maintenance,production}.sh`, `/usr/local/sbin/chroot-mount-pi-fs.bash` | add a one-off `state: absent` task (in `nfsroot_site`), or remove them by hand | 2.8, steps 5, 17 |
 | O4 | uhubctl hub locations | name them per model (Pi 4: `-l 1-1` and `-l 2`; Pi 5: its root hubs) instead of relying on uhubctl acting on every hub when `-l` is missing | 5.1 |
-| O5 | two handler bugs in `site` | "Restart dnsmasq" has its `state:` commented out, so it restarts nothing; "Reload nginx" does `state: restarted`. Fix each in its own bug-fix PR, not in a rename PR | 2.6 |
+| O5 | (settled: decision 15 fixes the handler bugs in step 5a) | – | 2.6 |
 | O6 | detection to replace `verify_pi_fpga_expect` and `verify_pi_header_uart_console` (test-pi's only host_vars) | FPGA: accept fpgas-verify's `missing` exactly when no board is detected on USB/JTAG. Console: the VM's U-Boot appends `console=ttyAMA0`; check the served `cmdline.txt` rather than `/proc/cmdline`, or detect that no FPGA is on the header UART. Design it in #157 part 3 or a follow-up | 2.5.1 |
 | O7 | other per-board inventory data: `sunxi_boards` (host, USB path, `hat_uuid`, used by verify-pi's placement assert), `tt_boards` (the TT catalogue, per switch/port), legacy `switch.nos` / `snmp_switch.pis` (per-Pi MAC and serial) | the rule says "almost all": decide which are site data the gateway needs (DHCP, TFTP, the site's catalogue) and which verify-pi can replace with detection | 2.5.1 |
 
@@ -764,6 +823,33 @@ Extra rename steps, each run only after its PR has merged:
 | `letsencrypt_account_email` value | `admin@fpgas.online` (+ `certbot update_account`) | decision 9 |
 | `dnsmasq_auth_zone` set per host | defaults to `lan_domain` | decision 10 |
 | execution order: 29 steps | 34 steps + the separate uhubctl PR (U) | new steps for dead fixpi code, `serial_monitor`, the ACME email, `chrony`, and the two-step fixpi split |
+
+**Changes after the convention check** (fourth draft; sources in 1.1, decisions 15–22):
+
+| from | to | reason |
+|---|---|---|
+| role rule: name the role after the component | by function, or by the daemon when the role manages exactly one | GPA 4.1.1; the old wording contradicted the `firewall` row (decision 21) |
+| every role var, `register` and `set_fact` name is `<role>_<name>` | inputs `<role>_<name>`, results `__<role>_<name>` | GPA 4.1.4 (decision 17) |
+| topic prefixes: 8 listed | 12: `pi_`, `nginx_`, `django_`, `snmp_` declared; the lint constraint and the documented deviation stated; a test | the proposal used four prefixes it had not declared (decision 16) |
+| cross-role reads follow the role they point at | removed; shared file in `ansible/templates/`; a test | they fail at run time, not at lint (decision 19) |
+| `hostvars[groups['nbp'][0]]` → `groups['gateway']` in two roles | a role default carries the host | GPA 4.1.18 (decision 20) |
+| handlers: `Reload nginx` "same action everywhere"; suffix pattern "fine" | once per play or identical; step 5a fixes three bodies and adds a test | `site` restarts while four roles reload; Ansible runs only the last handler loaded (decision 15, was O5) |
+| `Reload sshd for pubkey-only` kept | `Reload sshd` | same body as jump's, so the rule wants one name |
+| `Restart apt-cacher-ng (apt-cache)`, `Reload nginx (apt-cache)` kept | no suffix | nothing else in a gateway play defines either name |
+| `Restart dnsmasq` in `site` kept | deleted in step 14 | its drop-in task moves into `dnsmasq` |
+| `site/tasks/pistat.yml` kept whole | its dnsmasq drop-in moves into `dnsmasq` | decision 19 |
+| `ttsite/templates/tt-boards.yaml.j2` (not listed) | `ansible/templates/tt-boards.yaml.j2` | three readers (decision 19) |
+| `fleet.toml.j2` moves in step 21 | moves in step 17, with `fleet-site.yml` | so the no-cross-role-read test can land in step 17 |
+| task files kebab-case "the most common style in the repo today" | kebab-case per GPA 3.1 and the Ansible sample layout | on main the multi-word task files are 9 kebab and 9 snake |
+| task-name rules 1–7 | + rule 8 (Jinja last) and rule 9 (`name[prefix]` deliberately not adopted) | lint `name[template]`; GPA 4.1.19 |
+| (no rule) | booleans: `_enabled` for features, `_manage` for "this role may touch X" | GPA 9.2 fixes only "positive" |
+| (no rule) | `tasks_from` entry points are public interface, listed in each README | GPA 4.1.1 |
+| (no rule) | `meta/argument_specs.yml` per role | GPA 4.1.20 (decision 22) |
+| retired-vars guard: "a task at the top of site.yml/web.yml" | `tasks/retired-vars.yml`: an `assert` over a `{old: new}` map with the `varnames` lookup, in `pre_tasks` of all seven entry playbooks | argument specs accept unlisted names, so they cannot guard |
+| `fixture_path` → `site_fixture`, `static_dir` → `django_static_dir` had no step | steps 28 and 15 | missed |
+| `website_poe_package_override` undefined and unlisted | commented out in the defaults | GPA 4.1.15 |
+| decision 14: other sessions' PRs land as written, R1–R5 run afterwards | decision 18: they rename inside their own PRs | hyphenated role names fail the blocking `role-name` lint |
+| 34 steps + U + R1–R6 | 34 steps + 5a + 35 + U; R1–R6 are no longer steps | step 5a (handler fixes), step 35 (kept roles) |
 
 **Factual errors in the first draft**, now corrected in the tables above:
 
