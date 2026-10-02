@@ -142,6 +142,10 @@
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
               "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
+              # /sbin/modinfo: /usr/sbin is not on the login user's PATH
+              "litepcie": {"packages": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
+                                           "fpgas-online-acorn-litepcie-common"),
+                           "modinfo": run("/sbin/modinfo", "-F", "filename", "litepcie")},
               "fpga_verify_report": ({"content": base64.b64encode(fpga_verify_report).decode()}
                                      if fpga_verify_report is not None else {"msg": "not readable or missing"}),
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
@@ -186,6 +190,7 @@
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
         verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
+        verify_pi_litepcie: "{{ verify_pi_state.litepcie }}"
         verify_pi_fpga_verify_report: "{{ verify_pi_state.fpga_verify_report }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
@@ -539,6 +544,23 @@
       ansible.builtin.assert:
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
+
+    # The Acorn's LitePCIe driver (roles/onpi/tasks/litepcie.yml): a root that carries it has litepcie.ko
+    # for every kernel a Pi 5 boots, so on such a kernel `modinfo litepcie` finds it. The check takes what
+    # to expect from the root itself: a root built without the driver (onpi_litepcie_modules off) has no
+    # fpgas-online-acorn-litepcie-common, and a 32-bit kernel (Pi 3, Pi 4) has no module to find.
+    - name: Assert litepcie.ko is there for this kernel, where the root carries the driver
+      ansible.builtin.assert:
+        that: verify_pi_litepcie.modinfo.rc == 0
+        fail_msg: >-
+          The root has fpgas-online-acorn-litepcie-common but no litepcie.ko for the running kernel
+          {{ verify_pi_state.facts.kernel }} (modinfo: {{ verify_pi_litepcie.modinfo.stderr }}) -- the root
+          has no fpgas-online-acorn-litepcie-modules-{{ verify_pi_state.facts.kernel }}, or this board
+          booted a kernel the root no longer carries
+        quiet: true
+      when:
+        - "'fpgas-online-acorn-litepcie-common install ok installed' in verify_pi_litepcie.packages.stdout_lines"
+        - verify_pi_state.facts.kernel is search('-rpi-(v8|2712)$')
 
     # The FPGA boot check, fpgas-verify (roles/onpi/tasks/fpga_verify.yml). Installed and enabled on every
     # Pi: that part is software and carries fpgas-apt like its install. It looks for the boards itself
