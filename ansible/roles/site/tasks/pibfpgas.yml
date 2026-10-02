@@ -1,7 +1,0 @@
----
-# pibfpgas - FPGA board management and demos
-# pip install handled by fpgas-online-site.yml
-
-# TODO(fpgas-online/todo#25): Demo bitstreams need migrating from old repo.
-# The Demos/ directory was in the pip package source but should be hosted
-# as release artifacts or in fpgas.online-test-designs instead.
