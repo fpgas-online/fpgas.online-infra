@@ -968,7 +968,9 @@ not meet it yet: of the 56 successful runs from 2026-09-29 01:40 to
   [issue #174](https://github.com/fpgas-online/fpgas.online-infra/issues/174)).
 - **Waiting for a free runner** delayed 13 runs, by 2 to 36 minutes
   ([§6.3](#63-waiting-queues-and-runners)). Seven of them started on
-  2026-10-02 between 13:47 and 18:41 UTC.
+  2026-10-02 between 13:47 and 18:41 UTC, when another repository filled
+  the organisation's 20 concurrent jobs
+  ([issue #182](https://github.com/fpgas-online/fpgas.online-infra/issues/182)).
 
 "Total" is from the run's creation to its completion: what a PR author
 waits for.
@@ -1095,8 +1097,16 @@ landed close together queued behind each other, for up to 17 minutes
 30:28 in total). Since #151 each `main` run has its own concurrency
 group, and none waits for another.
 
-**Waiting for a free runner remains.** GitHub's runners are sometimes all
-busy, and any job of a run can be the one that waits. From 2026-09-29
+**Waiting for a free runner remains.** The `fpgas-online` organisation
+is on GitHub's Free plan, which allows
+[20 concurrent GitHub-hosted jobs](https://docs.github.com/en/actions/reference/limits)
+for all its repositories together, arm64 and x64 alike. When other
+repositories fill those 20, every job here queues behind them, and any job
+of a run can be the one that waits. On 2026-10-02,
+`fpgas.online-test-designs` kept all 20 busy for hours, with 100-210 jobs
+queued; during the longest waits this repository held no runners at all
+([issue #182](https://github.com/fpgas-online/fpgas.online-infra/issues/182)).
+Nothing in this repository's workflows changes that. From 2026-09-29
 01:40 to 2026-10-02 20:00 UTC, 13 of the 56 successful runs had a job
 start more than a minute after it was created:
 
