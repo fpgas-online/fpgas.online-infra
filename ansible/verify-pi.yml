@@ -76,6 +76,21 @@
     # results {stat: {exists}} -- so every assertion is unchanged. Only
     # checks that need root, another host, or Orange Pi hardware still run
     # on their own.
+    # EXPERIMENT (#172, branch exp-172 only)
+    - name: EXP uptime before the collector
+      ansible.builtin.command: cat /proc/uptime
+      changed_when: false
+
+    - name: EXP variant b - wait for boot to settle
+      ansible.builtin.command: timeout 300 systemctl is-system-running --wait
+      changed_when: false
+      failed_when: false
+      when: (exp_collector | default('a')) == 'b'
+
+    - name: EXP uptime right before the collector
+      ansible.builtin.command: cat /proc/uptime
+      changed_when: false
+
     - name: Collect the Pi's state
       ansible.builtin.command:
         argv: [python3, -c, "{{ verify_pi_collector }}"]
@@ -164,6 +179,25 @@
               "facts": {"hostname": uname.nodename.split(".")[0], "kernel": uname.release,
                         "architecture": uname.machine},
           }))
+
+    # EXPERIMENT (#172, branch exp-172 only)
+    - name: EXP boot timeline after the collector
+      ansible.builtin.shell: |
+        cat /proc/uptime
+        for u in fpgas-verify fpgas-tt fpgas-fleet-agent nfsroot-watchdog-arm fpgas-cam ssh multi-user.target; do
+          echo "== $u"
+          systemctl show "$u" -p ActiveState,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,ActiveEnterTimestampMonotonic,InactiveExitTimestampMonotonic
+        done
+        systemctl is-system-running || true
+        systemd-analyze || true
+        systemd-analyze blame | head -25 || true
+      changed_when: false
+      failed_when: false
+      register: exp_timeline
+
+    - name: EXP show the boot timeline
+      ansible.builtin.debug:
+        var: exp_timeline.stdout_lines
 
     - name: Results of the collected checks
       ansible.builtin.set_fact:

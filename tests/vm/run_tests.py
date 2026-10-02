@@ -439,6 +439,14 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
             server.cleanup()
         return None
 
+    # EXPERIMENT (#172, branch exp-172 only)
+    if os.environ.get("EXP_COLLECTOR") == "c":
+        print("[exp] masking fpgas-verify in the NFS root:\n" + server_run(
+            server, key_path,
+            "set -x; for r in /srv/nfs/rpi/bookworm/root /srv/nfs/rpi/bookworm; do "
+            "[ -d $r/etc/systemd ] && sudo systemctl --root=$r mask fpgas-verify.service; done; "
+            "ls -l /srv/nfs/rpi/bookworm/root/etc/systemd/system/fpgas-verify.service || true"))
+
     server.ansible_inventory = inventory
     server.ansible_extra = extra
     return server
@@ -651,7 +659,8 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
 
     # Run verify-pi.yml against the running Pi (test-pi in the inventory).
     inventory = TEST_INVENTORY
-    rc = run_ansible("verify-pi.yml", inventory, "test-pi")
+    rc = run_ansible("verify-pi.yml", inventory, "test-pi",
+                     ["-e", f"exp_collector={os.environ.get('EXP_COLLECTOR', 'a')}"])
     if not password_ok.result():
         print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
         rc = rc or 1

@@ -14,6 +14,17 @@ on:
         description: "Rebuild the RasPiOS stages from the download and build the image on them, instead of converging main's latest image"
         type: boolean
         default: false
+      # EXPERIMENT (#172, branch exp-172 only)
+      exp_collector:
+        description: "a = as now, b = wait for boot to settle, c = fpgas-verify masked"
+        type: choice
+        options: [a, b, c]
+        default: a
+      exp_apt_pipeline:
+        description: "server VM apt pipelining"
+        type: choice
+        options: [default, "off"]
+        default: default
   # Rebuild main's Pi root between merges so it picks up new debs from the
   # package repositories, and test it like any other build before it can
   # become the rolling tag production pulls (the promote job below).
@@ -72,7 +83,7 @@ jobs:
     # so QEMU can use hardware acceleration when available.
     container:
       image: node:22-trixie
-      options: --device=/dev/kvm
+      options: --device=/dev/kvm --cap-add=NET_RAW --cap-add=NET_ADMIN
     timeout-minutes: 180
 
     steps:
@@ -93,7 +104,8 @@ jobs:
             systemd-container \
             openssh-client \
             ca-certificates \
-            curl
+            curl \
+            tcpdump
 
       # rpi-qemu's signed flat repo (its README). The version floor keeps
       # out builds before 2:0.1+95, which have the GENET TX index-wrap
@@ -150,7 +162,19 @@ jobs:
       - name: Run VM integration tests (server + Pi PXE boot)
         env:
           NFSROOT_IMAGE: ghcr.io/fpgas-online/nfsroot:ci-${{ github.run_id }}
-        run: uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE"
+          EXP_CAPTURE: "1"
+          EXP_COLLECTOR: ${{ inputs.exp_collector || 'a' }}
+          EXP_APT_PIPELINE: ${{ inputs.exp_apt_pipeline || 'default' }}
+        run: |
+          mkdir -p tests/vm/workdir
+          echo "exp: collector=$EXP_COLLECTOR apt_pipeline=$EXP_APT_PIPELINE"
+          grep -m1 "model name" /proc/cpuinfo
+          tcpdump -i any -n -s 160 -w tests/vm/workdir/host-uplink.pcap 'tcp port 80 or tcp port 443' &
+          dump=$!
+          rc=0
+          uv run tests/vm/run_tests.py --phase all --nfsroot-image "$NFSROOT_IMAGE" || rc=$?
+          kill "$dump"; wait "$dump" || true
+          exit $rc
 
       # Belt and braces with the artifact below: on a failure, put the log
       # tails straight into the job log — a crashed teardown has produced
@@ -171,6 +195,18 @@ jobs:
           name: serial-logs
           path: tests/vm/workdir/*-serial.log*
           if-no-files-found: ignore
+
+      - name: EXP compress and upload the captures
+        if: always()
+        run: gzip -f tests/vm/workdir/*.pcap; ls -l tests/vm/workdir/*.pcap.gz
+
+      - name: EXP upload the captures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: captures
+          path: tests/vm/workdir/*.pcap.gz
+          if-no-files-found: warn
 
   # Point the rolling tag (what production pulls unless a deploy pins
   # another, ansible/roles/img/defaults/main.yml) at the image the virtual

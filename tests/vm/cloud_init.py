@@ -76,6 +76,10 @@ def create_seed_iso(
     content: |
       piroot ALL=NOPASSWD: /usr/sbin/chroot
 """ if legacy_piroot else ""
+    # EXPERIMENT (#172, branch exp-172 only)
+    import os
+    exp_apt = ("  - path: /etc/apt/apt.conf.d/99exp-pipeline\n    content: |\n"
+               "      Acquire::http::Pipeline-Depth \"0\";\n") if os.environ.get("EXP_APT_PIPELINE") == "off" else ""
     user_data = f"""#cloud-config
 hostname: {hostname}
 manage_etc_hosts: true
@@ -94,7 +98,7 @@ users:
 # Stands in for the app servers that run as the account on tweed
 # (gunicorn, daphne, ...): the rename must stop it, rewrite it, restart it.
 write_files:
-  - path: /etc/systemd/system/server-user-probe.service
+{exp_apt}  - path: /etc/systemd/system/server-user-probe.service
     content: |
       [Unit]
       Description=Runs as the pre-rename server account (roles/server_user test)

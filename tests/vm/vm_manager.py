@@ -359,6 +359,9 @@ class VMManager:
             # exercise is on the internal network (2001:db8:a137::/48, NIC 2).
             "-netdev", f"user,id=net0,ipv6=off,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
+            # EXPERIMENT (#172, branch exp-172 only): guest-side capture of the uplink.
+            *(["-object", f"filter-dump,id=dump0,netdev=net0,file={self.workdir / 'guest-uplink.pcap'},maxlen=160"]
+              if os.environ.get("EXP_CAPTURE") == "1" else []),
             # NIC 2: internal VLAN trunk -- connects to the vswitch trunk port.
             # host_mtu=1504 advertises room for a full 1500-byte VLAN payload
             # plus the 4-byte 802.1Q tag, matching eth-local.network.j2's
