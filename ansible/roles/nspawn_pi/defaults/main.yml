@@ -1,5 +1,4 @@
 ---
-nspawn_pi_sshd_port: 2200
 nspawn_pi_root: "{{ nfs_root }}/root"
 
 # Blanket `update-initramfs -u` rebuilds are suppressed while the chroot apt
