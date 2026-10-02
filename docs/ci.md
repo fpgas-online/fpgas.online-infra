@@ -961,7 +961,7 @@ with an issue:
 - **PRs whose image is built inline** take 16–17 minutes
   ([§6.1](#61-runs-by-image-path);
   [issue #174](https://github.com/fpgas-online/fpgas.online-infra/issues/174)).
-- **Waiting for a free runner** added 2¾ to 17 minutes to five runs
+- **Waiting for a free runner** added 2¾ to 17 minutes to six runs
   ([§6.3](#63-waiting-queues-and-runners)). That is outside the
   repository's control.
 
