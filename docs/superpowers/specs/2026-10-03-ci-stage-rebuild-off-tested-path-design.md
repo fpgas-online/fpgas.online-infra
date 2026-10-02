@@ -170,10 +170,13 @@ build (6-6¾ minutes) is about what the server allows (~6½ minutes). That
 is #174's fourth idea, shaving the unpacked-stage build, and it should be
 done with or after this change. Variance in the test job itself is #172.
 
-Every scheduled run now uses two arm64 runners at the same time instead
-of one after the other. If arm64 runners are what runs queue for, that
-could make queueing worse; the runner-wait investigation running now
-will say whether it is.
+Every scheduled run now holds one more runner at a time (the stages
+job, for 3-5 minutes, beside the build). The organisation shares 20
+concurrent GitHub-hosted jobs, arm64 and x64 together
+([#182](https://github.com/fpgas-online/fpgas.online-infra/issues/182)),
+and a run holds 3-4 of them at most, so this matters only when the
+organisation is already at the limit. It then queues like every other
+job.
 
 ## Bootstrapping
 
@@ -212,4 +215,4 @@ base, and does a clean build. From then on, the label is set.
 
 - Making PRs that change the stage-build files faster (#174, #135).
 - The test job's own duration and variance (#172).
-- Runner queueing (being investigated separately).
+- Runner queueing ([#182](https://github.com/fpgas-online/fpgas.online-infra/issues/182)).
