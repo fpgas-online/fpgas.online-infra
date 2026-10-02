@@ -34,9 +34,9 @@ Three workflows are involved:
 
 | Workflow | File | Runs on | Typical duration | Example run |
 |---|---|---|---|---|
-| VM Integration Tests | [`vm-test.yml`](../.github/workflows/vm-test.yml) | every push to `main`, every PR to `main`, a schedule (asked for hourly, see [§2.3](#23-why-there-are-several-ways-to-produce-it)), manual dispatch | **12½–15 min** of work; see [§6](#6-timings) for the cases that take longer | [36360458088](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088) (`main`, scheduled, 14:08) |
-| nfsroot build (the Pi root image) | [`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml) | only when the VM test calls it. It has no triggers of its own | 10 s, ~3½ min, ~6½ min or ~9 min: see [§2.3](#23-why-there-are-several-ways-to-produce-it) | the `nfsroot /` jobs of any VM test run |
-| Lint | [`lint.yml`](../.github/workflows/lint.yml) | every push to `main` and every PR | ~100 s | [36507488573](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507488573) |
+| VM Integration Tests | [`vm-test.yml`](../.github/workflows/vm-test.yml) | every push to `main`, every PR to `main`, a schedule (asked for hourly, see [§2.3](#23-why-there-are-several-ways-to-produce-it)), manual dispatch | **12–16 min** of work, median about 14½; see [§6](#6-timings) for the cases that take longer | [36944922891](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891) (`main`, scheduled, 14:21) |
+| nfsroot build (the Pi root image) | [`nfsroot-build.yml`](../.github/workflows/nfsroot-build.yml) | only when the VM test calls it. It has no triggers of its own | 10 s, ~3½ min, ~6½ min or 9–10 min: see [§2.3](#23-why-there-are-several-ways-to-produce-it) | the `nfsroot /` jobs of any VM test run |
+| Lint | [`lint.yml`](../.github/workflows/lint.yml) | every push to `main` and every PR | ~2½ min | [36702339845](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702339845) |
 
 Every duration in this document was measured on a real run, and links to
 the run or job it came from. Estimates are marked as such.
@@ -67,9 +67,9 @@ points the tag production pulls at the image Job 2 just tested.
 %%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 flowchart TB
     trigger(["push, pull request<br/>or schedule"])
-    lint["<b>Lint</b><br/>yamllint, ansible-lint,<br/>unit tests · ~100 s"]
+    lint["<b>Lint</b><br/>yamllint, ansible-lint,<br/>unit tests · ~2½ min"]
     job1["<b>Job 1</b><br/>Pi root image<br/>10 s – 9 min"]
-    job2["<b>Job 2</b><br/>deploy tweed,<br/>boot a virtual Pi<br/>~13¾ min"]
+    job2["<b>Job 2</b><br/>deploy tweed,<br/>boot a virtual Pi<br/>~14 min"]
     ghcr[("GHCR<br/>nfsroot:ci-RUN_ID")]
     promote["<b>Promote</b><br/>main only · 15 s"]
     prod[("GHCR<br/>nfsroot:bookworm-armhf<br/>(production)")]
@@ -84,8 +84,8 @@ flowchart TB
 
 The two jobs meet at one point, the dotted arrow: the server in Job 2
 downloads the image that Job 1 published. The server needs the image only
-in the last play of `site.yml`, about 7½ minutes after the job starts, and
-the download takes 35–65 s. So Job 1 can take up to about 6½ minutes
+in the last play of `site.yml`, about 8 minutes after the job starts, and
+the download takes 30–65 s. So Job 1 can take up to about 7 minutes
 without delaying anything. On scheduled runs Job 1 waits for the stages
 job first ([§2.7](#27-the-stages-job-scheduled-runs)), which puts it
 right at that limit ([§6.2](#62-scheduled-runs)).
@@ -134,9 +134,9 @@ flowchart TB
 
 Most runs take the reuse or warm path (green). Both finish before the
 server needs the image. The stage path (yellow) finishes around the time
-the server needs it, so the server may wait up to about 1½ minutes. The
+the server needs it, so the server may wait up to about 2 minutes. The
 inline path (red) runs when a PR changes how the stages are built; there
-the server waits about 2 minutes for the image.
+the server waits 2–3 minutes for the image.
 [Section 2.3](#23-why-there-are-several-ways-to-produce-it) explains why
 there are several paths.
 
@@ -144,27 +144,27 @@ there are several paths.
 
 Job 2 runs the production deploy on a fresh server VM, then boots the
 virtual Pi and checks both machines. The times are from
-[run 36360458088](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476082),
-a scheduled run started 2026-09-27 23:58 UTC. Its total, 14:08, is
-typical of the scheduled runs since
-[PR #137](https://github.com/fpgas-online/fpgas.online-infra/pull/137)
-(median 14:11, [§6.2](#62-scheduled-runs)).
+[run 36944922891](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729419),
+a scheduled run started 2026-10-02 00:13 UTC, on the `main` this document
+describes (82721eb). Its total, 14:21, is close to the median, 14:16, of
+the eight runs on that commit that neither waited for a runner nor did a
+full rebuild ([§6.4](#64-where-the-time-goes)).
 
 ```mermaid
 %%{init: {"themeVariables": {"fontSize": "20px"}}}%%
 flowchart TB
-    setup["Job setup<br/>57 s"]
-    srv["Boot a fresh<br/>Debian 13 server VM,<br/>account checks · 23 s"]
-    s1["site.yml: apt_client, netif,<br/>rename NICs, reboot<br/>22 s"]
-    s2["start pulling the<br/>image in the background<br/>40 s"]
-    s3["server roles<br/>firewall, NFS, DHCP/TFTP …<br/>2 min 14 s"]
-    s4["web.yml<br/>Django, web terminal,<br/>streaming, fleet broker<br/>2 min 52 s"]
-    s5["NFS root: unpack<br/>the image, add<br/>the site layer<br/>2 min 39 s"]
+    setup["Job setup<br/>40 s"]
+    srv["Boot a fresh<br/>Debian 13 server VM,<br/>account checks · 26 s"]
+    s1["site.yml: rename NICs, reboot,<br/>first apt refresh<br/>1 min 8 s"]
+    s2["start pulling the<br/>image in the background<br/>7 s"]
+    s3["server roles<br/>firewall, NFS, DHCP/TFTP …<br/>2 min 55 s"]
+    s4["web.yml<br/>Django, web terminal,<br/>streaming, fleet broker<br/>2 min 43 s"]
+    s5["NFS root: unpack<br/>the image, add<br/>the site layer<br/>1 min 54 s"]
     pion(["Power on<br/>the virtual Pi"])
-    boot["Pi netboots<br/>DHCP → TFTP → kernel<br/>→ NFS root<br/>1 min 34 s"]
-    vp["verify-pi.yml<br/>incl. <b>registered<br/>with the fleet</b><br/>1 min 49 s"]
+    boot["Pi netboots<br/>DHCP → TFTP → kernel<br/>→ NFS root<br/>1 min 51 s"]
+    vp["verify-pi.yml<br/>incl. <b>registered<br/>with the fleet</b><br/>2 min 8 s"]
     vs["verify-server.yml<br/>runs alongside"]
-    result(["pass / fail<br/>~13¾ min in total"])
+    result(["pass / fail<br/>~14 min in total"])
     setup --> srv --> s1 --> s2 --> s3 --> s4 --> s5 --> pion
     pion --> boot --> vp --> result
     pion --> vs --> result
@@ -340,8 +340,8 @@ Three rules stop the shortcuts from producing a stale image:
   the full path tested.
 
 **GitHub's schedule is best effort.** The schedule asks for hourly, but
-from 2026-09-25 14:10 to 2026-09-29 01:16 UTC GitHub started only 20
-scheduled runs, about one every 4 hours, and dropped the rest. The gaps
+from 2026-09-25 14:10 to 2026-10-02 06:13 UTC GitHub started only 34
+scheduled runs, about one every 5 hours, and dropped the rest. The gaps
 between them ranged from 10 minutes to 8½ hours. So production's image
 can trail the package repositories by up to about 8½ hours. The daily
 clean build goes by the base stage's age, not by which cron fired, so a
@@ -376,8 +376,10 @@ The build job tries each path in turn and takes the first that applies.
      [`fixpi`](../ansible/roles/fixpi/),
      [`nspawn_pi`](../ansible/roles/nspawn_pi/),
      [`fpgas_apt`](../ansible/roles/fpgas_apt/),
-     [`cam_pi`](../ansible/roles/cam_pi/) and
-     [`onpi`](../ansible/roles/onpi/);
+     [`cam_pi`](../ansible/roles/cam_pi/),
+     [`onpi`](../ansible/roles/onpi/) and
+     [`ssh_key_fetch`](../ansible/roles/ssh_key_fetch/) (`fixpi` includes
+     it for the keys layer, which the build skips);
    - the TT catalogue template;
    - the build machinery itself: `nfsroot-build.yml`,
      [`.github/actions/nfsroot-setup`](../.github/actions/nfsroot-setup/action.yml),
@@ -438,7 +440,7 @@ inline-stage run. Use it to see which step a failure or slowdown is in.
 | Set up the build | the [`nfsroot-setup`](../.github/actions/nfsroot-setup/action.yml) action: Python venv, the pinned Ansible collections (cached by [`requirements.yml`](../requirements.yml)'s hash), the RasPiOS download cache, and apt's downloaded `.deb`s from earlier builds (one cache entry per UTC day) | 16 s | 8 s |
 | Start from main's latest image (warm build) | [§2.4](#24-how-the-path-is-chosen) step 2 | 62 s | 3 s (base mismatch) |
 | Start from the upgraded RasPiOS stage | [§2.4](#24-how-the-path-is-chosen) step 3 | — | 184 s (built both stages) |
-| **Build the NFS root** | `sudo ansible-playbook -i inventory-ci-nfsroot/hosts ci-nfsroot.yml --skip-tags pipw,keys` ([§2.6](#26-what-ci-nfsrootyml-does)) | **107 s** | **261 s** |
+| **Build the NFS root** | `sudo ansible-playbook -i inventory-ci-nfsroot/hosts ci-nfsroot.yml`, in full ([§2.6](#26-what-ci-nfsrootyml-does)) | **107 s** | **261 s** |
 | Tidy / save the deb cache | only on a cache miss: keep only the `.deb`s (apt's root-owned `lock` and `partial/` broke the save), then save | — | — |
 | Write nfsroot manifest | [`nfsroot_manifest.py`](../tests/ci/nfsroot_manifest.py) lists packages, boot file hashes and configs, uploaded as the `nfsroot-manifest` artifact | 4 s | 3 s |
 | Publish to GHCR | `nfsroot_publish.py`: tar the tree into 4 zstd layers, `skopeo copy` to each tag, then check each tag is a plain manifest | 61 s | 51 s |
@@ -454,7 +456,8 @@ separate machine
 ([`inventory-ci-nfsroot/hosts`](../ansible/inventory-ci-nfsroot/hosts)).
 
 The tree it works on is already in `/srv/nfs/rpi/bookworm`: the warm
-image, or the upgraded stage. The playbook:
+image, or the upgraded stage. The playbook first refuses to run unless
+`fixpi_image_build` is true (see the end of this section). Then it:
 
 1. **Prepares the runner** ([`ci-nfsroot-runner.yml`](../ansible/ci-nfsroot-runner.yml)):
    disables any registered `qemu-arm` binfmt handler. (A binfmt handler
@@ -491,12 +494,29 @@ image, or the upgraded stage. The playbook:
    - every board family's boot files exist (`kernel*.img` and the Pi 3, 4
      and 5 DTBs);
    - the key packages are `install ok installed`;
-   - the `pi` user exists.
+   - the `pi` user exists;
+   - the image carries **none of the site layer**: no password hash for
+     `pi`, no `authorized_keys`, no user keypairs and no `userconf.txt`.
 
-`--skip-tags pipw,keys` leaves out the password and SSH-key tasks. Those
-belong to the site layer, which each server's own `fixpi` run adds in the
-last play of `site.yml`. The VM test runs that play in full. This is the
-only tag skip anywhere in CI.
+**No tags anywhere.** The playbook runs in full, like every playbook in
+CI and in a deploy ([issue #157](https://github.com/fpgas-online/fpgas.online-infra/issues/157)). The password and
+SSH-key tasks belong to the site layer, which each server's own `fixpi`
+run adds in the last play of `site.yml`; the VM test runs that play in
+full. The image build leaves them out through a variable, not a tag:
+
+- `fixpi` skips the site layer when `fixpi_image_build` is true, which
+  only [`inventory-ci-nfsroot`](../ansible/inventory-ci-nfsroot/group_vars/all/all.yml)
+  sets;
+- the playbook refuses to start without that variable, so a run with the
+  wrong inventory cannot write the runner's password and keys into the
+  public image;
+- the asserts above fail the build if any of the site layer is in the
+  image anyway.
+
+Until [PR #166](https://github.com/fpgas-online/fpgas.online-infra/pull/166) the build ran with `--skip-tags pipw,keys`,
+the last tag skip in CI.
+[`tests/test_no_tags.py`](../tests/test_no_tags.py) fails if a tag, or a
+`--tags`/`--skip-tags` argument, comes back.
 
 ### 2.7 The stages job (scheduled runs)
 
@@ -506,15 +526,15 @@ On scheduled runs and on a manual dispatch with `from_scratch`, the
 
 | Mode | When | What it does | Time |
 |---|---|---|---|
-| refresh (`scheduled` → `upgraded`) | the published base stage is less than 24 hours old | unpacks the base stage, upgrades it, publishes a new upgraded stage | 2:58–3:41 over the 7 refreshes since 2026-09-27 11:14 UTC, e.g. [3:04](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476209) |
-| full (`scheduled` → `all`, or `all` on dispatch) | the base stage is 24 hours old or more, missing, or has no build-time label | downloads RasPiOS, publishes a new base stage, upgrades it, publishes a new upgraded stage | [3:59](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36286645309/job/108530395517) and [5:01](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36436296084/job/108974982880) |
+| refresh (`scheduled` → `upgraded`) | the published base stage is less than 24 hours old | unpacks the base stage, upgrades it, publishes a new upgraded stage | 3:03–3:35 over the 10 refreshes from 2026-09-29 to 2026-10-02, e.g. [3:23](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729720) |
+| full (`scheduled` → `all`, or `all` on dispatch) | the base stage is 24 hours old or more, missing, or has no build-time label | downloads RasPiOS, publishes a new base stage, upgrades it, publishes a new upgraded stage | 4:00–4:49 over the 4 full rebuilds in the same period, e.g. [4:08](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36741674923/job/109977344123) |
 
 The stages job logs its decision, e.g. `base stage age: 18.9 h; rebuilding
 upgraded`. It writes `scratch=true` after a full rebuild. The build job
 then skips reuse and the warm start, and builds on the fresh stages.
 
 The build job starts only when the stages job has finished. So on every
-scheduled run, the image is published about 6½ minutes after the run
+scheduled run, the image is published about 7 minutes after the run
 starts even when the build itself is warm, which is about when the
 server needs it ([§6.2](#62-scheduled-runs)).
 
@@ -528,10 +548,10 @@ inventory differs from production. Read it when the VM test fails or gets
 slower.
 
 The example times come from the scheduled `main` run
-[36360458088, job 108736476082](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476082)
-(2026-09-27 23:58 UTC).
+[36944922891, job 110644729419](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729419)
+(2026-10-02 00:13 UTC).
 
-### 3.1 Job setup (40–57 s)
+### 3.1 Job setup (38–62 s)
 
 The job runs in a `node:22-trixie` container with `--device=/dev/kvm`,
 because the Pi emulator, `qemu-rpi-system-arm`, is built for Debian trixie.
@@ -544,7 +564,7 @@ It needs newer libraries than the runner's Ubuntu 24.04 has.
 | Install qemu-rpi packages | from rpi-qemu's signed apt repo (`https://fpgas.online/rpi-qemu/trixie/`), with two **hard version gates**: `qemu-rpi-system-arm >= 2:0.1+95` (fixes a whole-VM freeze, [rpi-qemu#16](https://github.com/fpgas-online/rpi-qemu/pull/16)) and `qemu-rpi-pxeboot >= 2:0.1+100` (boot-directory fallback, [rpi-qemu#18](https://github.com/fpgas-online/rpi-qemu/pull/18)) |
 | Enable KVM | the server VM uses KVM hardware acceleration; the Pi is always emulated in software (QEMU's TCG) |
 | `uv sync`, collection cache, VM image cache | the [Debian 13 cloud image](https://cloud.debian.org/images/cloud/trixie/latest/) is cached under the key `vm-images-trixie-v1` |
-| **Run VM integration tests** | `uv run tests/vm/run_tests.py --phase all --nfsroot-image ghcr.io/fpgas-online/nfsroot:ci-<run_id>` (12 min 41 s) |
+| **Run VM integration tests** | `uv run tests/vm/run_tests.py --phase all --nfsroot-image ghcr.io/fpgas-online/nfsroot:ci-<run_id>` (13 min 18 s) |
 | Show serial log tails | only on failure: prints the last 200 lines of every serial log into the job log |
 | Upload serial logs | always: the `serial-logs` artifact |
 
@@ -569,7 +589,7 @@ VLAN 2101 is switch 1, port 1 in the per-port VLAN scheme
 [`filter_plugins/port_vlans.py`](../ansible/filter_plugins/port_vlans.py)).
 This is what a real Netgear S3300 access port does.
 
-**0–11 s: the server VM** (`phase_server`; VM details in
+**0–12 s: the server VM** (`phase_server`; VM details in
 [`tests/vm/vm_manager.py`](../tests/vm/vm_manager.py) `boot_server`).
 
 - **Disk:** the harness uses the cached Debian 13 cloud image (tweed runs
@@ -594,30 +614,39 @@ This is what a real Netgear S3300 access port does.
 - **Readiness:** the harness waits for SSH, then for
   `cloud-init status --wait`, and fails if its exit code is non-zero.
 
-**11–23 s: account checks before the deploy.** The fresh server still
+**12–26 s: account checks before the deploy.** The fresh server still
 accepts password logins, as a freshly installed tweed does. The harness
 records that, checks that the revoked static keys and the whole `piroot`
 account are there, and runs the `server_user` role in `--check` mode,
-which must report the pending account rename without making it.
+which must report the pending account rename without making it. The
+dry run is its own one-role playbook,
+[`tests/vm/server_user_check.yml`](../tests/vm/server_user_check.yml),
+not a tagged run of `web.yml`.
 
-**23–549 s: `ansible-playbook site.yml -i tests/inventory/test-hosts --limit test-vm -e img_nfsroot_image=…:ci-<run_id>`.**
-This is the production playbook with **no `--skip-tags`, no `--become` and
-no key override**. The SSH key comes from
+**26–552 s: `ansible-playbook site.yml -i tests/inventory/test-hosts --limit test-vm -e img_nfsroot_image=…:ci-<run_id>`.**
+This is the production playbook, run whole: the harness has **no tag
+options, no `--become` and no key override**. The SSH key comes from
 [`tests/inventory/group_vars/all/controller.yml`](../tests/inventory/group_vars/all/controller.yml),
 and privilege escalation from [`ansible.cfg`](../ansible.cfg), exactly as
 in production. The plays run in this order:
 
 | # | Play | What happens | Time |
 |---|---|---|---|
-| 1 | [`apt_client`](../ansible/roles/apt_client/), [`netif`](../ansible/roles/netif/) | `apt_client` writes the host's apt proxy settings (none in the test, see [§3.3](#33-how-the-test-inventory-differs-from-production-and-why)). `netif` renames the fresh VM's `enp0s2`/`enp0s3` to `eth-uplink`/`eth-local` by MAC address, moves the uplink onto a static systemd-networkd config and **reboots**: the path a newly installed tweed takes | 22 s |
-| 2 | [`img/tasks/prefetch.yml`](../ansible/roles/img/tasks/prefetch.yml) | installs podman and rsync, refreshing the apt lists first, because a fresh server has none. Then starts `podman pull` **in the background** | 40 s |
-| 3 | [`automation_user`](../ansible/roles/automation_user/), [`operators`](../ansible/roles/operators/), [`jump`](../ansible/roles/jump/), [`sshd`](../ansible/roles/sshd/), [`lldp`](../ansible/roles/lldp/), [`firewall`](../ansible/roles/firewall/), [`vlan_ports`](../ansible/roles/vlan_ports/), [`switch_vlans`](../ansible/roles/switch_vlans/), [`nfs`](../ansible/roles/nfs/), [`apt_cache`](../ansible/roles/apt_cache/), [`pxe`](../ansible/roles/pxe/) | real apt and pip installs on a fresh OS. `pxe` (dnsmasq DHCP/TFTP) comes before the web tier, because the site role drops config into `/etc/dnsmasq.d` | 2 min 14 s |
+| 1 | [`apt_client`](../ansible/roles/apt_client/), [`netif`](../ansible/roles/netif/), then the install part of [`nfsroot_generation`](../ansible/roles/nfsroot_generation/tasks/install.yml) | `apt_client` writes the host's apt proxy settings (none in the test, see [§3.3](#33-how-the-test-inventory-differs-from-production-and-why)). `netif` renames the fresh VM's `enp0s2`/`enp0s3` to `eth-uplink`/`eth-local` by MAC address, moves the uplink onto a static systemd-networkd config and **reboots**: the path a newly installed tweed takes. Then `nfsroot-watchdog-server` is installed from its own apt repository, which is the server's first apt refresh (37 s). It moved here in [PR #159](https://github.com/fpgas-online/fpgas.online-infra/pull/159), so that the server's own apt source is rewritten before anything else refreshes the package lists | 68 s |
+| 2 | [`img/tasks/prefetch.yml`](../ansible/roles/img/tasks/prefetch.yml) | installs podman and rsync, then starts `podman pull` **in the background**. Before #159 the first apt refresh happened here, and this play took about 40 s | 7 s |
+| 3 | [`automation_user`](../ansible/roles/automation_user/), [`operators`](../ansible/roles/operators/), [`jump`](../ansible/roles/jump/), [`sshd`](../ansible/roles/sshd/), [`lldp`](../ansible/roles/lldp/), [`firewall`](../ansible/roles/firewall/), [`vlan_ports`](../ansible/roles/vlan_ports/), [`switch_vlans`](../ansible/roles/switch_vlans/), [`nfs`](../ansible/roles/nfs/), [`apt_cache`](../ansible/roles/apt_cache/), [`pxe`](../ansible/roles/pxe/) | real apt and pip installs on a fresh OS. `pxe` (dnsmasq DHCP/TFTP) comes before the web tier, because the site role drops config into `/etc/dnsmasq.d` | 2 min 55 s |
 | 4 | [`uhubctl`](../ansible/roles/uhubctl/) | no hosts, same as production | 0 s |
-| 5 | [`web.yml`](../ansible/web.yml) | [`server_user`](../ansible/roles/server_user/), [`site`](../ansible/roles/site/) (Django), [`wssh`](../ansible/roles/wssh/) (web terminal), [`stream_server`](../ansible/roles/stream_server/), [`mqtt`](../ansible/roles/mqtt/) (fleet broker), [`webrtc`](../ansible/roles/webrtc/), [`ttsite`](../ansible/roles/ttsite/) (tinytapeout) | 2 min 52 s |
-| 6 | NFS root (last play) | see below | 2 min 39 s |
+| 5 | [`web.yml`](../ansible/web.yml) | [`server_user`](../ansible/roles/server_user/), [`site`](../ansible/roles/site/) (Django), [`wssh`](../ansible/roles/wssh/) (web terminal), [`stream_server`](../ansible/roles/stream_server/), [`mqtt`](../ansible/roles/mqtt/) (fleet broker), [`webrtc`](../ansible/roles/webrtc/), [`ttsite`](../ansible/roles/ttsite/) (tinytapeout) | 2 min 43 s |
+| 6 | NFS root (last play) | see below | 1 min 54 s |
 
 The last play does this, in order:
 
+0. **Downloads the operators' GitHub keys** for the root's
+   `authorized_keys` ([`fixpi/tasks/github_keys.yml`](../ansible/roles/fixpi/tasks/github_keys.yml),
+   through [`ssh_key_fetch`](../ansible/roles/ssh_key_fetch/)). It is the
+   one step of the root update that depends on another site, so it runs
+   first: a GitHub outage then fails the run before the lock is taken and
+   the live root touched ([PR #161](https://github.com/fpgas-online/fpgas.online-infra/pull/161)).
 1. **Takes the NFS root update lock**
    ([`nfsroot_generation/begin.yml`](../ansible/roles/nfsroot_generation/tasks/begin.yml)),
    so booted boards never reboot into a half-built root
@@ -625,13 +654,13 @@ The last play does this, in order:
 2. **Unpacks the image**
    ([`img/tasks/pull.yml`](../ansible/roles/img/tasks/pull.yml)). It waits
    for the background download and reports how long the download itself
-   took: `pulled in 44 s (attempt 25)` in this run. The background loop
-   had polled for about 4 minutes, because on a scheduled run the image
+   took: `pulled in 49 s (attempt 28)` in this run. The background loop
+   had polled for about 4½ minutes, because on a scheduled run the image
    is published only after the stages job
    ([§2.7](#27-the-stages-job-scheduled-runs)). Then it runs the
    authoritative `podman pull`, and `podman image mount` +
    `rsync -aHAX --delete --checksum` copy the image into
-   `/srv/nfs/rpi/bookworm` (75 s in this run; 37–42 s in most).
+   `/srv/nfs/rpi/bookworm` (29 s in this run; up to 75 s in others).
 3. **Points the root's apt at the site's cache**
    ([`apt_cache/tasks/nfsroot.yml`](../ansible/roles/apt_cache/tasks/nfsroot.yml)).
 4. **Applies the site layer** ([`fixpi`](../ansible/roles/fixpi/)):
@@ -643,9 +672,9 @@ The last play does this, in order:
 5. **Publishes the new root generation and releases the lock**
    ([`nfsroot_generation`](../ansible/roles/nfsroot_generation/)).
 
-Result: `ok=397 changed=194 failed=0 skipped=45` in 8 min 46 s. The
-skipped tasks are ones whose `when:` condition is false on this host; the
-harness passes no `--skip-tags`.
+Result: `ok=412 changed=198 failed=0 skipped=45` in 8 min 47 s. The
+skipped tasks are ones whose `when:` condition is false on this host;
+nothing is skipped by tag.
 
 **The pull retries only errors that can go away.** The retryable errors,
 `img_pull_retryable` in
@@ -660,13 +689,13 @@ The test inventory raises the retry budget to 45 minutes
 an image build that is still running. Any other error fails the play at
 once: for example, an image podman can't use, or an auth failure.
 
-**549 s: account checks after the deploy.** sshd must now offer only
+**552 s: account checks after the deploy.** sshd must now offer only
 public-key login (a password-only login is refused), the revoked static
 keys must be gone, the account rename must have happened, and the
 `piroot` account, its group, home, sudoers file and login shell must all
 be gone ([PR #149](https://github.com/fpgas-online/fpgas.online-infra/pull/149)).
 
-**550 s: the Pi is powered on** (`start_pi`). This is the moment a real
+**553 s: the Pi is powered on** (`start_pi`). This is the moment a real
 deploy's boards would be power-cycled over PoE. The emulator runs
 `qemu-rpi-system-aarch64 -M raspi4b`, from
 [rpi-qemu](https://github.com/fpgas-online/rpi-qemu), with the
@@ -687,29 +716,29 @@ boot sequence. The virtual Pi has no disk. From here, three things run
   - the Wi-Fi-disable and EEPROM-write-protect lines in `config.txt`;
   - the web tier.
 
-  Result: `ok=244 failed=0`, hidden behind the Pi phase.
+  Result: `ok=248 failed=0`, hidden behind the Pi phase.
 - **The Pi boots.** `wait_for_pi_boot` watches both serial consoles:
-  - **552 s:** DHCP from dnsmasq on `v2101`, then TFTP from the root's
+  - **555 s:** DHCP from dnsmasq on `v2101`, then TFTP from the root's
     `boot/`. The firmware asks for `<serial>/start4.elf` first. When it
     doesn't find one, it falls back to the top-level directory, as the
     real bootloader does
     ([`TFTP_PREFIX`](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#TFTP_PREFIX):
     *"If neither start4.elf nor start.elf are found in the prefixed
     directory then the prefix is cleared"*).
-  - **557 s:** the address from DHCP must be **10.21.1.1**, the per-port
+  - **560 s:** the address from DHCP must be **10.21.1.1**, the per-port
     address of switch 1 port 1. Any other address fails the test.
-  - **562 s:** the kernel starts ("Booting Linux"). If the firmware prints
+  - **570 s:** the kernel starts ("Booting Linux"). If the firmware prints
     "No kernel image found" twice, the test fails at once instead of
     waiting 10 minutes.
-  - **562–643 s:** the NFS root is mounted with overlayroot and userland
+  - **570–664 s:** the NFS root is mounted with overlayroot and userland
     starts, emulated at roughly a twentieth of real speed. The Pi counts
     as ready when SSH as `pi`, through the server, works.
-- **643–752 s: [`verify-pi.yml`](../ansible/verify-pi.yml)** runs,
+- **664–792 s: [`verify-pi.yml`](../ansible/verify-pi.yml)** runs,
   alongside a password login as `pi` (`pi_password_login_works`). The
   password login is the path the board page's web terminal uses.
   - The playbook runs without sudo and without fact gathering. Each
     separate task costs seconds on the emulated Pi, so one task, "Collect
-    the Pi's state" (76 s), runs a single Python script on the Pi that
+    the Pi's state" (79 s), runs a single Python script on the Pi that
     returns everything the checks need.
   - It checks:
     - the NFS and overlay mounts;
@@ -719,22 +748,33 @@ boot sequence. The virtual Pi has no disk. From here, three things run
     - overlayroot and lldpd;
     - that the nfsroot watchdog is armed;
     - the fpgas.online openFPGALoader/OpenOCD builds;
-    - the camera and TT services, and the demo bitstreams;
-    - the FPGA boot check, `fpgas-verify`
-      ([PR #137](https://github.com/fpgas-online/fpgas.online-infra/pull/137)): it is enabled, and its report gives the
-      expected result. The virtual Pi has no FPGA, so the test expects
-      `missing`, which checks the no-board path end to end
-      ([§3.3](#33-how-the-test-inventory-differs-from-production-and-why));
+    - the TT service and the demo bitstreams;
+    - **the camera and the FPGA board, which it looks for on the Pi
+      itself** ([PR #167](https://github.com/fpgas-online/fpgas.online-infra/pull/167)). It finds a camera the way
+      `fpgas-cam` does, and reads what the boot check `fpgas-verify`
+      ([PR #137](https://github.com/fpgas-online/fpgas.online-infra/pull/137)) found. Hardware that is there must work:
+      a camera must be streaming, a board must have passed. A Pi with
+      neither passes, and the log says so. The virtual Pi has neither,
+      so it passes with `No camera on pi-sw1-p1: …` and
+      `No FPGA board on pi-sw1-p1: fpgas-verify looked and found none`.
+      Nothing is skipped by tag or by an inventory setting;
     - that ifupdown isn't failing;
     - the fleet agent.
   - **Fleet registration:** on the server, it fetches `/fleet/<serial>/`
     from the Django app. The page must show `badge online` and the Pi's
     **current boot id**, which proves this boot registered.
-  - Result: `ok=37 failed=0 skipped=13`. The 13 skips are checks for
-    hardware the emulated Pi 4B doesn't have: the Pi 5 header UART, Orange
-    Pi boards and the USB gadget console.
+  - Result: `ok=44 failed=0 skipped=15`. The 15 skips are tasks whose
+    `when:` is false on the emulated Pi 4B:
+    - checks for Orange Pi boards (9), the Pi 5 header UART and the USB
+      gadget console;
+    - the two tasks that wait for, and report on, a camera that was
+      found;
+    - a diagnostic that runs only when the watchdog check is about to
+      fail;
+    - "no kernel console on the header UART", which the test inventory
+      turns off ([§3.3](#33-how-the-test-inventory-differs-from-production-and-why)).
 
-**752–758 s: teardown.** The harness prints both results, and exits
+**792–798 s: teardown.** The harness prints both results, and exits
 non-zero if either side or the password login failed. On a `verify-pi`
 failure it first prints the server's network view of the Pi (neighbour
 table, ping, VLAN counters, dnsmasq/NFS journal) and the Pi's last 200
@@ -775,7 +815,7 @@ to:
 | one switch with one access port; `tt_boards` with the virtual Pi as `fpga-1`; a dummy `sunxi_boards` row | exercises the TT, fleet and Orange Pi config paths |
 | `controller.yml` names `tests/vm/workdir/test_key` | the per-run key, instead of `~/.ssh/fpgas.online-ansible` |
 | no `apt_client_proxy` / `apt_client_https_cache`: the server's apt fetches directly | tweed's apt proxy (`apt_client_proxy` in its host_vars) is on a private address that a GitHub runner cannot reach. The role still runs, and removes any proxy setting |
-| `verify_pi_fpga_expect: missing` ([`test-pi.yml`](../tests/inventory/host_vars/test-pi.yml)) | the virtual Pi has no FPGA attached, so `fpgas-verify` must report `missing` rather than `pass`. That checks the check runs and the Pi still boots and takes SSH without a board |
+| `verify_pi_header_uart_console: true` ([`test-pi.yml`](../tests/inventory/host_vars/test-pi.yml)) | the emulator's boot firmware puts the kernel console on the header UART (`console=ttyAMA0`), because that serial port is the only record of the virtual Pi's boot. On a real Pi that UART goes to the FPGA, and `verify-pi` fails a console on it. `fixpi`'s own verify still checks the `cmdline.txt` that real Pis get |
 
 ---
 
@@ -844,26 +884,36 @@ promotion loses its dependency on the test.
 The Lint workflow checks YAML style and Ansible best practice, and runs the
 unit tests of the CI tooling. Every step can fail it. It has two jobs,
 which run at the same time
-([example run](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507488573), 101 s).
+([example run](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702339845), 2 min 30 s).
 
-**`ansible-lint` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507488573/job/109212087854), 56 s):
+**`ansible-lint` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702339845/job/109844459855), 47 s):
 
 | Step | What it does | Time |
 |---|---|---|
 | Install linters | `uv sync`: ansible-lint 26.9.0 and yamllint 1.38.0, pinned in [`pyproject.toml`](../pyproject.toml)'s dev group, so CI and a local `uv run ansible-lint` report the same thing | 1 s |
 | Install Ansible collections | the pinned collections from [`requirements.yml`](../requirements.yml), cached. Without them ansible-lint cannot parse playbooks that use `ansible.posix` modules, and silently skips them | 1 s (cache hit) |
 | `uv run yamllint -c .yamllint.yml ansible/` ([config](../.yamllint.yml)) | YAML style | 2 s |
-| `uv run ansible-lint`, in `ansible/` ([config](../.ansible-lint)) | Ansible best practice, with no rule skipped | 41 s |
+| `uv run ansible-lint`, in `ansible/` ([config](../.ansible-lint)) | Ansible best practice, with no rule skipped | 36 s |
 
-**`pytest` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507488573/job/109212087726), 97 s):
+**`pytest` job** ([example](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702339845/job/109844459529), 2 min 26 s):
 `uv run pytest -q tests` runs the unit tests in [`tests/`](../tests/)
-(80 s; `93 passed, 6 skipped`). Among them:
+(129 s; `160 passed, 6 skipped`). The count rose from 93 to 160 between
+2026-09-29 and 2026-09-30, and the time from 80 s to 129 s. Among them:
 
 - [`tests/test_nfsroot_inputs.py`](../tests/test_nfsroot_inputs.py) fails a
   PR that makes the image build read a file the inputs key does not cover
   ([§2.4](#24-how-the-path-is-chosen)).
 - [`tests/test_nfsroot_promotion.py`](../tests/test_nfsroot_promotion.py)
   guards the promotion rules ([§4](#4-promotion-the-image-production-pulls)).
+- [`tests/test_no_tags.py`](../tests/test_no_tags.py) fails if a task
+  carries an Ansible tag, or the harness or a live doc passes `--tags` or
+  `--skip-tags` ([§2.6](#26-what-ci-nfsrootyml-does)).
+- [`tests/test_fixpi_site_layer.py`](../tests/test_fixpi_site_layer.py)
+  holds every task that writes the `pi` password or a key behind the
+  `fixpi_image_build` gate, so none can reach the public image.
+- [`tests/test_ssh_key_fetch.py`](../tests/test_ssh_key_fetch.py) runs the
+  key download against a local server, including the empty and failed
+  answers that must fail the play.
 - [`tests/test_nfsroot_layers_podman.py`](../tests/test_nfsroot_layers_podman.py)
   packs a root-owned tree with the real layer split, then checks that
   podman's overlay merge and an in-order `tar -x` both reproduce it entry
@@ -896,30 +946,37 @@ To fix a lint failure, fix the flagged code. Use a scoped
 ## 6. Timings
 
 This section answers "how long will CI take for my change?", with the
-measured runs behind the answer. The target is 15 minutes. These cases
-still exceed it:
+measured runs behind the answer. The target is 15 minutes, and CI does
+not meet it yet: of the 44 successful runs from 2026-09-29 01:40 to
+2026-10-02 08:15 UTC, **17 took longer** (median 14:44). The causes, each
+with an issue:
 
-- the **daily full rebuild**, about 19 minutes ([§6.2](#62-scheduled-runs));
-- PRs whose image is **built inline**, about 16 minutes
-  ([§6.1](#61-pr-runs-by-image-path));
-- runs that **wait for a free runner**, plus the occasional run whose apt
-  and pip downloads are slow; one scheduled refresh took 15:03
-  ([§6.2](#62-scheduled-runs), [§6.3](#63-runs-on-main-queueing)).
+- **The test job varies by about ±2 minutes from run to run,** around a
+  median of 13:48, so even runs that build no image sometimes go over
+  ([§6.1](#61-runs-by-image-path), [§6.4](#64-where-the-time-goes);
+  [issue #172](https://github.com/fpgas-online/fpgas.online-infra/issues/172)).
+- **The daily full rebuild** takes 17½–22 minutes
+  ([§6.2](#62-scheduled-runs);
+  [issue #173](https://github.com/fpgas-online/fpgas.online-infra/issues/173)).
+- **PRs whose image is built inline** take 16–17 minutes
+  ([§6.1](#61-runs-by-image-path);
+  [issue #174](https://github.com/fpgas-online/fpgas.online-infra/issues/174)).
+- **Waiting for a free runner** added 2¾ to 17 minutes to five runs
+  ([§6.3](#63-waiting-queues-and-runners)). That is outside the
+  repository's control.
 
 "Total" is from the run's creation to its completion: what a PR author
 waits for.
 
-Since [PR #137](https://github.com/fpgas-online/fpgas.online-infra/pull/137)
-(merged 2026-09-27 11:14 UTC), the test job has been about 45 s slower
-than before; [§6.4](#64-where-the-time-goes) shows where. Runs before it
-therefore took about 45 s less than the same case would now.
+### 6.1 Runs by image path
 
-### 6.1 PR runs, by image path
+Two periods are shown, because the test job got about 45 s slower with
+[PR #137](https://github.com/fpgas-online/fpgas.online-infra/pull/137)
+(merged 2026-09-27 11:14 UTC; [§6.4](#64-where-the-time-goes)).
 
-Every successful PR run of the VM test from 2026-09-25 07:21 UTC (when the
-stage images landed, [PR #114](https://github.com/fpgas-online/fpgas.online-infra/pull/114))
-to 2026-09-27 05:00 UTC, grouped by the path its image took. All of these
-predate #137:
+**Before #137:** every successful PR run from 2026-09-25 07:21 UTC (when
+the stage images landed, [PR #114](https://github.com/fpgas-online/fpgas.online-infra/pull/114))
+to 2026-09-27 05:00 UTC:
 
 | Path | Runs | Build job | Best | Median | Worst | Over 15 min |
 |---|---|---|---|---|---|---|
@@ -932,146 +989,194 @@ predate #137:
 its VM job waited 6 min 8 s for a free runner. The work itself took about
 12½ minutes.
 
-Every successful run since #137 that was not a scheduled one:
+**Now:** every successful PR, push and manual run from 2026-09-29 01:40
+to 2026-10-02 08:15 UTC (scheduled runs are in [§6.2](#62-scheduled-runs)):
 
-| Run | Trigger | Path | Build job | Server waited for the image | Total |
-|---|---|---|---|---|---|
-| [36325371721](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325371721) | PR [#156](https://github.com/fpgas-online/fpgas.online-infra/pull/156) | **stage, built inline** | [8:38](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325371721/job/108637006236) | 2:00 | **15:56** |
-| [36501319247](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36501319247) | PR [#150](https://github.com/fpgas-online/fpgas.online-infra/pull/150) | warm | [3:33](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36501319247/job/109192572419) | 0 | 14:36 |
-| [36507218355](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507218355) | push of #156's merge | stage, unpacked (the stage #156's PR run had published) | [6:36](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507218355/job/109211243569) | 1:27 | 13:13 |
+| Path | Runs | Build job | Best | Median | Worst | Over 15 min |
+|---|---|---|---|---|---|---|
+| reuse | 12 | 9–15 s | 11:07 | 14:24 | 16:35 | **4** ² |
+| warm | 15 | 3:12–4:00 | 12:11 | 14:08 | 18:16 | 2 ³ |
+| stage, unpacked | 2 | 6:05–6:28 | 18:40 | — | 22:08 | 2 ⁴ |
+| **stage, built inline** | 1 | 10:02 | — | **16:46** | — | **1** ⁵ |
 
-"Server waited for the image" is how long the NFS root play sat waiting
-for the download, beyond the ~10 s it always takes to collect it.
+² [36510435368](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36510435368) (16:35),
+[36568653672](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36568653672) (15:47),
+[36509847933](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36509847933) (15:32) and
+[36745444881](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36745444881) (15:22).
+None waited for a runner or for the image: the test job itself took that
+long. The other eight took 11:07–14:55.
 
-The **inline** path is the slow one: its image build takes 8½–9 minutes,
-so the server waits about 2 minutes for the image. It runs when a PR
-changes a file in the base key ([§2.4](#24-how-the-path-is-chosen)) and no
-stage exists yet for the new key. Comment-only edits to those files count
-too; [issue #135](https://github.com/fpgas-online/fpgas.online-infra/issues/135)
-proposes ignoring them. Adding `mode:` to a task in
-[`img/tasks/build.yml`](../ansible/roles/img/tasks/build.yml), as #156
-did, is enough to trigger it.
+³ Both waited for a runner:
+[36982886123](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36982886123)
+(18:16; its VM job started 2:45 late) and
+[36702340569](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702340569)
+(16:51; its Promote job started 4:20 late).
+
+⁴ Both waited for a runner too:
+[36565308568](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36565308568)
+(18:40; 4:19 late, test job 14:20) and
+[36564087355](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36564087355)
+(22:08; 3:22 late, test job 15:32, in which the server also waited 2:00
+for the image).
+
+⁵ [36534310607](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36534310607)
+([PR #165](https://github.com/fpgas-online/fpgas.online-infra/pull/165)):
+the server waited 2:40 for the image.
+
+The **inline** path is the slow one: its image build takes 8½–10 minutes,
+so the server waits 2–3 minutes for the image. It runs when a PR changes
+a file in the base key ([§2.4](#24-how-the-path-is-chosen)) and no stage
+exists yet for the new key. Edits that cannot change the image count
+too: #165 only removed tags, and
+[#156](https://github.com/fpgas-online/fpgas.online-infra/pull/156) only
+added `mode:` to two tasks in
+[`img/tasks/build.yml`](../ansible/roles/img/tasks/build.yml).
+[Issue #135](https://github.com/fpgas-online/fpgas.online-infra/issues/135)
+proposes ignoring comment and formatting changes.
 
 ### 6.2 Scheduled runs
 
-Every scheduled run since #137:
+Every successful scheduled run from 2026-09-29 01:40 to 2026-10-02 08:15
+UTC. "Server waited" is how long the last play of `site.yml` sat waiting
+for the image to be published and downloaded:
 
-| Run | Date (UTC) | Stages job | Build job | VM test job | Server waited for the image | Total |
+| Run | Started (UTC) | Stages job | Build job | VM test job | Server waited | Total |
 |---|---|---|---|---|---|---|
-| [36325419822](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325419822) | 2026-09-27 | refresh [3:06](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325419822/job/108637144385) | [3:22](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325419822/job/108637683629) | [13:55](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325419822/job/108637144075) | 0:11 | 14:14 |
-| [36341432751](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36341432751) | 2026-09-27 | refresh [3:02](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36341432751/job/108682180449) | [3:15](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36341432751/job/108682720374) | [12:24](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36341432751/job/108682180270) | 0 | 12:49 |
-| [36352408436](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36352408436) | 2026-09-27 | refresh [2:58](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36352408436/job/108713478812) | [3:17](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36352408436/job/108713983173) | [14:29](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36352408436/job/108713478606) | 0 | 14:51 |
-| [36360458088](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088) | 2026-09-27 | refresh [3:04](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476209) | [3:18](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108737004067) | [13:46](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476082) | 0 | 14:08 |
-| [36383814324](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36383814324) | 2026-09-28 | refresh [3:06](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36383814324/job/108804889149) | [3:16](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36383814324/job/108805588438) | [13:09](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36383814324/job/108804888854) | 0:54 | 13:29 |
-| [36436296084](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36436296084) | 2026-09-28 | **full** [5:01](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36436296084/job/108974982880) | [6:37](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36436296084/job/108977188574) | [18:47](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36436296084/job/108974982476) | **4:00** | **19:14** |
-| [36481816604](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36481816604) | 2026-09-28 | refresh [3:41](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36481816604/job/109129031434) | [3:33](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36481816604/job/109130467447) | [failed](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36481816604/job/109129030832) after 2:44 ² | — | — |
-| [36507110122](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507110122) | 2026-09-29 | refresh [3:01](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507110122/job/109210905633) | [3:23](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507110122/job/109211662508) | [14:20](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507110122/job/109210905323) | 0 | **15:03** |
+| [36537059589](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36537059589) | 2026-09-29 07:30 | **full** [4:01](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36537059589/job/109303405669) | [5:59](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36537059589/job/109304733618) | [17:15](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36537059589/job/109303405370) | 3:14 | **17:37** |
+| [36582031222](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36582031222) | 2026-09-29 14:21 | **full** [4:00](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36582031222/job/109452411177) ⁶ | [5:43](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36582031222/job/109456377088) | [21:23](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36582031222/job/109452409833) | 8:26 | **21:50** |
+| [36620692256](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36620692256) | 2026-09-29 19:38 | refresh [3:05](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36620692256/job/109585021867) | [3:41](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36620692256/job/109586293947) | [13:16](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36620692256/job/109585021511) | 0:40 | 13:42 |
+| [36643903238](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36643903238) | 2026-09-29 23:12 | refresh [3:05](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36643903238/job/109662305287) | [3:26](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36643903238/job/109663218211) | [15:21](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36643903238/job/109662304904) | 0 | **15:40** |
+| [36659617330](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36659617330) | 2026-09-30 02:23 | refresh [3:33](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36659617330/job/109711252686) | [3:22](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36659617330/job/109712113504) | [15:50](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36659617330/job/109711252481) | 0 | **16:16** |
+| [36693276700](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36693276700) | 2026-09-30 09:00 | refresh [3:21](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36693276700/job/109815203066) | [3:42](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36693276700/job/109816421383) | [14:30](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36693276700/job/109815202863) | 0 | 14:52 |
+| [36741674923](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36741674923) | 2026-09-30 16:05 | **full** [4:08](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36741674923/job/109977344123) | [5:49](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36741674923/job/109979136168) | [17:21](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36741674923/job/109977343578) | 4:00 | **17:52** |
+| [36776514024](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36776514024) | 2026-09-30 21:00 | refresh [3:10](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36776514024/job/110095680828) | [3:26](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36776514024/job/110096949282) | [13:23](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36776514024/job/110095680418) | 0 | 13:46 |
+| [36798161680](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36798161680) | 2026-10-01 00:50 | refresh [3:29](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36798161680/job/110166260274) | [3:38](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36798161680/job/110167172384) | [13:53](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36798161680/job/110166259892) | 0:36 | 14:11 |
+| [36832473473](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36832473473) | 2026-10-01 07:48 | refresh [3:22](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36832473473/job/110272006603) | [3:38](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36832473473/job/110273087517) | [13:43](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36832473473/job/110272005970) | 0:49 | 14:43 |
+| [36886104035](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36886104035) | 2026-10-01 15:40 | refresh [3:35](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36886104035/job/110449683878) | [4:31](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36886104035/job/110451307086) | [15:19](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36886104035/job/110449683418) | 1:09 | **15:53** |
+| [36922058426](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36922058426) | 2026-10-01 20:30 | **full** [4:49](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36922058426/job/110570255405) | [6:05](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36922058426/job/110572265450) | [18:06](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36922058426/job/110570255175) | 4:20 | **18:27** |
+| [36944922891](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891) | 2026-10-02 00:13 | refresh [3:23](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729720) | [3:34](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110645682617) | [14:03](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729419) | 0 | 14:21 |
+| [36972503965](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965) | 2026-10-02 06:13 | refresh [3:03](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965/job/110729252478) ⁷ | [4:04](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965/job/110732668445) | [15:44](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965/job/110729252247) | 5:03 | **35:45** |
 
-² The operators' SSH keys could not be fetched from GitHub
-([§8](#8-when-it-fails-where-to-look)).
+⁶ Its stages job started 5:05 late, waiting for a runner, which is why
+the server waited so long.
 
-- **Refresh runs** took 12:49–15:03, median 14:11. Their build job waits
-  for the stages job, so the image is published about 6½ minutes after
-  the run starts, which is about when the server needs it. The server
-  usually does not wait; once it waited 54 s. The one run over 15
-  minutes spent 3:34 in the web tier, against 2:03–3:06 in the others:
-  slow apt and pip downloads, not a change.
-- **The daily full rebuild** took **19:14**. Its stages job (5:01) and
-  image build (6:37) run one after the other, so the image exists only
-  about 11¾ minutes in, and the server waited 4 minutes for it. The
-  previous full rebuild,
-  [36286645309](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36286645309)
-  on 2026-09-27, took 16:05 of work: stages 3:59, build 5:48.
+⁷ Every job of this run waited for a runner: the VM test job 16:48, the
+stages job 11:10, the build job 8:21 and the Promote job 3:00.
 
-### 6.3 Runs on `main`: queueing
+- **Refresh runs** (10): 13:42–16:16 apart from the one that queued,
+  median 14:43. Four went over 15 minutes. Their build job waits for the
+  stages job, so the image is published about 7 minutes after the run
+  starts, which is when the server needs it. In four of the nine that
+  did not queue, the server waited 36–69 s for it.
+- **Full rebuilds** (4): **17:37–21:50**. The stages job (4–5 min) and
+  the image build (about 6 min) run one after the other, so the image
+  exists only 10–12 minutes in, and the server waits 3–4½ minutes for it.
+  The two on 2026-09-29 ran because #156 and then #165 had changed the
+  base key, so no base stage existed for the new key (`base stage age:
+  unknown; rebuilding all`). The other two ran by age (25.6 h and 28.4 h).
 
-From [PR #119](https://github.com/fpgas-online/fpgas.online-infra/pull/119)
+### 6.3 Waiting: queues and runners
+
+**Queueing behind other `main` runs is gone.** From
+[PR #119](https://github.com/fpgas-online/fpgas.online-infra/pull/119)
 until [PR #151](https://github.com/fpgas-online/fpgas.online-infra/pull/151)
-(merged 2026-09-27), runs on `main` never overlapped, so merges that landed
-close together queued behind each other. GitHub's runners are also
-sometimes all busy. Some of the longest runs from that period:
+(merged 2026-09-27), runs on `main` never overlapped, so merges that
+landed close together queued behind each other, for up to 17 minutes
+([36281006120](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36281006120),
+30:28 in total). Since #151 each `main` run has its own concurrency
+group, and none waits for another.
 
-| Run | Total | Waiting for the previous `main` run | Waiting for a runner | Work |
-|---|---|---|---|---|
-| [36135216064](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36135216064) | 33:12 | 14:59 | 6:12 | 12:01 |
-| [36281006120](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36281006120) | 30:28 | 17:20 | 0:06 | 13:02 |
-| [36286645309](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36286645309) (scheduled, full) | 29:44 | 13:34 | 0:05 | 16:05 |
-| [36295058552](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36295058552) | 23:41 | 0:00 | 10:21 | 13:20 |
-| [36296701678](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678) (no queue) | 13:22 | 0:00 | 0:04 | 13:17 |
+**Waiting for a free runner remains.** GitHub's runners are sometimes all
+busy, and any job of a run can be the one that waits. From 2026-09-29
+01:40 to 2026-10-02 08:15 UTC, 6 of the 44 successful runs had a job
+start more than a minute late:
 
-Since #151, a `main` run no longer waits for the one before it. Of the 13
-runs on `main` from #151's merge to 2026-09-29 01:17 UTC, two waited for
-a runner:
+| Run | Which job waited | How long | Total |
+|---|---|---|---|
+| [36564087355](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36564087355) | VM test | 3:22 | 22:08 |
+| [36565308568](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36565308568) | VM test | 4:19 | 18:40 |
+| [36582031222](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36582031222) | stages | 5:05 | 21:50 |
+| [36702340569](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702340569) | Promote | 4:20 | 16:51 |
+| [36972503965](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965) | all four | up to 16:48 | 35:45 |
+| [36982886123](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36982886123) | VM test | 2:45 | 18:16 |
 
-- [36309577725](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36309577725):
-  its VM test job started 1:51 after the run (total 17:24);
-- [36309286087](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36309286087):
-  its Promote job started 2:00 after the test finished (total 14:56).
-
-Every other job started within 30 s.
+A late stages or build job delays the image, so the server waits for it
+inside the test job. A late Promote job delays only the run's completion:
+the test result is already known.
 
 ### 6.4 Where the time goes
 
-The test job, split into segments. It compares the reference run of
-[§3](#3-job-2-deploy-and-boot-vm-testyml-job-server--pi-pxe-boot) with
-the run the earlier version of this section used, from before #137, and
-gives the range over eight runs since #137:
-[36325419822](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36325419822),
-[36341432751](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36341432751),
-[36352408436](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36352408436),
-[36360458088](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088),
-[36383814324](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36383814324),
-[36501319247](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36501319247),
-[36507110122](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507110122) and
-[36507218355](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36507218355).
+The test job, split into segments. The table compares the reference run
+of [§3](#3-job-2-deploy-and-boot-vm-testyml-job-server--pi-pxe-boot) with
+a run from before #137, and gives the range over the ten runs on the
+current `main` (82721eb) that did not do a full rebuild:
+[36702340569](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36702340569),
+[36745444881](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36745444881),
+[36748296341](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36748296341),
+[36776514024](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36776514024),
+[36798161680](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36798161680),
+[36832473473](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36832473473),
+[36854676867](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36854676867),
+[36886104035](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36886104035),
+[36944922891](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891) and
+[36972503965](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36972503965).
 
-| Segment | Before #137 ([36296701678](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678/job/108556769748)), s | Now ([36360458088](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36360458088/job/108736476082)), s | Share now | Range since #137, s |
+| Segment | Before #137 ([36296701678](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36296701678/job/108556769748)), s | Now ([36944922891](https://github.com/fpgas-online/fpgas.online-infra/actions/runs/36944922891/job/110644729419)), s | Share now | Range over ten runs, s |
 |---|---|---|---|---|
-| job setup (container, apt, qemu-rpi, caches) | 49 | 57 | 7 % | 39–57 |
-| server VM boot + cloud-init | 12 | 11 | 1 % | 10–18 |
-| account checks before the deploy | 14 | 12 | 1 % | 11–15 |
-| `site.yml`: apt_client, netif + reboot | 33 | 22 | 3 % | 20–35 |
-| `site.yml`: start the background pull | 41 | 40 | 5 % | 10–68 |
-| `site.yml`: server roles | 130 | 134 | 16 % | 102–180 |
-| `site.yml`: web tier | 156 | 172 | 21 % | 123–214 |
-| `site.yml`: NFS root play | 137 | 159 | 19 % | 117–159, 182–211 when the server waited for the image |
-| account checks after the deploy | 1 | 1 | 0 % | 1 |
-| Pi: power-on → kernel | 12 | 12 | 1 % | 12–17 |
-| Pi: userland boot (emulated) | 95 | 82 | 10 % | 74–98 |
-| `verify-pi` (with `verify-server` running alongside) | 91 | 109 | 13 % | 99–126 |
-| teardown and post steps | 12 | 17 | 2 % | 10–17 |
-| **whole job** | **783** | **826** | | 744–873 |
+| job setup (container, apt, qemu-rpi, caches) | 49 | 40 | 5 % | 38–62 |
+| server VM boot + cloud-init | 12 | 12 | 1 % | 10–18 |
+| account checks before the deploy | 14 | 14 | 2 % | 11–15 |
+| `site.yml`: first play (netif, reboot, first apt refresh) | 33 | 68 | 8 % | 34–93 |
+| `site.yml`: start the background pull | 41 | 7 | 1 % | 5–8 |
+| `site.yml`: server roles | 130 | 175 | 21 % | 92–203 |
+| `site.yml`: web tier | 156 | 163 | 19 % | 118–180 |
+| `site.yml`: NFS root play | 137 | 114 | 14 % | 98–128, and 169–416 when the server waited for the image |
+| account checks after the deploy | 1 | 1 | 0 % | 1–2 |
+| Pi: power-on → kernel | 12 | 17 | 2 % | 12–17 |
+| Pi: userland boot (emulated) | 95 | 94 | 11 % | 75–97 |
+| `verify-pi` (with `verify-server` running alongside) | 91 | 128 | 15 % | 103–128 |
+| teardown and post steps | 12 | 11 | 1 % | 10–15 |
+| **whole job** | **783** | **843** | | 709–944, median 828 |
 
 What changed, and what is noise:
 
 - **`verify-pi` is about 25 s slower since #137.** Its "Collect the Pi's
   state" task took 48–54 s in the last four `main` runs before #137, and
-  69–83 s in #137's own PR runs and in all ten successful runs since. #137 replaced the
-  Acorn boot check with `fpgas-verify`
-  ([§3.2](#32-what-run_testspy-does-step-by-step)); the collector script
-  barely changed. The cause is not yet pinned down.
-- **The server and web tier roles vary by about a minute from run to
-  run,** mostly in apt and pip installs, e.g. "site : Python and friends"
-  took 8 s in one run and 42 s in another. That variance, not a change,
-  separates a 12:49 run from a 15:03 one.
-- **The NFS root play** is the other place the job waits: for the image,
-  on the full rebuild and on the stage paths
-  ([§6.1](#61-pr-runs-by-image-path), [§6.2](#62-scheduled-runs)).
+  69–83 s in #137's own PR runs and in all ten successful runs measured
+  right after it (79 s in the reference run). #137 replaced the Acorn
+  boot check with `fpgas-verify`; the collector script barely changed.
+  The cause is not yet pinned down.
+- **The first apt refresh moved, at no net cost.**
+  [PR #159](https://github.com/fpgas-online/fpgas.online-infra/pull/159)
+  moved it from the second play to the first
+  ([§3.2](#32-what-run_testspy-does-step-by-step)). The two plays
+  together took 74 s before and 75 s now; the background image pull
+  starts about 15 s later than it did.
+- **The server and web tier roles vary by more than a minute from run
+  to run,** mostly in apt and pip installs: the server roles took 92 s
+  in one run and 203 s in another, on the same commit. This variance,
+  not a change, is the difference between a 12-minute run and a
+  16-minute one.
+- **The NFS root play** is where the job waits for the image: on the
+  full rebuild, on the stage paths, on scheduled runs, and whenever an
+  image job waits for a runner.
 
 ### 6.5 Which case will my PR hit?
 
 | Your change touches… | Image path | Expected VM test total |
 |---|---|---|
-| nothing in `INPUTS` (server roles, web tier, `tests/vm`, docs) | reuse, if an image for these inputs was built this hour; otherwise warm | ~12–15½ min (11–14½ before #137, plus ~45 s; no reuse run has passed since) |
-| a Pi role, `ci-nfsroot.yml`, `uv.lock`, … | warm | ~12½–15 min: the build finishes before the server needs the image |
-| the upgrade (`ci-nfsroot-upgrade.yml`, `nspawn_pi`, …) | stage: the upgraded stage is rebuilt inline on the published base | ~14½–16 min (estimate: between the two stage rows above) |
-| the RasPiOS base: `dist`, `img_path`, `img_name`, `zip_name`, `ci-nfsroot-base.yml`, `ci-nfsroot-runner.yml`, `img/tasks/build.yml` or `img2files.sh` | stage, built inline | **~15–16½ min** (15:56 since #137; median 15:21 before it): over the target, because the server waits for the image |
+| nothing in `INPUTS` (server roles, web tier, `tests/vm`, docs) | reuse, if an image for these inputs was built this hour; otherwise warm | ~11–16½ min, median 14:24 |
+| a Pi role, `ci-nfsroot.yml`, `uv.lock`, … | warm | ~12–15 min, median 14:08: the build finishes before the server needs the image |
+| the upgrade (`ci-nfsroot-upgrade.yml`, `nspawn_pi`, …) | stage: the upgraded stage is rebuilt inline on the published base | ~15–16½ min (estimate: between the stage rows of [§6.1](#61-runs-by-image-path)) |
+| the RasPiOS base: `dist`, `img_path`, `img_name`, `zip_name`, `ci-nfsroot-base.yml`, `ci-nfsroot-runner.yml`, `img/tasks/build.yml` or `img2files.sh` | stage, built inline | **~16–17 min**: over the target, because the server waits for the image |
+
+Add any wait for a free runner ([§6.3](#63-waiting-queues-and-runners)).
 
 Any other edit to [`srv.yml`](../ansible/inventory/group_vars/all/srv.yml)
 gets a warm build
 ([PR #108](https://github.com/fpgas-online/fpgas.online-infra/pull/108)).
 The `main` push after merging a base-key change takes the stage path on
-the stage its PR published: 13–14 minutes.
+the stage its PR published.
 
 ---
 
@@ -1092,8 +1197,6 @@ uv run tests/vm/run_tests.py --phase all \
 # server only, and keep the VM for poking at:
 uv run tests/vm/run_tests.py --phase server --keep-vm --nfsroot-image …
 ```
-
-`--skip-tags` exists for local debugging only. CI never passes it.
 
 To rebuild the image from scratch in CI, run the VM test workflow by hand
 with **from_scratch** ticked (Actions → VM Integration Tests → Run
@@ -1128,4 +1231,4 @@ column.
 | `nfsroot / stages` fails | the RasPiOS download, or `apt upgrade` in the base | the stages job log; the run's image is not built or promoted |
 | `Promote to bookworm-armhf` fails | GHCR auth, or the copied tag is not a plain manifest | the promote job log. Production stays on the previous image |
 | Promote is green but `bookworm-armhf` did not move | the guard found a newer build already promoted ([§4](#4-promotion-the-image-production-pulls)): expected when runs finish out of order | the promote job summary ("NOT promoting this run's image", then the reason) |
-| `Assert every operator has at least one key` fails: `operator tim has no authorized_keys (ssh-import-id failed?)` | `ssh-import-id` could not fetch the operators' keys from GitHub. The import task tolerates a failed fetch, so that a GitHub outage does not fail a real deploy, and this assert catches an account left with no keys. It failed two `main` runs on 2026-09-27 and 2026-09-28 | the VM job log, task `operators : Import operator ssh keys from GitHub`; re-run the job |
+| `No ssh keys for <account> from gh:<user>: … after 3 retries` | GitHub (or Launchpad) did not serve an account's public keys. [`ssh_key_fetch`](../ansible/roles/ssh_key_fetch/) downloads `https://github.com/<user>.keys`, retries 3 times, then fails the play at the download. In the last play this happens before the NFS root is touched. It replaced `ssh-import-id`, whose rate-limited GitHub API calls failed two `main` runs on 2026-09-27 and 2026-09-28 ([PR #161](https://github.com/fpgas-online/fpgas.online-infra/pull/161)) | the VM job log, the `ssh_key_fetch` task that failed; re-run the job |
