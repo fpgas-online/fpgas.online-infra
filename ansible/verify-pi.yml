@@ -164,7 +164,6 @@
               "facts": {"hostname": uname.nodename.split(".")[0], "kernel": uname.release,
                         "architecture": uname.machine},
           }))
-      tags: [always]
 
     - name: Results of the collected checks
       ansible.builtin.set_fact:
@@ -202,7 +201,6 @@
         ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
       vars:
         verify_pi_state: "{{ verify_pi_collected.stdout | from_json }}"
-      tags: [always]
 
     # Boot infrastructure
     - name: Assert NFS mount present
