@@ -626,9 +626,10 @@ Added, after `verify-pi.yml` has passed on version A:
    is read on the server, from rpc.mountd's log line for
    `versions/<B>/root`. Whether mountd logs it at Debian 13's default level
    is to be confirmed in that PR.
-4. While the Pi reboots, one server-side script: `current` names B, all
-   markers are equal, TFTP serves B's cmdline, then `rollback` to A and the
-   same checks.
+4. While the Pi reboots, one server-side script checks that `current` names B,
+   all markers are equal and TFTP serves B's cmdline. Once step 3 has seen the
+   mount of B, it runs `rollback` to A and repeats the checks. The Pi is not
+   rebooted again.
 
 Estimate: 45-80 s, against 72 s of room at the median. The PR that adds the
 test must state measured before and after totals. If it does not fit, step 3
