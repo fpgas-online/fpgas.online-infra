@@ -3,7 +3,6 @@
 
 - {name: Configure nginx, ansible.builtin.include_tasks: nginx.yml}
 - {name: Obtain the TLS certificate with certbot, ansible.builtin.include_tasks: certbot.yml}
-- {name: Create the static content directory, ansible.builtin.include_tasks: index.yml}
 
 - {name: Install the fpgas.online Django site packages, ansible.builtin.include_tasks: fpgas-online-site.yml}
 
