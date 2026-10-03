@@ -11,7 +11,7 @@
 # The result is in /run/fpgas-online/verify.json and is published as the fleet-event stage
 # `fpga-verified`; anything but "pass" leaves the unit failed. A Pi with no board attached reports
 # "missing": it still boots and takes ssh, so someone can log in and see why (fpgas-<board>-debug), but
-# the site does not offer it (site_require_fpga_verified).
+# the site does not offer it (it lists only Pis that registered, checked in and passed this boot).
 #
 # It replaces the Acorn-only fpgas-acorn-verify.service, whose check is now the Acorn module of
 # fpgas-verify (fpgas-online-acorn-tools), in the same run so no boot goes unchecked.
