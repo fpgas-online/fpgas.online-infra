@@ -1,0 +1,29 @@
+# {{ ansible_managed }}
+# Read by fpgas-fleet-watchdog (fpgas.online-poe, fleet_watchdog.config).
+# No secrets here: the SNMP write communities are in watchdog.env (0600).
+switches_config: /etc/fpgas/switches.yml
+pib_network: "{{ pib_network }}"
+ssh_key: {{ fleet_watchdog_home }}/id_ed25519
+known_hosts: {{ fleet_watchdog_home }}/known_hosts
+ssh_user: {{ fleet_watchdog_ssh_user }}
+
+interval: {{ fleet_watchdog_interval }}
+fail_threshold: {{ fleet_watchdog_fail_threshold }}
+ssh_timeout: {{ fleet_watchdog_ssh_timeout }}
+probe_concurrency: {{ fleet_watchdog_probe_concurrency }}
+poe_off_seconds: {{ fleet_watchdog_poe_off_seconds }}
+boot_grace: {{ fleet_watchdog_boot_grace }}
+max_uptime_hours: {{ fleet_watchdog_max_uptime_hours }}
+uptime_jitter_minutes: {{ fleet_watchdog_uptime_jitter_minutes }}
+hard_cap_hours: {{ fleet_watchdog_hard_cap_hours }}
+max_scheduled_cycles_per_sweep: {{ fleet_watchdog_max_scheduled_cycles_per_sweep }}
+cycle_concurrency: {{ fleet_watchdog_cycle_concurrency }}
+breaker_fraction: {{ fleet_watchdog_breaker_fraction }}
+breaker_min_failures: {{ fleet_watchdog_breaker_min_failures }}
+unhealthy_exit_after: {{ fleet_watchdog_unhealthy_exit_after }}
+max_recovery_attempts: {{ fleet_watchdog_max_recovery_attempts }}
+
+exclude:
+{% for index, ports in (fleet_watchdog_exclude | dictsort) %}
+  {{ index }}: {{ ports | list }}
+{% endfor %}

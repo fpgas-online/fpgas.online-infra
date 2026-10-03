@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# Every netbooted board serves the NFS root's ssh_host_ed25519_key, so one key
+# covers the whole fleet. One line per managed address, because
+# StrictHostKeyChecking=yes needs an exact host match.
+{% set hostkey = fleet_watchdog_host_key.content | b64decode | trim %}
+{% for sw in switches %}
+{% for port in range(1, sw.access_ports + 1) %}
+{{ pib_network }}.{{ sw.index }}.{{ port }} {{ hostkey }}
+{% endfor %}
+{% endfor %}

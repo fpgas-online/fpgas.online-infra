@@ -15,3 +15,6 @@ tests/lab/tmp/
 
 # git worktrees for feature branches (superpowers:using-git-worktrees)
 .worktrees/
+
+# superpowers subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
