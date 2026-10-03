@@ -1,0 +1,41 @@
+# Phase 1 spike for the CI-built NFS root (issue #34; design doc
+# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+# Measures the arm64 runner's fitness for building the Pi root: AArch32
+# execution (D-2), losetup/chroot, chroot-apt speed, GHCR push. Throwaway
+# images land in ghcr.io/fpgas-online/nfsroot-spike. Runs on pushes to its
+# own branch (so the spike PR exercises it) and on manual dispatch.
+name: nfsroot spike
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci-nfsroot-spike]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: nfsroot-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spike:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run spike
+        run: uv run tests/ci/nfsroot_spike.py
