@@ -152,21 +152,12 @@ domain_name: "{{ streaming_frontend_hostname }}"
 # flag is per deployment rather than per hostname.
 site_under_construction: true
 
-# Seeds the /fpgas/ board list from the fixture shipped inside the installed
-# fpgas-online-site package (rebuilt 2026-08-31 from a live probe of the
-# s3300: 4x Arty A7, 6x Acorn CLE-215+, 4x TT FPGA emulation, all switch=2
-# VLAN-per-port rows).
-fixture_path: fpgas.online.json
-
 # Fleet self-registration (fpgas.online-infra#47): per-site mosquitto
 # broker on eth-local + the Django fleet consumer + the Pi agent config
 # baked into the nfsroot. The topic scheme is fpgas/<fleet_site>/pi/...
+# The /fpgas/ board list comes from it alone.
 fleet_broker: true
 fleet_site: welland
-
-# Only offer a board whose FPGA boot check passed this boot (roles/site
-# defaults; needs fleet_broker above, which carries the result).
-site_require_fpga_verified: true
 
 # Tim's
 # Netgear S3300-52X-PoE+
