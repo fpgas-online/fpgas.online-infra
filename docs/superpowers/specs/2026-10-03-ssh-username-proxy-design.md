@@ -3,7 +3,7 @@
 Date: 2026-10-03
 Status: proposed. Nothing here is implemented or deployed. The decisions in
 [Decisions needed](#decisions-needed) are open, and the work is tracked by
-the issues under [Work items](#work-items).
+#191 and the issues under [Work items](#work-items).
 
 ## Problem
 
@@ -526,4 +526,17 @@ Before phase 2 merges:
 
 ## Work items
 
-Filled in with the issue links once they are filed.
+Tracking: #191.
+
+| Phase | Issue | What |
+|---|---|---|
+| 1 | fpgas-online/apt#21 | Package sshpiper (D5) |
+| 1 | #186 | Boards: Ed25519-only host key, penalty exemption, login aliases, mapping key |
+| 1 | #187 | Gateway `ssh_proxy` role (sshpiper) |
+| 1 | #188 | Firewall: direct IPv6, and internal IPv4 (D3), to boards on port 22 |
+| 1 | #189 | DNS names and SSHFP records (D4) |
+| 1 | fpgas-online/fpgas.online-gw#2 | `/api/boards` `ssh` object gains `host` and `user` |
+| 1 | fpgas-online/fpgas.online-site#44 | Board pages show the new command |
+| 1 | fpgas-online/fpgas.online-docs#16 | User documentation |
+| 1 | — | Site router forwards public IPv4 port 22 to the proxy (D1; outside these repos) |
+| 2 | #190 | Transparent IPv4 source |
