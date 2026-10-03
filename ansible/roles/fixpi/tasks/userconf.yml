@@ -118,7 +118,7 @@
 
 - name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
-    path: "/srv/nfs/rpi/{{ dist }}/root/{{ item }}/.ssh"
+    path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     recurse: true
     owner: "1000"
     group: "1000"
