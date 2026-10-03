@@ -60,6 +60,67 @@
           except (OSError, subprocess.TimeoutExpired) as e:
               return {"error": str(e)}
           return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    # This boot's run of fpgas-verify, as the FPGA checks below poll it: the
+    # unit's state (systemctl show, with TZ=UTC so its wall-clock timestamps
+    # parse), any job still queued for it, and then -- read after those, so
+    # the report of a run seen finished is the one that run wrote --
+    # /run/fpgas-online/verify.json, with the fields the checks need parsed
+    # here, so that a garbled report is a finding rather than a template
+    # error. Paths are parameters so a test can point them at scratch files.
+    # No `{{`/`{%` in here: it is templated.
+    verify_pi_fpga_verify_probe: |
+      import base64, datetime, json, os, subprocess
+      def _utc_epoch(text):
+          # systemd's "Sat 2026-10-03 01:02:03 UTC" under TZ=UTC; "" or "n/a" when unset.
+          try:
+              when = datetime.datetime.strptime(text, "%a %Y-%m-%d %H:%M:%S UTC")
+          except (TypeError, ValueError):
+              return None
+          return when.replace(tzinfo=datetime.timezone.utc).timestamp()
+      def fpga_verify(unit="fpgas-verify.service", report="/run/fpgas-online/verify.json", systemctl="systemctl"):
+          def call(*argv):
+              try:
+                  return subprocess.run([systemctl, *argv], capture_output=True, text=True, timeout=60,
+                                        env=dict(os.environ, TZ="UTC")).stdout
+              except (OSError, subprocess.TimeoutExpired):
+                  return ""
+          show = call("show", unit, "-p", "ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,"
+                      "ExecMainExitTimestamp,ExecMainExitTimestampMonotonic,ActiveEnterTimestamp,"
+                      "InactiveEnterTimestamp")
+          state = dict(line.split("=", 1) for line in show.splitlines() if "=" in line)
+          state["ExecMainStartEpoch"] = _utc_epoch(state.get("ExecMainStartTimestamp"))
+          jobs = [line.strip() for line in call("list-jobs", "--no-legend", unit).splitlines()
+                  if unit in line.split()]
+          out = {"unit": state, "jobs": jobs, "parsed": {}}
+          try:
+              with open(report, "rb") as f:
+                  raw = f.read()
+          except OSError as e:
+              out["report"] = {"msg": "not readable or missing: " + str(e)}
+              return out
+          out["report"] = {"content": base64.b64encode(raw).decode()}
+          try:
+              parsed = json.loads(raw)
+          except ValueError as e:
+              out["parsed"] = {"error": "not JSON: " + str(e)}
+              return out
+          if not isinstance(parsed, dict):
+              out["parsed"] = {"error": "not a JSON object"}
+              return out
+          checked_at = parsed.get("checked_at")
+          try:
+              checked_epoch = datetime.datetime.fromisoformat(checked_at).timestamp()
+          except (TypeError, ValueError):
+              checked_epoch = None
+          out["parsed"] = {"result": parsed.get("result"), "checked_at": checked_at,
+                           "checked_at_epoch": checked_epoch}
+          return out
+    # Every result fpgas-verify writes (SEVERITY in fpgas.online-test-designs
+    # verify/src/fpgas_online_verify/core.py): pass, changed, fail, missing,
+    # error. driver-bound, degraded and unconverted are results it gave
+    # before 2026-10-01 (test-designs 7f7d91d), which an older NFS root
+    # still writes.
+    verify_pi_fpga_verify_results: [pass, changed, fail, missing, error, driver-bound, degraded, unconverted]
   # Checks run as the login user; only the few that need root say so.
   # Every sudo costs ~5 s on the TCG-emulated Pi (and real time on a
   # loaded board), and almost every check here reads world-readable state.
@@ -108,7 +169,6 @@
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
-          fpga_verify_report = read("/run/fpgas-online/verify.json")
           # The tty behind the device tree's serial0 alias: the 40-pin header UART on
           # every Raspberry Pi. Not /dev/serial0, which udev points at the DT `console`
           # alias where there is one (ttyAMA10, the Pi 5's debug UART).
@@ -142,8 +202,6 @@
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
               "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
-              "fpga_verify_report": ({"content": base64.b64encode(fpga_verify_report).decode()}
-                                     if fpga_verify_report is not None else {"msg": "not readable or missing"}),
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
               "dt_model": ({"content": base64.b64encode(model).decode()} if model is not None else {}),
               "model": {"rc": 0 if model is not None else 1,
@@ -185,7 +243,6 @@
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
         verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
-        verify_pi_fpga_verify_report: "{{ verify_pi_state.fpga_verify_report }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
         verify_pi_model: "{{ verify_pi_state.model }}"
@@ -538,6 +595,13 @@
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
 
+    # --- The FPGA board: fpgas-verify checks it; Ansible checks fpgas-verify works ---
+    # Everything above is checked by Ansible itself (the NFS root and the Pi's system). The FPGA hardware
+    # is checked by fpgas-verify, a oneshot that runs once per boot; Ansible's part is to check that
+    # fpgas-verify itself works: it is enabled, this boot's run has finished, it exited as fpgas-verify
+    # does (0 for pass, 1 for any other result), and it wrote this boot's report with a result it
+    # defines. Only then is its verdict on the board judged, from that report.
+    #
     # The FPGA boot check, fpgas-verify (roles/onpi/tasks/fpga_verify.yml). Installed and enabled on every
     # Pi: that part is software and carries fpgas-apt like its install. It looks for the boards itself
     # (USB and PCI IDs, then a JTAG probe) and writes what it found to /run/fpgas-online/verify.json
@@ -557,6 +621,91 @@
           ({{ verify_pi_fpga_verify_enabled.stderr }}) -- no fpgas-verify mode package
           (fpgas-online-all-boards, or one board's) in the NFS root, or
           roles/onpi/tasks/fpga_verify.yml has not run against it
+
+    # verify-pi starts as soon as the Pi answers ssh, and after a boot (a PoE cycle, the VM test) that
+    # is often before fpgas-verify has finished: it takes ~33 s on the VM test's emulated Pi and minutes
+    # on a real board. Poll until this boot's run is over -- the unit no longer activating and no job
+    # queued for it -- up to the unit's own limit, TimeoutStartSec=1800 (180 polls, 10 s apart). A run
+    # already over is seen on the first poll, so this waits only when there is something to wait for.
+    # A finished run is "active (exited)" for a pass (RemainAfterExit=yes) and "failed" for any other
+    # result (exit 1): both are over. The report is read in the same poll, after the unit's state.
+    - name: Wait for this boot's FPGA check (fpgas-verify) to finish
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - "{{ verify_pi_fpga_verify_probe }}\nprint(json.dumps(fpga_verify()))"
+      changed_when: false
+      register: verify_pi_fpga_verify_wait
+      until: >-
+        ((verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json).unit.ActiveState | default('')
+        not in ['activating', 'deactivating', 'reloading']
+        and ((verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json).jobs | default([]) | length == 0
+      retries: 180
+      delay: 10
+      failed_when: false
+
+    - name: What this boot's fpgas-verify run left
+      vars:
+        fpga_verify_run: "{{ (verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json }}"
+      ansible.builtin.set_fact:
+        verify_pi_fpga_verify_run: "{{ fpga_verify_run }}"
+        verify_pi_fpga_verify_report: "{{ fpga_verify_run.report | default({'msg': 'not read'}) }}"
+
+    # Each way fpgas-verify itself can be seen not working, as a sentence; none means it works.
+    - name: Whether fpgas-verify ran and wrote this boot's report
+      vars:
+        unit: "{{ verify_pi_fpga_verify_run.unit | default({}) }}"
+        jobs: "{{ verify_pi_fpga_verify_run.jobs | default([]) }}"
+        parsed: "{{ verify_pi_fpga_verify_run.parsed | default({}) }}"
+        busy: "{{ unit.ActiveState | default('') in ['activating', 'deactivating', 'reloading'] or jobs | length > 0 }}"
+        ran: "{{ unit.ExecMainExitTimestampMonotonic | default('0') | int > 0 }}"
+        exit_ok: "{{ unit.Result | default('') in ['success', 'exit-code'] and unit.ExecMainStatus | default('') in ['0', '1'] }}"
+        known: "{{ parsed.result | default(none) in verify_pi_fpga_verify_results }}"
+        started: "{{ unit.ExecMainStartEpoch | default(none) }}"
+        checked: "{{ parsed.checked_at_epoch | default(none) }}"
+        state: >-
+          {{ unit.ActiveState | default('?') }} ({{ unit.SubState | default('?') }}), Result={{ unit.Result | default('?')
+          }}, ExecMainStatus={{ unit.ExecMainStatus | default('?') }}, started {{ unit.ExecMainStartTimestamp | default('-', true)
+          }}, exited {{ unit.ExecMainExitTimestamp | default('-', true) }}{{ ', jobs: ' ~ (jobs | join('; ')) if jobs else '' }}
+      ansible.builtin.set_fact:
+        verify_pi_fpga_verify_problems: >-
+          {{ ['fpgas-verify.service has not finished this boot after ' ~ verify_pi_fpga_verify_wait.attempts | default(1)
+              ~ ' polls 10 s apart, past its own TimeoutStartSec=1800: ' ~ state] if busy else [
+              '' if ran else 'fpgas-verify.service has not run this boot (no exit since boot): ' ~ state,
+              '' if not ran or exit_ok else 'fpgas-verify.service ended as fpgas-verify never does (it exits 0 for'
+              ~ ' pass, 1 for any other result; anything else means it crashed, timed out or was killed): ' ~ state,
+              '' if verify_pi_fpga_verify_report.content is defined else 'no /run/fpgas-online/verify.json ('
+              ~ verify_pi_fpga_verify_report.msg | default('') ~ ')',
+              'verify.json does not parse: ' ~ parsed.error if parsed.error is defined else '',
+              '' if parsed.error is defined or verify_pi_fpga_verify_report.content is not defined or known
+              else 'verify.json result ' ~ (parsed.result | default(none) | to_json) ~ ' is not one fpgas-verify defines ('
+              ~ verify_pi_fpga_verify_results | join(', ') ~ ')',
+              '' if parsed.error is defined or verify_pi_fpga_verify_report.content is not defined or not ran
+              or (checked is number and started is number and checked >= started)
+              else "verify.json is not from this boot's run: checked_at " ~ (parsed.checked_at | default(none) | to_json)
+              ~ ', the run started ' ~ unit.ExecMainStartTimestamp | default('?') ~ ' (a report left from before it)',
+              '' if not ran or not exit_ok or not known or (unit.ExecMainStatus == '0') == (parsed.result == 'pass')
+              else 'fpgas-verify exited ' ~ unit.ExecMainStatus ~ ' but its report says ' ~ parsed.result,
+            ] | select | list }}
+
+    # Only when the assert below is about to fail: fpgas-verify's own account (root: the system journal).
+    - name: Read fpgas-verify's status and journal
+      ansible.builtin.shell: >-
+        systemctl status --no-pager --lines=0 fpgas-verify.service;
+        journalctl --no-pager -b -n 30 -u fpgas-verify.service
+      become: true
+      changed_when: false
+      register: verify_pi_fpga_verify_journal
+      failed_when: false
+      when: verify_pi_fpga_verify_problems | length > 0
+
+    - name: Assert fpgas-verify ran and wrote this boot's report
+      ansible.builtin.assert:
+        that: verify_pi_fpga_verify_problems | length == 0
+        fail_msg: >-
+          fpgas-verify is not working: {{ verify_pi_fpga_verify_problems | join('; ') }}.
+          fpgas-verify: {{ verify_pi_fpga_verify_journal.stdout_lines | default([]) }}
 
     - name: What the FPGA boot check found
       ansible.builtin.set_fact:
