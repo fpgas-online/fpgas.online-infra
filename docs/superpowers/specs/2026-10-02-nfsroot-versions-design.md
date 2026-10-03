@@ -428,8 +428,8 @@ time and registry space; tweed's `--link-dest` saves the disk.
 ## Contract with nfsroot-watchdog (owned by the nfsroot-watchdog repo)
 
 For the nfsroot-watchdog session to check. It records that repo's decisions as
-of 2026-10-03: client rule and `version:` line in fpgas-online/nfsroot-watchdog
-PR #8, gateway commands in PR #9 (daf47b7); both open. Items marked
+of 2026-10-03 (fpgas-online/nfsroot-watchdog): client rule and `version:`
+line in PR #8 (merged, 1803480); gateway commands in PR #9. Items marked
 **[changed 2026-10-03]** differ in meaning from the previous text.
 
 **Published and orphan.** An entry of `versions/` is published if it has a
@@ -452,7 +452,8 @@ and `current`); `NAME` is an entry name in `versions/`.
 All print JSON and exit 1 with a message on a refusal, having written nothing.
 `--wait SECONDS` (default 300) bounds the wait for the flock on
 `BASE/nfsroot-generation.lock`. `current` is written as the relative link
-`versions/<name>`. Refusals: `NAME` has no `boot/` and `root/`; `current`
+`versions/<name>`. Refusals: `NAME` is not one word (clients read it as the
+marker's third field); `NAME` has no `boot/` and `root/`; `current`
 exists and is not a symlink; `NAME`'s version file names another version; any
 published entry (or `NAME`) holds `update.lock`; `publish` of a version
 published before (use `rollback`); `rollback` to a never-published entry;
