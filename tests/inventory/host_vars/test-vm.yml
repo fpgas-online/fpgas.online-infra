@@ -58,8 +58,6 @@ server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_i
 
 conference_name: test
 
-time_zone: UTC
-
 streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"

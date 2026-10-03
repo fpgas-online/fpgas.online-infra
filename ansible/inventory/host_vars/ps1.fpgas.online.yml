@@ -17,8 +17,6 @@ pib_network: 10.21.0
 
 user_name: videoteam
 
-time_zone: America/Chicago
-
 conference_name: pib
 
 domain_name: ps1.fpgas.online

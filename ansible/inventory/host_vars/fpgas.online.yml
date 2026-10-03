@@ -135,8 +135,6 @@ server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_i
 
 conference_name: pib
 
-time_zone: America/Los_Angeles
-
 # Public names of this server's web interface.  Both are served by ten64's
 # reverse proxy (HTTP) / SNI passthrough (HTTPS, so tweed terminates TLS with
 # its own Let's Encrypt certs; http-01 challenges flow through ten64's
