@@ -18,8 +18,8 @@ Not designed here:
 - The automatic reboot when the root changes: nfsroot-watchdog, owned by the
   nfsroot-watchdog repo. This spec states the contract it needs (see
   "Contract with nfsroot-watchdog").
-- Comparing a new CI image with the last one: owned by the CI side (see "CI
-  publishing").
+- The design of the CI image comparison: this series implements it, and only
+  its requirement is stated here (see "CI publishing").
 - Boards reporting their booted version through fleet self-registration:
   fpgas-online/fpgas.online-site#43 and fpgas-online/fpgas.online-setup-pi#17.
   Nothing here depends on them.
@@ -393,13 +393,13 @@ unreachable) or run on the current version with missing modules, which
 power-cycle. No board reboots for a new version sooner than 300 s after the
 swap (C4).
 
-## CI publishing (owned by the CI side)
+## CI publishing (part of this series)
 
 Tim: "When a new image has identical contents to an old image, the old image
 just gets a second revision number. That way there is an image for every
 change on origin/main." This lives in `tests/ci/nfsroot_publish.py` and the
-promote guard (`tests/ci/nfsroot_promote_guard.py`), owned by the CI session.
-Its requirement, as the CI side wrote it:
+promote guard (`tests/ci/nfsroot_promote_guard.py`), in this series; CI reviews
+it. The requirement:
 
 1. "Identical" means the whole published tree (`boot/` and `root/`) has the
    same set of paths, and each path has the same type, contents (SHA-256 of
@@ -411,7 +411,7 @@ Its requirement, as the CI side wrote it:
    `/var/log/*`, dpkg `*-old` files, `/var/cache/ldconfig/aux-cache`, man-db
    caches) and initramfs images embed their build time. Those paths are either
    excluded from the comparison (listed in one place next to the comparison
-   code) or normalised by the build; which one is the CI owner's choice.
+   code) or normalised by the build; which one is the implementer's choice.
 3. Compare against the last image published from main, not the promoted one.
    An identical result still goes through the VM test and promotion; it just
    reuses the digest.
@@ -801,6 +801,11 @@ to 7 are exercised only by the pytest job until step 8.
    reaches only boards on that one tree.
 10. tweed cut-over (key capture, then the migration). **Needs
     `inhibit`/`uninhibit`.** `list` is not required.
+11. CI publishing: the image comparison and one revision tag per main commit,
+    in `tests/ci/nfsroot_publish.py` and the promote guard, reviewed by CI. It
+    must stay consistent with `nfsroot_publish.py --reuse` (input-based) and
+    the `base-built` label in the #173 design (infra PR #181). It depends on
+    neither nfsroot-watchdog nor the tweed layout, so it can land at any point.
 
 ## Risks: other open PRs on the same files
 
