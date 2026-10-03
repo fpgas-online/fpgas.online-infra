@@ -23,7 +23,7 @@ apt_client_https_cache: ""
 # default pipelining, a download from deb.debian.org sometimes goes silent
 # until apt's 30 s timeout, then apt reconnects. Packet captures in the VM
 # test showed the silence on the runner's side of QEMU's network too, so it
-# comes from the mirror's end, not the VM. With 0, five VM test runs had
+# is not the VM: it is the mirror, its CDN or the path. With 0, five VM test runs had
 # none of these stalls; 22 of the 25 runs before had 1-5 of them (issue
 # #172, which has the measurements).
 apt_client_http_pipeline_depth: 0
