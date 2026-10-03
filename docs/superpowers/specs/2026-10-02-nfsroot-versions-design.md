@@ -501,8 +501,9 @@ published before (use `rollback`); `rollback` to a never-published entry;
 - **C4. Reboot timing [changed 2026-10-03: the user grace].** A board reboots
   no sooner than 300 s after a publish, in slot order from the marker's epoch
   (420 s plus 20 s per slot); the fleet is through about 39 minutes after the
-  publish. A due reboot is deferred up to `USER_GRACE` (3600 s) while `who`
-  shows sessions, web-terminal users included.
+  publish. An `uninhibit` release restarts the count the same way (C5). A due
+  reboot is deferred up to `USER_GRACE` (3600 s) while `who` shows sessions,
+  web-terminal users included.
 - **C5. The fleet inhibit is per entry [changed 2026-10-03: the commands].** A
   board sees `/etc/nfsroot-watchdog/inhibit` only in the version it booted.
   `nfsroot-generation inhibit`/`uninhibit` act on every published entry;
@@ -547,8 +548,9 @@ published before (use `rollback`); `rollback` to a never-published entry;
   prints `NFS root:`, `root generation:` and, with the version rule,
   `version:`: label, colon, whitespace, value, nothing else. That repo tests
   them; `verify-pi.yml` reads them.
-- Informational: the stale-probe trigger never fires under this layout and
-  stays for other sites. `roles/nfsroot_generation/tasks/install.yml` keeps
+- Informational: with #10's client the stale-probe trigger never fires under
+  this layout (a board on the legacy root during the cut-over still runs
+  today's client); it stays for other sites. `roles/nfsroot_generation/tasks/install.yml` keeps
   installing the server package in `site.yml`'s first play.
 
 The boundary, and what this repo promises:
@@ -571,9 +573,9 @@ Release order in that repo: the client rule with the `version:` line first
 `nfsroot-generation rollback /srv/nfs/rpi <name>` swaps `current` back to a
 published version and writes a fresh marker naming it into every published
 entry. Boards on the bad version reboot onto the target in their slots; boards
-already on the target stay put, as they do after a C7 restamp (C1, C2); only a
-board with an old client reboots once. No
-image pull and no site-layer run is needed. The trees share inodes, but no
+already on the target stay put, as they do after a C7 restamp (C1, C2). Only a
+board with an older client reboots once: with #8 but not #10 through the marker
+probe, older than #8 through the marker comparison. No image pull and no site-layer run is needed. The trees share inodes, but no
 write ever reaches a shared inode (see "immutable"), so the target is exactly
 as it was published. Rollback to `legacy-bookworm` is allowed: nothing writes
 the legacy tree after the cut-over, its cmdline names
