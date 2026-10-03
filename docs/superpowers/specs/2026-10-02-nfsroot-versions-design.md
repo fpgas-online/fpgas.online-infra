@@ -241,8 +241,8 @@ playbook includes the same file, so the two cannot drift. It does:
 3. Take the build lock, delete anything left under `work/`, choose the id,
    create `work/<id>/`.
 4. `img`: extract into `{{ nfs_root }}` = `work/<id>/`, an empty directory,
-   with today's unchanged command,
-   `rsync -aHAX --delete --numeric-ids --checksum <excludes> <mount>/<item>/ {{ nfs_root }}/<item>/`
+   with today's unchanged command, `rsync -aHAX --delete --numeric-ids
+   --checksum <excludes> <mount>/<item>/ {{ nfs_root }}/<item>/`
    (`pull.yml:106-112`). It keeps the image's mtimes; the `--delete` and the
    four excludes have nothing to act on in an empty directory.
 5. Write the keys from the vault into `work/<id>/root` (see "Keys").
@@ -441,8 +441,8 @@ digest it is given.
 
 For the nfsroot-watchdog session to check. It records that repo's decisions as
 of 2026-10-03 (fpgas-online/nfsroot-watchdog): client rule and `version:`
-line in PR #8 (merged, 1803480); gateway commands in PR #9; the uninhibit and
-stale-probe fixes in PR #10 (stacked on #9, not merged). The details of the
+line in PR #8 (merged, 1803480); gateway commands in PR #9 (merged, ab3b261);
+the uninhibit and stale-probe fixes in PR #10 (head d6378ed, not merged). The details of the
 commands are in PR #9's README; this section keeps what infra relies on. Items
 marked **[changed 2026-10-03]** differ in meaning from the previous text.
 
@@ -477,9 +477,10 @@ published before (use `rollback`); `rollback` to a never-published entry;
 - **C1. The client gains one backward-compatible rule (C2) and is otherwise
   unchanged.** It reads the lock, the marker and the fleet inhibit as
   `$LOWER$FILE` (plain NFS, not the overlay), so from the version it booted.
-  **[changed 2026-10-03, PR #10]** Where the version file is readable, the
-  client does not probe the marker through the overlay, so a replaced marker
-  never triggers its stale-probe.
+  **[changed 2026-10-03, PR #10]** When the version rule actually ran (the
+  version file was read and the marker named a version), the client does not
+  probe the marker through the overlay, so a replaced marker never triggers
+  its stale-probe.
   The client package installs nothing under `/etc/nfsroot-watchdog`, so the
   image has none of these files.
 - **C2. Each version says who it is; the marker says who is current.**
@@ -507,23 +508,32 @@ published before (use `rollback`); `rollback` to a never-published entry;
   `nfsroot-generation inhibit`/`uninhibit` act on every published entry;
   `publish` applies the current state to the entry it publishes. **[changed
   2026-10-03, PR #10]** `uninhibit` first writes a fresh marker (same current
-  version, new epoch) into every published entry while the inhibit still
-  holds, then removes the inhibit, so the stagger restarts from the release;
-  with nothing held it writes nothing. Its JSON has `marker` (the new one, or
-  null). Operators use these, not `touch`. On a single-root site
-  `touch .../inhibit` keeps the old weakness (a release reboots the fleet
-  together); that is out of scope.
+  version, new epoch) into every published entry except the current one while
+  the inhibit still holds, then removes the inhibit, so the stagger restarts
+  from the release. Boards on the current version stay put anyway, and one
+  there with a client older than #10 would read a replaced marker as stale and
+  reboot. With nothing held it writes nothing; if `current` names no published
+  version it still releases and warns (JSON `warning`, and stderr) that the
+  stagger was not restarted. Its JSON has `marker` (the new one, or null).
+  Operators use these, not `touch`. On a single-root site `touch .../inhibit`
+  keeps the old weakness (a release reboots the fleet together); that is out of
+  scope.
+- **Invariant [changed 2026-10-03].** The markers in all published entries
+  name the same current version (their third field). Their epochs may differ,
+  for example after an `uninhibit`, so markers are not compared whole;
+  `publish`'s completeness check also compares only the named version, and a
+  re-run stays a no-op.
 - **C6. The legacy root is an entry.** It is the symlink
   `versions/legacy-bookworm -> ../bookworm`, created by this repo in the
   migration and removed with the legacy tree; no argument or config names it.
   `rollback` to it is allowed.
 - **C7. `publish` replaces `begin`/`end` on versioned sites, and a re-run
   repairs a failed publish [changed 2026-10-03].** Re-running `publish` for the
-  `NAME` that `current` already names is a no-op if every published entry has
-  the marker. If the earlier run stopped part-way, it reuses that marker when
-  it is at most 60 s old (Ansible's immediate retries) and otherwise stamps
-  afresh, so that boards do not all count their slot from an old epoch and
-  reboot together. `begin`/`end`/`scan`/`run` stay for single-root sites.
+  `NAME` that `current` already names is a no-op if every published entry's
+  marker names it. If the earlier run stopped part-way, it reuses that marker
+  when it is at most 60 s old (Ansible's immediate retries) and otherwise
+  stamps afresh, so that boards do not all count their slot from an old epoch
+  and reboot together. `begin`/`end`/`scan`/`run` stay for single-root sites.
 - **C8. Deleting a version heals but is not harmless [changed 2026-10-03: the
   range].** A board whose version directory is deleted gets ESTALE on its mount
   root and reboots after two confirming checks plus its slot delay, bypassing
@@ -677,12 +687,13 @@ dist, nfs_root, nbp, pig) come after this work and rebase over it.
 ## Verification
 
 `verify-server.yml` on a versioned site: `current` is a symlink to an entry
-with `boot/` and `root/`; every real version directory's cmdline files name
-its own `root`; every published entry holds the same marker and a version file
-with its own name; orphans are listed, not failed; no entry holds an
-`update.lock` (today's check at 193-204, per entry); `work/` is empty and
-`work.lock` is gone; `/etc/exports` and `exportfs -v` have the `versions`
-line. The existing checks read `{{ nfs_root }}`, which is `current`.
+with `boot/` and `root/`; every real version directory's cmdline files name its
+own `root`; every published entry's marker names the current version (third
+field only; epochs may differ) and its version file holds its own name; orphans
+are listed, not failed; no entry holds an `update.lock` (today's check at
+193-204, per entry); `work/` is empty and `work.lock` is gone; `/etc/exports`
+and `exportfs -v` have the `versions` line. The existing checks read `{{
+nfs_root }}`, which is `current`.
 
 `verify-pi.yml`: the task that runs `nfsroot-watchdog status`
 (`verify-pi.yml:358-366`, asserted at `:373`) gains these checks, all from that
@@ -780,7 +791,7 @@ passes `verify-pi.yml`. Added:
    the offset recorded before the cycle, or from the start if the file got
    shorter (QEMU reopens it).
 4. While the Pi reboots, a server-side script checks that `current` names B,
-   all markers are equal and TFTP serves B's cmdline; once step 3 has seen B,
+   every marker names B and TFTP serves B's cmdline; once step 3 has seen B,
    it rolls back to A and repeats the checks. The Pi is not rebooted again.
 
 Estimate on the critical path: about 20-40 s (steps 2 to 4), plus any time by
