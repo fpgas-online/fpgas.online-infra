@@ -19,7 +19,14 @@ FIXPI = REPO / "ansible" / "roles" / "fixpi"
 
 
 def test_fixpi_has_no_literal_nfs_root_path():
-    files = [p for p in FIXPI.rglob("*") if p.is_file() and p.name != "README.md"]
+    # Only what Ansible runs or installs; prose (README.md, notes.txt) may
+    # name the path.
+    files = [
+        p
+        for sub in ("tasks", "templates", "files")
+        for p in (FIXPI / sub).rglob("*")
+        if p.is_file()
+    ]
     assert files, f"no files under {FIXPI}"
     found = [
         f"{p.relative_to(REPO)}:{n}"
