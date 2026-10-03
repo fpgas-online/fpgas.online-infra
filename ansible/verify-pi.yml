@@ -5,7 +5,6 @@
 #
 # Usage:
 #   uv run ansible-playbook ansible/verify-pi.yml -i tests/inventory/test-hosts --limit pi_live
-#   uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory --limit pi
 #   # a live Pi by address (the static inventory has no per-Pi hosts):
 #   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
@@ -17,7 +16,7 @@
 # was skipped.
 
 - name: Verify running Pi
-  hosts: "{{ verify_pi_hosts | default('pi_live:pi') }}"
+  hosts: "{{ verify_pi_hosts | default('pi_live') }}"
   vars:
     # The camera fpgas-cam would use, found the way it finds one
     # (find_camera() in fpgas.online-cam's gst-libcam.sh): a CSI sensor the

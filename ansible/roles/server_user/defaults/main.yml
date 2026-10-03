@@ -27,5 +27,5 @@ server_user_ssh_import_ids: []
 
 # Passwordless sudo for the account (/etc/sudoers.d/<user_name>, as
 # roles/operators does for tim and carl). Off by default: a pure service
-# account (ps1's, gator's videoteam) must not gain root.
+# account (ps1's videoteam) must not gain root.
 server_user_sudo: false

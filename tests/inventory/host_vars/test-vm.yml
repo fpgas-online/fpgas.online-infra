@@ -47,8 +47,6 @@ pib_network: "10.21"
 pib_network6_base: "2001:db8:a137:21"  # RFC 3849 doc range; test only
 pib_domain: test.fpgas.online
 
-firewall_internal_networks: [10.21.0.0/24]
-
 # The server's own account, named and keyed as on tweed. The VM boots with
 # it under an old name (tests/vm/cloud_init.py: a keypair and a service
 # running as `testuser`), so every run exercises roles/server_user's
@@ -59,12 +57,6 @@ server_user_sudo: true
 server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: test
-room_name: test
-
-time_zone: UTC
-
-common_name: test.fpgas.online
-subject_alt_names: []
 
 streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
@@ -81,8 +73,6 @@ fixture_path: fpgas.online.json
 # fpgas-online-setup-pi deb reaches the apt repo).
 fleet_broker: true
 fleet_site: test
-
-switch_base: base
 
 # `nos`/`mpi_port`/`mpi_ip` removed: those are the legacy MAC-table scheme's
 # fields (see ansible/roles/site/tasks/snmp.yml, ansible/roles/fixpi), dropped
