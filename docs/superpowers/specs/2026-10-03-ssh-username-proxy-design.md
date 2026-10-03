@@ -76,16 +76,17 @@ tests that must pass before each phase merges.
 | SSHFP has no port dimension. OpenSSH looks SSHFP up at the connection host name only. | RFC 4255; `dns.c` `verify_host_key_dns()` | Each board needs its own DNS name. |
 | The server sends its host key during key exchange, before the client sends a username. | RFC 4253 §8, RFC 4252 §5 | The proxy cannot choose a host key per board. It presents one key to every client. |
 | A client's public-key signature covers the session identifier, which differs on each side of a proxy. | RFC 4252 §7 | The proxy cannot relay public-key logins. It checks the client's key itself and logs in to the board with its own key (sshpiper's "mapping key"). Passwords are relayed as they are. sshpiper's YAML plugin offers only password and public-key logins. |
-| `UpdateHostKeys` defaults to `yes` (OpenSSH 8.5 and later) unless `VerifyHostKeyDNS` is on or a custom `UserKnownHostsFile` is set. After login the client treats known_hosts keys for that name that the server does not list as deprecated, and removes them. | `readconf.c:2950-2957`; `clientloop.c:2189-2196` and the removal path after it | If the two paths presented different keys under one name, each login would delete the other path's key and the user would be prompted again, forever. The proxy and the boards must present the same key. |
+| `UpdateHostKeys` defaults to `yes` (OpenSSH 8.5 and later) unless `VerifyHostKeyDNS` is on or a custom `UserKnownHostsFile` is set. After login the client treats known_hosts keys for that name that the server does not list as deprecated, and removes them, unless one of the keys also appears under another known_hosts name. | `readconf.c:2950-2957`; `clientloop.c:2189-2196`, `check_old_keys_othernames()` and the removal path after it | If the two paths presented different keys under one name, a user who knows only that one name would lose one path's key on each login with the other path and be prompted again, repeatedly. The proxy and the boards must present the same key. |
 | An authoritative DNS server sees the resolver, not the client. The client-subnet option (RFC 7871) is optional and describes the path to the resolver. | Live `o-o.myaddr.l.google.com TXT` queries via 8.8.8.8, 2001:4860:4860::8888, 1.1.1.1 and a site resolver, 2026-10-03 | DNS cannot hand different SSHFP records to IPv4 and IPv6 clients. One key on both paths makes that unnecessary. |
-| sshd has no PROXY-protocol support. | OpenSSH source | The only way for a board to see the client's address on the IPv4 path is IP-level transparent proxying (phase 2). |
+| sshd has no PROXY-protocol support. sshpiper accepts PROXY headers from its clients (`--allowed-proxy-addresses`) but never sends them upstream. | OpenSSH source; sshpiper `cmd/sshpiperd/main.go` | The only way for a board to see the client's address on the IPv4 path is IP-level transparent proxying (phase 2). |
+| Since OpenSSH 9.8, sshd penalises a source address after repeated failed logins (`PerSourcePenalties`, on by default, nothing exempt). The boards run OpenSSH 10.0 (trixie). | `sshd_config(5)` | In phase 1 every proxied login reaches the board from the gateway's address, as do the web terminal, the upload page and the jump route. A few wrong passwords through the proxy would make that board refuse the gateway for up to 10 minutes. |
 | `VerifyHostKeyDNS` defaults to `no`. A "secure" SSHFP answer needs a DNSSEC-validated response and, with glibc 2.31 and later, `options trust-ad` in resolv.conf. | `readconf.c:2977`, `ssh_config(5)`, glibc 2.31 NEWS | SSHFP helps only users who opt in. Everyone else gets one ordinary first-connection prompt. |
 
 An earlier draft gave the proxy its own ECDSA key and split the SSHFP set by
 algorithm. OpenSSH does compare only same-algorithm SSHFP records
 (`dns.c:259-281`), so the DNS side of that works, but `UpdateHostKeys` (row
-five above) makes it churn known_hosts for every default client. It is
-recorded under decision D2 as the rejected alternative.
+five above) makes it churn known_hosts for default clients that use a single
+board. It is recorded under decision D2 as the rejected alternative.
 
 ## Current state this builds on
 
@@ -140,19 +141,26 @@ For each board (example `pi-sw1-p7`). `<site-domain>` is decision D4.
 | `private-ipv4.pi-sw1-p7.<site-domain>` | A = `10.21.1.7` | same | Inside the site |
 | `ipv4.gw.<site-domain>` | A = site public IPv4 | — | The proxy |
 
-Every one of those names also carries the same record,
-`SSHFP 4 2 <fleet Ed25519 SHA-256>`, in both views. Because the key is the same
-on every path, split horizon changes only addresses and CNAME targets, never
+Every name that is not a CNAME also carries the same record,
+`SSHFP 4 2 <fleet Ed25519 SHA-256>`, in both views. A CNAME cannot hold other
+records (RFC 2181 §10.1); OpenSSH's SSHFP query follows it and gets the
+target's record, which is the same one. Because the key is the same on every
+path, split horizon changes only addresses and CNAME targets, never
 fingerprints.
 
 Notes:
 
 - **The login name is not in DNS.** `pi-sw1-p7@` is only what the user types.
   The proxy routes on it.
+- **Who answers the internal view.** The gateway's dnsmasq is authoritative
+  for `pib_domain`, not for `<site-domain>`. The internal view of
+  `<site-domain>` (the private A records and internal CNAME targets) has to
+  come from the site resolver, as an internal zone or override for
+  `<site-domain>`. That is part of decision D4.
 - **Signing.** SSHFP is "secure" only from a DNSSEC-signed zone with a DS
-  record in a signed parent. The external view is decision D4. The internal
-  view is answered by the site resolver; until it is signed too, users inside
-  the site get the ordinary prompt even with `VerifyHostKeyDNS yes`.
+  record in a signed parent. The external view is decision D4. Until the
+  internal view is signed too, users inside the site get the ordinary prompt
+  even with `VerifyHostKeyDNS yes`.
 - **Generated, not hand-written.** Names and addresses come from
   `switches | port_vlan_map`. The fingerprint is not in the inventory: the
   generator reads it from the NFS root's `ssh_host_ed25519_key.pub` on every
@@ -173,22 +181,31 @@ Notes:
 - **The proxy presents the fleet's Ed25519 host key.** The gateway already
   holds it in the NFS root. The converge copies it into the proxy's
   configuration directory, owned by the proxy's service user with mode 0600,
-  and re-copies it whenever it changes.
+  re-copies it whenever it changes, and passes it explicitly with
+  `--server-key /etc/sshpiper/ssh_host_ed25519_key`. The flag must be set:
+  sshpiperd's default is `/etc/ssh/ssh_host_ed25519_key`, the gateway's own
+  sshd key, and with that default the proxy would silently present the wrong
+  key.
 - **Boards offer Ed25519 only.** A fixpi sshd drop-in sets
   `HostKey /etc/ssh/ssh_host_ed25519_key`. The RSA and ECDSA key files stay
-  on disk but are not offered. This matters for two reasons:
-  - After login, sshd announces its host keys (`hostkeys-00@openssh.com`). If a
-    board announced RSA and ECDSA keys that the proxy does not present, a client
-    on the proxied path would try to learn them. The proof the board signs
-    covers the board's session, not the client's, so the client would report a
-    bad signature.
-  - The sshpiper README notes that sshpiper does not negotiate host-key
-    algorithms against its `known_hosts`, so a board offering exactly one key
-    type keeps the upstream check simple.
-- **The proxy is checked to see whether it forwards `hostkeys-00@openssh.com`
-  at all.** If it does, with Ed25519-only boards the announcement lists exactly
-  the key the client already has, which is harmless. If it does not, nothing
-  changes.
+  on disk but are not offered. Every path then presents exactly one key,
+  whatever the client's algorithm preference. Clients that exclude Ed25519
+  (for example in FIPS mode) cannot connect on either path.
+- **The proxy drops the board's host-key announcement.** After login sshd
+  announces its host keys (`hostkeys-00@openssh.com`), and sshpiper, which is a
+  packet pipe after authentication, forwards it to the client by default. The
+  proxy runs with `--drop-hostkeys-message`, so the proxied path never touches
+  known_hosts. Without the flag, Ed25519-only boards would still be harmless:
+  the client already knows the one announced key. If a board ever announced
+  RSA or ECDSA again, the client would ask for a proof, which the board signs
+  over its own session, and the client would log "server gave bad signature"
+  and abandon the update.
+- **Rotation.** sshd loads its host keys when it starts, so after the NFS
+  root's key changes (#126) booted boards keep the old key until their
+  staggered reboot, up to about 33 minutes. During that window the proxy pins
+  both the old and the new board key in `known_hosts_data`, and the proxy's own
+  key and the SSHFP records switch to the new key when the reboot wave starts.
+  Clients see the key change once, as they would without the proxy.
 
 ### Trust: what the host key proves
 
@@ -227,13 +244,25 @@ that at Welland:
 Recommended (D1, D6):
 
 - The proxy listens on its own port (`ssh_proxy_listen_port`, for example
-  2022), bound to the gateway's uplink address only.
+  2022), bound to the gateway's uplink address (`--address`), so the unit
+  starts `After=network-online.target`.
 - The input rule accepts that port only on `iifname {{ eth_uplink }}`. Boards
-  must never reach the proxy, or a board user could log in as `pi-sw2-p5` and
-  reach another board, bypassing the `v*` to `v*` drop.
+  must never reach the proxy. Every board is reachable from the internet
+  anyway, so the point is not board-to-board access as such: connections
+  that come from the proxy carry the gateway's identity (`10.21.0.1`, which
+  the boards exempt from login penalties, below) and, in phase 2, the
+  transparent path. Neither should be in a board user's hands.
 - The gateway's sshd stays on port 22, unchanged.
 - The site router forwards public IPv4 port 22 to the proxy port.
-- Unknown usernames are refused, not forwarded.
+- Unknown usernames are not forwarded anywhere. sshpiper offers every client
+  the union of all pipes' methods, so an unknown name (or `pi@`) is offered a
+  password prompt and refused after it ("no matching pipe"). That also means
+  the proxy does not reveal which names exist.
+- The yaml plugin refuses configuration files with group or other permission
+  bits, so the generated files are mode 0600.
+- sshpiper's `failtoban` plugin is chained after the yaml plugin
+  (`sshpiperd yaml ... -- failtoban`). It sees the real client address, so a
+  password guesser is blocked at the proxy instead of at the boards.
 
 **Routing rules** are generated from `switches | port_vlan_map`: one pair per
 access port (88 at Welland, empty ports included), no regex. Two pipes may
@@ -276,7 +305,10 @@ logs in end to end.
   trust for `pi` (the operators' GitHub keys, the server-user key, the
   controller key and the jump account key). The proxy then logs in with its
   mapping key. fixpi adds the mapping key's public half as a new key source,
-  `ssh_proxy`, for `pi` only (like `jump`), never for root.
+  `ssh_proxy`, for `pi` only (like `jump`), never for root. Only those keys
+  pass the proxy: an ordinary user's own key cannot work over IPv4 (the proxy
+  has no way to know it), though it would work over IPv6 if the user adds it
+  to the board. Ordinary users log in with the password on IPv4.
 - **What does not work through the proxy:**
   - `pi@` and `root@`, because the proxy only knows `pi-sw<S>-p<P>` names and
     always logs in as `pi`. `pi@pi-sw1-p7.<site-domain>` therefore works over
@@ -296,6 +328,14 @@ logs in end to end.
 **Board side** (fixpi):
 
 - The Ed25519-only `HostKey` drop-in.
+- **Exempt the gateway from login penalties.** The same drop-in sets
+  `PerSourcePenaltyExemptList` to the gateway's board-side address
+  (`{{ pib_network }}.0.1`). Otherwise a few failed logins through the proxy
+  would lock the web terminal, the upload page, the jump route and every
+  other proxied user out of that board for up to 10 minutes. Brute-force
+  protection for the IPv4 path moves to the proxy (`failtoban`). After phase 2
+  proxied logins carry the client's address and are penalised per client
+  again; the exemption stays for the gateway's own connections.
 - **Login aliases.** sshd has no username-alias option and looks the account up
   itself, so fixpi adds one passwd entry per access port. Each shares `pi`'s
   uid, gid, home and shell, and gets a shadow entry with the same `pi_pw` hash,
@@ -317,9 +357,15 @@ logs in end to end.
     Verification checks this rather than assuming it.
   - The proxy rewrites the name to `pi`, so the aliases matter only on the
     direct IPv6 path, and inside the site under D3.
-  - An image pull replaces `/etc/passwd`, `/etc/shadow` and `/etc/group`, so
-    fixpi re-applies the aliases after every pull, as it already does for
-    `pi`'s hash.
+  - The aliases also go into `/etc/gshadow` group member lists, so `grpck`
+    stays clean.
+  - An image pull replaces `/etc/passwd`, `/etc/shadow`, `/etc/group` and
+    `/etc/gshadow`, so fixpi re-applies the aliases after every pull, as it
+    already does for `pi`'s hash.
+  - Every write is idempotent: a file is rewritten only when its content
+    differs. A rewritten `/etc/shadow` makes booted boards refuse SSH until
+    they reboot (access.md), so a converge that rewrote it every time would
+    reboot the fleet every time.
 
 **What reboots the fleet.** Each of these changes a file in the shared root:
 
@@ -332,9 +378,11 @@ logs in end to end.
 - regenerating the mapping key, for example after a gateway reinstall.
 
 **DNS.** Phase 1 publishes the records above. Hosting and signing the external
-view is decision D4. For the internal view, `dnsmasq_auth_subnet` gains the
-boards' IPv6 /56 so the delegated zone answers AAAA records, and `dns-rr=`
-lines carry the SSHFP records.
+view is decision D4. In the gateway's own zone (`pib_domain`), a new variable
+adds the boards' IPv6 /56 to the `auth-zone=` line only, so the delegated zone
+answers AAAA records. `dnsmasq_auth_subnet` itself is left alone, because it
+also feeds `domain=`, which takes a single range. `dns-rr=` lines carry the
+SSHFP records there.
 
 **What the board pages show.** fpgas.online-gw serves `/api/boards`, and its
 `ssh` object gains `user` and `host`:
@@ -366,14 +414,18 @@ The mechanism is Linux transparent proxying, the same one as nginx
 
 1. **The proxy dials the board from the client's address.**
    - Its upstream socket sets `IP_TRANSPARENT` and binds to the client's
-     address before connecting.
-   - sshpiper has no such option: its README documents no transparent mode, no
-     PROXY protocol and no client-IP preservation. The package therefore carries
-     a small patch, offered upstream: a `net.Dialer` with `LocalAddr` set to the
-     downstream peer and a `Control` hook (which runs before `bind`) that sets
+     address, with port 0, before connecting. Port 0 lets the kernel pick the
+     source port, which avoids `EADDRINUSE` on quick reconnects.
+   - sshpiper has no such option. It dials upstream with a bare
+     `net.Dial(network, addr)` (`cmd/sshpiperd/internal/plugin/grpc.go:418` at
+     the time of writing), and it never sends PROXY headers upstream, which sshd
+     could not use anyway. The package therefore carries a small patch there,
+     offered upstream: a `net.Dialer` with `LocalAddr` set to the downstream
+     peer's address and a `Control` hook (which runs before `bind`) that sets
      `IP_TRANSPARENT`.
-   - The service gains `CAP_NET_ADMIN` (`CAP_NET_RAW` also satisfies the kernel
-     check) through `AmbientCapabilities=` and nothing else.
+   - The service gains `CAP_NET_RAW` through `AmbientCapabilities=` and nothing
+     else. `CAP_NET_ADMIN` also satisfies the kernel check, but it would let a
+     compromised proxy rewrite the gateway's firewall and routes.
 2. **The board's replies come back to the proxy instead of going out to the
    internet.**
    - The gateway is every board's default route, so the replies pass through
@@ -395,8 +447,11 @@ The mechanism is Linux transparent proxying, the same one as nginx
      ```
 
    - A policy route, owned by systemd-networkd so it survives restarts: a
-     `.network` for `lo` with a routing-policy rule `FirewallMark=0x1 Table=100`
-     and a route `Type=local Destination=0.0.0.0/0 Table=100`.
+     `.network` for `lo` with `[RoutingPolicyRule] FirewallMark=1 Table=100
+     Family=ipv4` and `[Route] Type=local Destination=0.0.0.0/0 Table=100`.
+   - The diverted replies then pass the input chain through
+     `internal_networks` (source `10.21.0.0/16`), and the masquerade rule cannot
+     match them.
 3. **Nothing else changes.** No masquerade applies, because these packets never
    leave through the uplink, and the board needs no change.
 
@@ -420,7 +475,7 @@ These are Tim's calls. Each lists the recommendation.
 
 | # | Decision | Recommendation |
 |---|---|---|
-| D1 | Does the site router forward public IPv4 port 22 to the proxy, moving its own sshd off public port 22? Without this, the IPv4 path needs `-p` again and the board names cannot carry the public A record. It changes the documented outside-IPv4 route for operators (access.md uses `-J <you>@<site router>`). | Yes. Operators reach the router's sshd on another port or over IPv6. |
+| D1 | Does the site router forward public IPv4 port 22 to the proxy, moving its own sshd off public port 22? Without this, the IPv4 path needs `-p` again and the board names cannot carry the public A record. It changes the documented outside-IPv4 route for operators (access.md uses `-J <you>@<site router>`), and anyone who has used the router's public name or address on port 22 gets a hard "REMOTE HOST IDENTIFICATION HAS CHANGED" failure there, because the fleet key now answers. | Yes. Operators reach the router's sshd on another port or over IPv6, and are told about the key change beforehand. |
 | D2 | Which host key does the proxy present: the fleet's Ed25519 key, or its own ECDSA key with an algorithm-split SSHFP set? | The fleet key. The algorithm split makes `UpdateHostKeys` delete one path's key on every login with the other path, so default clients would be re-prompted forever. It also puts the proxy behind the same trust limits as the boards. |
 | D3 | How do clients inside the site reach a board over IPv4? The internal A record needs either a forward rule from the site's networks (`ssh_direct_ipv4_sources`) to `v*` on tcp/22, or no internal A record (IPv6 only inside the site), or router hairpin NAT for port 22. | Forward rule from listed site networks: it is what the split-horizon design assumes. |
 | D4 | Which public zone is `<site-domain>`, who serves it, and is it DNSSEC-signed with a DS in a signed `fpgas.online`? | A signed `welland.fpgas.online`, generated from the inventory and the NFS root's host key. |
@@ -434,7 +489,7 @@ Before phase 1 merges, on one board and in the CI VM:
 
 1. **One key.**
    - `ssh-keyscan` of a board and of the proxy each return exactly one key,
-     the same Ed25519 key.
+     and both match the NFS root's `ssh_host_ed25519_key.pub`.
    - With a default `ssh_config`, IPv4 → IPv6 → IPv6 → IPv4 logins prompt only
      on the first connection, and known_hosts holds one line for the name after
      each step. This is the `UpdateHostKeys` case.
@@ -448,9 +503,13 @@ Before phase 1 merges, on one board and in the CI VM:
 4. **Proxy.**
    - Password and public-key logins through the proxy reach the right board as
      `pi`.
-   - An unknown username is refused, as is `pi@`.
+   - An unknown username and `pi@` are refused after the password prompt.
    - scp, sftp, port forwarding and agent forwarding work through it.
    - A board cannot connect to the proxy port.
+   - After several failed proxied logins to one board, the web terminal, the
+     jump route and a correct proxied login to that board still work
+     (`PerSourcePenalties` exemption), and the proxy's `failtoban` blocks the
+     failing client.
 5. **Nothing else moved.**
    - The gateway's sshd, the jump account, Ansible's route and the web terminal
      (which logs in to `pi@10.21.S.P` with the password) are unchanged.
