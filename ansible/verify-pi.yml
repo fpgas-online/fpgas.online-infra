@@ -61,8 +61,8 @@
               return {"error": str(e)}
           return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
     # This boot's run of fpgas-verify, as the FPGA checks below poll it: the
-    # unit's state (systemctl show, with TZ=UTC so its wall-clock timestamps
-    # parse), any job still queued for it, and then -- read after those, so
+    # unit's state (systemctl show, with TZ=UTC and LC_ALL=C so its wall-clock
+    # timestamps parse), any job still queued for it, and then -- read after those, so
     # the report of a run seen finished is the one that run wrote --
     # /run/fpgas-online/verify.json, with the fields the checks need parsed
     # here, so that a garbled report is a finding rather than a template
@@ -81,7 +81,7 @@
           def call(*argv):
               try:
                   return subprocess.run([systemctl, *argv], capture_output=True, text=True, timeout=60,
-                                        env=dict(os.environ, TZ="UTC")).stdout
+                                        env=dict(os.environ, TZ="UTC", LC_ALL="C")).stdout
               except (OSError, subprocess.TimeoutExpired):
                   return ""
           show = call("show", unit, "-p", "ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,"
@@ -89,6 +89,7 @@
                       "InactiveEnterTimestamp")
           state = dict(line.split("=", 1) for line in show.splitlines() if "=" in line)
           state["ExecMainStartEpoch"] = _utc_epoch(state.get("ExecMainStartTimestamp"))
+          state["ExecMainExitEpoch"] = _utc_epoch(state.get("ExecMainExitTimestamp"))
           jobs = [line.strip() for line in call("list-jobs", "--no-legend", unit).splitlines()
                   if unit in line.split()]
           out = {"unit": state, "jobs": jobs, "parsed": {}}
@@ -637,20 +638,32 @@
           - "{{ verify_pi_fpga_verify_probe }}\nprint(json.dumps(fpga_verify()))"
       changed_when: false
       register: verify_pi_fpga_verify_wait
+      # A probe that fails (a traceback, no output) stops the wait at once, and the assert below says so.
       until: >-
-        ((verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json).unit.ActiveState | default('')
-        not in ['activating', 'deactivating', 'reloading']
-        and ((verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json).jobs | default([]) | length == 0
+        verify_pi_fpga_verify_wait.rc | default(1) != 0
+        or not (verify_pi_fpga_verify_wait.stdout | default('')).startswith('{"unit"')
+        or not (verify_pi_fpga_verify_wait.stdout | default('')).endswith('}')
+        or ((verify_pi_fpga_verify_wait.stdout | from_json).unit.ActiveState | default('')
+            not in ['activating', 'deactivating', 'reloading']
+            and (verify_pi_fpga_verify_wait.stdout | from_json).jobs | default([]) | length == 0)
       retries: 180
       delay: 10
       failed_when: false
 
     - name: What this boot's fpgas-verify run left
       vars:
-        fpga_verify_run: "{{ (verify_pi_fpga_verify_wait.stdout | default('', true) or '{}') | from_json }}"
+        fpga_verify_out: "{{ verify_pi_fpga_verify_wait.stdout | default('') }}"
+        fpga_verify_probe_ok: >-
+          {{ verify_pi_fpga_verify_wait.rc | default(1) == 0
+             and fpga_verify_out.startswith('{"unit"') and fpga_verify_out.endswith('}') }}
+        fpga_verify_run: "{{ fpga_verify_out | from_json if fpga_verify_probe_ok else {} }}"
       ansible.builtin.set_fact:
         verify_pi_fpga_verify_run: "{{ fpga_verify_run }}"
         verify_pi_fpga_verify_report: "{{ fpga_verify_run.report | default({'msg': 'not read'}) }}"
+        verify_pi_fpga_verify_probe_error: >-
+          {{ '' if fpga_verify_probe_ok else 'rc ' ~ verify_pi_fpga_verify_wait.rc | default('-') ~ ', stdout '
+             ~ (fpga_verify_out | to_json) ~ ', stderr ' ~ ((verify_pi_fpga_verify_wait.stderr | default('', true))
+             or (verify_pi_fpga_verify_wait.msg | default(''))) | to_json }}
 
     # Each way fpgas-verify itself can be seen not working, as a sentence; none means it works.
     - name: Whether fpgas-verify ran and wrote this boot's report
@@ -663,14 +676,22 @@
         exit_ok: "{{ unit.Result | default('') in ['success', 'exit-code'] and unit.ExecMainStatus | default('') in ['0', '1'] }}"
         known: "{{ parsed.result | default(none) in verify_pi_fpga_verify_results }}"
         started: "{{ unit.ExecMainStartEpoch | default(none) }}"
+        exited: "{{ unit.ExecMainExitEpoch | default(none) }}"
         checked: "{{ parsed.checked_at_epoch | default(none) }}"
+        # A report checked_at after the boot run exited is a later manual run's (`sudo fpgas-verify
+        # --update`, docs/verify.md), which rewrites verify.json: its result says nothing about the boot
+        # run's exit code. Both are whole seconds and the boot run's checked_at is when it started, so a
+        # report from the same second as the exit is the boot run's.
+        later_run: "{{ checked is number and exited is number and checked > exited }}"
         state: >-
           {{ unit.ActiveState | default('?') }} ({{ unit.SubState | default('?') }}), Result={{ unit.Result | default('?')
           }}, ExecMainStatus={{ unit.ExecMainStatus | default('?') }}, started {{ unit.ExecMainStartTimestamp | default('-', true)
           }}, exited {{ unit.ExecMainExitTimestamp | default('-', true) }}{{ ', jobs: ' ~ (jobs | join('; ')) if jobs else '' }}
       ansible.builtin.set_fact:
         verify_pi_fpga_verify_problems: >-
-          {{ ['fpgas-verify.service has not finished this boot after ' ~ verify_pi_fpga_verify_wait.attempts | default(1)
+          {{ ['the probe that reads fpgas-verify.service and verify.json failed, so nothing is known about'
+              ~ " this boot's run: " ~ verify_pi_fpga_verify_probe_error] if verify_pi_fpga_verify_probe_error
+             else ['fpgas-verify.service has not finished this boot after ' ~ verify_pi_fpga_verify_wait.attempts | default(1)
               ~ ' polls 10 s apart, past its own TimeoutStartSec=1800: ' ~ state] if busy else [
               '' if ran else 'fpgas-verify.service has not run this boot (no exit since boot): ' ~ state,
               '' if not ran or exit_ok else 'fpgas-verify.service ended as fpgas-verify never does (it exits 0 for'
@@ -685,7 +706,8 @@
               or (checked is number and started is number and checked >= started)
               else "verify.json is not from this boot's run: checked_at " ~ (parsed.checked_at | default(none) | to_json)
               ~ ', the run started ' ~ unit.ExecMainStartTimestamp | default('?') ~ ' (a report left from before it)',
-              '' if not ran or not exit_ok or not known or (unit.ExecMainStatus == '0') == (parsed.result == 'pass')
+              '' if not ran or not exit_ok or not known or later_run
+                 or (unit.ExecMainStatus == '0') == (parsed.result == 'pass')
               else 'fpgas-verify exited ' ~ unit.ExecMainStatus ~ ' but its report says ' ~ parsed.result,
             ] | select | list }}
 
