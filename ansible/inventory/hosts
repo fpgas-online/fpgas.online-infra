@@ -1,7 +1,3 @@
-[pxe]
-ps1.fpgas.online
-fpgas.online
-
 [nbp]
 fpgas.online
 ps1.fpgas.online
