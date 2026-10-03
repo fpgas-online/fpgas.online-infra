@@ -693,7 +693,7 @@
     - name: Read fpgas-verify's status and journal
       ansible.builtin.shell: >-
         systemctl status --no-pager --lines=0 fpgas-verify.service;
-        journalctl --no-pager -b -n 30 -u fpgas-verify.service
+        journalctl --no-pager -b -n 60 -u fpgas-verify.service
       become: true
       changed_when: false
       register: verify_pi_fpga_verify_journal
@@ -728,6 +728,21 @@
           none ({{ verify_pi_fpga.reason | default('-') }}).
       when: verify_pi_fpga_verify_report.content is defined and not verify_pi_fpga_found
 
+    # Only when the verdict below is about to fail -- fpgas-verify works, but a board it found did not
+    # pass: fpgas-verify's own account of the board (root: the system journal).
+    - name: Read fpgas-verify's status and journal for the board that did not pass
+      ansible.builtin.shell: >-
+        systemctl status --no-pager --lines=0 fpgas-verify.service;
+        journalctl --no-pager -b -n 60 -u fpgas-verify.service
+      become: true
+      changed_when: false
+      register: verify_pi_fpga_board_journal
+      failed_when: false
+      when:
+        - verify_pi_fpga_verify_report.content is defined
+        - verify_pi_fpga_found
+        - verify_pi_fpga.result | default('') != 'pass'
+
     - name: Assert the FPGA boot check passed on the board it found
       ansible.builtin.assert:
         that:
@@ -743,6 +758,7 @@
           }}{% if b.get('reason') %} -- {{ b.reason }}{% endif %}; {% endfor %}{% for c in (verify_pi_fpga.state
           | default({})).changes | default([]) %}changed: {{ c }}; {% endfor %}`journalctl -b -u
           fpgas-verify` on the Pi has the rest.{% endif %}
+          fpgas-verify: {{ verify_pi_fpga_board_journal.stdout_lines | default([]) }}
 
     # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
     # neither fail nor stall the boot.

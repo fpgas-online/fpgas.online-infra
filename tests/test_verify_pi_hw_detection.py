@@ -73,6 +73,7 @@ def test_every_camera_and_fpga_check_runs_untagged():
         "What the FPGA boot check found",
         "Whether an FPGA board is attached",
         "Say that this Pi has no FPGA board, so there is none to check",
+        "Read fpgas-verify's status and journal for the board that did not pass",
         "Assert the FPGA boot check passed on the board it found",
     ]
     for name in names:
@@ -149,8 +150,19 @@ FPGA_TASKS = [
     "What the FPGA boot check found",
     "Whether an FPGA board is attached",
     "Say that this Pi has no FPGA board, so there is none to check",
+    "Read fpgas-verify's status and journal for the board that did not pass",
     "Assert the FPGA boot check passed on the board it found",
 ]
+BOARD_JOURNAL = "journal: fpgas-verify checked the board"
+
+
+def _fpga_tasks() -> list[dict]:
+    """FPGA_TASKS, the journal read answered without the Pi (no systemctl or sudo here)."""
+    tasks = [_task(n) for n in FPGA_TASKS]
+    journal = tasks[FPGA_TASKS.index("Read fpgas-verify's status and journal for the board that did not pass")]
+    journal["ansible.builtin.shell"] = f"echo '{BOARD_JOURNAL}'"
+    journal["become"] = False
+    return tasks
 
 
 def _run(tmp_path: Path, tasks: list[dict], facts: dict) -> tuple[int, str]:
@@ -240,8 +252,10 @@ ARTY = {"board": "arty", "variant": "a7-35t", "found": {"usb": "1-1.2"}}
                  False, False, id="check could not run: fail"),
 ])
 def test_fpga_verdict(tmp_path, report, passes, says_no_board):
-    rc, output = _run(tmp_path, [_task(n) for n in FPGA_TASKS], {"verify_pi_fpga_verify_report": report})
+    rc, output = _run(tmp_path, _fpga_tasks(), {"verify_pi_fpga_verify_report": report})
     assert (rc == 0) == passes, output
+    # fpgas-verify's journal is read, and shown, only for a found board that did not pass.
+    assert (BOARD_JOURNAL in output) == (not passes and "content" in report), output
     assert ("No FPGA board on pi-sw1-p1" in output) == says_no_board, output
 
 
@@ -348,7 +362,7 @@ def _run_check(tmp_path: Path, polls: list[str], retries: int = 3) -> tuple[int,
         "n = int(seen.read_text()) if seen.exists() else 0\n"
         "seen.write_text(str(n + 1))\n"
         "print(polls[min(n, len(polls) - 1)])\n")
-    tasks = [_task(n) for n in RUN_TASKS + FPGA_TASKS]
+    tasks = [_task(n) for n in RUN_TASKS] + _fpga_tasks()
     tasks[0]["ansible.builtin.command"] = {"argv": [sys.executable, str(script)]}
     tasks[0].update(retries=retries, delay=0)
     tasks[3]["ansible.builtin.shell"] = "echo 'journal: fpgas-verify finished'"
@@ -395,6 +409,13 @@ def test_exit_1_for_a_failed_board_fails_the_verdict_not_fpgas_verify(tmp_path):
     assert rc != 0, output
     assert _failed_at(output) == "Assert the FPGA boot check passed on the board it found", output
     assert "uart test" in output, output
+    assert f"fpgas-verify: ['{BOARD_JOURNAL}']" in output, output
+
+
+def test_a_board_that_passed_does_not_read_the_journal(tmp_path):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, PASSED, BOARD_PASSED)])
+    assert rc == 0, output
+    assert BOARD_JOURNAL not in output, output
 
 
 @pytest.mark.parametrize(("show", "report", "says"), [
