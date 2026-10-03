@@ -76,6 +76,30 @@
     # results {stat: {exists}} -- so every assertion is unchanged. Only
     # checks that need root, another host, or Orange Pi hardware still run
     # on their own.
+    # fpgas-verify (Type=oneshot, TimeoutStartSec=1800) writes /run/fpgas-online/verify.json when it
+    # finishes, and the collector below reads it once. Shortly after boot the check can still be queued or
+    # running (run 37072624257 read it about 3 s too early), so wait until fpgas-verify has neither a start
+    # job nor an activating state, for at most the unit's own limit. When it never gets there, the FPGA
+    # assert below fails and shows its journal.
+    - name: Wait for the FPGA boot check to finish this boot
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import subprocess
+            def out(*argv):
+                return subprocess.run(argv, capture_output=True, text=True, timeout=60).stdout.strip()
+            state = out("systemctl", "show", "-p", "ActiveState", "--value", "fpgas-verify.service")
+            queued = out("systemctl", "list-jobs", "--no-legend", "fpgas-verify.service")
+            print("busy" if state == "activating" or queued else state)
+      changed_when: false
+      register: verify_pi_fpga_verify_wait
+      until: verify_pi_fpga_verify_wait.stdout != 'busy'
+      retries: 180
+      delay: 10
+      failed_when: false
+
     - name: Collect the Pi's state
       ansible.builtin.command:
         argv: [python3, -c, "{{ verify_pi_collector }}"]
