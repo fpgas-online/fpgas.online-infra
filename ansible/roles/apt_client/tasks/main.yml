@@ -3,6 +3,14 @@
 # so what the host's apt goes through is in this repo rather than left to
 # whatever its installer wrote.
 
+- name: Configure apt's HTTP pipelining
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/02site-pipelining
+    content: |
+      // roles/apt_client (defaults/main.yml: apt_client_http_pipeline_depth)
+      Acquire::http::Pipeline-Depth "{{ apt_client_http_pipeline_depth }}";
+    mode: '0644'
+
 - name: Configure the site apt proxy
   ansible.builtin.template:
     src: site-proxy.conf.j2
