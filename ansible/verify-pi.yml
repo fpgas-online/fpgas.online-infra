@@ -612,7 +612,7 @@
     #   here before (nothing attached):               pass, and says so
     #   anything else -- "fail", "degraded", "driver-bound", "changed", "error", or "missing" when a board
     #   was configured (fpga-board = <board>) or recorded here before:  fail, and says why
-    # The site still keeps a Pi without a verified board off the board list (site_require_fpga_verified).
+    # The site still keeps a Pi without a verified board off the board list (fpgas.online-site pibfpgas.pis).
     - name: Assert the FPGA boot check is enabled
       ansible.builtin.assert:
         that: verify_pi_fpga_verify_enabled.stdout == "enabled"
