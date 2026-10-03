@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -64,6 +65,11 @@ def test_every_camera_and_fpga_check_runs_untagged():
         "Read fpgas-cam's status and journal",
         "Assert the camera streams if, and only if, this Pi has one",
         "Assert FPGA demo bitstreams present",
+        "Wait for this boot's FPGA check (fpgas-verify) to finish",
+        "What this boot's fpgas-verify run left",
+        "Whether fpgas-verify ran and wrote this boot's report",
+        "Read fpgas-verify's status and journal",
+        "Assert fpgas-verify ran and wrote this boot's report",
         "What the FPGA boot check found",
         "Whether an FPGA board is attached",
         "Say that this Pi has no FPGA board, so there is none to check",
@@ -237,3 +243,194 @@ def test_fpga_verdict(tmp_path, report, passes, says_no_board):
     rc, output = _run(tmp_path, [_task(n) for n in FPGA_TASKS], {"verify_pi_fpga_verify_report": report})
     assert (rc == 0) == passes, output
     assert ("No FPGA board on pi-sw1-p1" in output) == says_no_board, output
+
+
+# --- Ansible checks that fpgas-verify works ------------------------------------
+#
+# verify-pi waits for this boot's fpgas-verify run to finish, then checks it
+# ran, exited as fpgas-verify does and wrote this boot's report, before the
+# verdict above is judged. The probe is run here against a fake systemctl and
+# a scratch report; its output then goes through verify-pi.yml's own tasks.
+
+RUN_TASKS = [
+    "Wait for this boot's FPGA check (fpgas-verify) to finish",
+    "What this boot's fpgas-verify run left",
+    "Whether fpgas-verify ran and wrote this boot's report",
+    "Read fpgas-verify's status and journal",
+    "Assert fpgas-verify ran and wrote this boot's report",
+]
+
+BOOTED_RUN = "Sat 2026-10-03 01:00:00 UTC"  # when this boot's fpgas-verify run started
+BOOTED_RUN_ISO = "2026-10-03T01:00:00+00:00"
+FINISHED_ISO = "2026-10-03T01:00:33+00:00"
+
+
+def _fpga_verify_probe() -> dict:
+    namespace: dict = {}
+    exec(PLAY["vars"]["verify_pi_fpga_verify_probe"], namespace)  # noqa: S102 -- the playbook's own code
+    return namespace
+
+
+def _show(active, sub, result, status, exited=True, start=BOOTED_RUN) -> str:
+    """`systemctl show` of fpgas-verify.service, as TZ=UTC prints it."""
+    return "\n".join([
+        f"ActiveState={active}", f"SubState={sub}", f"Result={result}", f"ExecMainStatus={status}",
+        f"ExecMainStartTimestamp={start}",
+        f"ExecMainExitTimestamp={'Sat 2026-10-03 01:00:33 UTC' if exited else ''}",
+        f"ExecMainExitTimestampMonotonic={'95000000' if exited else '0'}",
+        "ActiveEnterTimestamp=", "InactiveEnterTimestamp=",
+    ]) + "\n"
+
+
+QUEUED = _show("inactive", "dead", "success", "0", exited=False, start="")
+RUNNING = _show("activating", "start", "success", "0", exited=False)
+PASSED = _show("active", "exited", "success", "0")
+NO_PASS = _show("failed", "failed", "exit-code", "1")
+NEVER_RAN = _show("inactive", "dead", "success", "0", exited=False, start="")
+KILLED = _show("failed", "failed", "timeout", "9")
+START_JOB = "123 fpgas-verify.service start waiting\n"
+
+
+def _poll(tmp_path: Path, show: str, report=None, jobs: str = "") -> str:
+    """What the probe prints for one poll: `systemctl show`/`list-jobs` and the report as given."""
+    poll = tmp_path / f"poll{len(list(tmp_path.glob('poll*')))}"
+    poll.mkdir()
+    (poll / "show").write_text(show)
+    (poll / "jobs").write_text(jobs)
+    systemctl = poll / "systemctl"
+    systemctl.write_text(f'#!/bin/sh\ncase "$1" in\n  show) cat {poll}/show; echo "TZ=$TZ";;\n'
+                         f'  list-jobs) cat {poll}/jobs;;\nesac\n')
+    systemctl.chmod(0o755)
+    path = poll / "verify.json"
+    if report is not None:
+        path.write_bytes(report if isinstance(report, bytes) else json.dumps(report).encode())
+    out = _fpga_verify_probe()["fpga_verify"](report=str(path), systemctl=str(systemctl))
+    return json.dumps(out)
+
+
+def _verify_json(result, checked_at=BOOTED_RUN_ISO, **report) -> dict:
+    return {"schema_version": 2, "result": result, "checked_at": checked_at, **report}
+
+
+NO_BOARD = _verify_json("missing", mode="auto", boards=[], reason="none of the installed boards was found",
+                        state={"recorded": False})
+BOARD_PASSED = _verify_json("pass", mode="auto", boards=[{**ARTY, "result": "pass"}])
+BOARD_FAILED = _verify_json("fail", mode="auto", boards=[{**ARTY, "result": "fail", "reason": "uart test"}])
+
+
+def test_probe_reads_the_unit_in_utc_then_the_report(tmp_path):
+    out = json.loads(_poll(tmp_path, PASSED, BOARD_PASSED, jobs=START_JOB))
+    assert out["unit"]["TZ"] == "UTC"
+    assert out["unit"]["ActiveState"] == "active"
+    assert out["unit"]["ExecMainStartEpoch"] == 1790989200.0  # 2026-10-03T01:00:00Z
+    assert out["jobs"] == ["123 fpgas-verify.service start waiting"]
+    assert json.loads(base64.b64decode(out["report"]["content"])) == BOARD_PASSED
+    assert out["parsed"] == {"result": "pass", "checked_at": BOOTED_RUN_ISO, "checked_at_epoch": 1790989200.0}
+
+
+def test_probe_says_what_is_wrong_with_a_report(tmp_path):
+    assert "msg" in json.loads(_poll(tmp_path, PASSED))["report"]
+    assert json.loads(_poll(tmp_path, PASSED, b"{\"result\": \"pa"))["parsed"]["error"].startswith("not JSON")
+    assert json.loads(_poll(tmp_path, PASSED, b"[]"))["parsed"]["error"] == "not a JSON object"
+    no_time = json.loads(_poll(tmp_path, PASSED, {"result": "pass"}))
+    assert no_time["parsed"]["checked_at_epoch"] is None
+    unset = json.loads(_poll(tmp_path, NEVER_RAN))
+    assert unset["unit"]["ExecMainStartEpoch"] is None
+
+
+def _run_check(tmp_path: Path, polls: list[str], retries: int = 3) -> tuple[int, str]:
+    """verify-pi.yml's fpgas-verify tasks and FPGA verdict, the wait answering with `polls` in turn."""
+    script = tmp_path / "polls.py"
+    script.write_text(
+        "import json, pathlib, sys\n"
+        f"polls = json.loads({json.dumps(json.dumps(polls))})\n"
+        f"seen = pathlib.Path({str(tmp_path / 'seen')!r})\n"
+        "n = int(seen.read_text()) if seen.exists() else 0\n"
+        "seen.write_text(str(n + 1))\n"
+        "print(polls[min(n, len(polls) - 1)])\n")
+    tasks = [_task(n) for n in RUN_TASKS + FPGA_TASKS]
+    tasks[0]["ansible.builtin.command"] = {"argv": [sys.executable, str(script)]}
+    tasks[0].update(retries=retries, delay=0)
+    tasks[3]["ansible.builtin.shell"] = "echo 'journal: fpgas-verify finished'"
+    tasks[3]["become"] = False
+    return _run(tmp_path, tasks, {
+        "verify_pi_fpga_verify_probe": PLAY["vars"]["verify_pi_fpga_verify_probe"],
+        "verify_pi_fpga_verify_results": PLAY["vars"]["verify_pi_fpga_verify_results"],
+    })
+
+
+RAN_ASSERT = "TASK [Assert fpgas-verify ran and wrote this boot's report]"
+VERDICT_ASSERT = "TASK [Assert the FPGA boot check passed on the board it found]"
+
+
+def _failed_at(output: str) -> str:
+    """The name of the task that failed, or ''."""
+    tasks = re.findall(r"TASK \[([^\]]+)\][^\n]*\n(?:(?!TASK \[).)*?fatal: \[localhost\]", output, re.S)
+    return tasks[-1] if tasks else ""
+
+
+def test_waits_while_the_run_is_queued_and_running_then_judges_it(tmp_path):
+    polls = [_poll(tmp_path, QUEUED, jobs=START_JOB), _poll(tmp_path, RUNNING, jobs=START_JOB),
+             _poll(tmp_path, PASSED, BOARD_PASSED)]
+    rc, output = _run_check(tmp_path, polls)
+    assert rc == 0, output
+    assert output.count("FAILED - RETRYING: [localhost]: Wait for this boot's FPGA check") == 2, output
+    assert "journal: fpgas-verify finished" not in output, output
+
+
+def test_a_finished_run_is_not_waited_for(tmp_path):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, PASSED, BOARD_PASSED)])
+    assert rc == 0, output
+    assert "FAILED - RETRYING" not in output, output
+
+
+def test_exit_1_with_no_board_is_fpgas_verify_working(tmp_path):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, NO_PASS, NO_BOARD)])
+    assert rc == 0, output
+    assert "No FPGA board on pi-sw1-p1" in output, output
+
+
+def test_exit_1_for_a_failed_board_fails_the_verdict_not_fpgas_verify(tmp_path):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, NO_PASS, BOARD_FAILED)])
+    assert rc != 0, output
+    assert _failed_at(output) == "Assert the FPGA boot check passed on the board it found", output
+    assert "uart test" in output, output
+
+
+@pytest.mark.parametrize(("show", "report", "says"), [
+    pytest.param(PASSED, _verify_json("pass", checked_at="2026-10-02T22:13:07+00:00", mode="auto", boards=[]),
+                 "is not from this boot's run", id="report from a previous boot"),
+    pytest.param(PASSED, None, "no /run/fpgas-online/verify.json", id="no report"),
+    pytest.param(PASSED, b"{\"schema_version\": 2, \"resu", "verify.json does not parse", id="garbled report"),
+    pytest.param(PASSED, _verify_json("ok"), "is not one fpgas-verify defines", id="unknown result"),
+    pytest.param(PASSED, {"schema_version": 2, "result": "pass"}, "is not from this boot's run",
+                 id="report without checked_at"),
+    pytest.param(NEVER_RAN, None, "has not run this boot", id="never ran this boot"),
+    pytest.param(KILLED, BOARD_PASSED, "ended as fpgas-verify never does", id="killed or timed out"),
+    pytest.param(PASSED, BOARD_FAILED, "fpgas-verify exited 0 but its report says fail", id="exit and report disagree"),
+])
+def test_fpgas_verify_not_working_fails_with_why(tmp_path, show, report, says):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, show, report)])
+    assert rc != 0, output
+    assert _failed_at(output) == "Assert fpgas-verify ran and wrote this boot's report", output
+    assert says in output, output
+    assert "journal: fpgas-verify finished" in output, output
+
+
+def test_a_run_that_never_finishes_times_out_with_its_state(tmp_path):
+    rc, output = _run_check(tmp_path, [_poll(tmp_path, RUNNING, jobs=START_JOB)], retries=2)
+    assert rc != 0, output
+    assert _failed_at(output) == "Assert fpgas-verify ran and wrote this boot's report", output
+    assert "has not finished this boot after 2 polls" in output, output
+    assert "activating (start)" in output and "123 fpgas-verify.service start waiting" in output, output
+    assert "journal: fpgas-verify finished" in output, output
+
+
+def test_the_wait_is_bounded_by_the_units_own_timeout():
+    wait = _task("Wait for this boot's FPGA check (fpgas-verify) to finish")
+    assert wait["delay"] == 10
+    assert wait["retries"] * wait["delay"] == 1800  # fpgas-verify.service's TimeoutStartSec
+
+
+def test_the_collector_no_longer_reads_the_report():
+    assert "verify.json" not in _task("Collect the Pi's state")["vars"]["verify_pi_collector"]
