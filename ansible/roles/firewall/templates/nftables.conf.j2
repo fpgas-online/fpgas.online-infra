@@ -99,6 +99,36 @@ table ip nat {
     }
 }
 
+# The same per-port SSH ports over IPv6: <switch><pp>22 -> [the board's own
+# global address]:22. The site's name has an AAAA record (this gateway), so a
+# client given `ssh -p <switch><pp>22 pi@<site>` tries IPv6 first; without
+# these rules that attempt is dropped by the input chain and the client waits
+# out its connect timeout before it falls back to IPv4, and an IPv6-only
+# client never gets in.
+#
+# No address translation is needed for the way back: the boards hold routed
+# global addresses (roles/pxe ports.conf.j2, roles/vlan_ports), so only the
+# destination is rewritten and the board sees the client's own address.
+#
+# `fib daddr type local`: any address this gateway itself holds, whichever
+# interface carries it (the site's AAAA is on the internal trunk, not on the
+# uplink). A connection addressed to a board is not local and is not touched:
+# the forward chain keeps dropping it.
+#
+# Only for connections that ARRIVE on the uplink, exactly as for IPv4 above
+# (#204): a board must not reach another board's sshd through these.
+# Only the ssh port: the aux <switch><pp>44 forward stays IPv4-only.
+table ip6 nat {
+
+      chain prerouting {
+            type nat hook prerouting priority dstnat; policy accept;
+
+{% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
+            iifname "{{ eth_uplink }}" fib daddr type local tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}22 } dnat to [{{ e.ip6 }}]:22
+{% endfor %}
+    }
+}
+
 {% else %}
 table inet filter {
 
