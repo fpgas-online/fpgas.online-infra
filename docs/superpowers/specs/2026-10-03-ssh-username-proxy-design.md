@@ -64,7 +64,7 @@ Decided by engineering, open to the owner's veto:
 | E2 | The login name is `<board-name>`, the board's host name `pi-sw<S>-p<P>`, and nothing else for now. Names from the fleet registry can be added later as further pipes |
 | E3 | On the gateway's uplink, port 22 is the proxy, port 2223 the gateway's own sshd and port 2224 the proxy, on IPv4 and on IPv6 alike. A client inside the site, a client on IPv6 and the upstream gateway's forwards all find the same thing on the same port |
 | E4 | A board cannot reach the site's own public ssh entry points, nor the proxy |
-| E5 | Public IPv4 port 22 behind an upstream gateway is password-only for board names. Key logins to boards use IPv6 or port 2224 |
+| E5 | Board names are password-only through the proxy, on every path and port. Phase 1 has no key pipes: the proxy holds no key for the boards and none for the gateway |
 | E6 | While the fleet key rotates, the `ipv6.` names carry both fingerprints and the proxy pins both |
 | E7 | Boards get no login aliases. The direct path logs in as `pi` (D15), and the proxy rewrites the name, so nothing needs `<board-name>` to exist as an account on a board |
 | E8 | The generated DNS records are written as a zone fragment, and the verify play fails when public DNS differs from it. Loading the fragment into the zone is done by the zone's owner. See F4 |
@@ -137,6 +137,7 @@ of fpgas-online/sshpiper, live DNS queries, and the lab in
 | sshpiperd listens on one address and one port (`--address`, `--port`). `--server-key` defaults to `/etc/ssh/ssh_host_ed25519_key` | `cmd/sshpiperd/main.go`, `daemon.go` | One instance on a wildcard address; the firewall maps port 22 to it. The key path is always given explicitly, or the proxy would present the gateway's own sshd key |
 | The yaml plugin tries pipes in file order and uses the first whose user name matches and whose check passes. A pipe with `authorized_keys` is a public-key pipe; one without is a password pipe and relays the password unchecked. `username_regex_match` makes the name a regular expression. `authorized_keys` paths may contain `$DOWNSTREAM_USER`. The proxy offers every client the union of all pipes' methods | `plugin/yaml/skel.go`, `libplugin/skel/skel.go` | Only board names have pipes. A name with no pipe is still offered a password prompt and is refused after it ("no matching pipe"), so the proxy does not reveal which names exist |
 | sshpiperd does not close an onward connection whose login failed. It stays open until the target sshd's `LoginGraceTime` and holds one of that sshd's unauthenticated slots (`MaxStartups 10:30:100`) | Measured by the reviewer of this document with the real sshpiperd and OpenSSH in containers, 2026-10-05: 18 wrong passwords through the proxy left the target sshd at 18 startups, and 5 of 20 key logins made to it directly were dropped. `authUpstream` in the sshpiper.crypto fork never closes the connection | About ten wrong passwords in two minutes for one board name start dropping the web terminal's and the jump route's logins to that board. A catch-all pipe to the gateway's sshd would let anyone do the same to the operators' logins. So: no catch-all (E1), and a required patch in our package (E16) |
+| A key pipe logs in onward before the client has proved it holds the key. A client that offers an authorised **public** key with a non-matching private key is denied, but the proxy has already logged in to the target with its mapping key, and that authenticated onward session stays alive | Reviewer's test with the real sshpiperd, 2026-10-05: the board logged `Accepted publickey for pi`, and a gateway sshd behind a key pipe logged an accepted login. Operators' public keys are published (GitHub) | Anyone could open authenticated sessions on a board or the gateway without a key. No key pipes until our package fixes this (E5, [Future work](#future-work)) |
 | The yaml and failtoban plugins are built only with the Go build tag `full` | `//go:build full` in `plugin/yaml`, `plugin/failtoban` | The package builds with that tag |
 | failtoban counts onward-login failures and pipe-creation failures per client address, bans at `--max-failures` (default 5) for `--ban-duration` (default 60 minutes), and never bans an `--ignore-ip` address | `plugin/failtoban/main.go` | Explicit, gentler values; the upstream proxy's address is ignored |
 | sshd has no PROXY-protocol support. sshpiper accepts PROXY headers (`--allowed-proxy-addresses`) and never sends them | OpenSSH source; `cmd/sshpiperd/main.go` | A board sees the client's address on a proxied login only through transparent proxying (phase 2) |
@@ -323,8 +324,6 @@ configuration belong to the role, not the package.
 | `ssh_proxy_upstream_proxy_addresses` | `[]` | Addresses the upstream gateway's proxy connects from. Given to `failtoban --ignore-ip` |
 | `ssh_proxy_max_failures`, `ssh_proxy_ban_duration` | `20`, `5m` | failtoban |
 | `ssh_direct_ipv6` | `true` | The forward rule and the `ipv6.` records of the direct path (D15, F3) |
-| `ssh_proxy_gateway_key_logins` | `false` | Key logins for gateway accounts through the proxy (F1) |
-| `ssh_proxy_gateway_accounts` | the operator accounts and the jump account | The accounts that get them. Never the automation account, never root |
 
 **The service.** User `sshpiper`, unprivileged, with systemd hardening
 (`ProtectSystem=strict`, `NoNewPrivileges=yes`), `After=network-online.target`,
@@ -353,7 +352,7 @@ configuration belong to the role, not the package.
 
 **How board names are known.** The pipes are generated from `switches |
 port_vlan_map`, the same map that makes the VLANs, the addresses and the
-DHCP entries. One pipe pair per access port, empty ports included. This is
+DHCP entries. One pipe per access port, empty ports included. This is
 chosen over the fleet registry because a board name is a port's name and its
 address follows from the port by formula: no board has to be registered, or
 even present, for its name to route; nothing is configured per board; and a
@@ -365,7 +364,7 @@ times out at the proxy.
 ```yaml
 version: "1.0"
 pipes:
-  # 1. Per access port: password logins, relayed as typed.
+  # One pipe per access port: password logins, relayed as typed.
   - from:
       - username: "pi-sw2-p47"
     to:
@@ -373,28 +372,12 @@ pipes:
       username: "pi"
       known_hosts_data:
         - "<base64 of: 10.21.2.47 ssh-ed25519 AAAA... (the fleet key)>"
-  # 2. Per access port: key logins by the keys the boards trust for pi.
-  - from:
-      - username: "pi-sw2-p47"
-        authorized_keys: "/etc/sshpiper/board_authorized_keys"
-    to:
-      host: "10.21.2.47:22"
-      username: "pi"
-      private_key: "/etc/sshpiper/board_mapping_key"
-      known_hosts_data:
-        - "<the same line>"
-  # 3. Per gateway account, only if ssh_proxy_gateway_key_logins (F1).
-  - from:
-      - username: "<account>"
-        authorized_keys: "/etc/sshpiper/gateway_authorized_keys/<account>"
-    to:
-      host: "127.0.0.1:22"
-      private_key: "/etc/sshpiper/gateway_mapping_key"
-      known_hosts_data:
-        - "<base64 of: 127.0.0.1 <each of the gateway's sshd host keys>>"
 ```
 
 - A board name reaches that board's sshd as user `pi`.
+- **There are no key pipes in phase 1** (E5). No pipe has
+  `authorized_keys`, the proxy holds no private key other than its host
+  key, and it offers clients the method `password` only.
 - There is no catch-all pipe. Any other name is refused by the proxy after
   the password prompt, and no connection is made to anything (E1).
 - `pi@<site>` is therefore refused on the gateway's proxy. The board pages
@@ -406,12 +389,15 @@ pipes:
 
 - **Passwords are relayed.** With the published `pi` password this is the
   visitor's path, and it works through both proxies.
-- **Public keys cannot be relayed** (findings table). For a board name the
-  gateway's proxy checks the client's key against the keys the boards
-  already trust for `pi`, then logs in with its board mapping key, whose
-  public half fixpi adds to `pi`'s `authorized_keys` on the boards. A
-  visitor's own key cannot work through the proxy; it works on the direct
-  IPv6 path once the visitor has added it on the board.
+- **Public keys do not work through the proxy, for anyone, on any path**
+  (E5). A key login cannot be relayed (findings table), and sshpiper's
+  substitute, a key pipe, is not safe to use as it is: it logs in onward
+  for anyone who merely offers an authorised public key (findings table).
+  Operators reach a board with their key through the gateway's sshd on
+  port 2223 (`ssh -J <account>@gw.<site>:2223 pi@<board address>`), as
+  `docs/access.md` describes today with port 22. A visitor's own key works
+  on the direct IPv6 path, where that is switched on, once the visitor has
+  added it on the board.
 - **An admin and a non-board name.** In phase 1 the gateway's proxy refuses
   it (E1). **The admin does not get in through port 22 of the gateway.**
   The admin's route is `ssh -p 2223 <account>@gw.<site>`, which reaches the
@@ -445,10 +431,10 @@ pipes:
   many authentication failures', use `ssh -o PubkeyAuthentication=no
   <board-name>@<site>`."
 
-**Who holds what.** The proxy holds the board mapping key, and `pi` has
-NOPASSWD sudo, so whoever controls the proxy has root on every board. That
-is no more than every visitor has. With F1 switched on it also holds the
-gateway mapping key.
+**Who holds what.** The proxy holds one secret, the site proxy key. It holds
+no key that a board or the gateway accepts. Whoever controls the proxy sees
+every proxied session in clear, which for a board is no more than every
+visitor can do with root on that board.
 
 ### The required package patch
 
@@ -571,8 +557,8 @@ The per-board DNAT rules are not touched in phase 1. Their removal is in
     the converge on an error.
   - The gateway's own sshd gets no such line (the proxy never connects to
     it). The gateways run Debian trixie, OpenSSH 10.0.
-- **The board mapping key's public half** in `pi`'s `authorized_keys`, as a
-  new key source `ssh_proxy`, for `pi` only, never root.
+- **No new key in `authorized_keys`.** The proxy has no key for the boards
+  (E5), so fixpi gains no key source.
 - **The login banner, the `pi` account and its password stay as today.**
 - **No login aliases** (E7).
 - **The direct path** needs nothing else on the board: its sshd already
@@ -758,6 +744,24 @@ out of the uplink and every proxied login times out. The verify play checks
 the rule, the route and a login whose `$SSH_CONNECTION` on the board shows
 a non-gateway address.
 
+## Future work
+
+Neither of these is built in phase 1. Each needs a patch in our package
+first, with a test that shows the onward login is made only after the
+client has proved it holds the key.
+
+- **Key logins to boards through the proxy.** A pipe per board with the
+  keys the boards trust for `pi`, and a mapping key whose public half fixpi
+  adds to `pi`'s `authorized_keys`. Whoever controls the proxy then has
+  root on every board, which every visitor has anyway.
+- **Admins to the gateway through the proxy** (O1). A pipe per gateway
+  account with that account's authorised keys, and a mapping key the
+  gateway's sshd accepts for those accounts from the loopback address
+  only. This makes the proxy a holder of gateway credentials: whoever
+  controls the proxy service controls the gateway, and the sshd's log shows
+  the mapping key, not the admin's. It needs the owner's decision as well
+  as the patch.
+
 ## Rejected alternatives
 
 **The key-types trick** (chosen by Tim on 2026-10-04 on condition that it be
@@ -844,8 +848,8 @@ addresses.
      `$SSH_CONNECTION` shows the board's address.
    - The same with `ssh_proxy_takes_port_22`, on port 22, over IPv4 and
      over IPv6.
-   - A key the boards trust for `pi` logs in to a board name through the
-     proxy. A key they do not trust is refused and the password still works.
+   - The proxy offers `password` only: a client restricted to public-key
+     authentication is refused without any onward connection being made.
    - A name that is not a board name (`root`, `pi`, an operator's account)
      is refused by the proxy after the password prompt, and the gateway's
      own sshd logs no connection from the proxy.
@@ -908,7 +912,7 @@ what to build from.
 |---|---|---|---|
 | 1 | fpgas-online/apt#21 | Package `sshpiper` from fpgas-online/sshpiper: `sshpiperd`, `yaml`, `failtoban`, built with the tag `full` | It omits `failtoban` and the required phase 1 patch (a failed onward authentication closes the upstream connection), and says to offer the phase 2 patch to the sshpiper project. Both patches stay in our packaging branch |
 | 1 | #187 | Gateway role `ssh_proxy`; `roles/sshd` port 2223; the input and NAT rules | It copies the fleet key to the proxy and binds the uplink address only. Its "unknown usernames are not forwarded anywhere" stands (E1) |
-| 1 | #186 | Boards: Ed25519-only host key, penalty exemption, board mapping key | Login aliases are dropped (E7). "The same key the proxy presents" is wrong |
+| 1 | #186 | Boards: Ed25519-only host key; the penalty exemption on a root with OpenSSH 9.8 or later | Login aliases (E7) and the proxy's mapping key (E5) are dropped. "The same key the proxy presents" is wrong. The exemption line as written there breaks sshd on today's root |
 | 1 | #188 | Firewall: direct IPv6 to boards; boards cannot reach the public ssh ports | The internal IPv4 rule is dropped (D3) |
 | 1 | #189 | DNS: the generated fragment and the comparing verify step | Its record set (per-board A records, `ipv4.`, `private-ipv4.`, an internal view) is replaced by [Names and DNS records](#names-and-dns-records) |
 | 1 | fpgas-online/fpgas.online-gw#2 | `/api/boards` `ssh` object | Fields as in [What the board pages print](#what-the-board-pages-print-fpgas-onlinefpgasonline-site44) |
