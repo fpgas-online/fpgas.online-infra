@@ -26,6 +26,10 @@
 - name: Add the nfsroot-watchdog apt repository
   ansible.builtin.include_tasks: nfsroot-watchdog.yml
 
+# python3-rpi-hwid (the hardware identity probe), which roles/onpi installs.
+- name: Add the rpi-hwid apt repository
+  ansible.builtin.include_tasks: rpi-hwid.yml
+
 # The same two repositories under their names before the apt repository
 # convention (2026-09-24): pubkey.gpg dearmoured to /usr/share/keyrings/
 # fpgas-online.gpg with a dists/<suite> main source in fpgas-online.list, and
