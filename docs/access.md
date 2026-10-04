@@ -206,6 +206,51 @@ from the private one and refuses to converge if they differ.
 (`IdentityFile`, and `IdentityAgent none` so no agent keys are offered) and
 gives it its own known_hosts file (`~/.config/fpgas-online/ansible_known_hosts`).
 
+### A board from outside the site: `ssh -p <port> pi@<site>`
+
+This is the command the board pages print. It needs no account on the
+gateway: the port number selects the board, and the login is the board's
+own (`pi` and the published password, or a key the board trusts).
+
+```
+ssh -p 24622 pi@welland.fpgas.online      # the board on switch 2, port 46
+```
+
+- **The port is `<switch><pp>22`**: the switch's index, the access port as
+  two digits, then `22`. As a number: `10000 × switch + 100 × port + 22`.
+  There is one for every access port of every switch in the site's
+  `switches:` (`access_ports`), whether or not a board is plugged in.
+- **On the gateway**
+  ([`roles/firewall`](../ansible/roles/firewall/templates/nftables.conf.j2))
+  each such port, arriving on the uplink, is forwarded to port 22 of that
+  access port's board: over IPv4 when addressed to the gateway's transit
+  address (`eth_uplink_static_address`), to `10.21.<S>.<P>`; over IPv6 when
+  addressed to any of the gateway's own addresses, to the board's routed
+  address `<pib_network6_base><SS>::<P>`. The board sees the client's own
+  address on both families. A connection that arrives from a board is not
+  forwarded, so one board cannot reach another this way.
+- **What the site's upstream gateway must do**, at a site whose gateway is
+  behind one:
+  - IPv4: forward the public TCP ports `10000 × switch + 100 × port + 22`,
+    for every access port, to the site gateway's transit address at the
+    same port number, keeping the client's source address.
+  - IPv6: let the same TCP ports reach the address in the site name's AAAA
+    record (the site gateway itself). Nothing is translated. If the
+    upstream gateway drops them, an IPv6 client still hangs before it
+    falls back to IPv4.
+  - For Welland's `switches:` today (40 access ports on switch 1, 48 on
+    switch 2) that is 88 ports: `10122, 10222, … 14022` and
+    `20122, 20222, … 24822`. A forward of the two ranges 10122-14022 and
+    20122-24822 covers them; the gateway forwards only the ports ending
+    in `22` (and, over IPv4, the aux ports ending in `44`) and drops the
+    rest. The list follows the inventory: generate it from `switches:`
+    rather than copying it from here.
+- A port with no board answers after about three seconds with "No route to
+  host".
+- `verify-server.yml` checks the loaded rules, port by port, on both
+  families. `verify-pi.yml` checks that a board holds its IPv6 address and
+  that the gateway reaches the board's sshd on it.
+
 ## Adding or removing a person
 
 All the lists are in
