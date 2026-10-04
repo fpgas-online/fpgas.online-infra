@@ -60,8 +60,10 @@ CLIENTS = {
 }
 OTHER_CLIENTS_IN = "debian-trixie"  # dbclient and plink are run from this image
 
+SERVER_BASE = "debian:trixie-slim"
+
 SERVER_DOCKERFILE = f"""\
-FROM debian:trixie-slim
+FROM {SERVER_BASE}
 RUN apt-get update \\
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server \\
  && rm -rf /var/lib/apt/lists/* \\
@@ -100,7 +102,7 @@ INTERESTING = re.compile(
     r"host key is known|has changed|update_known_hosts|[Dd]eprecat|"
     r"Learned new hostkey|key fingerprint is|Add correct host key|strict checking|"
     r"POSSIBLE|man-in-the-middle|not in the list|different|Connection (closed|abandoned)|"
-    r"FATAL|Store key|cache|WARNING|[Hh]ost key|mismatch|\(y/n|bad signature|Removed"
+    r"is disabled|Permission denied|FATAL|Store key|cache|WARNING|[Hh]ost key|mismatch|\(y/n|bad signature|Removed"
 )
 
 
@@ -126,7 +128,7 @@ LOG: Log
 
 def run(argv: list[str], *, check: bool = True, input: str | None = None, timeout: int = 900) -> subprocess.CompletedProcess:
     proc = subprocess.run(
-        argv, input=input, text=True, capture_output=True, timeout=timeout,
+        argv, input=input, text=True, capture_output=True, timeout=timeout, check=False,
         stdin=None if input is not None else subprocess.DEVNULL,
     )
     if check and proc.returncode != 0:
@@ -274,7 +276,8 @@ def remove_images() -> None:
     """Remove the lab's own images and the base images it pulled; leave every image that was there before."""
     before = set(IMAGES_BEFORE.read_text().split())
     ours = {i for i in existing_images() if i.startswith(f"{PREFIX}-")}
-    pulled = {base for base, _ in CLIENTS.values()} & existing_images() - before
+    bases = {SERVER_BASE} | {base for base, _ in CLIENTS.values()}
+    pulled = (bases & existing_images()) - before
     for image in sorted(ours | pulled):
         run(["docker", "rmi", image])
     IMAGES_BEFORE.unlink()
@@ -373,7 +376,10 @@ class Client:
         prompts = [p.strip() for p in asked.split("----\n") if "continue connecting" in p]
         err = proc.stderr
         connected = "CONNECTED" in proc.stdout
-        if "REMOTE HOST IDENTIFICATION HAS CHANGED" in err:
+        if "REMOTE HOST IDENTIFICATION HAS CHANGED" in err and "Password authentication is disabled" in err:
+            # StrictHostKeyChecking=no: the client carries on but will not send a password.
+            outcome = "CHANGED-WARNED-CONNECTED" if connected else "CHANGED-WARNED-NO-PASSWORD-LOGIN"
+        elif "REMOTE HOST IDENTIFICATION HAS CHANGED" in err:
             outcome = "REFUSED-CHANGED"
         elif connected and prompts:
             outcome = "PROMPT-NEW"
@@ -434,7 +440,7 @@ class Client:
         connected = "CONNECTED" in proc.stdout
         text = proc.stderr + proc.stdout
         asked = bool(re.search(r"\(y/n|Store key in cache|Do you want to continue connecting", text))
-        mismatch = bool(re.search(r"mismatch|POTENTIAL SECURITY BREACH|does not match|HOST KEY.*CHANGED|differs", text, re.I))
+        mismatch = bool(re.search(r"mismatch|POTENTIAL SECURITY BREACH|does not match|HOST KEY.*CHANGED|differs", text, re.IGNORECASE))
         if mismatch and not connected:
             outcome = "REFUSED-CHANGED"
         elif mismatch:
@@ -506,6 +512,9 @@ def openssh_scenarios(c: Client) -> None:
            ["AUTO-ADDED", CHANGED, "SILENT", CHANGED], opts=accept_new)
     series(c, "1e trick, StrictHostKeyChecking=yes, A B", [A, B], ["REFUSED-UNKNOWN"] * 2, opts=strict)
     series(c, "1f trick, BatchMode=yes, A B", [A, B], ["REFUSED-UNKNOWN"] * 2, opts=["BatchMode=yes"])
+
+    series(c, "1h trick, StrictHostKeyChecking=no (the one setting that continues past a changed key), A B",
+           [A, B], ["AUTO-ADDED", "CHANGED-WARNED-NO-PASSWORD-LOGIN"], opts=["StrictHostKeyChecking=no"])
 
     # 1g. The visitor does what the refusal tells them to (ssh-keygen -R), then the other proxy answers again.
     s = "1g trick, visitor runs ssh-keygen -R after each refusal, A B(-R)B A(-R)A B"
@@ -643,7 +652,7 @@ def verdict(clients: list[Client]) -> str:
     for c in clients:
         if not any(o.client == c.tag for o in c.obs):
             continue
-        def outcomes(prefix: str) -> list[str]:
+        def outcomes(prefix: str, c: Client = c) -> list[str]:
             return [o.outcome for o in c.obs if o.scenario.startswith(prefix)]
         second = outcomes("1a")[1:2] + outcomes("1b")[1:2]
         as_stated = all(x in ("PROMPT-NEW", "AUTO-ADDED", "SILENT") for x in second)
