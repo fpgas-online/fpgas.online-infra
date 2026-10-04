@@ -374,9 +374,11 @@
              | default([], true) | first | default('') }}
 
     # Only when the assert below is about to fail: the unit's own account,
-    # which is otherwise only in the board's journal (root: the system journal).
+    # which is otherwise only in the board's journal (root: the system
+    # journal), and the kernel's audit records beside it: a client killed by
+    # its seccomp filter says nothing itself, the record names the system call.
     - name: Read the journal of the board's DHCPv6 client
-      ansible.builtin.command: journalctl --no-pager -b -u fpgas-board-ipv6.service
+      ansible.builtin.command: journalctl --no-pager -b _SYSTEMD_UNIT=fpgas-board-ipv6.service + _TRANSPORT=audit
       become: true
       changed_when: false
       register: verify_pi_board_ipv6_journal
