@@ -335,6 +335,34 @@
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
 
+    # The board's routed IPv6 address, <site prefix><SS>::<P> for
+    # pi-sw<S>-p<P> (port_vlans.py; handed out by the gateway's DHCPv6,
+    # roles/pxe ports.conf.j2). It is where the gateway forwards the
+    # board's ssh port for IPv6 clients (roles/firewall, `table ip6 nat`),
+    # so a board without it is unreachable by `ssh -p` over IPv6. The site
+    # prefix is the gateway's variable, not this play's: match the part
+    # the hostname decides.
+    - name: Find the per-port IPv6 address
+      ansible.builtin.set_fact:
+        verify_pi_ip6: >-
+          {{ verify_pi_addrs.stdout
+             | regex_search('inet6 ([0-9a-f:]+'
+                            ~ (ansible_hostname | regex_replace('^pi-sw(\d+)-p(\d+)$', '\1') | int | string
+                               | regex_replace('^(\d)$', '0\1'))
+                            ~ '::'
+                            ~ (ansible_hostname | regex_replace('^pi-sw(\d+)-p(\d+)$', '\2'))
+                            ~ ')/[0-9]+ scope global', '\1')
+             | default([], true) | first | default('') }}
+
+    - name: Assert per-port IPv6 address present
+      ansible.builtin.assert:
+        that:
+          - verify_pi_ip6 | length > 0
+        fail_msg: >-
+          {{ ansible_hostname }} holds no global IPv6 address ending in its
+          switch and port (<prefix><SS>::<P>); `ssh -p` to this board cannot
+          work over IPv6. Addresses: {{ verify_pi_addrs.stdout_lines | select('search', 'inet6') | list }}
+
     - name: Assert the Pi can reach the server
       ansible.builtin.assert:
         that: verify_pi_ping.rc == 0
@@ -1128,6 +1156,17 @@
       until: verify_pi_jump_hop.rc == 0
       retries: 3
       delay: 10
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+
+    # What the gateway's IPv6 forward of this board's ssh port connects to:
+    # the board's sshd, on the board's IPv6 address, from the gateway.
+    - name: The gateway reaches this Pi's sshd on its IPv6 address
+      ansible.builtin.wait_for:
+        host: "{{ verify_pi_ip6 }}"
+        port: 22
+        search_regex: "^SSH-2.0-"
+        timeout: 60
+      delegate_to: "{{ groups['nbp'][0] }}"
       when: groups['nbp'] is defined and groups['nbp'] | length > 0
 
     - name: Assert the jump hop logged in as the Pi user
