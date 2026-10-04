@@ -162,11 +162,21 @@ def boot(board_conf: str, resolv_conf: str) -> subprocess.Popen:
     # its lease: empty at every boot, and never the test host's own. Its
     # hooks must not run; if a change to BOARD_CONF lets them, what they
     # rewrite is the board's resolv.conf and hostname, not the test host's.
+    # The board's resolv.conf goes over the file /etc/resolv.conf names: the
+    # file itself, or where it is a link into /run (systemd-resolved's), a
+    # file made for it on the board's own /run.
+    target = os.path.realpath("/etc/resolv.conf")
+    if target.startswith("/run/"):
+        place = 'mkdir -p "$(dirname "$2")" && : > "$2" && '
+    elif os.path.isfile(target):
+        place = ""
+    else:
+        raise RuntimeError(f"/etc/resolv.conf is {target}, not a file: cannot stand the board's in for it")
     return subprocess.Popen(
         ["ip", "netns", "exec", NETNS, "unshare", "--mount", "--uts", "sh", "-c",
-         'mount -t tmpfs tmpfs /run && mount -t tmpfs tmpfs /var/lib/dhcpcd'
-         ' && mount --bind "$1" /etc/resolv.conf && exec dhcpcd -B -f "$0" eth0',
-         board_conf, resolv_conf],
+         'mount -t tmpfs tmpfs /run && mount -t tmpfs tmpfs /var/lib/dhcpcd && ' + place +
+         'mount --bind "$1" "$2" && exec dhcpcd -B -f "$0" eth0',
+         board_conf, resolv_conf, target],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         start_new_session=True)
 
@@ -196,7 +206,7 @@ def watch(gateway: Gateway, mac: str, board_conf: str, workdir: str, patience: i
         if addresses:
             break
         if client.poll() is not None:
-            break
+            raise RuntimeError(f"the board's client exited ({client.returncode}): {client.communicate()[0]}")
         if gateway.proc.poll() is not None:
             raise RuntimeError(f"dnsmasq exited ({gateway.proc.poll()})")
         time.sleep(0.5)
@@ -208,7 +218,7 @@ def watch(gateway: Gateway, mac: str, board_conf: str, workdir: str, patience: i
         time.sleep(0.5)
     result = {
         "seconds": seconds,
-        "addresses": global6() if client.poll() is None else [],
+        "addresses": global6(),
         "early": early,
         "answers": gateway.answers(duid_ll(mac)),
         "ipv4_before": ipv4_before,
