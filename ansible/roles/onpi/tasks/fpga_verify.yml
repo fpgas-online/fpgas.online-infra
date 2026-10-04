@@ -42,6 +42,28 @@
     name: "{{ onpi_fpga_verify_package }}"
     state: latest
 
+# fpgas-verify publishes its result only where configuration says so (the owner's rule of 2026-10-05:
+# "--no-publish should be the default when run manually, fpgas.online infrastructure should turn on /
+# provide the publish config"). The fleet's root says so here. The file must be in the root BEFORE a
+# package with that default is installed, or every board stops reporting and the site lists none; the
+# package that changes the default is released only after a root with this file is on the fleet.
+# A package that does not know the key ignores it.
+- name: Create the boot check's site configuration directory
+  ansible.builtin.file:
+    path: /etc/fpgas-verify
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Tell the boot check it runs on the fleet (publish its result)
+  ansible.builtin.copy:
+    src: etc/fpgas-verify/fleet.ini
+    dest: /etc/fpgas-verify/fleet.ini
+    owner: root
+    group: root
+    mode: "0644"
+
 # The mode package's postinst enables it too; this says so here, and verify-pi.yml asserts it.
 - name: Run the FPGA boot check on every boot
   ansible.builtin.systemd:
