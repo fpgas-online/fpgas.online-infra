@@ -14,7 +14,10 @@ dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,12h
 # the gw's own /64 address on this interface, not /128 (RESULTS.md,
 # v6-single-range-by-tag). off-link clears the RA on-link (L) bit so Pi
 # traffic routes via the gateway instead of assuming direct reachability.
-dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,12h
+# The lease is short ({{ pxe_port_lease6 }}, defaults/main.yml): the range holds
+# one address and dnsmasq keeps it for the board that took it (by its DUID)
+# until the lease runs out, refusing any other board plugged into the port.
+dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,{{ pxe_port_lease6 }}
 host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.ip6 }}
 {% endfor %}
 

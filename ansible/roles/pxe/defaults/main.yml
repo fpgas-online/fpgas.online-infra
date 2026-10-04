@@ -1,0 +1,20 @@
+---
+# Lease time of a switch port's one IPv6 address (templates/ports.conf.j2),
+# in dnsmasq's notation; dnsmasq's minimum is 2m.
+#
+# The port's DHCPv6 range holds exactly one address, and dnsmasq keeps a
+# leased address for the client that took it, known by its DUID (on the
+# boards: the MAC address, roles/onpi/tasks/ipv6.yml), until the lease runs
+# out. A board that reboots is the same client and gets the address back at
+# once. A DIFFERENT board plugged into the port is answered "no addresses
+# available" until the lease of the board that was there before has run out;
+# it keeps asking, at growing intervals, and takes the address then
+# (tests/test_board_ipv6_netns.py runs all three cases against a real
+# dnsmasq).
+#
+# So this is how long a port's IPv6 address can stay unusable after its
+# board was swapped. The price of a short lease is that every board renews
+# at half of it, which dnsmasq logs, and that the address lapses on a board
+# when the gateway has been away for longer than the lease (it comes back
+# once the gateway answers again). IPv4 and the NFS root do not depend on it.
+pxe_port_lease6: 10m
