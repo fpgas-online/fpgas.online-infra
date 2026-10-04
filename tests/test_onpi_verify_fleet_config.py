@@ -36,3 +36,14 @@ def test_the_role_installs_it_where_fpgas_verify_looks_before_enabling_the_check
     assert copy["ansible.builtin.copy"]["src"] == "etc/fpgas-verify/fleet.ini"
     assert copy["ansible.builtin.copy"]["mode"] == "0644"
     assert names.index(copy["name"]) < names.index("Run the FPGA boot check on every boot")
+
+
+def test_the_built_root_is_checked_for_it():
+    # verify-pi.yml runs against the image built in CI and against live boards: the source file alone
+    # being right does not show the root has it.
+    plays = yaml.safe_load((REPO / "ansible/verify-pi.yml").read_text())
+    tasks = {t["name"]: t for play in plays for t in play.get("tasks", [])}
+    check = tasks["Assert the root tells the FPGA boot check to publish its result"]
+    assert check["ansible.builtin.assert"]["that"] == 'verify_pi_fpga_verify_publish.value == "on"'
+    collector = tasks["Collect the Pi's state"]["vars"]["verify_pi_collector"]
+    assert 'ini_value("/etc/fpgas-verify/fleet.ini", "verify", "publish")' in collector
