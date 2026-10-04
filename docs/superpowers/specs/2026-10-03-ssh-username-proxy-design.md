@@ -60,6 +60,8 @@ Decided by engineering, open to the owner's veto:
 | # | Decision |
 |---|---|
 | E1 | On the gateway's proxy a name that is not a board name is **refused by the proxy itself**. Nothing from the proxy reaches the gateway's own sshd in phase 1. Operators reach that sshd on port 2223. This is the default while the owner is asked (O1) |
+| E12 | The first converge with the proxy enabled reboots the fleet once, because it changes sshd drop-ins in the shared root. It is a planned step of the rollout |
+| E13 | The old `ssh -p <port> pi@<site>` line leaves the board pages in the same change that adds the new command, and the API carries no `legacy_port`. The per-board `<s><pp>22` DNAT rules are removed in the next converge. Default while the owner is asked (O4) |
 | E16 | The proxy is not exposed on any public port until our package carries the patch that closes a failed onward connection ([The required package patch](#the-required-package-patch)) |
 | E2 | The login name is `<board-name>`, the board's host name `pi-sw<S>-p<P>`, and nothing else for now. Names from the fleet registry can be added later as further pipes |
 | E3 | On the gateway's uplink, port 22 is the proxy, port 2223 the gateway's own sshd and port 2224 the proxy, on IPv4 and on IPv6 alike. A client inside the site, a client on IPv6 and the upstream gateway's forwards all find the same thing on the same port |
@@ -661,32 +663,76 @@ on the gateway. No site with `switches:` is built this way today.
 ### Rollout and removal of the old path
 
 Each step leaves every existing route working until its replacement has
-been verified. At a site where the per-board ports do not work from outside
-(Welland, observed 2026-10-05), steps 1 to 6 take nothing away from
-visitors.
+been verified. The step that can cut the deployer off is step 5, and steps
+2 to 4 exist to make it safe.
 
-1. Package published (apt#21), **with the required patch**, and the VM
+1. **Package published** (apt#21), **with the required patch**, and the VM
    test's leak assertion green. Until then `ssh_proxy_enabled` is set only
    in the VM test inventory and no later step is taken at any site (E16).
-2. Gateway converge with `ssh_proxy_enabled: true`: proxy on 2224, sshd also
-   on 2223, firewall rules, board changes (one fleet reboot). Verified from
-   the transit side on port 2224.
-3. Ansible's inventory and the operators' documented command move to port
-   2223 (`ansible_port: 2223`; `docs/access.md`). Verified.
-4. `ssh_proxy_takes_port_22: true`. Port 22 on the uplink is now the proxy.
+2. **The upstream gateway admits the backup ports first.** Over IPv6 it lets
+   tcp 2223 and 2224 reach the gateway's global address; over IPv4 it
+   forwards public 2223 and 2224 to the transit address. Nothing listens
+   there yet. This comes before anything moves to 2223, because an upstream
+   IPv6 filter exists: `docs/access.md` records one of the gateway's IPv6
+   addresses timing out on port 22 from outside.
+3. **Gateway converge with `ssh_proxy_enabled: true`** and
+   `ssh_proxy_takes_port_22: false`: proxy on 2224, sshd also on 2223,
+   firewall rules, board changes. This converge reboots the fleet once
+   (E12). Port 22 is untouched. Checked from outside the site:
+   `ssh -p 2223` reaches the gateway's sshd over IPv6 and over IPv4, and
+   `ssh -p 2224 <board-name>@gw.<site>` reaches a board.
+4. **Everything that reaches the gateway's sshd from the uplink side moves
+   to port 2223, in one step:**
+   - Ansible: `ansible_port: 2223` in the site's host_vars.
+   - The jump route: `ssh -J pi@gw.<site>:2223 pi@<board address>`, and the
+     hop from the jump shell, `ssh -p 2223 pi@gw.<site>`.
+   - Every other command in `docs/access.md` that names the gateway: the
+     operators' own logins, the automation account, `-J <account>@…` to a
+     board as `ansible` or `root`.
+   - Every ssh client configuration that points at the gateway on port 22:
+     each operator's own, and the managed configuration the automation
+     sessions use. `known_hosts` gains `[gw.<site>]:2223` with the sshd's
+     keys.
+   - The VM harness: it reaches the server VM through a host forward to
+     guest port 22 (`hostfwd=tcp::<port>-:22` in `tests/vm/vm_manager.py`).
+     It gains a second forward, to guest port 2223, and uses that one for
+     Ansible and its own ssh from the point where the server's sshd listens
+     there; and a third, to guest port 2224, for the proxy assertions.
+
+   Not affected, because they never cross the uplink: the web terminal and
+   the upload page (they connect from the gateway to a board's address on
+   its VLAN), the jump account's own hop from the gateway to a board, and
+   boards reaching the gateway's sshd on port 22. This is from
+   `docs/access.md` and the roles; the VM test's existing web-terminal
+   login check confirms it at step 5.
+
+   Then a full converge and both verify playbooks run through port 2223.
+5. **`ssh_proxy_takes_port_22: true`.** Port 22 on the uplink becomes the
+   proxy. `roles/firewall` asserts, before it changes anything, that the
+   Ansible connection it is running over arrived on the backup port: the
+   server port in `$SSH_CONNECTION` (its fourth field) must equal
+   `sshd_backup_port`. A converge that still arrives on port 22 fails at
+   the assert and changes nothing. After it,
    `ssh <board-name>@<site>` works over IPv6 from outside.
-5. The upstream gateway: forwards of 2223 and 2224; its own sshd also on
-   2222; then the site proxy key and the proxy on public port 22.
-   `ssh <board-name>@<site>` works over IPv4 from outside.
-6. DNS: SSHFP on `<site>`, the `ipv6.` names, `gw.<site>` as records of its
-   own; the private `<board-name>.<site>` A records are removed in the same
-   change. They never gave a visitor a working command.
-7. Both commands verified from outside the site, on IPv4 and on IPv6.
-8. The board pages print the new commands first, with the `-p` line
-   underneath only at a site where it works from outside.
-9. After a period agreed for that site, the `-p` line leaves the page, and
-   then the per-board `<s><pp>22` DNAT rules leave the firewall and the
-   upstream requirements. The `<s><pp>44` rules are not part of this.
+6. **The upstream gateway's proxy.** Its own sshd also on 2222; then the
+   site proxy key and the proxy on public port 22, built from the same
+   patched package. `ssh <board-name>@<site>` works over IPv4 from outside.
+7. **DNS.** The zone's owner loads the fragment: SSHFP on `<site>`,
+   `gw.<site>` as records of its own, the `ipv6.` names where
+   `ssh_direct_ipv6` is on; the private `<board-name>.<site>` A records are
+   removed in the same change. They never gave a visitor a working command.
+   Then `ssh_dns_verify` is switched on.
+8. **Verified from outside the site**, on IPv4 and on IPv6.
+9. **The board pages switch** to the new command. The
+   `ssh -p <port> pi@<site>` line is removed in the same change, not kept
+   underneath (E13, O4).
+10. **The per-board `<s><pp>22` DNAT rules** leave the gateway's firewall
+    and the upstream requirements in the next converge after step 9. The
+    `<s><pp>44` rules are not part of this.
+
+At a site where the `-p` command does work from outside today (none with
+`switches:` does), steps 9 and 10 are the only ones that take a working
+command away, and they come after step 8.
 
 ### Monitoring
 
