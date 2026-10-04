@@ -1,0 +1,26 @@
+# Lab gateway: Debian trixie with the distribution's own openssh-server.
+FROM debian:trixie AS build
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev linux-libc-dev \
+ && rm -rf /var/lib/apt/lists/*
+COPY src/ /src/
+RUN mkdir /out \
+ && gcc -O2 -Wall -Wextra -Werror -static -o /out/relay /src/board_relay.c \
+ && gcc -O2 -Wall -Wextra -Werror -static -o /out/probe /src/probe.c \
+ && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -Wl,-soname,libnss_fpgasboard.so.2 \
+        -o /out/libnss_fpgasboard.so.2 /src/nss_fpgasboard.c
+
+FROM debian:trixie
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        openssh-server openssh-client openssl nftables procps iproute2 netcat-openbsd \
+        libnss-extrausers systemd libnss-systemd libpam-systemd bubblewrap \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd /usr/lib/fpgas-board-relay
+COPY --from=build /out/relay /usr/lib/fpgas-board-relay/relay
+COPY --from=build /out/probe /usr/lib/fpgas-board-relay/probe
+COPY --from=build /out/libnss_fpgasboard.so.2 /usr/lib/x86_64-linux-gnu/libnss_fpgasboard.so.2
+RUN ln /usr/lib/fpgas-board-relay/relay /usr/lib/fpgas-board-relay/askpass
+COPY gateway-entrypoint.sh /usr/local/sbin/gateway-entrypoint
+RUN chmod 755 /usr/local/sbin/gateway-entrypoint
+ENTRYPOINT ["/usr/local/sbin/gateway-entrypoint"]
