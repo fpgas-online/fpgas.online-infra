@@ -1,5 +1,7 @@
 # Fleet self-registration: design
 
+Status: implemented; kept as a record (merged 2026-10-04). The site's board list has come from registration and verify results since 2026-10-04 (PR #195). Where this text and the code disagree, the code is right; what the Pis send today is described in fpgas.online-site `docs/verify-events.md`.
+
 Date: 2026-08-31. Revised same day after Tim's review: MQTT broker on tweed
 is first-class site infrastructure (sensors2mqtt publishes to it, NOT to
 Home Assistant — any HA forwarding happens downstream of the broker and the
