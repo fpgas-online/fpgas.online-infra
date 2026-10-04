@@ -51,6 +51,14 @@ an ECDSA key known the client moves ECDSA to the front of its proposal but
 still offers Ed25519, the Ed25519-only proxy negotiates fine, and then the
 key it presents is refused (scenarios 2a, 2b).
 
+`StrictHostKeyChecking=no` is the one client setting that carries on past a
+changed key, and it does not help: OpenSSH then turns password and
+keyboard-interactive authentication off for that connection ("Password
+authentication is disabled to avoid man-in-the-middle attacks."), and a
+password is how visitors log in, so the login fails with `Permission denied
+(password)` (scenario 1h). It would also mean telling visitors to switch
+host key checking off.
+
 A visitor who follows the advice in the refusal (`ssh-keygen -R
 welland.fpgas.online`) deletes the first proxy's key, accepts the second
 proxy's, and is refused again the next time the first proxy answers
@@ -79,7 +87,7 @@ OpenSSH 8.2 additionally prints, once per proxy address, `Warning:
 Permanently added the ECDSA host key for IP address ...` (`CheckHostIP`
 defaulted to yes before 8.5). It connects.
 
-## Results table (run of 2026-10-04, 23:11 to 23:14 ACDT)
+## Results table (run of 2026-10-04, 23:38 to 23:41 ACDT)
 
 "A" is the ECDSA-only proxy reached over IPv4, "B" the Ed25519-only proxy
 reached over IPv6, both sshpiper with `--drop-hostkeys-message` unless the
@@ -91,13 +99,14 @@ a version is named.
 | 1a/1b default config, nothing known, A B A B (and B A B A) | first proxy: asked to accept the key; second proxy: **CHANGED refusal**; first again: silent; second again: CHANGED refusal |
 | 1c/1d `StrictHostKeyChecking=accept-new` | first proxy: key added without asking; second proxy: **CHANGED refusal**, every time |
 | 1e `StrictHostKeyChecking=yes`, 1f `BatchMode=yes`, nothing known | both proxies refused (no known key), as for any new host |
+| 1h `StrictHostKeyChecking=no` | first proxy: key added without asking; second proxy: the CHANGED warning, then "Password authentication is disabled to avoid man-in-the-middle attacks." and `Permission denied (password)`: no login |
 | 1g visitor runs `ssh-keygen -R` after each refusal | asked again, connects, then refused at the other proxy; repeats for ever |
 | 2a/2b one type known, other proxy answers | negotiation succeeds (the proposal is reordered, not restricted), then CHANGED refusal |
 | 3a plain sshd pair, nothing known | same as 1a |
-| 3b sshpiper pair without `--drop-hostkeys-message`, nothing known | same as 1a; the client receives one forwarded announcement per login |
+| 3b sshpiper pair without `--drop-hostkeys-message`, nothing known | same as 1a; each login that gets past the host key check receives one forwarded announcement (the refused ones end before it is sent), and where UpdateHostKeys is on the client prints the "server gave bad signature" error |
 | 4a control: both proxies ECDSA, different keys | CHANGED refusal at the second |
 | 4b/4c A ECDSA only, B offers ECDSA and Ed25519, nothing known | CHANGED refusal at the second proxy in either order |
-| 4d/4e `HostKeyAlgorithms` pinned to one type | the other proxy fails with "no matching host key type found" |
+| 4d/4e `HostKeyAlgorithms` pinned to one type | the other proxy fails with "no matching host key type found. Their offer: ecdsa-sha2-nistp256" (A) or "Their offer: ssh-ed25519" (B). The offer line lists everything the server has, so this is also the evidence that each lab proxy offers exactly one key type |
 | 4f `HostKeyAlias`, nothing known | same as 1a |
 | 6a/6b both keys pre-seeded | silent at both proxies, any order, repeatedly |
 | 6c both pre-seeded, `UpdateHostKeys=yes` forced | silent; both keys stay |
@@ -113,7 +122,14 @@ a version is named.
 | 5d PuTTY `plink` 0.83 | **works as the claim said**: "host key is not cached" question once per proxy, then silent, also with `-batch`; it caches one key per type per host and port |
 | 5e/5f plink `-batch` first contact; control, same type | refused ("Cannot confirm a host key in batch mode"); "POTENTIAL SECURITY BREACH", refused |
 
-The complete output of that run is in `results-2026-10-04.md`.
+`results-2026-10-04.md` holds, for that run: the outcome of every connection
+per client and scenario with the keys stored at the end, the per-client
+verdict, and verbatim excerpts of client output (the OpenSSH 10.0 refusal in
+both orders, the `StrictHostKeyChecking=no` output, the 4d/4e offer lines,
+the announcements counted per login for 1a/3a/3b, and the dbclient and plink
+versions, questions and refusals). The full transcript with every client's
+`-vv` output is not committed; running the script regenerates it under
+`tmp/ssh_key_types/`.
 
 ## Not tested
 
