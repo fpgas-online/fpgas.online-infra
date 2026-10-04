@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parent.parent
 ANSIBLE = REPO / "ansible"
 VERIFY_PI = ANSIBLE / "verify-pi.yml"
 
-PLAY = yaml.safe_load(VERIFY_PI.read_text())[0]
+(PLAY,) = [p for p in yaml.safe_load(VERIFY_PI.read_text()) if p["name"] == "Verify running Pi"]
 
 
 def _task(name: str) -> dict:

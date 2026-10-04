@@ -8,12 +8,50 @@
 #   # a live Pi by address (the static inventory has no per-Pi hosts):
 #   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
 #
+# The static inventory has no Pis in it, so a plain run, or one with only
+# --limit <server>, selects nothing. Ansible calls that "skipping: no hosts
+# matched" and exits 0, which reads as a pass. The first play below makes it
+# an error instead.
+#
 # Every Pi runs every check (#157: no --tags / --skip-tags). The camera and
 # FPGA checks look for that hardware on the Pi itself, as the Pi's own
 # services do, and then assert on what they found: no camera or no FPGA is
 # said and passes; one that is there but not working fails. The VM test's Pi
 # has neither, so it passes because nothing is found, not because anything
 # was skipped.
+
+# Runs once, on the controller, whatever --limit is: `all` so that a limit
+# naming any inventory host keeps the play (a `localhost` play is dropped by
+# a limit that does not name localhost, and would then guard nothing), and
+# `localhost` so that it still runs when the inventory is empty. A limit that
+# matches no host at all is already an error in Ansible itself.
+# --start-at-task skips every task before the one named, this one included:
+# a run with it is not a verification.
+- name: Refuse to verify no Pis
+  hosts: all:localhost
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Assert the run selects at least one Pi
+      ansible.builtin.assert:
+        that: verify_pi_selected | length > 0
+        fail_msg: >-
+          verify-pi.yml selects no hosts: the pattern
+          '{{ verify_pi_pattern }}'{{ (" under --limit '" ~ ansible_limit ~ "'") if ansible_limit is defined else '' }}
+          matches {{ verify_pi_matched | length }} host(s) in the inventory and none is left to check.
+          Nothing was verified. Name the Pis, for example
+          `-i 10.21.2.33, -e verify_pi_hosts=all`.
+        success_msg: "verify-pi.yml will check: {{ verify_pi_selected | join(', ') }}"
+      vars:
+        verify_pi_pattern: "{{ verify_pi_hosts | default('pi_live') }}"
+        verify_pi_matched: "{{ query('ansible.builtin.inventory_hostnames', verify_pi_pattern) }}"
+        # ansible_play_hosts_all is this play's `all:localhost` after --limit.
+        verify_pi_selected: "{{ verify_pi_matched | intersect(ansible_play_hosts_all) }}"
+      # One answer for the whole run, not one per host. No play here uses the
+      # free strategy, which is what the rule warns about.
+      run_once: true  # noqa: run-once[task]
+      delegate_to: localhost
+      connection: local
 
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live') }}"
