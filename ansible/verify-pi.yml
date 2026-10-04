@@ -233,6 +233,8 @@
                                      "nfsroot-watchdog.timer"),
               "fpgatools": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
                                "openfpgaloader-fpgasonline-git", "openocd-fpgasonline-git"),
+              "rpi_hwid_pkgs": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
+                                   "python3-rpi-hwid", "i2c-tools"),
               "cables": run("openFPGALoader", "--list-cables"),
               "rp1jtag_list": exists("/etc/apt/sources.list.d/rp1-jtag.list"),
               "cam": run("systemctl", "is-enabled", "fpgas-cam"),
@@ -240,6 +242,10 @@
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
               "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
+              # /sbin/modinfo: /usr/sbin is not on the login user's PATH
+              "litepcie": {"packages": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
+                                           "fpgas-online-acorn-litepcie-common"),
+                           "modinfo": run("/sbin/modinfo", "-F", "filename", "litepcie")},
               "failed": run("systemctl", "--failed", "--no-legend", "--plain"),
               "dt_model": ({"content": base64.b64encode(model).decode()} if model is not None else {}),
               "model": {"rc": 0 if model is not None else 1,
@@ -274,6 +280,7 @@
         verify_pi_lldpd_active: "{{ verify_pi_state.lldpd_active }}"
         verify_pi_watchdog_active: "{{ verify_pi_state.watchdog_active }}"
         verify_pi_fpgatools: "{{ verify_pi_state.fpgatools }}"
+        verify_pi_rpi_hwid_pkgs: "{{ verify_pi_state.rpi_hwid_pkgs }}"
         verify_pi_cables: "{{ verify_pi_state.cables }}"
         verify_pi_rp1jtag_list: "{{ verify_pi_state.rp1jtag_list }}"
         verify_pi_cam: "{{ verify_pi_state.cam }}"
@@ -281,6 +288,7 @@
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
         verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
+        verify_pi_litepcie: "{{ verify_pi_state.litepcie }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
         verify_pi_model: "{{ verify_pi_state.model }}"
@@ -509,6 +517,21 @@
           the superseded openfpgaloader-rp1pio / openocd-rp1pio, or Debian's
           openocd / openfpgaloader were reinstalled over them
 
+    # The hardware identity probe fpgas-verify runs (`rpi-hwid tinytapeout`)
+    # and the i2c-tools its I2C probing shells out to. dpkg-query exits
+    # non-zero if either is unknown, and the status field catches a removed
+    # one.
+    - name: Assert python3-rpi-hwid and i2c-tools are installed
+      ansible.builtin.assert:
+        that:
+          - verify_pi_rpi_hwid_pkgs.rc == 0
+          - "'python3-rpi-hwid install ok installed' in verify_pi_rpi_hwid_pkgs.stdout_lines"
+          - "'i2c-tools install ok installed' in verify_pi_rpi_hwid_pkgs.stdout_lines"
+        fail_msg: >-
+          python3-rpi-hwid / i2c-tools not installed on the Pi
+          (got: {{ verify_pi_rpi_hwid_pkgs.stdout_lines }}) -- the NFS root
+          predates the rpi-hwid apt source (roles/fpgas_apt/tasks/rpi-hwid.yml)
+
     - name: Assert openFPGALoader was built with the rp1pio cable
       ansible.builtin.assert:
         that:
@@ -632,6 +655,23 @@
       ansible.builtin.assert:
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
+
+    # The Acorn's LitePCIe driver (roles/onpi/tasks/litepcie.yml): a root that carries it has litepcie.ko
+    # for every kernel a Pi 5 boots, so on such a kernel `modinfo litepcie` finds it. The check takes what
+    # to expect from the root itself: a root built without the driver (onpi_litepcie_modules off) has no
+    # fpgas-online-acorn-litepcie-common, and a 32-bit kernel (Pi 3, Pi 4) has no module to find.
+    - name: Assert litepcie.ko is there for this kernel, where the root carries the driver
+      ansible.builtin.assert:
+        that: verify_pi_litepcie.modinfo.rc == 0
+        fail_msg: >-
+          The root has fpgas-online-acorn-litepcie-common but no litepcie.ko for the running kernel
+          {{ ansible_kernel }} (modinfo: {{ verify_pi_litepcie.modinfo.stderr }}) -- the root
+          has no fpgas-online-acorn-litepcie-modules-{{ ansible_kernel }}, or this board
+          booted a kernel the root no longer carries
+        quiet: true
+      when:
+        - "'fpgas-online-acorn-litepcie-common install ok installed' in verify_pi_litepcie.packages.stdout_lines"
+        - ansible_kernel is search('-rpi-(v8|2712)$')
 
     # --- The FPGA board: fpgas-verify checks it; Ansible checks fpgas-verify works ---
     # Everything above is checked by Ansible itself (the NFS root and the Pi's system). The FPGA hardware

@@ -8,8 +8,11 @@
 # Run after any deliberate reinstall of a managed host, BEFORE the next
 # site.yml run:
 #   ansible-playbook -i ansible/inventory ansible/refresh-known-hosts.yml
-#   (defaults to the gateway, 10.99.21.2; override with
-#    -e rekey_hosts='["10.21.2.33", ...]')
+#   (defaults to the gateway, gw.welland.fpgas.online, scanned over IPv6
+#    only: the name's IPv4 address is the site's public address, where
+#    port 22 is another machine, and its key must never be pinned under
+#    the gateway's name. For IPv4 hosts override both:
+#    -e rekey_hosts='["10.21.2.33", ...]' -e rekey_keyscan_family=-4)
 #
 # ssh.cfg's accept-new handles first-contact TOFU for brand-new addresses;
 # this playbook exists because accept-new can NOT replace an existing entry
@@ -27,7 +30,8 @@
   vars:
     ansible_known_hosts_file: "{{ lookup('env', 'HOME') }}/.config/fpgas-online/ansible_known_hosts"
     rekey_hosts:
-      - 10.99.21.2
+      - gw.welland.fpgas.online
+    rekey_keyscan_family: "-6"
   tasks:
     - name: Ensure the known_hosts directory exists
       ansible.builtin.file:
@@ -51,7 +55,7 @@
       loop: "{{ rekey_hosts }}"
 
     - name: Scan current host keys (retry while the host finishes booting)
-      ansible.builtin.command: ssh-keyscan {{ item }}
+      ansible.builtin.command: ssh-keyscan {{ rekey_keyscan_family }} {{ item }}
       register: rekey_scans
       retries: 30
       delay: 10

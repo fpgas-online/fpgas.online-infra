@@ -85,10 +85,15 @@ table ip nat {
 # mgmt DNATs are gone. Per-port SSH/aux DNAT below, keyed by switch index
 # and port number: <switch><pp>22 -> pi:22, <switch><pp>44 -> pi:4444
 # (sw1 p7 -> 10722/10744, sw2 p7 -> 20722/20744).
+#
+# Only for connections that ARRIVE on the uplink. Without the interface
+# match a board could connect to the uplink address on another board's
+# port, be DNATed here, and pass the forward chain's `ct status dnat`
+# accept ahead of the board-to-board drop (#204).
 
 {% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
-            ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}22 } dnat to {{ e.ip4 }}:22
-            ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}44 } dnat to {{ e.ip4 }}:4444
+            iifname "{{ eth_uplink }}" ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}22 } dnat to {{ e.ip4 }}:22
+            iifname "{{ eth_uplink }}" ip daddr {{ eth_uplink_static_address }} tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}44 } dnat to {{ e.ip4 }}:4444
 
 {% endfor %}
     }
