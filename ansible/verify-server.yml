@@ -161,6 +161,22 @@
         that: verify_overlayroot.rc == 0
         fail_msg: "overlayroot not installed in NFS root"
 
+    # The hardware identity probe fpgas-verify runs on the boards, and the
+    # i2c-tools it needs (roles/onpi, apt source roles/fpgas_apt).
+    - name: Check python3-rpi-hwid installed in NFS root
+      ansible.builtin.command: dpkg-query --admindir={{ nfs_root }}/root/var/lib/dpkg -W -f=${db:Status-Status} python3-rpi-hwid i2c-tools
+      changed_when: false
+      register: verify_nfsroot_rpi_hwid
+      failed_when: false
+
+    - name: Assert python3-rpi-hwid installed in NFS root
+      ansible.builtin.assert:
+        that: verify_nfsroot_rpi_hwid.stdout == "installedinstalled"
+        fail_msg: >-
+          python3-rpi-hwid and i2c-tools not both installed in the NFS root
+          (got {{ verify_nfsroot_rpi_hwid.stdout }}, rc
+          {{ verify_nfsroot_rpi_hwid.rc }}: {{ verify_nfsroot_rpi_hwid.stderr }})
+
     # Stale-NFS-root watchdog: the boards' half (nfsroot-watchdog, roles/onpi)
     # must be in the root, the server's half (nfsroot-watchdog-server,
     # roles/nfsroot_generation) on this host, and a finished site.yml run
