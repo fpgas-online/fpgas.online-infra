@@ -136,6 +136,27 @@
         fail_msg: "nft chain inet filter forward missing 'policy drop'"
       when: switches is defined
 
+    # A per-board DNAT rule without the uplink interface match lets one board
+    # reach another through the gateway's uplink address: the forward chain
+    # accepts DNATed connections ahead of its board-to-board drop (#204).
+    - name: Get nft prerouting chain
+      ansible.builtin.command: nft list chain ip nat prerouting
+      changed_when: false
+      register: verify_nft_prerouting_chain
+      when: switches is defined
+
+    - name: Assert every per-board DNAT rule is limited to the uplink interface
+      ansible.builtin.assert:
+        that:
+          - verify_nft_dnat_rules | length > 0
+          - verify_nft_dnat_rules | reject('search', 'iifname "' ~ eth_uplink ~ '"') | list | length == 0
+        fail_msg: >-
+          DNAT rules that do not match the uplink interface ({{ eth_uplink }}):
+          {{ verify_nft_dnat_rules | reject('search', 'iifname "' ~ eth_uplink ~ '"') | list }}
+      vars:
+        verify_nft_dnat_rules: "{{ verify_nft_prerouting_chain.stdout_lines | select('search', ' dnat to ') | list }}"
+      when: switches is defined
+
     - name: Check /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.stat:
         path: /etc/dnsmasq.d/ports.conf
