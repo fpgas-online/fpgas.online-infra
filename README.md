@@ -116,9 +116,12 @@ Two verification playbooks check the deployment:
 uv run ansible-playbook ansible/verify-server.yml
 
 # Verify running Pi (NFS mount, overlayfs, services, packages, camera, FPGA)
-# Run after Pis have booted
-uv run ansible-playbook ansible/verify-pi.yml
+# Run after Pis have booted. The inventory lists no Pis: name them by address.
+uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -e verify_pi_hosts=all
 ```
+
+A `verify-pi.yml` run that selects no Pi fails: it does not pass by checking
+nothing. `--limit fpgas.online` selects no Pi.
 
 Both always run in full: no `--tags` or `--skip-tags`. verify-pi finds the
 camera and the FPGA board on each Pi itself; a Pi without one passes and
