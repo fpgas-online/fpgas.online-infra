@@ -48,7 +48,8 @@ Which path reaches tweed's sshd (checked 2026-09-29, after infra `main`
 | From | Use | Why |
 |---|---|---|
 | inside the site, or over the wg route | `tweed.welland.mithis.com` | resolves to `10.21.0.1` / `10.99.21.2`, which reach tweed directly |
-| ten64 | `10.99.21.2` | the transit link; this is also Ansible's `ansible_host` |
+| the upstream router | `10.99.21.2` | the transit link |
+| Ansible, from anywhere with IPv6 | `gw.welland.fpgas.online`, IPv6 only | the inventory's `ansible_host`; the name's AAAA record is tweed, its A record is not |
 | outside, IPv6 | `2404:e80:a137:2100::1` | reaches tweed. `2404:e80:a137:9921::2` port 22 times out from outside, so use the address rather than the name, which also lists `9921::2` |
 | outside, IPv4 only | `-J <you>@ten64.welland.mithis.com`, then `10.99.21.2`, if you have an account on ten64 | the public A record is ten64, not tweed |
 
@@ -181,7 +182,7 @@ rewritten `/etc/shadow` makes every booted board refuse SSH until it reboots.
 | To | Command | Authenticates with |
 |---|---|---|
 | tweed, as yourself | inside the site, over wg or over IPv6: `ssh <you>@tweed.welland.mithis.com`; from ten64: `ssh <you>@10.99.21.2` | your GitHub key |
-| tweed, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes ansible@10.99.21.2` | the automation key |
+| tweed, as the automation account | `ssh -6 -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes ansible@gw.welland.fpgas.online` | the automation key |
 | a board, through the jump account | `ssh -J pi@tweed.welland.mithis.com pi@10.21.2.29` | your key at both hops (see the note below) |
 | a board, hopping from the jump shell | `ssh pi@tweed.welland.mithis.com`, then `ssh pi@10.21.2.29` | the jump account's own key at the board |
 | a board, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes -J <you>@10.99.21.2 ansible@10.21.S.P` | your own key at tweed, the automation key at the board |
