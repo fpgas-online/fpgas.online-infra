@@ -121,7 +121,8 @@ uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -e verify_pi_hosts=
 ```
 
 A `verify-pi.yml` run that selects no Pi fails: it does not pass by checking
-nothing. `--limit fpgas.online` selects no Pi.
+nothing. `--limit fpgas.online` selects no Pi. (`--start-at-task` skips that
+check along with every other task before the one named.)
 
 Both always run in full: no `--tags` or `--skip-tags`. verify-pi finds the
 camera and the FPGA board on each Pi itself; a Pi without one passes and

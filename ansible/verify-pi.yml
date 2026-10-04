@@ -25,6 +25,8 @@
 # a limit that does not name localhost, and would then guard nothing), and
 # `localhost` so that it still runs when the inventory is empty. A limit that
 # matches no host at all is already an error in Ansible itself.
+# --start-at-task skips every task before the one named, this one included:
+# a run with it is not a verification.
 - name: Refuse to verify no Pis
   hosts: all:localhost
   gather_facts: false
