@@ -87,6 +87,29 @@
     dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/password.conf"
     mode: "0644"
 
+# What a visitor's ssh client shows before the password prompt. The board
+# pages tell visitors "password is in login banner", and until this file
+# existed the boards' sshd had no banner at all (#215). The console banner
+# above cannot be reused: it is written in getty's escapes (\n, \4) and
+# does not carry the password. Plain text, one fact per line; the
+# `password: <pw>` line is what the end-to-end tests read
+# (tests/test_fixpi_ssh_banner.py pins the shape). The password is public by
+# design: the site prints it too.
+#
+# Site layer, not the image: the password is this site's (pi_pw), and the
+# published image carries no site's password.
+- name: Ssh login banner with the user and password
+  ansible.builtin.template:
+    src: etc/ssh/sshd_banner.j2
+    dest: "{{ nfs_root }}/root/etc/ssh/sshd_banner"
+    mode: "0644"
+
+- name: Sshd shows the login banner
+  ansible.builtin.copy:
+    src: "files/etc/ssh/sshd_config.d/banner.conf"
+    dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/banner.conf"
+    mode: "0644"
+
 - name: Generate ssh keys for server user
   ansible.builtin.user:
     name: "{{ user_name }}"
