@@ -184,9 +184,9 @@
         verify_pi_collector: |
           import base64, json, os, subprocess
           {{ verify_pi_camera_probe }}
-          def run(*argv):
+          def run(*argv, timeout=60):
               try:
-                  r = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+                  r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
                   out, err, rc = r.stdout.rstrip("\r\n"), r.stderr.rstrip("\r\n"), r.returncode
               except (OSError, subprocess.TimeoutExpired) as e:
                   out, err, rc = "", str(e), 127
@@ -224,6 +224,12 @@
               "addrs": run("ip", "addr", "show"),
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
+              # What sshd shows before authentication: ask for no method at
+              # all, so the login is refused (exit 255) once the banner is out.
+              "ssh_banner": run("ssh", "-o", "PreferredAuthentications=none", "-o", "BatchMode=yes",
+                                "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                                "-o", "ConnectTimeout=30", "pi@localhost", "true",
+                                timeout=180),  # an ssh handshake is slow on an emulated Pi
               "python3": run("python3", "--version"),
               "hostname": run("hostname"),
               "overlayroot": run("dpkg", "-l", "overlayroot"),
@@ -273,6 +279,7 @@
         verify_pi_addrs: "{{ verify_pi_state.addrs }}"
         verify_pi_ping: "{{ verify_pi_state.ping }}"
         verify_pi_ssh: "{{ verify_pi_state.ssh }}"
+        verify_pi_ssh_banner: "{{ verify_pi_state.ssh_banner }}"
         verify_pi_python3: "{{ verify_pi_state.python3 }}"
         verify_pi_hostname: "{{ verify_pi_state.hostname }}"
         verify_pi_overlayroot: "{{ verify_pi_state.overlayroot }}"
@@ -344,6 +351,36 @@
       ansible.builtin.assert:
         that: verify_pi_ssh.stdout == "active"
         fail_msg: "SSH service is not active on Pi"
+
+    # The board pages say "password is in login banner" (#215): the board's
+    # own sshd must show the login name and a password before it asks for
+    # one. The probe above asked for no authentication method, so it was
+    # refused (255) after the banner; anything else means it did not reach
+    # the point where a banner is sent.
+    - name: Assert sshd shows a login banner with the user and a password before authentication
+      ansible.builtin.assert:
+        that:
+          - verify_pi_ssh_banner.rc == 255
+          - "'Permission denied' in verify_pi_ssh_banner.stderr"
+          - "'user: pi' in verify_pi_ssh_banner.stderr.splitlines()"
+          - verify_pi_ssh_banner.stderr is search('(?m)^password:[ ].+$')
+        fail_msg: >-
+          sshd on {{ ansible_hostname }} showed no banner with `user: pi` and
+          `password: <password>` lines before authentication. ssh said
+          (rc {{ verify_pi_ssh_banner.rc }}): {{ verify_pi_ssh_banner.stderr }}
+
+    # ... and the password it shows is the site's (pi_pw of this Pi's
+    # server), where the inventory names the server.
+    - name: Assert the banner's password is the site's pi password
+      ansible.builtin.assert:
+        that:
+          - verify_pi_banner_password_line in verify_pi_ssh_banner.stderr.splitlines()
+        fail_msg: >-
+          The password in {{ ansible_hostname }}'s ssh banner is not
+          {{ groups['nbp'][0] }}'s pi_pw
+      vars:
+        verify_pi_banner_password_line: "password: {{ hostvars[groups['nbp'][0]].pi_pw }}"
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
 
     # The board pages' web terminal (webssh on the server) logs in as the pi
     # user with the shared password; it has no key. useradd creates the
