@@ -16,6 +16,11 @@
 # module package fails the build here: a root whose Pi 5 kernel has no driver would boot and quietly leave
 # the test out. The packages for a new Raspberry Pi kernel appear within a day of the kernel.
 #
+# Module packages exist only for kernels from 6.12 on (fpgas.online-test-designs
+# packaging/acorn-litepcie/kernels.toml, min_kernel). A root that still carries an older rpi-v8 or rpi-2712
+# kernel therefore fails here too, and for the same reason: a Pi 5 could boot it. Remove that kernel from the
+# root; do not leave it out of the list.
+#
 # This runs before the boot check is installed (fpga_verify.yml). fpgas-online-acorn-tools recommends
 # `fpgas-online-acorn-litepcie-dkms | fpgas-online-acorn-litepcie-module`: with a modules package already
 # there the recommendation is met, and apt does not bring DKMS's copy in.
