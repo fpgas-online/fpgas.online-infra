@@ -140,7 +140,7 @@ of fpgas-online/sshpiper, live DNS queries, and the lab in
 | The yaml and failtoban plugins are built only with the Go build tag `full` | `//go:build full` in `plugin/yaml`, `plugin/failtoban` | The package builds with that tag |
 | failtoban counts onward-login failures and pipe-creation failures per client address, bans at `--max-failures` (default 5) for `--ban-duration` (default 60 minutes), and never bans an `--ignore-ip` address | `plugin/failtoban/main.go` | Explicit, gentler values; the upstream proxy's address is ignored |
 | sshd has no PROXY-protocol support. sshpiper accepts PROXY headers (`--allowed-proxy-addresses`) and never sends them | OpenSSH source; `cmd/sshpiperd/main.go` | A board sees the client's address on a proxied login only through transparent proxying (phase 2) |
-| Since OpenSSH 9.8 sshd penalises a source address after failed logins (`PerSourcePenalties`, on by default) | `sshd_config(5)` | In phase 1 every proxied login reaches a board from the gateway's address, as do the web terminal and the jump route. The boards exempt that address |
+| Since OpenSSH 9.8 sshd penalises a source address after failed logins (`PerSourcePenalties`, on by default). Before 9.8 the option `PerSourcePenaltyExemptList` does not exist: it is a configuration error and sshd does not start. The boards' root is Debian bookworm today (inventory `dist: bookworm`), OpenSSH 9.2 | `sshd_config(5)`; reviewer's test on OpenSSH 9.2, 2026-10-05: `sshd -t` exits 255 with the line present | On a root with OpenSSH 9.8 or later, every proxied login reaches a board from the gateway's address, as do the web terminal and the jump route, so the boards exempt that address. On an older root there is no penalty and the line must not be written |
 
 ## Current state this builds on
 
@@ -553,10 +553,24 @@ The per-board DNAT rules are not touched in phase 1. Their removal is in
   `HostKey /etc/ssh/ssh_host_ed25519_key`. There is then one fleet
   fingerprint to publish, one SSHFP record per `ipv6.` name and one pin per
   board in the proxy. The RSA and ECDSA files stay on disk, unused.
-- **`PerSourcePenaltyExemptList {{ pib_network }}.0.1`** in the same
-  drop-in: the gateway's board-side address. Otherwise a few wrong
-  passwords through the proxy lock the web terminal, the upload page, the
-  jump route and every other proxied visitor out of that board.
+- **`PerSourcePenaltyExemptList {{ pib_network }}.0.1`, only on a root
+  whose OpenSSH is 9.8 or later.** The address is the gateway's board-side
+  one. On such a root, a few wrong passwords through the proxy would
+  otherwise lock the web terminal, the upload page, the jump route and
+  every other proxied visitor out of that board.
+  - The line goes in a drop-in of its own, written by fixpi only when the
+    root's `openssh-server` version, read from the extracted root at deploy
+    time (`dpkg-query --root=<the root> -W openssh-server`), is 9.8 or
+    later; otherwise fixpi removes the file. It is not keyed on `dist`.
+  - Today's root is bookworm with OpenSSH 9.2: the option is unknown there,
+    sshd would refuse to start, and every board would lose ssh. There is
+    also no penalty to exempt on 9.2. The line appears by itself when the
+    root moves to trixie.
+  - After writing any sshd drop-in into the root, fixpi runs the root's own
+    `sshd -t` against it (in the root, as the image build does) and fails
+    the converge on an error.
+  - The gateway's own sshd gets no such line (the proxy never connects to
+    it). The gateways run Debian trixie, OpenSSH 10.0.
 - **The board mapping key's public half** in `pi`'s `authorized_keys`, as a
   new key source `ssh_proxy`, for `pi` only, never root.
 - **The login banner, the `pi` account and its password stay as today.**
