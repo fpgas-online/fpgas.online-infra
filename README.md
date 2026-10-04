@@ -97,12 +97,12 @@ uv run ansible-playbook ansible/web.yml --limit fpgas.online
 ```
 
 The Welland server (inventory host `fpgas.online`, hostname tweed) is reached
-over the private ten64 <-> tweed link (`ansible_host: 10.99.21.2`) as the
-dedicated `ansible` user with `become`; its web interface is published by the
-nginx reverse proxy / SNI router on ten64 as `welland.fpgas.online`,
-`tweed.welland.mithis.com` and `tinytapeout.fpgas.online` (CNAME), so run the
-playbooks from inside the Welland network. Vault-encrypted host vars need
-`--vault-password-file`.
+by its public name over IPv6 (`ansible_host: gw.welland.fpgas.online`) as the
+dedicated `ansible` user with `become`, so the playbooks run from any machine
+with IPv6 and the automation key; nothing on the network above the gateway is
+needed. The first run from a machine learns the gateway's host key
+(`ansible/ssh.cfg`, accept-new); compare it with the gateway's before trusting
+it. Vault-encrypted host vars need `--vault-password-file`.
 
 Who can log in to tweed and to the netbooted Pis, with which keys, how to add
 or remove a person, and how to verify it: [docs/access.md](docs/access.md).
