@@ -141,6 +141,14 @@ keys and host key.
   `fixpi/files/etc/ssh/sshd_config.d/password.conf` keeps
   `PasswordAuthentication yes` on the Pis for that reason. This is
   intentional; it is only tweed that is key-only.
+- **The ssh login banner.** The board pages say "password is in login
+  banner", so the boards' sshd shows one before the password prompt (#215):
+  `fixpi/tasks/userconf.yml` writes `/etc/ssh/sshd_banner` in the root from
+  `fixpi/templates/etc/ssh/sshd_banner.j2`, with the lines `user: pi` and
+  `password: <pi_pw>`, and the drop-in `sshd_config.d/banner.conf` sets
+  `Banner` to it. Like the password itself it is written on the gateway
+  only, never in the CI image. The console banner (`/etc/issue.d`) is a
+  separate file in getty's own format and does not carry the password.
 - **The keys** (`fixpi_authorized_keys_files`, built by
   [`fixpi/tasks/authorized_keys.yml`](../ansible/roles/fixpi/tasks/authorized_keys.yml)):
 
