@@ -35,12 +35,9 @@ onpi_fpga_verify_package: fpgas-online-all-boards
 # The prebuilt LitePCIe driver for the Acorn PCIe SoC (tasks/litepcie.yml): litepcie.ko for every kernel in
 # the root that a Pi 5 boots, which fpgas-verify's Acorn `dma` test needs. The fpgas.online apt repository
 # serves fpgas-online-acorn-litepcie-modules-<kernel> since 2026-10-04 (fpgas.online-test-designs releases
-# them, and fpgas-online/apt collects them like its other packages). The root's build fails at the install
-# for a Pi 5 kernel that has no module package; set this false only for a root no Pi 5 or CM5 boots.
-#
-# OFF since 2026-10-05, until the role handles a kernel without a modules package: a from-scratch root
-# carries 6.6.31+rpt-rpi-v8 beside the kernel the boards boot, and the build stopped with
-#   No package matching 'fpgas-online-acorn-litepcie-modules-6.6.31+rpt-rpi-v8:arm64' is available
-# (vm-test run 37213351442). Nothing needs the driver yet: the boot check does not load it. verify-pi
-# takes what to expect from the root, so a root without the driver passes its check.
-onpi_litepcie_modules: false
+# them, and fpgas-online/apt collects them like its other packages), for kernels from 6.12 on. The root's
+# build fails at the install for a Pi 5 kernel from 6.12 on that has no module package; an older Pi 5 kernel
+# still in the root (the base image's 6.6.31+rpt-rpi-v8 in a root built from scratch) is left out and named
+# in the build's output (fpgas.online-infra issue #218). Set this false only for a root no Pi 5 or CM5 boots.
+# Nothing loads the driver at boot: the -common package deny-lists it, and the boot check does not load it.
+onpi_litepcie_modules: true

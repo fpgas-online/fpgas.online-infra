@@ -12,14 +12,17 @@
 #                                                  boot check loads it for its test and removes it again
 #   fpgas-online-acorn-litepcie-utils              litepcie_util, for a person at the board
 #
-# Which kernels: every installed one a Pi 5 or CM5 can boot (files/litepcie_modules.py). A kernel with no
-# module package fails the build here: a root whose Pi 5 kernel has no driver would boot and quietly leave
-# the test out. The packages for a new Raspberry Pi kernel appear within a day of the kernel.
+# Which kernels: every installed one a Pi 5 or CM5 can boot, from kernel 6.12 on (files/litepcie_modules.py).
+# Such a kernel with no module package fails the build here: a root whose Pi 5 kernel has no driver would
+# boot and quietly leave the test out. The packages for a new Raspberry Pi kernel appear within a day of the
+# kernel.
 #
-# Module packages exist only for kernels from 6.12 on (fpgas.online-test-designs
-# packaging/acorn-litepcie/kernels.toml, min_kernel). A root that still carries an older rpi-v8 or rpi-2712
-# kernel therefore fails here too, and for the same reason: a Pi 5 could boot it. Remove that kernel from the
-# root; do not leave it out of the list.
+# Module packages exist only from 6.12 on (fpgas.online-test-designs packaging/acorn-litepcie/kernels.toml,
+# min_kernel). A root built from scratch still carries the base image's linux-image-6.6.31+rpt-rpi-v8 beside
+# the kernel the fleet boots, and asking apt for a module package for it failed the whole image build
+# (2026-10-05, fpgas.online-infra issue #218). So an older Pi 5 kernel is left out of the install, and said
+# here in the build's output. Nothing is hidden by that: a Pi that does boot such a kernel has no litepcie.ko,
+# and verify-pi's assert fails on that Pi and names the kernel.
 #
 # This runs before the boot check is installed (fpga_verify.yml). fpgas-online-acorn-tools recommends
 # `fpgas-online-acorn-litepcie-dkms | fpgas-online-acorn-litepcie-module`: with a modules package already
@@ -32,12 +35,30 @@
   changed_when: false
   check_mode: false
 
-- name: Assert the root has a kernel a Pi 5 boots
+- name: Find the Pi 5 kernels in the root that are older than the module packages
+  ansible.builtin.script: litepcie_modules.py --left-out
+  args:
+    executable: python3
+  register: onpi_litepcie_left_out
+  changed_when: false
+  check_mode: false
+
+- name: Say which Pi 5 kernels in the root get no LitePCIe driver
+  ansible.builtin.debug:
+    msg: >-
+      No LitePCIe module package exists for {{ onpi_litepcie_left_out.stdout_lines | join(', ') }}
+      (module packages start at kernel 6.12): a Pi 5 that boots one of these has no driver, and verify-pi
+      fails on it.
+  when: onpi_litepcie_left_out.stdout_lines | length > 0
+
+- name: Assert the root has a kernel a Pi 5 boots that the driver is packaged for
   ansible.builtin.assert:
     that: onpi_litepcie_packages.stdout_lines | length > 0
     fail_msg: >-
-      No rpi-v8 or rpi-2712 kernel is installed in the root, so there is no kernel to install litepcie.ko
-      for. A Pi 5 cannot boot this root.
+      No rpi-v8 or rpi-2712 kernel from 6.12 on is installed in the root, so there is no kernel to install
+      litepcie.ko for (older Pi 5 kernels in the root:
+      {{ onpi_litepcie_left_out.stdout_lines | join(', ') | default('none', true) }}). A Pi 5 booting this
+      root has no driver.
     quiet: true
 
 - name: Install the LitePCIe driver for those kernels, and its tools  # noqa: package-latest
