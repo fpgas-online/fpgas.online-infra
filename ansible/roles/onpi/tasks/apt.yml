@@ -142,6 +142,19 @@
       - openocd-fpgasonline-git
     state: latest
 
+# The hardware identity probe (`rpi-hwid tinytapeout --json
+# --no-stop-service` is how fpgas-verify tells a Tiny Tapeout ASIC host from
+# an FPGA one). From the mithro/rpi-hwid archive (roles/fpgas_apt/tasks/
+# rpi-hwid.yml), state: latest for the same reason as the fpga-tools pair
+# above. Recommends stay off: they are the label generator's (reportlab,
+# pillow, fonts, ...), which the Pi never runs; the one the probe needs,
+# i2c-tools, is in "Install packages" above.
+- name: Install python3-rpi-hwid  # noqa: package-latest
+  ansible.builtin.apt:
+    name: python3-rpi-hwid
+    state: latest
+    install_recommends: false
+
 #      - raspberrypi-kernel-headers
 
 - name: Remove useless packages from the cache

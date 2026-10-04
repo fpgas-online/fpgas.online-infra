@@ -55,3 +55,18 @@ fpgas_apt_nfsroot_watchdog_upstream_url: https://fpgas.online/nfsroot-watchdog
 fpgas_apt_nfsroot_watchdog_url: "{{ (fpgas_apt_cache_url ~ '/nfsroot-watchdog') if fpgas_apt_cache_url else fpgas_apt_nfsroot_watchdog_upstream_url }}"
 fpgas_apt_nfsroot_watchdog_suite: "{{ dist }}"
 fpgas_apt_nfsroot_watchdog_key_fingerprint: FC0E4835E563E003D06CF358A105FA0679EC6204
+
+# mithro/rpi-hwid: the Raspberry Pi hardware identity probe
+# (python3-rpi-hwid, whose `rpi-hwid tinytapeout` tells a Tiny Tapeout ASIC
+# host from an FPGA one; roles/onpi installs it in the Pi root). Architecture:
+# all. mithro/apt-repo-action publishes one flat, signed repository per
+# Debian release (bookworm / trixie / forky / sid) on the mith.ro Pages site,
+# with the binary keyring at <url>/rpi-hwid.gpg, so it follows the shared apt
+# convention (tasks/repo.yml): through the gateway's apt cache (remap
+# rpihwid) when there is one, key pinned by fingerprint. The fingerprint is
+# the one the repository's intro page (https://mith.ro/rpi-hwid/) states and
+# the published keyring carries.
+fpgas_apt_rpi_hwid_upstream_url: https://mith.ro/rpi-hwid
+fpgas_apt_rpi_hwid_url: "{{ (fpgas_apt_cache_url ~ '/rpi-hwid') if fpgas_apt_cache_url else fpgas_apt_rpi_hwid_upstream_url }}"
+fpgas_apt_rpi_hwid_suite: "{{ dist }}"
+fpgas_apt_rpi_hwid_key_fingerprint: 9C51CAE0CF1C4C08A63C8A6A2599D5E0285B902F
