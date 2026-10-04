@@ -21,5 +21,10 @@
 # No ssh keys here: the site owns the root's authorized_keys (fixpi
 # authorized_keys.yml), and the image ships none.
 - {name: "Create the pi user's upload and download directories", ansible.builtin.include_tasks: tweeks.yml}
+# Before the boot check: its Acorn tools recommend the driver, and a prebuilt module already in the root is
+# what keeps apt from choosing the DKMS package (tasks/litepcie.yml).
+- name: Install the prebuilt LitePCIe driver for the Acorn DMA test
+  ansible.builtin.include_tasks: litepcie.yml
+  when: onpi_litepcie_modules
 - {name: Install and enable the FPGA boot check, ansible.builtin.include_tasks: fpga_verify.yml}
 - {name: Install and configure nfsroot-watchdog, ansible.builtin.include_tasks: stale_root.yml}
