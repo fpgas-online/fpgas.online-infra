@@ -158,3 +158,20 @@
     fail_msg: >-
       {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys does not hold
       exactly the automation key or is not {{ fixpi_ansible_uid }}-owned 0600
+
+# --- The ssh login banner (userconf.yml, #215): the board pages say
+# "password is in login banner". verify-pi.yml checks a booted board's sshd
+# really shows it; this checks the root the boards will boot.
+# no_log like every task that handles pi_pw: a failure names only the task.
+- name: Check the NFS root's ssh banner carries the pi user's password
+  ansible.builtin.command:
+    argv: [grep, -qxF, "password: {{ pi_pw }}", "{{ nfs_root }}/root/etc/ssh/sshd_banner"]
+  changed_when: false
+  check_mode: false  # read-only
+  no_log: true
+
+- name: Check the NFS root's sshd is told to show the banner
+  ansible.builtin.command:
+    argv: [grep, -qxF, "Banner /etc/ssh/sshd_banner", "{{ nfs_root }}/root/etc/ssh/sshd_config.d/banner.conf"]
+  changed_when: false
+  check_mode: false  # read-only
