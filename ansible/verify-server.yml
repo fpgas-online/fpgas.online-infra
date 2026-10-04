@@ -157,6 +157,54 @@
         verify_nft_dnat_rules: "{{ verify_nft_prerouting_chain.stdout_lines | select('search', ' dnat to ') | list }}"
       when: switches is defined
 
+    # The same ssh ports over IPv6 (the site's name has an AAAA record, so a
+    # client given `ssh -p <switch><pp>22 pi@<site>` tries IPv6 first).
+    - name: Get nft IPv6 prerouting chain
+      ansible.builtin.command: nft list chain ip6 nat prerouting
+      changed_when: false
+      register: verify_nft_prerouting6_chain
+      when: switches is defined
+
+    - name: Assert every per-board IPv6 DNAT rule is limited to the uplink interface
+      ansible.builtin.assert:
+        that:
+          - verify_nft_dnat6_rules | length == switches | port_vlan_map(pib_network, pib_network6_base) | length
+          - verify_nft_dnat6_rules | reject('search', 'iifname "' ~ eth_uplink ~ '"') | list | length == 0
+        fail_msg: >-
+          Expected one IPv6 DNAT rule per access port, each matching the
+          uplink interface ({{ eth_uplink }}); loaded:
+          {{ verify_nft_dnat6_rules }}
+      vars:
+        verify_nft_dnat6_rules: "{{ verify_nft_prerouting6_chain.stdout_lines | select('search', ' dnat to ') | list }}"
+      when: switches is defined
+
+    # Rule for rule, as nft prints the loaded chains: the port the board
+    # pages print for an access port leads to that port's board, on both
+    # families, and only for connections arriving on the uplink.
+    - name: Assert every access port's ssh port is forwarded to its board on IPv4 and IPv6
+      ansible.builtin.assert:
+        that:
+          - verify_nft_ssh4_rule in verify_nft_prerouting_chain.stdout_lines | map('trim')
+          - verify_nft_ssh6_rule in verify_nft_prerouting6_chain.stdout_lines | map('trim')
+        quiet: true
+        fail_msg: >-
+          {{ item.hostname }}: tcp port {{ verify_nft_ssh_port }} is not
+          forwarded to the board's port 22 on both families. Expected the
+          loaded rules `{{ verify_nft_ssh4_rule }}` and
+          `{{ verify_nft_ssh6_rule }}`
+      vars:
+        verify_nft_ssh_port: "{{ item.switch }}{{ '%02d' | format(item.port) }}22"
+        verify_nft_ssh4_rule: >-
+          iifname "{{ eth_uplink }}" ip daddr {{ eth_uplink_static_address }}
+          tcp dport {{ verify_nft_ssh_port }} dnat to {{ item.ip4 }}:22
+        verify_nft_ssh6_rule: >-
+          iifname "{{ eth_uplink }}" fib daddr type local
+          tcp dport {{ verify_nft_ssh_port }} dnat to [{{ item.ip6 }}]:22
+      loop: "{{ switches | port_vlan_map(pib_network, pib_network6_base) }}"
+      loop_control:
+        label: "{{ item.hostname }}"
+      when: switches is defined
+
     - name: Check /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.stat:
         path: /etc/dnsmasq.d/ports.conf
