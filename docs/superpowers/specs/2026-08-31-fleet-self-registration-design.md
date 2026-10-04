@@ -242,7 +242,7 @@ into the nfsroot by apt — no pip).
 ## Broker (fpgas.online-infra)
 
 mosquitto on each site's gateway/web host, listening on eth-local (LAN
-only; not exposed through ten64). Auth (resolved D-4): **anonymous on the
+only; not exposed through the upstream gateway). Auth (resolved D-4): **anonymous on the
 LAN listener** -- the per-port VLAN isolation and firewall are the trust
 boundary, matching the public-by-design posture; no credentials to
 provision, and sensors2mqtt uses the same open listener. The
