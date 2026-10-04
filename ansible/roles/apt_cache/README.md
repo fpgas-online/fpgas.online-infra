@@ -60,7 +60,7 @@ start with `apt_cache_url`.
 
 ## Operational notes
 
-### Range hazard (GitHub Pages remaps: `fpgasonline`, `fpgatools`, `nfsrootwatchdog`, `rp1jtag`)
+### Range hazard (GitHub Pages remaps: `fpgasonline`, `fpgatools`, `nfsrootwatchdog`, `rpihwid`, `rp1jtag`)
 
 GitHub Pages answers `Range` requests with `200` and the full body. If a
 cached file is shorter than upstream's `Content-Length` but carries the same
@@ -75,15 +75,14 @@ up there.
 
 Setting `apt_cache_upstream_proxy: http://10.99.21.1:3142` sends every fetch
 through ten64's apt-cacher-ng. The http upstreams (raspbian, raspberrypi,
-debian) work. The https ones (fpgasonline, fpgatools, nfsrootwatchdog) **fail**: acng reaches an
+debian) work. The https ones (fpgasonline, fpgatools, nfsrootwatchdog, rpihwid) **fail**: acng reaches an
 https backend through a proxy with CONNECT, and ten64's acng refuses it
 (`503 CONNECT denied (ask the admin to allow HTTPS tunnels)`, tested
 2026-09-13). The default is empty, i.e. direct.
 
-### `--limit` and partial runs
+### `--limit`
 
-The facts are tagged `always`, so `--tags fixpi` or `--tags pi` still see
-`apt_cache_url`. But the `pi` play reads it from the gateway host, so a run
+The `pi` play reads `apt_cache_url` from the gateway host, so a run
 limited to the `pi` host alone (without `fpgas.online`) falls back to the
 upstream URL and rewrites `apt.list` back to upstream. Include the
 gateway in the limit: `--limit fpgas.online,pi`.

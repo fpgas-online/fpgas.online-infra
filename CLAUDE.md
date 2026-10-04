@@ -75,8 +75,9 @@ from other repos:
   (idempotent, gated on state or an inventory variable); don't skip it.
 - Work that is not ready to deploy stays behind a variable that defaults
   to off; merged code on `main` is deployable.
-- Do not add tags. The only one left is `always`, which goes once the
-  partial-run workarounds it exists for are removed.
+- The repo uses no Ansible tags at all, `always` included; do not add
+  any. `tests/test_no_tags.py` fails on a `tags:` anywhere under
+  `ansible/`.
 
 ### Key Files
 

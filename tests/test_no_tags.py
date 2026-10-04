@@ -1,8 +1,8 @@
 """Deploys and verification run whole playbooks, with no Ansible tags (issue #157).
 
 These tests fail if:
-  - any task, role or include under ansible/ carries a tag other than
-    `always` (kept for now for the partial-run workarounds it exists for),
+  - any play, task, role or include under ansible/ carries a tag, `always`
+    included,
   - the VM harness passes --tags or --skip-tags to a playbook,
   - the harness's dry run of roles/server_user stops being a playbook of
     exactly that role (the VM test runs it; the pytest job has no ansible
@@ -41,14 +41,35 @@ def _tags(obj):
             yield from _tags(item)
 
 
-def test_no_tag_but_always_under_ansible():
+def _ansible_yaml():
+    return sorted(p for pattern in ("*.yml", "*.yaml") for p in ANSIBLE.rglob(pattern))
+
+
+def test_no_tags_under_ansible():
     found = {}
-    for f in sorted(ANSIBLE.rglob("*.yml")):
+    for f in _ansible_yaml():
         for doc in yaml.load_all(f.read_text(), Loader=_Loader):
             for tag in _tags(doc):
-                if tag != "always":
-                    found.setdefault(str(f.relative_to(REPO)), set()).add(tag)
-    assert not found, f"tags other than always: {found}"
+                found.setdefault(str(f.relative_to(REPO)), set()).add(tag)
+    assert not found, f"tags: {found}"
+
+
+def test_no_tags_key_in_any_ansible_yaml_line():
+    # Belt and braces for a file the YAML scan cannot see into (a Jinja
+    # template, a key the loader drops): no uncommented line has a tags key,
+    # block (`tags:`, `- tags:`) or flow (`{role: x, tags: y}`).
+    for f in _ansible_yaml():
+        for n, line in enumerate(f.read_text().splitlines(), 1):
+            if line.lstrip().startswith("#"):
+                continue
+            assert not re.search(r"(^\s*(- )?|[{,]\s*)tags\s*:", line), \
+                f"{f.relative_to(REPO)}:{n}: {line}"
+
+
+def test_the_tag_scan_sees_ansible_files():
+    files = _ansible_yaml()
+    assert ANSIBLE / "site.yml" in files
+    assert len(files) > 50
 
 
 def test_the_harness_passes_no_tags():

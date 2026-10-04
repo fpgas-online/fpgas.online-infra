@@ -124,8 +124,6 @@ vault_switch2_snmp_rw_community: !vault |
           6238306366656434370a303636323536346364396663616335656465623962313733303962663564
           3862
 
-firewall_internal_networks: [10.21.0.0/24]
-
 # The server's own account (roles/server_user). Was `videoteam`: the
 # rename runs in place (same uid, home and keypair moved) and is a no-op
 # once done; drop server_user_rename_from after tweed has converged.
@@ -136,19 +134,12 @@ server_user_sudo: true
 server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: pib
-room_name: k207
-
-time_zone: America/Los_Angeles
 
 # Public names of this server's web interface.  Both are served by ten64's
 # reverse proxy (HTTP) / SNI passthrough (HTTPS, so tweed terminates TLS with
 # its own Let's Encrypt certs; http-01 challenges flow through ten64's
 # /.well-known/acme-challenge/ passthrough).  fpgas.online itself points at
 # the PS1 site, not here.
-common_name: welland.fpgas.online
-subject_alt_names:
-  - tweed.welland.mithis.com
-
 streaming_frontend_aliases:
   - tweed.welland.mithis.com
   - .tweed.welland.mithis.com   # eth-local./eth-uplink./ipv4./ipv6. variants (Django wildcard)
@@ -161,26 +152,15 @@ domain_name: "{{ streaming_frontend_hostname }}"
 # flag is per deployment rather than per hostname.
 site_under_construction: true
 
-# Seeds the /fpgas/ board list from the fixture shipped inside the installed
-# fpgas-online-site package (rebuilt 2026-08-31 from a live probe of the
-# s3300: 4x Arty A7, 6x Acorn CLE-215+, 4x TT FPGA emulation, all switch=2
-# VLAN-per-port rows).
-fixture_path: fpgas.online.json
-
 # Fleet self-registration (fpgas.online-infra#47): per-site mosquitto
 # broker on eth-local + the Django fleet consumer + the Pi agent config
 # baked into the nfsroot. The topic scheme is fpgas/<fleet_site>/pi/...
+# The /fpgas/ board list comes from it alone.
 fleet_broker: true
 fleet_site: welland
 
-# Only offer a board whose FPGA boot check passed this boot (roles/site
-# defaults; needs fleet_broker above, which carries the result).
-site_require_fpga_verified: true
-
 # Tim's
 # Netgear S3300-52X-PoE+
-switch_base: base
-
 switch:
   mac: 08:bd:43:6b:bb:e0
   oid: iso.3.6.1.2.1.105.1.1.1.3.1

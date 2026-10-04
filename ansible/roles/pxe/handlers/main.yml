@@ -1,14 +1,4 @@
 ---
-- name: Restart network-manager
-  ansible.builtin.systemd:
-    name: NetworkManager
-    state: restarted
-
-- name: Restart networking
-  ansible.builtin.systemd:
-    name: networking
-    state: restarted
-
 - name: Restart dnsmasq
   ansible.builtin.systemd:
     name: dnsmasq

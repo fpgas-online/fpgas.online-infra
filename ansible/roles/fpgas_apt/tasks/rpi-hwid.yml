@@ -1,0 +1,10 @@
+---
+# Add the mithro/rpi-hwid apt repository (the shared apt convention:
+# repo.yml), through the gateway's apt cache when there is one.
+- name: Add the rpi-hwid apt repository (tasks/repo.yml)
+  ansible.builtin.include_tasks: repo.yml
+  vars:
+    repo_name: rpi-hwid
+    repo_url: "{{ fpgas_apt_rpi_hwid_url }}"
+    repo_suite: "{{ fpgas_apt_rpi_hwid_suite }}"
+    repo_key_fingerprint: "{{ fpgas_apt_rpi_hwid_key_fingerprint }}"
