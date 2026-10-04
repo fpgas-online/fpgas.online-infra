@@ -158,7 +158,7 @@ def build_images() -> None:
     run(["docker", "build", "-q", "-t", IMG_GW, "-f", str(ctx / "Dockerfile.gateway"), str(ctx)])
     run(["docker", "build", "-q", "-t", IMG_CLIENT, "-f", str(ctx / "Dockerfile.client"), str(ctx)])
     for dist, tag in IMG_BOARD.items():
-        run(["docker", "build", "-q", "-t", tag, "--build-arg", f"BASE=debian:{dist}",
+        run(["docker", "build", "-q", "-t", tag, "--build-arg", f"BASE=amd64/debian:{dist}",
              "-f", str(ctx / "Dockerfile.board"), str(ctx)])
 
 
@@ -181,9 +181,17 @@ def start_board(board: Board) -> None:
 def start_clients() -> None:
     for which, ip in CLIENTS.items():
         run(["docker", "run", "-d", "--name", client(which), "--hostname", f"client-{which}",
-             "--network", NET_UP, "--ip", ip, "--ip6", f"{UP6}{ip.rsplit('.', 1)[1]}",
+             "--network", NET_UP, "--ip", ip, "--ip6", f"{UP6}{ip.rsplit('.', 1)[1]}", "--cap-add", "NET_ADMIN",
              "--add-host", f"{SITE}:{GW_UP4}", "--add-host", f"v6.{SITE}:{GW_UP6}",
              "-v", f"{KEYS}:/lab/keys:ro", IMG_CLIENT, "sleep", "infinity"])
+
+
+MANY_FIRST, MANY_LAST = 100, 159  # extra source addresses on client a, for a many-source flood
+
+
+def add_source_addresses() -> None:
+    script = f"i={MANY_FIRST}; while [ $i -le {MANY_LAST} ]; do ip addr add {UP4}.$i/24 dev eth0; i=$((i+1)); done"
+    dexec(client("a"), ["sh", "-c", script], check=True)
 
 
 def container_running(name: str) -> bool:
@@ -192,12 +200,13 @@ def container_running(name: str) -> bool:
 
 
 def start_gateway(*, lookup: str = "extrausers", variant: str = "password", sandbox: str = "chroot",
-                  nft: bool = True, startups: str = "default", extra_env: dict[str, str] | None = None,
+                  nft: bool = True, startups: str = "default", pam: str = "dedicated",
+                  extra_env: dict[str, str] | None = None,
                   security_opts: tuple[str, ...] = ()) -> None:
     """(Re)start the gateway with one lookup mechanism and one hand-off variant."""
     run(["docker", "rm", "-f", GW], check=False)
     env = {"LOOKUP": lookup, "VARIANT": variant, "SANDBOX": sandbox, "NFT": "1" if nft else "0",
-           "STARTUPS": startups, "NET": BNET, "SWITCH_PORTS": "48 48", "BOARD_PASSWORD": BOARD_PASSWORD,
+           "STARTUPS": startups, "PAM": pam, "NET": BNET, "SWITCH_PORTS": "48 48", "BOARD_PASSWORD": BOARD_PASSWORD,
            **(extra_env or {})}
     cmd = ["docker", "create", "--name", GW, "--hostname", "gw", "--network", NET_UP,
            "--ip", GW_UP4, "--ip6", GW_UP6, "--cap-add", "NET_ADMIN", "-v", f"{KEYS}:/lab/keys:ro"]
@@ -225,6 +234,7 @@ def start_lab() -> None:
     for board in BOARDS.values():
         start_board(board)
     start_clients()
+    add_source_addresses()
     time.sleep(2)
     for board in BOARDS.values():
         if not container_running(board.container):
@@ -244,7 +254,13 @@ def teardown(remove_images: bool = True) -> None:
         present = [t for t in ours if f"{t}:latest" in existing_images()]
         if present:
             run(["docker", "rmi", *present])
-        run(["docker", "image", "prune", "-f", "--filter", "label=stage=fo-snr-build"], check=False)
+        # Base images this lab pulled (and only those) go too.
+        before = set(IMAGES_BEFORE.read_text().split()) if IMAGES_BEFORE.exists() else None
+        for base in ("amd64/debian:trixie", "amd64/debian:bookworm"):
+            if before is not None and base not in before and base in existing_images():
+                run(["docker", "rmi", base])
+        if IMAGES_BEFORE.exists():
+            IMAGES_BEFORE.unlink()
 
 
 # --------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # Lab board: the distribution's own openssh-server, user pi, one shared host key.
-ARG BASE=debian:bookworm
+ARG BASE=amd64/debian:bookworm
 FROM ${BASE}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

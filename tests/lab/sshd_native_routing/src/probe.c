@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -81,6 +82,18 @@ static void try_exec(const char *path, const char *a1, const char *a2)
 		errno = WEXITSTATUS(st) == 101 ? ENOENT : WEXITSTATUS(st) == 102 ? EACCES : EIO;
 		result("exec", path, 0);
 	}
+}
+
+static void try_userns(void)
+{
+	pid_t pid = fork();
+	int st;
+
+	if (pid == 0)
+		_exit(unshare(CLONE_NEWUSER) == 0 ? 0 : errno == EPERM ? 101 : errno == EACCES ? 102 : 103);
+	waitpid(pid, &st, 0);
+	errno = WEXITSTATUS(st) == 101 ? EPERM : WEXITSTATUS(st) == 102 ? EACCES : EIO;
+	result("userns", "unshare(CLONE_NEWUSER)", WIFEXITED(st) && WEXITSTATUS(st) == 0);
 }
 
 static int parse_target(char *arg, struct sockaddr_in *sa)
@@ -165,6 +178,7 @@ int main(int argc, char **argv)
 	try_exec("/bin/sh", "-c", "exit 0");
 	try_exec("/usr/bin/sh", "-c", "exit 0");
 	try_exec("/usr/bin/ssh", "-V", NULL);
+	try_userns();
 	for (i = 1; i < argc - 1; i++) {
 		if (strcmp(argv[i], "--tcp") == 0)
 			try_tcp(argv[++i]);

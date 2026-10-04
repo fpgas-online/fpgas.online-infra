@@ -277,11 +277,31 @@ exec nc "${NET}.\${rest%%-*}.\${rest##*-p}" 22
 EOF
 chmod 755 /usr/local/bin/raw-relay
 
-# --- limits for the shared uid (pam_limits, in Debian's stock sshd stack) ---
+# --- limits for the shared uid (pam_limits) ---------------------------------
 cat > /etc/security/limits.d/fpgas-board.conf <<EOF
 @fpgas-board hard nproc ${NPROC:-200}
 @fpgas-board hard core 0
 EOF
+
+# --- PAM=dedicated: a PAM stack of their own for board names ----------------
+# sshd's PAMServiceName may be set inside a Match block (OpenSSH 9.8+). The
+# dedicated stack checks the password with pam_unix and applies the limits;
+# it has no pam_systemd (no logind session, no per-user service manager for
+# visitors), no motd, no mail. Administrators keep Debian's stock stack.
+if [ "${PAM:-dedicated}" = dedicated ]; then
+    case "$VARIANT" in
+        none | prompt) NULLOK=" nullok" ;;
+        *) NULLOK="" ;;
+    esac
+    cat > /etc/pam.d/sshd-fpgas-board <<EOF
+auth     required  pam_unix.so${NULLOK}
+account  required  pam_nologin.so
+account  required  pam_unix.so
+session  required  pam_limits.so
+session  required  pam_unix.so
+EOF
+    echo "    PAMServiceName sshd-fpgas-board" >> /etc/ssh/sshd_config.d/60-fpgas-board.conf
+fi
 
 # --- the uid-keyed output filter ---------------------------------------------
 if [ "$NFT" = 1 ]; then
@@ -304,7 +324,12 @@ table inet fpgas_board_relay {
     }
     chain output {
         type filter hook output priority filter; policy accept;
-        meta skuid != ${B_UID} accept
+        # Positive match only. "meta skuid != ${B_UID} accept" would be wrong:
+        # a packet with no socket (neighbour discovery, a kernel reset) has
+        # no uid, matches neither form, and would fall through to the reject.
+        meta skuid ${B_UID} jump board_relay
+    }
+    chain board_relay {
         ct state established,related accept
         ip daddr @boards tcp dport 22 ct state new add @per_board { ip daddr ct count over ${PER_BOARD:-8} } counter reject with tcp reset
         ip daddr @boards tcp dport 22 ct state new counter accept

@@ -1,5 +1,6 @@
 # Lab gateway: Debian trixie with the distribution's own openssh-server.
-FROM debian:trixie AS build
+ARG BASE=amd64/debian:trixie
+FROM ${BASE} AS build
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends gcc libc6-dev linux-libc-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -10,7 +11,7 @@ RUN mkdir /out \
  && gcc -O2 -Wall -Wextra -Werror -fPIC -shared -Wl,-soname,libnss_fpgasboard.so.2 \
         -o /out/libnss_fpgasboard.so.2 /src/nss_fpgasboard.c
 
-FROM debian:trixie
+FROM ${BASE}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         openssh-server openssh-client openssl nftables procps iproute2 netcat-openbsd \

@@ -52,6 +52,9 @@ static const struct sb_path {
 	{ "/dev/null", SB_FILE_RW, 1 },
 	{ "/etc/ld.so.cache", SB_FILE_READ, 0 },
 	{ "/etc/nsswitch.conf", SB_FILE_READ, 0 },
+	/* Only for the variant in which the relay's ssh asks the visitor for
+	 * the board's password itself; absent inside the chroot. */
+	{ "/dev/tty", SB_FILE_RW | LANDLOCK_ACCESS_FS_IOCTL_DEV, 0 },
 };
 
 static int sb_fail(const char *what)

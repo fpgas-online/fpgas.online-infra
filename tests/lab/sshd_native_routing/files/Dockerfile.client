@@ -1,9 +1,12 @@
 # Lab client: a visitor's (or an administrator's) machine with stock OpenSSH.
-FROM debian:trixie
+ARG BASE=amd64/debian:trixie
+FROM ${BASE}
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        openssh-client rsync python3 netcat-openbsd procps \
+        openssh-client rsync python3 netcat-openbsd procps iproute2 \
  && rm -rf /var/lib/apt/lists/*
 COPY askpass /usr/local/bin/askpass
 COPY ptyrun.py /usr/local/bin/ptyrun.py
-RUN chmod 755 /usr/local/bin/askpass /usr/local/bin/ptyrun.py
+COPY holdopen.py /usr/local/bin/holdopen.py
+COPY flood.sh /usr/local/bin/flood.sh
+RUN chmod 755 /usr/local/bin/askpass /usr/local/bin/ptyrun.py /usr/local/bin/holdopen.py /usr/local/bin/flood.sh
