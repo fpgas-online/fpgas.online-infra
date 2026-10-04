@@ -1,0 +1,211 @@
+---
+# Restricted jump account (see defaults/main.yml for what and why).
+
+- name: Create the jump account with a restricted shell
+  ansible.builtin.user:
+    name: "{{ jump_user }}"
+    shell: "{{ jump_shell }}"
+    home: "{{ jump_home }}"
+    create_home: true
+    system: false
+  register: jump_account
+
+# rbash refuses to change PATH after login, so the only commands the account
+# can run are what ~/bin holds, and .bash_profile points PATH there and
+# nowhere else.
+- name: Restricted command directory
+  ansible.builtin.file:
+    path: "{{ jump_home }}/bin"
+    state: directory
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0755"
+
+- name: Expose only the allowed commands
+  ansible.builtin.file:
+    src: "{{ item }}"
+    dest: "{{ jump_home }}/bin/{{ item | basename }}"
+    state: link
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+  loop: "{{ jump_commands }}"
+
+- name: Lock PATH to the restricted directory
+  ansible.builtin.copy:
+    content: "export PATH={{ jump_home }}/bin\n"
+    dest: "{{ jump_home }}/.bash_profile"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0644"
+
+- name: Ssh directory
+  ansible.builtin.file:
+    path: "{{ jump_home }}/.ssh"
+    state: directory
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0700"
+
+# The account's own identity for hopping onward from its shell (`ssh
+# pi@10.21.S.P`): roles/fixpi authorizes the .pub for the Pi NFS root's pi
+# user. site.yml runs this role before fixpi, so on a fresh server the key
+# exists by the time fixpi reads it. Generated once and kept: regenerating
+# it would change every board's authorized_keys.
+- name: Keypair for hopping onward to the Pis
+  community.crypto.openssh_keypair:
+    path: "{{ jump_ssh_key }}"
+    type: ed25519
+    comment: "{{ jump_user }}@{{ inventory_hostname }} (jump account)"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0600"
+
+# The Pis' host keys change whenever the NFS root is rebuilt; the jump
+# account only ever hops onward, so accept new keys and keep them per host.
+- name: Accept new Pi host keys when hopping onward
+  ansible.builtin.copy:
+    content: |
+      Host *
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile {{ jump_home }}/.ssh/known_hosts
+    dest: "{{ jump_home }}/.ssh/config"
+    owner: "{{ jump_user }}"
+    group: "{{ jump_user }}"
+    mode: "0600"
+
+- name: Authorize the static operator keys
+  ansible.posix.authorized_key:
+    user: "{{ jump_user }}"
+    state: present
+    key: "{{ item }}"
+  loop: "{{ jump_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[-1] }}"
+
+# The shared ids' keys (https://github.com/<user>.keys, or Launchpad's for
+# an lp: or bare id): an id that yields no key fails the play HERE, naming
+# it and the URL, after roles/ssh_key_fetch's retries. Not ssh-import-id:
+# its gh: import reads the rate-limited GitHub API, and the old
+# failed_when: false swallowed its failures.
+- name: Download the shared ids' ssh keys from GitHub / Launchpad
+  ansible.builtin.include_role:
+    name: ssh_key_fetch
+  vars:
+    ssh_key_fetch_requests: >-
+      {%- set requests = [] -%}
+      {%- for id in jump_ssh_import_ids -%}
+        {%- set _ = requests.append({'account': jump_user, 'id': id}) -%}
+      {%- endfor -%}
+      {{ requests }}
+  when: jump_ssh_import_ids | length > 0
+
+# Additive, as ssh-import-id was, and each line tagged the way it tagged
+# its own ("# ssh-import-id <id>", a bare id as lp:<id>), so the revoked-id
+# deletion below finds lines from either. authorized_key matches on the key
+# itself: a key an earlier ssh-import-id run added is not duplicated, and a
+# key the static list above or an earlier id already authorizes is skipped
+# here (as ssh-import-id skipped it), or its comment would be rewritten
+# back and forth on every run. In --check a fresh account does not exist yet: nothing to
+# look keys up in.
+- name: Authorize the shared ids' downloaded keys
+  ansible.posix.authorized_key:
+    user: "{{ jump_user }}"
+    key: "{{ jump_imported_lines | join('\n') }}"
+    state: present
+  vars:
+    jump_imported_lines: >-
+      {%- set static = [] -%}
+      {%- for key in jump_public_keys -%}
+        {%- set _ = static.append(key.split()[1]) -%}
+      {%- endfor -%}
+      {%- set lines = [] -%}
+      {%- for id in jump_ssh_import_ids -%}
+        {%- for key in ssh_key_fetch_keys[id] if key.split()[1] not in static -%}
+          {%- set _ = static.append(key.split()[1]) -%}
+          {%- set _ = lines.append(key ~ ' # ssh-import-id ' ~ (id if ':' in id else 'lp:' ~ id)) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ lines }}
+  when:
+    - jump_ssh_import_ids | length > 0
+    - jump_imported_lines | length > 0
+    - not (ansible_check_mode and jump_account is changed)
+
+# Every imported line is marked "# ssh-import-id <id>" (above, and by the
+# ssh-import-id runs before it), so a revoked id's keys can be found and
+# deleted without fetching them. A bare id is Launchpad's: lp:<id>.
+- name: Delete the keys imported for revoked ids
+  ansible.builtin.lineinfile:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+    regexp: "# ssh-import-id {{ (item if ':' in item else 'lp:' ~ item) | regex_escape }}$"
+    state: absent
+  loop: "{{ jump_ssh_revoked_import_ids }}"
+
+# After the downloads: authorized_key matches on the key itself, so this
+# catches a revoked key whatever comment or options its line carries (an
+# imported copy too).
+- name: Delete the revoked static keys
+  ansible.posix.authorized_key:
+    user: "{{ jump_user }}"
+    state: absent
+    key: "{{ item }}"
+  loop: "{{ jump_revoked_public_keys }}"
+  loop_control:
+    label: "{{ item.split(' ')[2:] | join(' ') }}"
+
+- name: Check the jump account has authorized_keys
+  ansible.builtin.stat:
+    path: "{{ jump_home }}/.ssh/authorized_keys"
+  register: jump_authkeys
+
+# A backstop (the download above already failed on an id with no key), and
+# only when the inventory configures keys: a key-less account is unusable
+# rather than unsafe.
+- name: Assert the jump account has at least one key
+  ansible.builtin.assert:
+    that:
+      - jump_authkeys.stat.exists
+      - jump_authkeys.stat.size > 0
+    fail_msg: "{{ jump_user }}@{{ inventory_hostname }} has no authorized_keys"
+  when: jump_public_keys | length > 0 or jump_ssh_import_ids | length > 0
+
+# Belt and braces: the account must never gain sudo.
+- name: No sudoers entry for the jump account
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ jump_user }}"
+    state: absent
+
+# rbash + .bash_profile only restrict login shells; `ssh jump 'cmd'` runs a
+# non-login shell with the default PATH. sshd's ForceCommand routes every
+# command through a wrapper that allows only ssh/ssh-keyscan (see files/).
+- name: Install the jump command wrapper
+  ansible.builtin.copy:
+    src: jump-shell
+    dest: /usr/local/bin/jump-shell
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Sshd drop-in for the jump account
+  ansible.builtin.copy:
+    content: |
+      # Restricted jump account (fpgas.online-infra roles/jump).
+      # sshd runs ForceCommand through the account's login shell, and rbash
+      # refuses command names containing '/', so the wrapper is named bare
+      # (sshd's default PATH holds /usr/local/bin). The wrapper is a child
+      # process with its own #!/bin/bash, so it is not itself restricted.
+      Match User {{ jump_user }}
+          ForceCommand jump-shell
+          AllowTcpForwarding yes
+          AllowAgentForwarding no
+          X11Forwarding no
+          PermitTunnel no
+    dest: "/etc/ssh/sshd_config.d/50-jump.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd
+
+- name: Sshd configuration is still valid
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false

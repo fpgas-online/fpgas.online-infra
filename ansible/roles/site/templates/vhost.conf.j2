@@ -22,9 +22,9 @@
     error_log /var/log/nginx/{{ conference_name }}-error.log;
 
     # The Django app location blocks (gunicorn socket + the daphne websocket),
-    # plus cam/stream-server's live-hls include.  That include also carries the
+    # plus stream_server's live-hls include.  That include also carries the
     # Strict-Transport-Security header, so do NOT add another one here or it is
-    # emitted twice.  Glob, not a fixed list: cam/stream-server runs after this
+    # emitted twice.  Glob, not a fixed list: stream_server runs after this
     # role, so the live-hls include may not exist yet on a first converge.
     include includes/{{ conference_name }}-*.conf;
 {% endmacro %}

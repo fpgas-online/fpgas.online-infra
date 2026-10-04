@@ -1,0 +1,56 @@
+---
+# The FPGA boot check, fpgas-verify, from fpgas.online-test-designs (verify/, packaged by packaging/debs/
+# build_debs.py; see its docs/plans/2026-09-26-fpgas-online-verify-design.md). The root is shared by every
+# Pi at a site, so it carries every board's check: fpgas-online-all-boards is the multi-board mode package
+# (fpgas-verify finds whichever boards are attached) plus each board's tools and test bitstreams, and
+# recommends each board's debug tools (fpgas-<board>-debug). The mode package enables fpgas-verify.service,
+# which runs once per boot and:
+#   1. finds the boards: USB IDs (Arty, Fomu, TT), PCIe IDs (Acorn), and a GPIO JTAG probe (NeTV2);
+#   2. checks each one with its own test designs, over the connections that board is wired with;
+#   3. compares each board, and its flash, with what it recorded last boot, where the Pi keeps state.
+# The result is in /run/fpgas-online/verify.json and is published as the fleet-event stage
+# `fpga-verified`; anything but "pass" leaves the unit failed. A Pi with no board attached reports
+# "missing": it still boots and takes ssh, so someone can log in and see why (fpgas-<board>-debug), but
+# the site does not offer it (it lists only Pis that registered, checked in and passed this boot).
+#
+# It replaces the Acorn-only fpgas-acorn-verify.service, whose check is now the Acorn module of
+# fpgas-verify (fpgas-online-acorn-tools), in the same run so no boot goes unchecked.
+#
+# state: latest for the same reason as the JTAG tools in apt.yml: the dist-upgrade there never removes a
+# package, and the mode package depends on exactly its own version of each board's tools, and those on
+# exactly the bitstreams they were built with, so upgrading it moves them all. From the fpgas.online apt
+# repo.
+#
+# The stopgap on main before this (roles/onpi/tasks/acorn.yml, 65c3a21a) pinned fpgas-online-acorn-tools
+# at 0.0.post621 and put a dpkg hold on it. A root built with that keeps the hold, and the mode package
+# needs exactly its own version of acorn-tools, so release it first. Only when it is there:
+# dpkg_selections fails outright for a package dpkg has never seen, as on a root built from scratch.
+- name: Read the Acorn tools' dpkg selection (the stopgap's hold)
+  ansible.builtin.command: dpkg --get-selections fpgas-online-acorn-tools
+  register: onpi_acorn_selection
+  changed_when: false
+  check_mode: false
+
+- name: Release the stopgap hold on the Acorn tools
+  ansible.builtin.dpkg_selections:
+    name: fpgas-online-acorn-tools
+    selection: install
+  when: onpi_acorn_selection.stdout.split()[1:2] == ['hold']
+
+- name: Install the FPGA boot check for every board, and the images it checks against  # noqa: package-latest
+  ansible.builtin.apt:
+    name: "{{ onpi_fpga_verify_package }}"
+    state: latest
+
+# The mode package's postinst enables it too; this says so here, and verify-pi.yml asserts it.
+- name: Run the FPGA boot check on every boot
+  ansible.builtin.systemd:
+    name: fpgas-verify.service
+    enabled: true
+
+# fpgas-online-acorn-tools no longer ships fpgas-acorn-verify.service. This role enabled it, so the link
+# is this role's to remove: left behind, it points at a unit that no longer exists.
+- name: Remove the Acorn-only boot check's enable link
+  ansible.builtin.file:
+    path: /etc/systemd/system/multi-user.target.wants/fpgas-acorn-verify.service
+    state: absent

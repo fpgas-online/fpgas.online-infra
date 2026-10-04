@@ -12,7 +12,9 @@ import paramiko
 
 
 IMAGES_DIR = Path(__file__).parent / "images"
-DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-12-genericcloud-amd64.qcow2"
+# Debian release number per codename, for the cloud image file names.
+DEBIAN_RELEASES = {"bookworm": 12, "trixie": 13}
+DEBIAN_CLOUD_URL = "https://cloud.debian.org/images/cloud/{dist}/latest/debian-{num}-genericcloud-amd64.qcow2"
 # rpi-qemu package constants
 QEMU_RPI_REPO = "fpgas-online/rpi-qemu"
 QEMU_RPI_STATIC_ASSET = "qemu-rpi-static-linux-amd64.tar.gz"
@@ -45,9 +47,9 @@ def find_qemu_rpi_binary() -> str:
 
     raise FileNotFoundError(
         f"{QEMU_RPI_SYSTEM_BIN} not found. Install via:\n"
-        f"  APT: echo 'deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main' "
-        f"| sudo tee /etc/apt/sources.list.d/qemu-rpi.list && sudo apt update && "
-        f"sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
+        f"  APT: add the signed repo from https://fpgas.online/rpi-qemu/ "
+        f"(deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./), "
+        f"then: sudo apt install qemu-rpi-system-arm qemu-rpi-pxeboot\n"
         f"  Or download static binary: gh release download -R {QEMU_RPI_REPO} "
         f"-p '{QEMU_RPI_STATIC_ASSET}' -D {IMAGES_DIR}"
     )
@@ -186,6 +188,29 @@ def create_overlay(base_image: Path, overlay_path: Path, size: str = "20G") -> P
     return overlay_path
 
 
+def open_proxied_socket(
+    proxy_jump: str, key_path: Path | None, host: str, port: int
+) -> paramiko.Channel:
+    """Open a direct-tcpip channel to host:port through a ProxyJump host.
+
+    proxy_jump is "user@host:port" (see network.proxy_jump_string); the jump
+    host is authenticated with key_path. The returned channel is what
+    paramiko.SSHClient.connect() takes as `sock`.
+    """
+    proxy_user, proxy_rest = proxy_jump.split("@")
+    proxy_host, proxy_port = proxy_rest.split(":")
+    proxy = paramiko.SSHClient()
+    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    proxy.connect(
+        proxy_host, port=int(proxy_port),
+        username=proxy_user, key_filename=str(key_path),
+        timeout=5,
+    )
+    return proxy.get_transport().open_channel(
+        "direct-tcpip", (host, port), ("127.0.0.1", 0)
+    )
+
+
 def generate_ssh_keypair(key_path: Path) -> tuple[Path, str]:
     """Generate an ephemeral ed25519 SSH keypair. Returns (private_key_path, public_key_string)."""
     key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -266,7 +291,21 @@ class VMManager:
         self.process: subprocess.Popen | None = None
         self.qga_socket = self.workdir / f"{name}-qga.sock"
         self.serial_log = self.workdir / f"{name}-serial.log"
+        # QEMU's own stdout/stderr. Named to match the *-serial.log* glob
+        # vm-test.yml uploads, so it is in the post-mortem artifact.
+        self.qemu_log = self.workdir / f"{name}-serial.log.qemu"
         self.guest_agent = QemuGuestAgent(self.qga_socket)
+
+    def spawn(self, cmd: list[str]) -> None:
+        """Start the VM process with its output going to self.qemu_log.
+
+        Never subprocess.PIPE: nothing reads a running VM's pipes, so once
+        QEMU has written a pipe buffer's worth (64 KiB) of diagnostics its
+        next write blocks and the whole emulator freezes -- the virtual Pi
+        went silent after ~30 verify-pi tasks ("No route to host").
+        """
+        with open(self.qemu_log, "ab") as log:
+            self.process = subprocess.Popen(cmd, stdout=log, stderr=log)
 
     def boot_server(
         self,
@@ -274,7 +313,7 @@ class VMManager:
         seed_iso: Path,
         ssh_port: int = 2222,
         trunk_port: int = 12345,
-        memory: int = 2048,
+        memory: int = 8192,
     ) -> None:
         """Boot the x86_64 server VM with two NICs + guest agent.
 
@@ -290,13 +329,35 @@ class VMManager:
             "-machine", f"q35,accel={accel}",
             "-cpu", cpu,
             "-m", str(memory),
-            "-smp", "2",
+            # Every host CPU: nothing else runs during the deploy (the Pi is
+            # powered on only once site.yml has converged).
+            "-smp", str(os.cpu_count() or 2),
             # Boot disk (overlay on cloud image)
-            "-drive", f"file={overlay},format=qcow2,if=virtio",
+            # cache=unsafe: the VM is thrown away after the run, so guest
+            # flushes need not reach the runner's disk. The deploy writes the
+            # multi-GB Pi root twice (podman store, then the NFS root) and dpkg
+            # fsyncs every package; with host flushes that was minutes of I/O.
+            "-drive", f"file={overlay},format=qcow2,if=virtio,cache=unsafe,discard=unmap",
             # Cloud-init seed ISO
             "-drive", f"file={seed_iso},format=raw,if=virtio",
-            # NIC 1: user-mode for SSH from host
-            "-netdev", f"user,id=net0,hostfwd=tcp::{ssh_port}-:22",
+            # NIC 1: user-mode for SSH from host, and the guest's only uplink.
+            #
+            # ipv6=off because slirp otherwise hands the guest a fec0::/64
+            # address and a default route by router advertisement, while the
+            # runner underneath has no IPv6 egress at all. Connections to a
+            # global v6 address are then swallowed rather than refused: from
+            # inside the VM, `curl -6` to every upstream archive sits until it
+            # times out, while `curl -4` answers in half a second. glibc sorts
+            # AAAA ahead of A, so anything that does not implement Happy
+            # Eyeballs walks into the blackhole -- curl(1) escapes it by racing
+            # v4 after ~200 ms, apt-cacher-ng does not. It tries the addresses
+            # in order and gives up with "500 Remote or cache error" on
+            # archive.raspberrypi.com, which publishes 12 AAAA records against
+            # one or four for the other archives (PR #78).
+            #
+            # This only removes the fake uplink v6. The IPv6 the tests actually
+            # exercise is on the internal network (2001:db8:a137::/48, NIC 2).
+            "-netdev", f"user,id=net0,ipv6=off,hostfwd=tcp::{ssh_port}-:22",
             "-device", "virtio-net-pci,netdev=net0,mac=52:54:00:aa:bb:01",
             # NIC 2: internal VLAN trunk -- connects to the vswitch trunk port.
             # host_mtu=1504 advertises room for a full 1500-byte VLAN payload
@@ -315,11 +376,7 @@ class VMManager:
             "-serial", f"file:{self.serial_log}",
         ]
         print(f"[{self.name}] Booting server VM (accel={accel})...")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def boot_pi(
         self,
@@ -365,11 +422,7 @@ class VMManager:
         ]
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
         print(f"[{self.name}] QEMU cmd: {' '.join(cmd)}")
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        self.spawn(cmd)
 
     def wait_for_guest_agent(self, timeout: int = 180) -> bool:
         """Wait for guest agent to become responsive."""
@@ -403,20 +456,7 @@ class VMManager:
 
                 sock = None
                 if proxy_jump:
-                    # Parse proxy_jump as "user@host:port"
-                    proxy_user, proxy_rest = proxy_jump.split("@")
-                    proxy_host, proxy_port = proxy_rest.split(":")
-                    proxy = paramiko.SSHClient()
-                    proxy.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                    proxy.connect(
-                        proxy_host, port=int(proxy_port),
-                        username=proxy_user, key_filename=str(key_path),
-                        timeout=5,
-                    )
-                    transport = proxy.get_transport()
-                    sock = transport.open_channel(
-                        "direct-tcpip", (host, port), ("127.0.0.1", 0)
-                    )
+                    sock = open_proxied_socket(proxy_jump, key_path, host, port)
 
                 client.connect(
                     host, port=port, username=username,
@@ -466,8 +506,13 @@ class VMManager:
             self.process.wait(timeout=10)
 
     def cleanup(self) -> None:
-        """Remove temporary files (overlays, seed ISOs, keys, sockets)."""
-        for pattern in ["*.qcow2", "*.iso", "*.sock", "*-serial.log"]:
+        """Remove temporary files (overlays, seed ISOs, keys, sockets).
+
+        Serial logs are deliberately NOT removed: they are the post-mortem
+        evidence CI uploads (vm-test.yml), and cleanup on a failure path
+        used to destroy them before the upload step could run.
+        """
+        for pattern in ["*.qcow2", "*.iso", "*.sock"]:
             for f in self.workdir.glob(pattern):
                 f.unlink(missing_ok=True)
 

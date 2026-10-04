@@ -1,50 +1,115 @@
 ---
-- hosts: nbp
+- name: Configure the server network interfaces
+  hosts: nbp
   roles:
+    # First: every later role that installs a package on the server goes
+    # through the site apt proxy it configures.
+    - apt_client
     - netif
+  tasks:
+    # Before any other role refreshes the package lists: this rewrites the
+    # gateway's own nfsroot-watchdog source, and until it has, that source
+    # may be one the site apt proxy refuses (tasks/install.yml).
+    - name: Install nfsroot-generation on the gateway
+      ansible.builtin.include_role:
+        name: nfsroot_generation
+        tasks_from: install.yml
+
+# The Pi NFS root image is several GB: start pulling it now (after netif,
+# which may reboot the server) so the download overlaps everything up to
+# the root's extraction below, which waits for it.
+# Facts gathered by the first play hold for the rest of the run (netif
+# re-gathers them itself after a reboot), so later nbp plays skip gathering.
+- name: Start pulling the Pi NFS root image
+  hosts: nbp
+  gather_facts: false
+  tasks:
+    - name: Start pulling the Pi NFS root image
+      ansible.builtin.include_role:
+        name: img
+        tasks_from: prefetch.yml
+
+- name: Configure the server services
+  hosts: nbp
+  gather_facts: false
+  roles:
+    - {role: automation_user, when: automation_user_manage | default(false) | bool}
     - operators
+    - jump
+    # After operators and jump: its lockout guard needs their keys in place.
+    - sshd
     - lldp
     - firewall
-    - {role: vlan-ports, when: switches is defined}
-    - {role: switch-vlans, when: switches is defined}
+    - {role: vlan_ports, when: switches is defined}
+    - {role: switch_vlans, when: switches is defined}
     - nfs
-    - img
-    - fixpi
+    - apt_cache
+    # dnsmasq (DHCP/TFTP) before the web tier: site's pistat drops its
+    # config into /etc/dnsmasq.d. It serves the root's boot/ dir, which nfs
+    # has created (empty on a fresh server) and the last play fills.
     - pxe
 
-- hosts: uhubctl
+- name: Configure USB hub power control
+  hosts: uhubctl
   roles:
     - uhubctl
 
-# Web tier (site, wssh, cam/stream-server, ttsite) -- see web.yml.
-- import_playbook: web.yml
+# Web tier (site, wssh, stream_server, ttsite) -- see web.yml.
+- name: Import the web tier playbook
+  import_playbook: web.yml
 
-# Pi NFS root provisioning via nspawn+sshd chroot.
-# The server starts a systemd-nspawn container with sshd on the Pi NFS root,
-# Pi roles run against it via SSH (qemu-user-static ARM emulation), then the
-# container is stopped. This bakes all Pi config into the NFS root so Pis
-# boot read-only with everything pre-installed.
-- hosts: nbp
+# The Pi NFS root last: every service the Pis boot against is in place
+# before the root they boot changes, and the image pull has had the whole
+# run to finish.
+- name: Update the Pi NFS root
+  hosts: nbp
+  gather_facts: false
   tasks:
-    - name: start nspawn+sshd on Pi NFS root
-      include_role:
-        name: nspawn-pi
-        tasks_from: start.yml
-      tags: [pi]
+    # The one step of the root update that depends on another site: the
+    # operators' GitHub keys for the root's authorized_keys (fixpi). Done
+    # first, so a GitHub outage fails the run here, before the lock is
+    # taken and the image extracted into the live root, rather than
+    # half-way through the update with the lock held.
+    - name: Download the NFS root's GitHub keys before the root update
+      ansible.builtin.include_role:
+        name: fixpi
+        tasks_from: github_keys.yml
 
-- hosts: pi
-  roles:
-    - role: fpgas-apt
-      tags: [fpgas-apt]
-    - role: cam/pi
-      tags: [cam]
-    - role: onpi
-      tags: [onpi]
+    # Hold the netbooted boards' self-reboot (nfsroot-watchdog, installed in
+    # the root by roles/onpi) from here until nfsroot_generation below:
+    # img, apt_cache and fixpi all change the root, and a board must never
+    # reboot into it half-built.
+    # (The background pull started after netif only fills podman's store.)
+    - name: Take the Pi NFS root update lock
+      ansible.builtin.include_role:
+        name: nfsroot_generation
+        tasks_from: begin.yml
 
-- hosts: nbp
-  tasks:
-    - name: stop nspawn+sshd
-      include_role:
-        name: nspawn-pi
-        tasks_from: stop.yml
-      tags: [pi]
+    - name: Extract the pulled Pi NFS root
+      ansible.builtin.import_role:
+        name: img
+
+    # A fresh extract restores the image's upstream apt sources; point
+    # them back at this site's cache.
+    - name: Point the NFS root's apt sources at the site cache
+      ansible.builtin.import_role:
+        name: apt_cache
+        tasks_from: nfsroot.yml
+
+    - name: Apply the site layer to the NFS root
+      ansible.builtin.import_role:
+        name: fixpi
+
+    # fixpi is the last task that writes into the root: bump the generation
+    # if the root changed, then release the lock. The boards then reboot
+    # themselves, one stagger slot apart. If anything above failed, the play
+    # has stopped for this host and the lock stays: the boards keep running
+    # on the old root instead of rebooting into a half-built one.
+    - name: Publish the new NFS root generation and release the lock
+      ansible.builtin.include_role:
+        name: nfsroot_generation
+
+# The Pi NFS root arrives prebuilt from GHCR via the img role (issue #34):
+# CI builds and publishes it (.github/workflows/nfsroot-build.yml), the
+# server pulls and extracts it, and fixpi applies the site layer on top.
+# The old on-server nspawn/chroot provisioning path was removed with it.

@@ -1,0 +1,74 @@
+---
+# The NFS root's two stock sources (from the RPi OS image) belong to this
+# role, rendered from apt_cache_url (upstream URLs when the cache is disabled);
+# the rest are rewritten below. verify/main.yml asserts that EVERY source in
+# the root goes through the cache.
+- name: Raspbian source in the NFS root
+  ansible.builtin.template:
+    src: sources.list.j2
+    dest: "{{ nfs_root }}/root/etc/apt/sources.list"
+    mode: "0644"
+
+- name: Raspberry Pi source in the NFS root
+  ansible.builtin.template:
+    src: raspi.list.j2
+    dest: "{{ nfs_root }}/root/etc/apt/sources.list.d/raspi.list"
+    mode: "0644"
+
+# Every other source in the root arrives in the CI-built image (roles/img)
+# with its upstream URL: the image is shared by every site, while the cache
+# URL is per site. Point each one at this site's cache with a plain text
+# rewrite -- the server never runs apt inside the ARM root. The prefixes are
+# the remaps' backends and aliases plus the stock Debian archives, so a new
+# source is covered as soon as its repo has a remap, and verify/main.yml
+# still fails the run on any source left bypassing the cache.
+- name: Find the NFS root's other apt sources
+  ansible.builtin.find:
+    paths: "{{ nfs_root }}/root/etc/apt/sources.list.d"
+    patterns: ["*.list", "*.sources"]
+  register: apt_cache_nfsroot_sources
+  when: apt_cache_url | length > 0
+
+# One module call for every file and prefix (a replace loop over the
+# files x prefixes product was 27 s of round trips): the same regex, applied
+# to each file in the same order. Prints the files it changed.
+- name: Point the NFS root's other apt sources at the cache
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', '-c', apt_cache_nfsroot_rewrite, apt_cache_nfsroot_prefixes | to_json, apt_cache_url]
+         + (apt_cache_nfsroot_sources.files | default([]) | map(attribute='path') | sort) }}
+  register: apt_cache_nfsroot_rewritten
+  changed_when: apt_cache_nfsroot_rewritten.stdout | from_json | length > 0
+  when:
+    - apt_cache_url | length > 0
+    - apt_cache_nfsroot_sources.files | default([]) | length > 0
+  vars:
+    apt_cache_nfsroot_rewrite: |
+      import json, re, sys
+      prefixes, cache, paths = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3:]
+      changed = []
+      for path in paths:
+          with open(path) as f:
+              text = f.read()
+          new = text
+          for p in prefixes:
+              new = re.sub(r"https?://" + re.escape(p["prefix"]) + r"(?=/|\s|$)",
+                           lambda _m, p=p: cache + p["path"], new)
+          if new != text:
+              with open(path, "w") as f:
+                  f.write(new)
+              changed.append(path)
+      print(json.dumps(changed))
+    # Each remap's backend (scheme and trailing slash dropped) and aliases,
+    # mapped to its cache path. A prefix naming the cache's own host is left
+    # out so an already-rewritten URL can never be rewritten twice.
+    apt_cache_nfsroot_prefixes: >-
+      {%- set out = [] -%}
+      {%- for r in apt_cache_remaps -%}
+      {%-   for p in [r.backend | regex_replace('^[a-z]+://', '') | regex_replace('/$', '')] + r.aliases -%}
+      {%-     if p.split('/')[0] != apt_cache_host -%}
+      {%-       set _ = out.append({'prefix': p, 'path': r.path}) -%}
+      {%-     endif -%}
+      {%-   endfor -%}
+      {%- endfor -%}
+      {{ out + apt_cache_nfsroot_stock_prefixes }}

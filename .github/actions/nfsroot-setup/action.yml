@@ -1,0 +1,67 @@
+# The arm64 runner setup every nfsroot build job needs before it runs an
+# image-build playbook (nfsroot-build.yml's `stages` and `build` jobs):
+# Python and Ansible with the pinned collections, and the two download
+# caches the build reads.
+name: nfsroot build setup
+description: uv venv, Ansible collections, and the RasPiOS and deb caches
+
+outputs:
+  day:
+    description: UTC day, the deb cache key's period
+    value: ${{ steps.cachedirs.outputs.day }}
+  deb-cache-hit:
+    description: "'true' when today's deb cache entry was restored exactly"
+    value: ${{ steps.debcache.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+        enable-cache: true
+
+    - name: Cache Ansible collections
+      uses: actions/cache@v5
+      with:
+        path: ~/.ansible/collections
+        key: ansible-collections-arm-${{ hashFiles('requirements.yml') }}
+
+    - name: Install ansible and collections
+      shell: bash
+      run: |
+        uv sync
+        uv run ansible-galaxy collection install -r requirements.yml
+
+    # downloads.raspberrypi.org can crawl (2026-09-03: 14.5 min for the
+    # 524 MB image vs the usual 16 s). Cache the download; the img role's
+    # get_url (force: false) skips it on a hit. Keyed on srv.yml so a new
+    # image release busts the cache. The dir must be runner-writable for
+    # actions/cache's tar restore/save (the download itself runs as root).
+    - name: Prepare image cache dir
+      id: cachedirs
+      shell: bash
+      run: |
+        sudo install -d -o "$(id -un)" /var/cache/pib /var/cache/nfsroot-debs
+        echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the RasPiOS base image
+      uses: actions/cache@v5
+      with:
+        path: /var/cache/pib
+        key: raspios-${{ hashFiles('ansible/inventory/group_vars/all/srv.yml') }}
+
+    # apt's downloads from earlier builds (inventory-ci-nfsroot's
+    # nfsroot_build_deb_cache, bind-mounted into the root during the
+    # build and never packed into the image). One entry per UTC day,
+    # seeded from the newest earlier one, so it tracks the archive without
+    # a GB-sized entry (~760 MB) per run crowding out the other caches in
+    # the repo's cache quota. apt checks every deb against the signed
+    # indexes: a stale one is re-downloaded.
+    - name: Restore the build's deb cache
+      id: debcache
+      uses: actions/cache/restore@v5
+      with:
+        path: /var/cache/nfsroot-debs
+        key: nfsroot-debs-${{ steps.cachedirs.outputs.day }}
+        restore-keys: nfsroot-debs-

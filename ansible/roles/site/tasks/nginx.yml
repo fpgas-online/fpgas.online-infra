@@ -1,18 +1,18 @@
 ---
 # nginx itself: this role writes into /etc/nginx before wssh and
-# cam/stream-server (which used to be the only roles installing it) run later
+# stream_server (which used to be the only roles installing it) run later
 # in the same play. On a fresh host the port-80 vhost task below failed with
 # "Destination directory /etc/nginx/sites-enabled does not exist" (main CI,
-# 2026-08-24). nginx-extras is what cam/stream-server needs (rtmp/fancyindex
+# 2026-08-24). nginx-extras is what stream_server needs (rtmp/fancyindex
 # modules), so install that flavour here rather than plain nginx.
 - name: Install nginx
-  apt:
+  ansible.builtin.apt:
     name:
       - nginx-extras
 
-- name: remove unneeded nginx conf
-  file:
-    path: "/etc/nginx/{{item}}"
+- name: Remove unneeded nginx conf
+  ansible.builtin.file:
+    path: "/etc/nginx/{{ item }}"
     state: absent
   with_items:
     - sites-enabled/default
@@ -22,24 +22,25 @@
   ansible.builtin.file:
     path: /etc/nginx/includes
     state: directory
+    mode: "0755"
 
 # Port 80 catch-all: serve ACME http-01 challenges from the webroot and send
 # everything else to https.  Replaces Debian's stock `default` vhost (removed
 # above); nginx otherwise picks an arbitrary vhost as default_server.
-- name: port-80 default vhost (ACME + https redirect)
-  template:
+- name: Port-80 default vhost (ACME + https redirect)
+  ansible.builtin.template:
     src: templates/00-http-default.conf.j2
     dest: /etc/nginx/sites-enabled/00-http-default.conf
     mode: "0644"
-  notify: reload nginx
+  notify: Reload nginx
 
 # The vhost (templates/nginx.conf.j2 / certbot's https conf) is just
 # `include includes/{{ conference_name }}-*.conf;` -- these are the location
 # blocks that actually route the Django apps to gunicorn (/run/gunicorn.sock)
 # and the pistat WebSocket to daphne. They were lost in the monorepo split
 # (tweed still carried the 2025 copies by hand).
-- name: nginx location includes for the Django apps
-  template:
+- name: Nginx location includes for the Django apps
+  ansible.builtin.template:
     src: "includes/{{ item }}.conf.j2"
     dest: "/etc/nginx/includes/{{ conference_name }}-{{ item }}.conf"
     mode: "0644"
@@ -48,4 +49,12 @@
     - pistat
     - pibup
     - snmp_switch
-  notify: reload nginx
+  notify: Reload nginx
+
+- name: Nginx location include for the fleet pages
+  ansible.builtin.template:
+    src: includes/fleet.conf.j2
+    dest: "/etc/nginx/includes/{{ conference_name }}-fleet.conf"
+    mode: "0644"
+  when: fleet_broker | default(false)
+  notify: Reload nginx

@@ -1,0 +1,45 @@
+---
+# Finish the Pi NFS root chroot session: lift the build-time initramfs
+# suppression, do the kernel maintenance that needs the chroot, then drop the
+# mounts and policy-rc.d.
+
+# Back to the distro's own file before anything below runs update-initramfs,
+# and before the root is published or booted: a root left saying
+# update_initramfs=no would silently never refresh an initramfs again.
+- name: Restore the root's update-initramfs.conf
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build
+         {{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf
+    removes: "{{ nspawn_pi_root }}/etc/initramfs-tools/update-initramfs.conf.fpgas-build"
+
+- name: Prune kernels and refresh initramfs images in the NFS root
+  ansible.builtin.include_tasks: kernels.yml
+
+- name: Unmount chroot bind mounts
+  ansible.builtin.shell: |
+    umount "{{ nspawn_pi_root }}/dev/pts" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/dev" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/sys" 2>/dev/null || true
+    umount "{{ nspawn_pi_root }}/proc" 2>/dev/null || true
+    if mountpoint -q "{{ nspawn_pi_root }}/var/cache/apt/archives"; then
+      umount "{{ nspawn_pi_root }}/var/cache/apt/archives"
+    fi
+  changed_when: false
+
+- name: Remove policy-rc.d
+  ansible.builtin.file:
+    path: "{{ nspawn_pi_root }}/usr/sbin/policy-rc.d"
+    state: absent
+
+- name: Resume man-db's index rebuilds
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build
+         {{ nspawn_pi_root }}/var/lib/man-db/auto-update
+    removes: "{{ nspawn_pi_root }}/var/lib/man-db/auto-update.fpgas-build"
+
+- name: Remove the build-time dpkg unsafe-io setting
+  ansible.builtin.file:
+    path: "{{ nspawn_pi_root }}/etc/dpkg/dpkg.cfg.d/zz-fpgas-build-unsafe-io"
+    state: absent

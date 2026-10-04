@@ -1,0 +1,257 @@
+---
+# Build the provisioned Pi NFS root on a CI runner (issue #34; design in
+# docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+#
+# Stage 3, the published image: the Pi roles (fixpi on the build host,
+# then fpgas_apt, cam_pi and onpi against the root) applied to the
+# upgraded RasPiOS tree of stages 1 and 2 (ci-nfsroot-base.yml,
+# ci-nfsroot-upgrade.yml) or, for a warm build, to main's last image. The
+# "Pi" is reached via the chroot connection plugin (see
+# inventory-ci-nfsroot/hosts).
+#
+# Run in full, with no --tags or --skip-tags. The site layer (the pi
+# password, per-site authorized_keys and keypairs: fixpi's userconf.yml and
+# ansible-home.yml) is applied by the consuming server after extraction,
+# never baked into the published image: fixpi skips it when
+# fixpi_image_build is true, which inventory-ci-nfsroot sets. Fail-safe
+# twice over: this playbook refuses to start unless fixpi_image_build is
+# true, and its last play fails the build if the image carries any of the
+# site layer all the same.
+
+- name: Apply the generic fixpi layer to the NFS root
+  hosts: nbp
+  become: true
+  tasks:
+    # fixpi_image_build is what keeps the site layer out of the public
+    # image (fixpi/tasks/main.yml). Run with any other inventory, fixpi
+    # would write this runner's password and keys into it.
+    - name: Check this is the image build (fixpi_image_build is true)
+      ansible.builtin.assert:
+        that: fixpi_image_build | default(false) | bool
+        fail_msg: >-
+          ci-nfsroot.yml builds the public image and must run with
+          fixpi_image_build true (inventory-ci-nfsroot), or fixpi would
+          apply the site layer (pi password, keys) to it.
+        quiet: true
+
+    - name: Prepare the runner
+      ansible.builtin.import_tasks: ci-nfsroot-runner.yml
+
+    # The tree this playbook converges is already in {{ nfs_root }}: the
+    # upgraded RasPiOS stage (ci-nfsroot-upgrade.yml), or for a warm build
+    # the image main last published. tests/ci/nfsroot_stages.py and
+    # tests/ci/nfsroot_warm.py put it there.
+    - name: Check the root to build on is in place
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/root/etc/os-release"
+      register: ci_nfsroot_seed
+      failed_when: not ci_nfsroot_seed.stat.exists
+
+    - name: Apply the generic fixpi layer
+      ansible.builtin.include_role:
+        name: fixpi
+
+# The chroot connection plugin does not provide the API filesystems the Pi
+# roles' apt runs need (posix_openpt wants /dev/pts). chroot-prep.yml gives
+# the chroot its API-filesystem mounts, a policy-rc.d that suppresses service
+# starts, the initramfs suppression and the served-kernel protection; the
+# image build is the only place anything runs inside the ARM root.
+- name: Prepare the NFS root chroot
+  hosts: nbp
+  become: true
+  tasks:
+    - name: Prepare the NFS root chroot for apt
+      ansible.builtin.include_role:
+        name: nspawn_pi
+        tasks_from: chroot-prep.yml
+
+- name: Install the Pi roles into the NFS root
+  hosts: pi
+  roles:
+    - role: fpgas_apt
+    - role: cam_pi
+    - role: onpi
+
+- name: Finish, clean and check the NFS root image
+  hosts: nbp
+  become: true
+  tasks:
+    # Lift the initramfs suppression, rebuild any initramfs the chroot apt
+    # runs left stale (before the payload re-sync below picks them up), then
+    # unmount the API filesystems and drop policy-rc.d BEFORE packaging: a
+    # still-mounted /dev must never be tarred into the image.
+    #
+    # The pruner keeps what boot/ serves plus the newest kernel per flavour.
+    # boot/ still held the stock image's payload here, so the image's
+    # original 6.6.31 kernel set counted as served and every image carried
+    # it (modules, headers, initramfs rebuilds: ~250 MB and a minute of
+    # build) although no Pi ever boots it -- the server's fixpi re-syncs the
+    # upgraded payload. Sync first, so "served" is what the Pis will boot.
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Sync the upgraded kernel payload before pruning  # noqa: command-instead-of-module
+      ansible.builtin.command: >-
+        rsync -a --exclude=cmdline.txt --exclude=cmdline-pi5.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+
+    - name: Finish the chroot session (kernels, mounts, policy-rc.d)
+      ansible.builtin.include_role:
+        name: nspawn_pi
+        tasks_from: stop.yml
+
+    # The chroot apt runs resolved names through the build host's
+    # resolv.conf (fixpi/netboot.yml copies it in). Don't ship the runner's
+    # DNS into the image: point the root at the gateway address both sites
+    # use (issue #11 tracks proper resolv handling on the Pis).
+    - name: Neutralize build-host resolv.conf in the image
+      ansible.builtin.copy:
+        content: "nameserver {{ eth_local_address | default('10.21.0.1') }}\n"
+        dest: "{{ nfs_root }}/root/etc/resolv.conf"
+        mode: "0644"
+
+    # fixpi_generate_host_keys: false skips pre-generation, but an
+    # openssh-server upgrade's postinst can still create host keys during
+    # the Pi roles' apt runs. Keys in the public image would be shared by
+    # every consuming site, so strip them; the consuming server's fixpi run
+    # generates fresh ones after extraction.
+    - name: Find build-generated ssh host keys in the image
+      ansible.builtin.find:
+        paths: "{{ nfs_root }}/root/etc/ssh"
+        patterns: "ssh_host_*"
+      register: ci_nfsroot_host_keys
+
+    - name: Remove build-generated ssh host keys from the image
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ ci_nfsroot_host_keys.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    # authorized_keys are the consuming site's (fixpi authorized_keys.yml),
+    # and the pull never touches them (roles/img excludes root's and every
+    # /home/*/.ssh/authorized_keys). A
+    # warm build converges main's last image, whose copies came from the
+    # old onpi sshkeys.yml, so remove them explicitly.
+    - name: Remove authorized_keys from the image
+      ansible.builtin.file:
+        path: "{{ nfs_root }}/root/{{ item }}/.ssh/authorized_keys"
+        state: absent
+      loop:
+        - root
+        - home/pi
+
+    # site.yml runs fixpi's payload sync BEFORE the Pi roles, whose
+    # `apt upgrade` (cam_pi) can pull a new kernel into root/boot/firmware
+    # -- leaving boot/ stale in a one-shot build: the exact mismatched
+    # kernel/initramfs boot loops of tweed rebuild C1-3 (see the sync task's
+    # comment in roles/fixpi/tasks/netboot.yml). Re-sync last, per the
+    # design doc's "ordering is load-bearing" requirement.
+    # noqa: command-instead-of-module -- a copy between two directories on the
+    # build host itself; synchronize is built for controller<->host transfers and
+    # would need delegate_to back to this host plus become/rsync_path handling.
+    - name: Re-sync kernel+initramfs+DTB payload after chroot apt upgrades  # noqa: command-instead-of-module
+      ansible.builtin.command: >-
+        rsync -a --exclude=cmdline.txt --exclude=config.txt
+        {{ nfs_root }}/root/boot/firmware/ {{ nfs_root }}/boot/
+      changed_when: true
+
+    # Design doc "Hardware coverage": fail the build before anything is
+    # tagged if a board family's boot material is missing, so an upstream
+    # image or kernel-packaging change cannot brick part of the fleet on
+    # the next pull.
+    - name: Assert per-model kernel payload present in boot/
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/boot/{{ item }}"
+      register: ci_nfsroot_boot_file
+      failed_when: not ci_nfsroot_boot_file.stat.exists
+      loop:
+        - kernel.img            # Pi 1 / Zero
+        - kernel7.img           # Pi 2 / Pi 3
+        - kernel7l.img          # Pi 4 / CM4
+        # Pi 5 / CM5 boot kernel8.img on the armhf image (64-bit kernel,
+        # 32-bit userland) -- kernel_2712.img ships only in arm64 images,
+        # which is how the ps1 CM5 blades boot today.
+        - kernel8.img
+        - bcm2710-rpi-3-b.dtb
+        - bcm2710-rpi-3-b-plus.dtb
+        - bcm2711-rpi-4-b.dtb
+        - bcm2712-rpi-5-b.dtb
+        - overlays
+
+    # dpkg -l exits 0 for a package that is merely known to the database
+    # ("rc" after a removal, "un"), so read the status field instead.
+    - name: Assert NFS-boot and fleet packages in the root (mirrors verify-server.yml)
+      ansible.builtin.command: dpkg-query --root={{ nfs_root }}/root -W -f='${Status}' {{ item }}
+      register: ci_nfsroot_pkg_status
+      changed_when: false
+      failed_when: ci_nfsroot_pkg_status.stdout != 'install ok installed'
+      loop:
+        - overlayroot
+        - nfs-common
+        - fpgas-online-setup-pi
+        - fpgas-online-cam
+        # roles/onpi/tasks/apt.yml: the fpgas.online patch-series builds from
+        # fpgas.online-fpga-tools stand in for Debian's openfpgaloader /
+        # openocd (and for the superseded -rp1pio builds from
+        # mithro/rp1-jtag).
+        - openfpgaloader-fpgasonline-git
+        - openocd-fpgasonline-git
+        # roles/onpi/tasks/fpga_verify.yml: the FPGA boot check for every board.
+        - fpgas-online-all-boards
+        # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
+        - linux-image-armmp
+
+    - name: Assert pi user exists in the root
+      ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"
+      changed_when: false
+
+    # The automation account and its sudo (fixpi/netboot.yml). A role task
+    # file, so it sees fixpi's defaults (the user name and fixed uid).
+    - name: Assert the ansible user and its sudo are in the root
+      ansible.builtin.include_role:
+        name: fixpi
+        tasks_from: verify/image.yml
+
+    # The site layer belongs to each consuming server, never to the public
+    # image (fixpi skips it under fixpi_image_build). Check the result, not
+    # only the gate: no password for the pi user, no authorized_keys, no
+    # user keypairs, no plaintext userconf.txt.
+    - name: Read the pi user's password field in the image
+      ansible.builtin.command: "awk -F: '$1 == \"{{ user }}\" {print $2}' {{ nfs_root }}/root/etc/shadow"
+      register: ci_nfsroot_pi_pw
+      changed_when: false
+      no_log: true
+
+    - name: Assert the image has no password for the pi user
+      ansible.builtin.assert:
+        that: not ci_nfsroot_pi_pw.stdout.startswith('$')
+        fail_msg: >-
+          The image's /etc/shadow holds a password hash for {{ user }}: the
+          site layer (fixpi/tasks/userconf.yml) ran in the image build.
+        quiet: true
+
+    # Every .ssh dir in the image's root and home dirs: the site layer's
+    # authorized_keys (root, pi, ansible) and keypairs (root, pi).
+    - name: Find site-layer key files in the image
+      ansible.builtin.command: >-
+        find {{ nfs_root }}/root/root {{ nfs_root }}/root/home -path '*/.ssh/*'
+        ( -name authorized_keys -o -name 'id_*' )
+      register: ci_nfsroot_site_keys
+      changed_when: false
+
+    - name: Assert the image carries no authorized_keys or user keypairs
+      ansible.builtin.assert:
+        that: ci_nfsroot_site_keys.stdout_lines | length == 0
+        fail_msg: >-
+          The image carries site-layer key files:
+          {{ ci_nfsroot_site_keys.stdout_lines }}
+        quiet: true
+
+    - name: Check the image has no userconf.txt
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/boot/userconf.txt"
+      register: ci_nfsroot_userconf
+      failed_when: ci_nfsroot_userconf.stat.exists

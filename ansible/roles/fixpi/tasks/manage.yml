@@ -1,13 +1,6 @@
 ---
-- name: install packages on server
-  apt:
-    name:
-      - qemu-user-static
-  tags:
-    - qemu
-
-- name: install scripts to manage pi states
-  copy:
+- name: Install scripts to manage pi states
+  ansible.builtin.copy:
     src: "scripts/{{ item }}"
     dest: "/usr/local/sbin/{{ item }}"
     mode: preserve
@@ -15,10 +8,8 @@
     - maintenance.sh
     - production.sh
     - chroot-mount-pi-fs.bash
-  tags:
-    - manage
-    - qemu
 
-- name: put the pi boot system into maintenance mode
-  command: maintenance.sh
+- name: Put the pi boot system into maintenance mode
+  ansible.builtin.command: maintenance.sh
   when: false
+  changed_when: true  # switches the boot system's mode on every run

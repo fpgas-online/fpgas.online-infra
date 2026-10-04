@@ -1,0 +1,32 @@
+---
+- name: Install packages
+  ansible.builtin.apt:
+    name:
+      - unzip
+      - parted
+      - rsync
+      # img2files.sh extracts the raspios image with xz; a minimal d-i
+      # install has no xz-utils (CI's genericcloud image does — tweed
+      # rebuild B1-5, 2026-08-25).
+      - xz-utils
+    install_recommends: true
+
+- name: Create pib cache dir
+  ansible.builtin.file:
+    path: "{{ img_cache_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Download pi sd card img file
+  ansible.builtin.get_url:
+    url: "{{ img_host }}/{{ img_path }}/{{ zip_name }}"
+    dest: "{{ img_cache_dir }}"
+    force: false
+    mode: "0644"
+    # creates: "{{ img_cache_dir }}/{{ zip_name }}"
+
+- name: Extract files from raspios.img.xz
+  ansible.builtin.script: files/img2files.sh {{ zip_name }} {{ img_name }} {{ dist }}
+  args:
+    chdir: "{{ img_cache_dir }}"
+    creates: "{{ nfs_root }}/root/home"

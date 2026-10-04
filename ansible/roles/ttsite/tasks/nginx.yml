@@ -1,19 +1,19 @@
 ---
-- name: per-board websocket include
-  template:
+- name: Per-board websocket include
+  ansible.builtin.template:
     src: ws-board.conf.j2
     dest: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
     mode: "0644"
-  notify: reload nginx
+  notify: Reload nginx
 
 - name: ACME webroot
-  file:
+  ansible.builtin.file:
     path: /var/www/html
     state: directory
     mode: "0755"
 
-- name: check for existing certificate
-  stat:
+- name: Check for existing certificate
+  ansible.builtin.stat:
     path: "/etc/letsencrypt/live/{{ ttsite_domain }}/fullchain.pem"
   register: ttsite_cert
 
@@ -22,20 +22,20 @@
 # exists.  The cert itself comes from `certbot certonly --webroot` -- the same
 # scheme tweed's other names use (snap certbot, renewals via the webroot) --
 # so certbot never rewrites nginx config behind Ansible's back.
-- name: vhost
-  template:
+- name: Vhost
+  ansible.builtin.template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
     mode: "0644"
   vars:
     ttsite_cert_exists: "{{ ttsite_cert.stat.exists }}"
-  notify: reload nginx
+  notify: Reload nginx
 
-- name: flush handlers so nginx serves the vhost before certbot
-  meta: flush_handlers
+- name: Flush handlers so nginx serves the vhost before certbot
+  ansible.builtin.meta: flush_handlers
 
-- name: obtain certificate (webroot http-01 via the port-80 vhost)
-  command: >-
+- name: Obtain certificate (webroot http-01 via the port-80 vhost)
+  ansible.builtin.command: >-
     certbot certonly --webroot -w /var/www/html -d {{ ttsite_domain }}
     --email {{ letsencrypt_account_email }} --agree-tos --non-interactive
   args:
@@ -43,12 +43,14 @@
   when: ttsite_certbot and not ttsite_cert.stat.exists
   register: ttsite_certonly
 
-- name: vhost (https, after the certificate was issued)
-  template:
+# Second pass of the two-pass vhost render (noqa: it belongs right after the
+# certificate issues, not deferred to the end of the play as a handler).
+- name: Vhost (https, after the certificate was issued)
+  ansible.builtin.template:
     src: vhost.conf.j2
     dest: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf"
     mode: "0644"
   vars:
     ttsite_cert_exists: true
-  when: ttsite_certonly is changed
-  notify: reload nginx
+  when: ttsite_certonly is changed  # noqa: no-handler
+  notify: Reload nginx

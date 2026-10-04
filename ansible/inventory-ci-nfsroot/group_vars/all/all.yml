@@ -1,0 +1,39 @@
+---
+# CI nfsroot build vars (issue #34). srv.yml (image URL, dist, nfs_root,
+# user) is a symlink to the production inventory's copy so the CI build can
+# never drift from what site.yml builds. Only genuinely CI-specific values
+# live here.
+
+ansible_python_interpreter: /usr/bin/python3
+
+# fixpi/tweeks.yml bakes pistat_host={{ domain_name }} into /etc/environment
+# in the root. The value is site-specific (welland./ps1.fpgas.online), so the
+# generic image carries the apex domain; the consuming server's own fixpi run
+# rewrites it after extraction (phase 3).
+domain_name: fpgas.online
+
+# This inventory IS the image build: run fixpi's tasks that execute inside
+# the ARM root (natively -- the arm64 runners run armhf userland directly,
+# spike PR #40). See roles/fixpi/defaults/main.yml.
+fixpi_image_build: true
+
+# fixpi/tweeks.yml's trailing tasks (tio, dialout, pici checkout, getty
+# mask) configure the build HOST for boot-spew monitoring, not the root —
+# meaningless on a throwaway runner.
+fixpi_server_monitor: false
+
+# Bake the generic Tiny Tapeout daemon/demo debs even though the CI build
+# has no tt_boards catalogue (see roles/onpi/tasks/tt.yml); the site
+# catalogue + service enablement are applied by the consuming server.
+tt_install: true
+
+# Don't pre-generate ssh host keys into the published image — they would be
+# shared by every consuming site. Each server generates its own after
+# extraction (fixpi/netboot.yml fires when the keys are absent), and
+# ci-nfsroot.yml strips any that an openssh postinst creates mid-build.
+fixpi_generate_host_keys: false
+
+# apt's package cache for the build, outside the root: carried between
+# builds by nfsroot-build.yml's actions/cache, never packed into the image
+# (roles/nspawn_pi/tasks/chroot-prep.yml).
+nfsroot_build_deb_cache: /var/cache/nfsroot-debs

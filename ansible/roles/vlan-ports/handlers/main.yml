@@ -1,3 +1,0 @@
----
-- name: reload networkd
-  command: networkctl reload

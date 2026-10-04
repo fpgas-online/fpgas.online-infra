@@ -42,3 +42,37 @@ server=8.8.8.8
 # forever (tweed rebuild C2-2 — the old server ran chrony configured
 # out-of-band; captured here so a fresh install serves time too).
 dhcp-option=option:ntp-server,{{ eth_local_address }}
+{% if apt_cache_url | default('') %}
+
+# The gateway's apt cache (roles/apt-cache): resolve its public name to this
+# gateway so Pis reach it directly rather than out through the uplink and back.
+host-record={{ apt_cache_host }},{{ eth_local_address }}
+{% endif %}
+
+{% if dnsmasq_auth_zone is defined %}
+# ── Authoritative service for a zone delegated to us ────────────────────
+# The site resolver (ten64) delegates {{ dnsmasq_auth_zone }} here and
+# queries us across the transit link, so those queries arrive on
+# {{ dnsmasq_auth_interface }}, not on the internal interface.
+#
+# auth-server is what makes that work, and the man page is explicit that the
+# interface "need not be mentioned in --interface ... indeed --auth-server
+# will override these and provide a different DNS service on the specified
+# interface".  So this single option fixes both halves of the old failure:
+# queries on {{ dnsmasq_auth_interface }} were previously ignored outright,
+# and what did get answered was a forwarded NODATA from the upstream
+# resolver rather than an authoritative answer.
+#
+# It is authoritative-only on that interface -- it does NOT expose recursion
+# to the transit link, which is what we want for an off-net caller.
+#
+# The auth-server <domain> is the glue name: ten64's zone carries
+# `{{ dnsmasq_auth_zone }}. NS {{ dnsmasq_auth_glue }}.` plus an A record for
+# {{ dnsmasq_auth_glue }} pointing at this host, so the two must agree.
+#
+# domain= qualifies DHCP-supplied hostnames into the zone; without it leases
+# register as bare names and nothing in the zone resolves.
+domain={{ dnsmasq_auth_zone }},{{ dnsmasq_auth_subnet }}
+auth-zone={{ dnsmasq_auth_zone }},{{ dnsmasq_auth_subnet }}
+auth-server={{ dnsmasq_auth_glue }},{{ dnsmasq_auth_interface }}
+{% endif %}

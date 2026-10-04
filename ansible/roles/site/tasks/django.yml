@@ -2,8 +2,14 @@
 ---
 # Directories are owned by the service user: gunicorn/daphne/uvicorn run as
 # {{ user_name }} and must be able to write db.sqlite3 and STATIC_ROOT.
-- name: site directories
-  file:
+# The service account the app servers run as. It used to exist only because
+# fixpi (generating its ssh key) ran first; the site owns its own user.
+- name: Site service user
+  ansible.builtin.user:
+    name: "{{ user_name }}"
+
+- name: Site directories
+  ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ user_name }}"
@@ -13,22 +19,18 @@
     - "{{ django_dir }}"
     - "{{ django_dir }}/pib"
     - "{{ static_dir }}"
-  tags:
-    - django
 
 # The Django project package (pib/settings.py, urls.py, asgi.py) ships inside
 # the fpgas-online-site wheel; {{ django_dir }}/pib shadows it on sys.path so
 # gunicorn/daphne/manage.py pick up THIS copy (plus local_settings.py, which
 # only the lineinfile tasks below ever touch).
-- name: locate the installed pib project package
-  command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
+- name: Locate the installed pib project package
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python -c 'import pib, os; print(os.path.dirname(pib.__file__))'"
   register: site_pib_pkg
   changed_when: false
-  tags:
-    - django
 
-- name: install Django project files from the wheel
-  copy:
+- name: Install Django project files from the wheel
+  ansible.builtin.copy:
     src: "{{ site_pib_pkg.stdout }}/{{ item }}"
     dest: "{{ django_dir }}/pib/{{ item }}"
     remote_src: true
@@ -41,43 +43,35 @@
     - urls.py
     - asgi.py
   notify:
-    - restart django services
-  tags:
-    - django
+    - Restart django services
 
-- name: create local_settings.py if missing (never overwritten)
-  copy:
+- name: Create local_settings.py if missing (never overwritten)
+  ansible.builtin.copy:
     dest: "{{ django_dir }}/pib/local_settings.py"
     content: "# site-local Django settings, lines managed by fpgas.online-infra (roles/site, roles/ttsite)\n"
     force: false
     owner: "{{ user_name }}"
     group: www-data
     mode: "0640"
-  tags:
-    - django
 
 # The wheel ships Django's insecure dev SECRET_KEY and DEBUG=True; production
 # settings come from local_settings.py. The key is generated once per host
 # (kept out of the inventory) and never rotated by Ansible.
-- name: generate a SECRET_KEY once
-  shell: >-
+- name: Generate a SECRET_KEY once
+  ansible.builtin.shell: >-
     umask 077 && {{ django_dir }}/venv/bin/python -c
     "import secrets; print(secrets.token_urlsafe(50))" > {{ django_dir }}/.secret_key
   args:
     creates: "{{ django_dir }}/.secret_key"
-  tags:
-    - django
 
-- name: read the SECRET_KEY
-  slurp:
+- name: Read the SECRET_KEY
+  ansible.builtin.slurp:
     src: "{{ django_dir }}/.secret_key"
   register: site_secret_key
   no_log: true
-  tags:
-    - django
 
 - name: SECRET_KEY and DEBUG
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: "^{{ item.key }} = "
@@ -89,72 +83,95 @@
     label: "{{ item.key }}"
   no_log: "{{ item.key == 'SECRET_KEY' }}"
   notify:
-    - restart django services
-  tags:
-    - django
+    - Restart django services
 
 # Every name the site answers on: the uplink address, the primary web name,
 # its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
 # tinytapeout.fpgas.online host when this server carries TT boards.
-- name: site_web_hosts
-  set_fact:
+- name: Site_web_hosts
+  ansible.builtin.set_fact:
     site_web_hosts: >-
       {{ ([eth_uplink_static_address, domain_name] + (streaming_frontend_aliases | default([]))
           + ([ttsite_domain] if tt_boards is defined else [])) | unique }}
-  tags:
-    - django
 
 - name: ALLOWED_HOSTS
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^ALLOWED_HOSTS = '
     line: "ALLOWED_HOSTS = {{ site_web_hosts | to_json }}"
   notify:
-    - restart django services
-  tags:
-    - django
+    - Restart django services
 
 - name: CSRF_TRUSTED_ORIGINS
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^CSRF_TRUSTED_ORIGINS = '
-    line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
+    line: "CSRF_TRUSTED_ORIGINS = {{ site_web_hosts | reject('equalto', eth_uplink_static_address) \
+      | reject('match', '^\\.') | map('regex_replace', '^', 'https://') | list | to_json }}"
   notify:
-    - restart django services
-  tags:
-    - django
+    - Restart django services
 
-- name: pass the pi's user pw
-  lineinfile:
+- name: Pass the pi's user pw
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^PI_PW = '
-    line: "PI_PW = '{{pi_pw|b64encode}}'"
-  tags:
-    - django
+    line: "PI_PW = '{{ pi_pw | b64encode }}'"
 
-- name: sites's domain name
-  lineinfile:
+- name: Sites's domain name
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^DOMAIN_NAME = '
     line: "DOMAIN_NAME = '{{ domain_name }}'"
-  tags:
-    - django
 
-- name: set static dir
-  lineinfile:
+# The mosquitto listener binds eth-local only (roles/mqtt), so the
+# consumer must dial that address -- 127.0.0.1 is not listening.
+- name: FLEET_MQTT broker address for the fleet consumer
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^FLEET_MQTT = '
+    line: "FLEET_MQTT = {'host': '{{ eth_local_address }}', 'port': 1883}"
+  when: fleet_broker | default(false)
+  notify:
+    - Restart fleet-consumer
+
+# Welland runs ahead of the stable ps1 site, so its pages carry a banner
+# pointing visitors there. Written on EVERY host rather than only the ones that
+# want it, so a host that is switched back gets an explicit False rather than
+# keeping a stale True that nothing would ever remove.
+- name: Under-construction banner
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^UNDER_CONSTRUCTION = '
+    line: "UNDER_CONSTRUCTION = {{ 'True' if site_under_construction | bool else 'False' }}"
+  notify:
+    - Restart django services
+
+# The site always offers only Pis that registered, checked in and passed
+# their FPGA check this boot (site PR #47), so the switch that turned that
+# on is gone; take out the line earlier converges wrote.
+- name: Remove the retired FPGAS_REQUIRE_VERIFIED setting
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: absent
+    regexp: '^FPGAS_REQUIRE_VERIFIED = '
+  notify:
+    - Restart django services
+
+- name: Set static dir
+  ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
     state: present
     regexp: '^STATIC_ROOT = '
     line: "STATIC_ROOT = '{{ static_dir }}'"
-  tags:
-    - django
 
-- name: manage.py
-  copy:
+- name: Manage.py
+  ansible.builtin.copy:
     dest: "{{ django_dir }}/manage.py"
     owner: "{{ user_name }}"
     group: www-data
@@ -168,8 +185,6 @@
           os.environ.setdefault("DJANGO_SETTINGS_MODULE", "{{ django_project_name }}.settings")
           from django.core.management import execute_from_command_line
           execute_from_command_line(sys.argv)
-  tags:
-    - django
 
 # Management commands run through the generated manage.py as the service
 # user (so db.sqlite3 and STATIC_ROOT end up owned by it), with plain
@@ -177,49 +192,22 @@
 # installs by default (requirements.yml lists it, but keep the role
 # self-sufficient).
 - name: Run manage.py migrate
-  command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py migrate --noinput"
   args:
     chdir: "{{ django_dir }}"
+  become: true
   become_user: "{{ user_name }}"
   register: site_migrate
   changed_when: "'No migrations to apply' not in site_migrate.stdout"
-  tags:
-    - django
 
 - name: Run manage.py collectstatic
-  command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
+  ansible.builtin.command: "{{ django_dir }}/venv/bin/python manage.py collectstatic --noinput"
   args:
     chdir: "{{ django_dir }}"
+  become: true
   become_user: "{{ user_name }}"
   register: site_collectstatic
   changed_when: "'0 static files copied' not in site_collectstatic.stdout"
-  tags:
-    - django
 
-# Initial pibfpgas data. The fixture files left this repo with the pici
-# monorepo split; only load one that is actually present under
-# roles/site/files/pib/pibfpgas/fixtures/ (none are today).
-- name: look for the fixture file
-  set_fact:
-    site_fixture_file: "{{ lookup('ansible.builtin.first_found', {'files': ['files/pib/pibfpgas/fixtures/' ~ fixture_path], 'skip': true}) }}"
-  when: fixture_path is defined
-  tags:
-    - django
-
-- name: copy fixtures to remote box
-  copy:
-    src: "{{ site_fixture_file }}"
-    dest: "{{ django_dir }}/{{ fixture_path }}"
-  when: fixture_path is defined and site_fixture_file | length > 0
-  tags:
-    - django
-
-- name: Load the initial_data fixture into the application
-  command: "{{ django_dir }}/venv/bin/python manage.py loaddata {{ django_dir }}/{{ fixture_path }}"
-  args:
-    chdir: "{{ django_dir }}"
-  become_user: "{{ user_name }}"
-  when: fixture_path is defined and site_fixture_file | length > 0
-  changed_when: true
-  tags:
-    - django
+# No board data is seeded: the /fpgas/ pages come from fleet registration
+# alone (site PR #47 deleted the pibfpgas fixtures and their table).

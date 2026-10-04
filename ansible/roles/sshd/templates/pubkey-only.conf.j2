@@ -1,0 +1,13 @@
+# {{ ansible_managed }} (fpgas.online-infra roles/sshd)
+#
+# Public-key-only login. sshd keeps the first value it reads for each
+# keyword and sshd_config Includes this directory at its top, so this file
+# is named to sort first and wins over later drop-ins and the main file.
+# No Match block here: these apply globally, including inside the jump
+# role's `Match User {{ jump_user | default('pi') }}` (50-jump.conf), which
+# sets none of them.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthenticationMethods publickey
+PermitRootLogin {{ sshd_permit_root_login }}

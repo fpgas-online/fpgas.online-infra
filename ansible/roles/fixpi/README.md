@@ -7,7 +7,11 @@ cmdline.txt - root=nfs
 etc/fstab / and /boot/firmware nfs
 
 ### userconf.yml
-set the password and tell everyone
+hash the pi user's password (sha512-crypt, salt derived from it)
+check whether the NFS root already carries that hash
+set the pi user's password in the NFS root
+reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
+remove userconf.txt and the password marker
 enable sshd
 create issue.d dir
 display IP, pw and things on console
@@ -17,8 +21,15 @@ sshd password settings
 Generate ssh keys for server user
 create .ssh dirs
 Generate ssh keys for pi users pi and root
-Set authorized key for pi root user
-Copy keys to pi pi and root authorized_keys
+Write the NFS root's authorized_keys (authorized_keys.yml): the complete
+key list for root and pi (server user, controller, operators' GitHub keys,
+and for pi the gateway jump account), and for the ansible automation
+account the controller key alone, written once and only when it changed
+(ansible-home.yml, before userconf.yml, checks the account is in the image
+and makes its .ssh dir). The GitHub keys come from
+https://github.com/<user>.keys via roles/ssh_key_fetch: a download that
+fails or holds no key, after a few retries, fails the run there, before
+any file is written (no keep-on-outage, no drop-on-404)
 set perms
 
 

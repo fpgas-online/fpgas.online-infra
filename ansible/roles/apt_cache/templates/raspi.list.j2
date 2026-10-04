@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Raspberry Pi archive, through the gateway's apt cache when it is enabled
+# (roles/apt-cache).
+deb {{ (apt_cache_url ~ '/raspberrypi') if apt_cache_url else 'http://archive.raspberrypi.com/debian' }}/ {{ dist }} main

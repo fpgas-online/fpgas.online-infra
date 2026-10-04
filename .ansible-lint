@@ -1,14 +1,3 @@
-skip_list:
-  - yaml[line-length]
-  - name[missing]
-  - name[play]
-  - no-changed-when
-  - command-instead-of-module
-  - risky-shell-pipe
-  - risky-file-permissions
-  - fqcn[action-core]
-  - role-name[path]
-
 warn_list:
   - experimental
 
@@ -16,4 +5,3 @@ offline: true
 
 exclude_paths:
   - .github/
-  - ansible/switch.yml

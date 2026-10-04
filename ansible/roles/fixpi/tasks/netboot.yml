@@ -1,17 +1,18 @@
 ---
-- name: create tftp root directory
-  file:
+- name: Create tftp root directory
+  ansible.builtin.file:
     path: /srv/tftp
     state: directory
+    mode: "0755"
 
-- name: link bootcode.bin in tftp root because pi netboot not too smart.
-  file:
+- name: Link bootcode.bin in tftp root because pi netboot not too smart.
+  ansible.builtin.file:
     src: "{{ nfs_root }}/boot/bootcode.bin"
     dest: "/srv/tftp/bootcode.bin"
     state: link
 
-- name: link pi serial-num to boot dir, cuz that is how it works.
-  file:
+- name: Link pi serial-num to boot dir, cuz that is how it works.
+  ansible.builtin.file:
     src: "{{ nfs_root }}/boot"
     dest: "/srv/tftp/{{ item.sn }}"
     state: link
@@ -19,11 +20,9 @@
   # hosts (switches defined) have no switch.nos, so this is a no-op there.
   with_items:
     "{{ switch.nos | default([]) }}"
-  tags:
-    - pibs
 
-- name: save the original config.txt, cmdline.txt, fstab
-  command: mv "{{ nfs_root }}/{{ item }}" "{{ nfs_root }}/{{ item }}.org"
+- name: Save the original config.txt, cmdline.txt, fstab
+  ansible.builtin.command: mv "{{ nfs_root }}/{{ item }}" "{{ nfs_root }}/{{ item }}.org"
   args:
     removes: "{{ nfs_root }}/{{ item }}"
     creates: "{{ nfs_root }}/{{ item }}.org"
@@ -32,36 +31,53 @@
     - "boot/cmdline.txt"
     - "boot/user-data"
     - "root/fstab"
-  tags:
-    - netboot
 
-- name: replace cmdline with netbootie versions
-  template:
+# cmdline-pi5.txt is selected only by the `[pi5] cmdline=` line that
+# roles/fixpi/tasks/tweeks.yml adds to config.txt; every other model keeps
+# cmdline.txt. It exists so enabling the Pi 5 header UART does not drag the
+# kernel console onto the FPGA's serial pins -- see the comment on that task.
+- name: Replace cmdline with netbootie versions
+  ansible.builtin.template:
     src: "templates/boot/{{ item }}.j2"
     dest: "{{ nfs_root }}/boot/{{ item }}"
+    mode: "0644"
   with_items:
     - cmdline.txt
-  tags:
-    - cmdline
-    - netboot
+    - cmdline-pi5.txt
 
-- name: fstab - replace local fs to nfs
-  template:
+- name: Fstab - replace local fs to nfs
+  ansible.builtin.template:
     src: "templates/etc/{{ item }}.j2"
     dest: "{{ nfs_root }}/root/etc/{{ item }}"
+    mode: "0644"
   with_items:
     - fstab
-  tags:
-    - cmdline
-    - netboot
 
-- name: create pi user in NFS root if missing
-  command: >-
+# The netboot Pis share ttyAMA0/serial0 with the FPGA board's serial pins.
+# cmdline.txt.j2 keeps the kernel console off it with console=tty1. Naming
+# no console= at all is not enough: the kernel then takes the firmware's
+# /chosen/stdout-path, which is serial0 on every Pi 3/4, and systemd's boot
+# status lands on the FPGA's UART (fpgas.online-infra#155; fixpi's verify
+# checks the token). This disables SysRq so any stray bytes the FPGA drives
+# onto that line can never be parsed as reboot/crash/poweroff. See
+# files/etc/sysctl.d/99-fpgas-no-sysrq.conf.
+- name: Disable SysRq in the NFS root (FPGA serial must not trigger SysRq)
+  ansible.builtin.copy:
+    src: "etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    dest: "{{ nfs_root }}/root/etc/sysctl.d/99-fpgas-no-sysrq.conf"
+    mode: "0644"
+
+# Image build only (defaults/main.yml fixpi_image_build): useradd executes
+# inside the ARM root. ci-nfsroot.yml asserts the user is in the image.
+- name: Create pi user in NFS root if missing
+  ansible.builtin.command: >-
     chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
     "id -u {{ user }} 2>/dev/null || useradd -m -s /bin/bash --uid 1000 {{ user }}"
-  tags:
-    - netboot
-    - qemu
+  register: fixpi_pi_user
+  # id -u prints the uid when the user already exists; only when it does not
+  # (no uid on stdout) did useradd run.
+  changed_when: fixpi_pi_user.stdout | trim is not match('^[0-9]+$')
+  when: fixpi_image_build | bool
 
 # On stock RPi OS the pi user gets passwordless sudo from the first-boot
 # userconf mechanism -- but we create the user directly (above) and mask that
@@ -72,39 +88,57 @@
 # -- sudo ignores sudoers.d files that are group/world-writable. Matches the
 # RPi OS convention (/etc/sudoers.d/010_<user>-nopasswd) and is production-valid
 # for a headless appliance the pi user administers.
-- name: grant the pi user passwordless sudo in the NFS root
-  copy:
+- name: Grant the pi user passwordless sudo in the NFS root
+  ansible.builtin.copy:
     content: "{{ user }} ALL=(ALL) NOPASSWD: ALL\n"
     dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ user }}-nopasswd"
     mode: "0440"
-  tags:
-    - netboot
-    - qemu
+
+# The automation account (defaults/main.yml fixpi_ansible_user), created
+# like pi above: useradd inside the ARM root, image build only, so the
+# published image carries it and no server runs ARM code. groupadd first
+# pins the gid to the uid. useradd leaves the password locked ("!") and
+# nothing sets one: the account is key-only. Its authorized_keys is
+# per-site (authorized_keys.yml), never baked into the public image.
+- name: Create the ansible user in the NFS root if missing
+  ansible.builtin.command: >-
+    chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi"
+    "if getent passwd {{ fixpi_ansible_user }} >/dev/null; then echo present; else
+    groupadd --gid {{ fixpi_ansible_uid }} {{ fixpi_ansible_user }} &&
+    useradd -m -s /bin/bash --uid {{ fixpi_ansible_uid }} --gid {{ fixpi_ansible_uid }} {{ fixpi_ansible_user }}; fi"
+  register: fixpi_ansible_useradd
+  changed_when: "'present' not in fixpi_ansible_useradd.stdout"
+  when: fixpi_image_build | bool
+
+# Same 0440 root:root rule as pi's file above. Validated with the host's
+# visudo: it only parses the file, so the architecture does not matter.
+- name: Grant the ansible user passwordless sudo in the NFS root
+  ansible.builtin.copy:
+    content: "{{ fixpi_ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    dest: "{{ nfs_root }}/root/etc/sudoers.d/010_{{ fixpi_ansible_user }}-nopasswd"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
 
 # Make the Pi's own DHCP-assigned hostname (pi-sw<s>-p<p>) resolve locally, so
 # sudo's per-invocation getaddrinfo() of the machine name is instant instead of
 # stalling on DNS -- otherwise ansible become trips its ~12s prompt timeout and
 # verify-pi.yml reports the Pi UNREACHABLE. See the unit file's own comment.
-- name: install self-hostname script in NFS root
-  copy:
+- name: Install self-hostname script in NFS root
+  ansible.builtin.copy:
     src: files/fpgas-hostname-hosts.sh
     dest: "{{ nfs_root }}/root/usr/local/sbin/fpgas-hostname-hosts.sh"
     mode: "0755"
-  tags:
-    - netboot
-    - qemu
 
-- name: install self-hostname /etc/hosts service in NFS root
-  copy:
+- name: Install self-hostname /etc/hosts service in NFS root
+  ansible.builtin.copy:
     src: files/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-hostname-hosts.service"
     mode: "0644"
-  tags:
-    - netboot
-    - qemu
 
-- name: enable self-hostname /etc/hosts service in NFS root
-  file:
+- name: Enable self-hostname /etc/hosts service in NFS root
+  ansible.builtin.file:
     src: /etc/systemd/system/fpgas-hostname-hosts.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-hostname-hosts.service"
     state: link
@@ -112,9 +146,6 @@
     # with nfs_root/root as /), but it does not exist at that path on the
     # server, so ansible's link src-existence check would fail without force.
     force: true
-  tags:
-    - netboot
-    - qemu
 
 # The chroot apt runs below resolve names through the NFS root's
 # /etc/resolv.conf. Copy the server's resolver config -- but never the
@@ -122,52 +153,52 @@
 # point of view on a Pi and useless once it boots; resolved keeps the real
 # upstream list in /run/systemd/resolve/resolv.conf. (Pis rewrite this file
 # from DHCP at boot anyway.)
-- name: check for systemd-resolved's upstream resolv.conf
-  stat:
+- name: Check for systemd-resolved's upstream resolv.conf
+  ansible.builtin.stat:
     path: /run/systemd/resolve/resolv.conf
   register: fixpi_resolved_upstream
-  tags:
-    - netboot
+  when: fixpi_image_build | bool
 
-- name: ensure DNS resolution works in chroot
-  copy:
+- name: Ensure DNS resolution works in chroot
+  when: fixpi_image_build | bool
+  ansible.builtin.copy:
     remote_src: true
     src: "{{ '/run/systemd/resolve/resolv.conf' if fixpi_resolved_upstream.stat.exists else '/etc/resolv.conf' }}"
     dest: "{{ nfs_root }}/root/etc/resolv.conf"
     follow: true
-  tags:
-    - netboot
+    mode: "0644"
 
 # Pin the Pi's timesyncd at the server: Pis have no internet and timesyncd
 # does not reliably consume the DHCP ntp-server option under dhcpcd, so
 # without this every Pi's clock sits on the fake-hwclock date (C2-2). The
 # server side (chrony + dhcp-option) lives in the pxe role.
-- name: create timesyncd.conf.d in NFS root
-  file:
+- name: Create timesyncd.conf.d in NFS root
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
     state: directory
     mode: "0755"
-  tags:
-    - netboot
 
-- name: point Pi timesyncd at the server
-  copy:
+- name: Point Pi timesyncd at the server
+  ansible.builtin.copy:
     content: |
       [Time]
       NTP={{ eth_local_address | default('10.21.0.1') }}
     dest: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d/fpgas.conf"
     mode: "0644"
-  tags:
-    - netboot
 
-- name: install nfs-common into pi's fs
-  command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
+# Image build only; ci-nfsroot.yml asserts both packages are in the image.
+- name: Install nfs-common into pi's fs
+  when: fixpi_image_build | bool
+  ansible.builtin.command: chroot-mount-pi-fs.bash "{{ nfs_root }}" "/tmp/pi" "{{ item }}"
+  register: fixpi_nfs_common
+  # apt update only refreshes the package lists; the install changed the root
+  # unless apt's summary says it did nothing.
+  changed_when: >-
+    item != 'apt update'
+    and '0 upgraded, 0 newly installed, 0 to remove' not in fixpi_nfs_common.stdout
   with_items:
     - "apt update"
     - "apt install -y nfs-common overlayroot"
-  tags:
-    - netboot
-    - qemu
 
 # The chroot's raspi-firmware hook writes the FULL matched firmware payload
 # (kernel*.img, initramfs*, DTBs, overlays) into the rootfs /boot/firmware,
@@ -177,44 +208,36 @@
 # modules) — producing nondeterministic Pi boot failures: panic-hangs,
 # boot loops, half-booted systems with sshd never up (tweed rebuild C1-3,
 # 2026-08-25). Sync the whole payload; cmdline.txt/config.txt stay ours.
-- name: sync matched kernel+initramfs+DTB payload from root/boot/firmware
+- name: Sync matched kernel+initramfs+DTB payload from root/boot/firmware
   ansible.posix.synchronize:
     src: "{{ nfs_root }}/root/boot/firmware/"
     dest: "{{ nfs_root }}/boot/"
     rsync_opts:
       - "--exclude=cmdline.txt"
+      - "--exclude=cmdline-pi5.txt"
       - "--exclude=config.txt"
   delegate_to: "{{ inventory_hostname }}"
-  tags:
-    - netboot
-    - qemu
 
 # Enable ssh.service directly in the NFS root. RPi OS ships with ssh.service
 # disabled by default, to be enabled on first boot by sshswitch.service which
 # looks for /boot/firmware/ssh. But /boot/firmware is mounted noauto in our
 # fstab, so sshswitch never finds the file. Enable ssh.service unconditionally
 # here since we always want remote access on the Pi.
-- name: enable ssh.service in NFS root
-  file:
+- name: Enable ssh.service in NFS root
+  ansible.builtin.file:
     src: /lib/systemd/system/ssh.service
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/ssh.service"
     state: link
-  tags:
-    - netboot
-    - qemu
 
 # Disable regenerate_ssh_host_keys.service — it unconditionally deletes and
 # regenerates host keys on first boot via ssh-keygen -A. Under QEMU TCG this
 # takes minutes per key (RSA is slowest), delaying sshd startup and blocking
 # all Pi test automation. We pre-generate keys in the next task so ssh.service
 # has valid host keys to use immediately.
-- name: disable regenerate_ssh_host_keys.service in NFS root
-  file:
+- name: Disable regenerate_ssh_host_keys.service in NFS root
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/regenerate_ssh_host_keys.service"
     state: absent
-  tags:
-    - netboot
-    - qemu
 
 # The RPi OS first-boot user-config wizard (userconfig.service) runs on tty1
 # and applies /boot/firmware/userconf.txt. But our fstab mounts /boot/firmware
@@ -227,37 +250,37 @@
 # wizard must never run -- mask it, same rationale as disabling
 # regenerate_ssh_host_keys.service above. Not QEMU-specific: a real headless Pi
 # (no display/keyboard) netbooting this NFS root would hang on it identically.
-- name: mask userconfig.service (first-boot wizard) in NFS root
-  file:
+- name: Mask userconfig.service (first-boot wizard) in NFS root
+  ansible.builtin.file:
     src: /dev/null
     dest: "{{ nfs_root }}/root/etc/systemd/system/userconfig.service"
     state: link
     force: true
-  tags:
-    - netboot
-    - qemu
 
 # Pre-generate SSH host keys in the NFS root so sshd starts immediately without
 # waiting for ssh-keygen (slow under QEMU TCG ARM emulation). Generated here
 # on the server (native amd64 ssh-keygen), which is both faster and produces
 # valid keys that the Pi's sshd accepts directly.
-- name: check if SSH host keys already exist in NFS root
-  stat:
+# fixpi_generate_host_keys: false skips this on the CI nfsroot build (issue
+# #34): keys baked into the published image would be shared by every
+# consuming site, so each server generates its own after extraction (this
+# same task, which fires whenever the keys are absent).
+- name: Check if SSH host keys already exist in NFS root
+  ansible.builtin.stat:
     path: "{{ nfs_root }}/root/etc/ssh/ssh_host_ed25519_key"
   register: fixpi_ssh_host_key_stat
-  tags:
-    - netboot
-    - qemu
+  when: fixpi_generate_host_keys | default(true)
 
-- name: pre-generate SSH host keys in NFS root
-  command: >-
+- name: Pre-generate SSH host keys in NFS root
+  ansible.builtin.command: >-
     ssh-keygen -q -N "" -t {{ item.type }}
     -f {{ nfs_root }}/root/etc/ssh/ssh_host_{{ item.type }}_key
+  # Only runs when the keys are absent (the when: below), and then writes them.
+  changed_when: true
   with_items:
     - {type: rsa}
     - {type: ecdsa}
     - {type: ed25519}
-  when: not fixpi_ssh_host_key_stat.stat.exists
-  tags:
-    - netboot
-    - qemu
+  when: >-
+    fixpi_generate_host_keys | default(true)
+    and not fixpi_ssh_host_key_stat.stat.exists

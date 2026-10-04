@@ -1,0 +1,27 @@
+---
+# How the gateway's own apt reaches the network: through a site caching
+# proxy, when the site has one. (The Pi NFS root's apt is roles/apt_cache's:
+# it goes through the gateway's own cache.) Both empty = apt fetches straight
+# from each source, and this role writes nothing.
+
+# The site proxy every source goes through: Acquire::http::Proxy. apt sends
+# https sources through it as well, as a CONNECT tunnel -- which
+# apt-cacher-ng refuses (403), so with this set an https source only works
+# through apt_client_https_cache below. verify fails any that is not.
+apt_client_proxy: ""
+
+# The same proxy's https front end, e.g. https://apt-proxy.welland.mithis.com
+# (ten64's apt-cacher-ng, mithro/welland-ansible-rpi roles/apt_proxy). It
+# caches an https repository only through a remap: the repository is at
+# <this>/<remap path>/, and the remap has to exist there first. apt connects
+# to this host directly (it cannot tunnel to the proxy through itself), and
+# that is the only host it does.
+apt_client_https_cache: ""
+
+# apt.conf.d files this role replaced. Removed so apt reads only what the
+# variables above configure.
+#   50nfsroot-watchdog-direct: hand-placed on tweed 2026-09-25 to fetch
+#     https://fpgas.online/nfsroot-watchdog straight from upstream, around
+#     the proxy's 403 (the rejected infra #120).
+apt_client_retired_confs:
+  - 50nfsroot-watchdog-direct

@@ -16,11 +16,23 @@ inventory (hosts, group_vars, host_vars), and roles.
 
 ### Architecture
 
-**Server (x86) provisions everything.** The server runs dnsmasq (DHCP/TFTP), NFS, and
-a Django web app. It also builds the Pi NFS root filesystem — downloading the RPi OS image,
-extracting it, then running Pi-targeted Ansible roles against the NFS root via
-`systemd-nspawn` + `sshd` with `qemu-user-static` ARM syscall emulation. This makes the
-NFS root chroot appear as a normal SSH host to Ansible.
+**CI builds the Pi NFS root; the server pulls it.** GitHub Actions
+(`.github/workflows/nfsroot-build.yml`, an arm64 runner with native AArch32)
+runs `ansible/ci-nfsroot.yml` — the RasPiOS download/extract plus the
+Pi-targeted roles over a `community.general.chroot` connection — and publishes
+the provisioned root as a public OCI image at `ghcr.io/fpgas-online/nfsroot`
+(dated pinnable tags always; the rolling `bookworm-armhf` that production
+pulls is moved only by `vm-test.yml`'s promote job, on main, after the
+virtual Pi has netbooted that image and registered). The server
+runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
+image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
+`fixpi` applies the site layer (pi password, ssh host keys, controller
+authorized_keys, TT catalogue, per-site config) on top. The image build
+keeps the site layer out with `fixpi_image_build` (true only in
+`inventory-ci-nfsroot`), not with tags: the build runs `ci-nfsroot.yml` in
+full, refuses to run without that variable, and fails if the image carries
+a pi password, an authorized_keys or a user keypair. The old on-server
+nspawn/chroot provisioning path is gone.
 
 **Pis boot read-only from the network.** Each Pi PXE boots via:
 dnsmasq DHCP → TFTP (bootcode.bin, kernel8.img, DTB, initramfs) → NFS root mounted
@@ -33,28 +45,50 @@ the pre-provisioned NFS root.
 The infra repo does NOT embed application source code. Instead, roles install packages
 from other repos:
 - `site` role: `pip install fpgas-online-site fpgas-online-poe[cli]`
-- `onpi` role: `apt install fpgas-online-setup-pi` (via nspawn chroot)
-- `cam/pi` role: `apt install fpgas-online-cam` (via nspawn chroot)
-- `fpgas-apt` role: Adds the fpgas.online apt repository (via nspawn chroot)
+- `onpi` role: `apt install fpgas-online-setup-pi` (baked into the CI image)
+- `cam_pi` role: `apt install fpgas-online-cam` (baked into the CI image)
+- `fpgas_apt` role: Adds the fpgas.online apt repository (baked into the CI image)
 
 ### Deployment Flow
 
-1. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH
-2. `site.yml` `pi` play: server starts nspawn+sshd on the NFS root, Pi roles
-   (`fpgas-apt`, `cam/pi`, `onpi`) run against localhost:2200, server stops nspawn
+1. CI publishes the provisioned NFS root image (every PR/merge, plus
+   scheduled rebuilds of main, all through the VM test workflow), and on
+   main promotes it to `bookworm-armhf` once the virtual Pi has booted it.
+   The schedule asks for hourly but GitHub starts it about every 4-6 hours;
+   the first scheduled run once the base stage is a day old rebuilds from
+   the RasPiOS download
+2. `site.yml` runs `nbp`/`uhubctl`/`pig` plays against the server via SSH;
+   the `img` role pulls+extracts the image and `fixpi` applies the site layer
 3. `verify-server.yml` checks the x86 setup (TFTP, NFS, dnsmasq, NFS root packages/config)
 4. Pis PXE boot from the fully-provisioned server
 5. `verify-pi.yml` checks running Pis (NFS mount, overlayfs, services, packages)
 
+**Deploys run whole playbooks** (issue #157):
+
+- A deploy or a verification runs the whole playbook -- `site.yml` (or
+  `web.yml`), `verify-server.yml`, `verify-pi.yml` -- never with `--tags`
+  or `--skip-tags`. A partial run leaves production out of step with
+  `main`, and a tagged verify can pass while asserting nothing.
+- Scope a run only with `--limit` (which hosts) and `-e` (e.g. a pinned
+  `img_nfsroot_image`), never by skipping parts of the playbook.
+- If a full run is too slow, disruptive or unsafe, fix the role
+  (idempotent, gated on state or an inventory variable); don't skip it.
+- Work that is not ready to deploy stays behind a variable that defaults
+  to off; merged code on `main` is deployable.
+- The repo uses no Ansible tags at all, `always` included; do not add
+  any. `tests/test_no_tags.py` fails on a `tags:` anywhere under
+  `ansible/`.
+
 ### Key Files
 
 - `ansible/site.yml` -- Main playbook with host groups: nbp (server), uhubctl, pig (web), pi
-- `ansible/web.yml` -- Web tier play (site, wssh, cam/stream-server, ttsite); imported by site.yml, runnable alone
+- `ansible/web.yml` -- Web tier play (site, wssh, stream_server, ttsite); imported by site.yml, runnable alone
 - `ansible/verify-server.yml` -- Server-side verification (TFTP, NFS, packages, config)
 - `ansible/verify-pi.yml` -- Pi-side verification (boot, overlayfs, services) — same for test and production
 - `ansible/inventory/` -- Hosts, group_vars, host_vars (contains sensitive switch config)
 - `ansible/roles/` -- All deployment roles
-- `ansible/roles/nspawn-pi/` -- Manages nspawn+sshd lifecycle for Pi NFS root provisioning
+- `ansible/ci-nfsroot.yml` + `ansible/inventory-ci-nfsroot/` -- CI build of the
+  Pi NFS root image (chroot connection; publishes to GHCR)
 - `tests/vm/` -- QEMU VM test harness
 
 
@@ -76,36 +110,57 @@ from [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu) (BCM2838
 GENET ethernet emulation on `raspi4b`), and runs `verify-pi.yml`. Only the inventory
 differs between test and production.
 
-**End-to-end coverage:**
+**End-to-end coverage** (nothing is skipped: the harness has no tag
+options, and the test inventory differs from production only in site
+data -- addresses, names, the switch it cannot reach):
 
-- `site.yml` converges: server roles plus Pi NFS root provisioning via
-  nspawn+chroot+qemu-user-static
+- `site.yml` converges a fresh Debian 13 server (tweed's OS), pulling and
+  extracting the NFS root image built from the same checkout
 - `verify-server.yml`: firewall, dnsmasq, TFTP layout, NFS exports, NFS root
-  packages and config
-- Virtual Pi PXE boots: DHCP → TFTP → kernel → initramfs → NFS root mounted
-  read-only with overlayroot tmpfs overlay → systemd → `multi-user.target`
-- SSH reachable through the server via ProxyCommand
-- `verify-pi.yml` (14 assertions): NFS mount, overlayfs, 10.21.0.x IP, ping
-  server, `ssh.service` active, python3, hostname, `overlayroot` package
+  packages and the site layer (`fleet.toml`, `tt-boards.yaml`), web tier
+- Virtual Pi PXE boots from the flat per-port-VLAN TFTP root, exactly as
+  production Pis do: DHCP → TFTP → kernel → initramfs → NFS root read-only
+  with overlayroot → systemd; SSH and the web terminal's password login work
+- `verify-pi.yml`: mounts, per-port address, services, packages, JTAG tools,
+  camera/TT services, nfsroot-watchdog armed -- and **fleet registration**:
+  the server's Django app shows `/fleet/<serial>/` online with the Pi's
+  current boot id
 
 ```bash
 # Install qemu-rpi packages
-echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
-  | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg | sudo tee /etc/apt/keyrings/rpi-qemu.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
+  | sudo tee /etc/apt/sources.list.d/rpi-qemu.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
-# Full run locally (server + Pi + both verify playbooks)
-uv run tests/vm/run_tests.py --phase all
+# Full run locally (server + Pi + both verify playbooks); --nfsroot-image
+# names the prebuilt root the server pulls (rolling tag, or a CI run's
+# dated tag to reproduce that run)
+uv run tests/vm/run_tests.py --phase all \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
-# Server phase only (faster iteration, ~60-90 min under TCG)
-uv run tests/vm/run_tests.py --phase server --keep-vm
+# Server phase only (faster iteration)
+uv run tests/vm/run_tests.py --phase server --keep-vm \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 ```
 
-A full run under TCG takes ~2 hours (server phase is the long pole). KVM
-acceleration is used automatically when `/dev/kvm` is available.
+With KVM (used automatically when `/dev/kvm` is available) the whole run is
+about 13-14 min in CI: server VM up in ~20 s, `site.yml` ~9 min (the Pi root
+image is pulled in the background from right after `netif` and extracted in
+the last play), then the Pi netboots (~2 min of aarch64 TCG to SSH) while
+`verify-server` runs, and `verify-pi` (one collector call plus the fleet
+lookup) takes about a minute.
+
+The image build (`nfsroot-build.yml`, arm64 runner) is reused whenever no
+image input changed in the current UTC hour (`tests/ci/nfsroot_inputs.py`),
+and otherwise converges main's latest image (~5 min); a scheduled run
+whose base stage is a day old starts from RasPiOS (~10 min).
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every
-push to `main` and on PRs. Serial logs are uploaded as an artifact on every run
+push to `main`, on PRs, and on the image-build schedule (asked for hourly,
+started by GitHub about every 4-6 hours; `nfsroot-build.yml` has no
+triggers of its own). Serial logs are uploaded as an artifact on every run
 (including failures) for post-mortem debugging.
 
 As rpi-qemu increases emulation fidelity (virtual camera, virtual USB hub, etc.),
@@ -139,4 +194,9 @@ test coverage grows correspondingly.
 ## Linting
 
 - yamllint: blocking (`.yamllint.yml`)
-- ansible-lint: advisory, many legacy issues (`.ansible-lint` has extensive skip list)
+- ansible-lint: blocking, and the tree is clean (`.ansible-lint`). Run it
+  exactly as CI does: `uv sync && uv run ansible-galaxy collection install -r
+  requirements.yml && (cd ansible && uv run ansible-lint)`. Both linters are
+  pinned in the `dev` group of `pyproject.toml`. Fix violations rather than
+  skipping them; a deliberate construct gets a scoped `# noqa: <rule>` with a
+  comment explaining why.
