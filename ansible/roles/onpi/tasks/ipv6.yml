@@ -10,10 +10,49 @@
 # ifupdown or initramfs hook), started only by our unit with our settings.
 # The dhcpcd package adds a service that runs DHCP for IPv4 too on every
 # interface, including the one the NFS root is mounted over.
-# Recommends stay off: wpasupplicant, for wireless.
-- name: Install the DHCPv6 client
+#
+# Which dhcpcd-base: on a bookworm root, Debian's backport of 10.1, not
+# bookworm's own 9.4.1. dhcpcd confines its processes with a seccomp filter
+# that lists the system calls they may make, and 9.4.1's list has no
+# getrandom, which the C library on the boards calls for dhcpcd's random
+# numbers: the kernel kills dhcpcd as it sends its first DHCPv6 message
+# (seen on CI's virtual Pi: `audit: type=1326 ... comm="dhcpcd" sig=31
+# arch=40000028 syscall=384 compat=1`, 384 being getrandom on 32-bit ARM;
+# with the sandbox out of the way the same 9.4.1 got the address). 10.1's
+# list has it. The backport is Debian's armhf build (ARMv7), which every
+# board that can netboot runs. A root of a later release has 10.1 or newer
+# in its own archive and needs neither file; ci-nfsroot.yml fails the build
+# on a version older than 10 either way.
+- name: Debian backports apt source for the DHCPv6 client
+  ansible.builtin.copy:
+    src: board-ipv6/debian-backports-dhcpcd.sources
+    dest: /etc/apt/sources.list.d/debian-backports-dhcpcd.sources
+    mode: "0644"
+  when: dist == "bookworm"
+
+- name: Pin the backports source to the DHCPv6 client only
+  ansible.builtin.copy:
+    src: board-ipv6/debian-backports-dhcpcd.pref
+    dest: /etc/apt/preferences.d/debian-backports-dhcpcd.pref
+    mode: "0644"
+  when: dist == "bookworm"
+
+- name: Remove the backports source from a root that is not bookworm
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/debian-backports-dhcpcd.sources
+    - /etc/apt/preferences.d/debian-backports-dhcpcd.pref
+  when: dist != "bookworm"
+
+# state: latest, so a root that already carries an older dhcpcd-base moves
+# to the one the pin selects. Recommends stay off: wpasupplicant, for wireless.
+- name: Install the DHCPv6 client  # noqa: package-latest
   ansible.builtin.apt:
     name: dhcpcd-base
+    state: latest
+    update_cache: true
     install_recommends: false
 
 - name: Install the settings of the board's DHCPv6 client

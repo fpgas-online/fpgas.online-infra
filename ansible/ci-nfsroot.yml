@@ -232,6 +232,18 @@
           dhcpcd-base belongs in the root.
         quiet: true
 
+    # dhcpcd before 10 is killed by its own seccomp filter on the boards
+    # (roles/onpi/tasks/ipv6.yml says how); the root's own archive may
+    # offer one, so check what was installed.
+    - name: Read the version of the DHCPv6 client in the root
+      ansible.builtin.command: dpkg-query --root={{ nfs_root }}/root -W -f='${Version}' dhcpcd-base
+      register: ci_nfsroot_dhcpcd_version
+      changed_when: false
+
+    - name: Check the DHCPv6 client in the root is 10 or newer
+      ansible.builtin.command: dpkg --compare-versions {{ ci_nfsroot_dhcpcd_version.stdout }} ge 1:10
+      changed_when: false
+
     - name: Check the image carries no DHCPv6 client identity
       ansible.builtin.stat:
         path: "{{ nfs_root }}/root/var/lib/dhcpcd/duid"

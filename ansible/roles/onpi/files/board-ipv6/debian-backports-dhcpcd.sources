@@ -1,0 +1,13 @@
+# fpgas.online-infra, roles/onpi/tasks/ipv6.yml: Debian's bookworm-backports,
+# used ONLY for dhcpcd-base, the boards' DHCPv6 client. bookworm's own
+# dhcpcd-base (9.4.1, Raspbian's and Debian's alike) is killed by its own
+# sandbox on the boards; see the tasks file. Everything else from here is
+# pinned to -1: preferences.d/debian-armmp.pref pins the whole of
+# deb.debian.org, and debian-backports-dhcpcd.pref lets the one package in.
+# The keyring is the one the armmp kernel source uses (fixpi/sunxi-image.yml).
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: bookworm-backports
+Components: main
+Architectures: armhf
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg

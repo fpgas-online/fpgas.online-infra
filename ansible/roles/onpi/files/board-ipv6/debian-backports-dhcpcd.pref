@@ -1,0 +1,6 @@
+# fpgas.online-infra, roles/onpi/tasks/ipv6.yml: from Debian's
+# bookworm-backports take dhcpcd-base and nothing else (the rest of
+# deb.debian.org is pinned to -1 in debian-armmp.pref).
+Package: dhcpcd-base
+Pin: release n=bookworm-backports
+Pin-Priority: 500

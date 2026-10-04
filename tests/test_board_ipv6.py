@@ -7,6 +7,9 @@ the client: dhcpcd, IPv6 only, on the interface the NFS root is mounted
 over, started by one unit. These tests fail if:
   - the role installs the dhcpcd service package, or stops installing or
     enabling the pieces, or the image build stops checking for them,
+  - the root's apt would take anything but dhcpcd-base from Debian's
+    backports (the armmp kernel, for one), or the image build stops
+    refusing a dhcpcd older than 10, which its own sandbox kills on the boards,
   - the client's settings stop being exactly the ones that make it add an
     address and nothing else, under an identifier made from the MAC address,
   - the start script names an interface instead of finding the one the NFS
@@ -34,6 +37,9 @@ CONF = FILES / "fpgas-board-ipv6.conf"
 SCRIPT = FILES / "fpgas-board-ipv6.sh"
 UNIT = FILES / "fpgas-board-ipv6.service"
 TASKS = ONPI / "tasks/ipv6.yml"
+BACKPORTS_SOURCE = FILES / "debian-backports-dhcpcd.sources"
+BACKPORTS_PIN = FILES / "debian-backports-dhcpcd.pref"
+ARMMP_PIN = REPO / "ansible/roles/fixpi/templates/apt/debian-armmp.pref.j2"
 CI_NFSROOT = REPO / "ansible/ci-nfsroot.yml"
 VERIFY_PI = REPO / "ansible/verify-pi.yml"
 
@@ -80,9 +86,56 @@ def test_only_the_bare_client_is_installed():
     assert apt[0]["install_recommends"] is False
 
 
+def stanzas(text: str) -> list[dict[str, str]]:
+    """The stanzas of an apt sources or preferences file, comments dropped."""
+    out = []
+    for block in re.split(r"\n\s*\n", text):
+        fields = dict(line.split(": ", 1) for line in block.splitlines() if line.strip() and not line.startswith("#"))
+        if fields:
+            out.append(fields)
+    return out
+
+
+def test_the_client_comes_from_debians_backports_on_a_bookworm_root():
+    """bookworm's own dhcpcd-base is the 9.4.1 its sandbox kills on the boards."""
+    by_dest = {task[module]["dest"]: task for task in tasks().values()
+               for module in ("ansible.builtin.copy",) if module in task}
+    for dest in ("/etc/apt/sources.list.d/debian-backports-dhcpcd.sources",
+                 "/etc/apt/preferences.d/debian-backports-dhcpcd.pref"):
+        assert by_dest[dest]["when"] == 'dist == "bookworm"'
+    assert stanzas(BACKPORTS_SOURCE.read_text()) == [{
+        "Types": "deb", "URIs": "http://deb.debian.org/debian", "Suites": "bookworm-backports",
+        "Components": "main", "Architectures": "armhf",
+        "Signed-By": "/usr/share/keyrings/debian-archive-keyring.gpg"}]
+    names = list(tasks())
+    assert names.index("Pin the backports source to the DHCPv6 client only") < names.index("Install the DHCPv6 client")
+
+
+def test_nothing_but_the_client_comes_from_backports():
+    """Not the armmp kernel either, which the root takes from the same host.
+
+    The kernel's pin has to name bookworm: a pin on the host alone would
+    match the backports suite's newer armmp kernel too, and it is a
+    specific pin, which apt puts before the catch-all below it.
+    """
+    assert stanzas(BACKPORTS_PIN.read_text()) == [
+        {"Package": "dhcpcd-base", "Pin": "release n=bookworm-backports", "Pin-Priority": "500"}]
+    kernel, rest = stanzas(ARMMP_PIN.read_text())
+    assert "armmp" in kernel["Package"]
+    assert kernel["Pin"] == "release o=Debian,n=bookworm"
+    assert rest == {"Package": "*", "Pin": "origin deb.debian.org", "Pin-Priority": "-1"}
+
+
+def test_the_image_build_refuses_a_client_older_than_10():
+    names = [task["name"] for play in yaml.safe_load(CI_NFSROOT.read_text()) for task in play.get("tasks", [])]
+    assert "Check the DHCPv6 client in the root is 10 or newer" in names
+    assert "dpkg --compare-versions {{ ci_nfsroot_dhcpcd_version.stdout }} ge 1:10" in CI_NFSROOT.read_text()
+
+
 def test_the_files_go_where_the_unit_and_the_script_look_for_them():
     copies = {task["ansible.builtin.copy"]["src"]: task["ansible.builtin.copy"]
-              for task in tasks().values() if "ansible.builtin.copy" in task}
+              for task in tasks().values()
+              if "ansible.builtin.copy" in task and "debian-backports" not in task["ansible.builtin.copy"]["src"]}
     assert {src: (copy["dest"], copy["mode"]) for src, copy in copies.items()} == {
         "board-ipv6/fpgas-board-ipv6.conf": ("/etc/fpgas-board-ipv6.conf", "0644"),
         "board-ipv6/fpgas-board-ipv6.sh": ("/usr/local/sbin/fpgas-board-ipv6.sh", "0755"),

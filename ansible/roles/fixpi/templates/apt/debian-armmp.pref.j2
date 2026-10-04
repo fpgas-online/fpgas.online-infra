@@ -1,7 +1,11 @@
 # {{ ansible_managed }}
 # Allow only the armmp kernel (+ its linux-base dependency) from deb.debian.org.
+# From bookworm itself, by release and not by host: the root has a second
+# Debian suite, bookworm-backports, for one package (roles/onpi/tasks/
+# ipv6.yml), and a pin on the host would let that suite's much newer armmp
+# kernel in as well.
 Package: linux-image-*-armmp {{ fixpi_sunxi_kernel_package }} linux-base
-Pin: origin deb.debian.org
+Pin: release o=Debian,n=bookworm
 Pin-Priority: 500
 
 Package: *
