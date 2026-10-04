@@ -3,8 +3,8 @@
 Date: 2026-10-03, revised 2026-10-04 and 2026-10-05
 Status: decided, not yet built. Nothing here is deployed. The owner's
 decisions are in [Decisions](#decisions), with the engineering decisions
-and readings kept apart from his words. Four points are open with the
-owner (O1 to O4, [Open points for the owner](#open-points-for-the-owner)).
+and readings kept apart from his words. Three points are open with the
+owner (O1, O2 and O4, [Open points for the owner](#open-points-for-the-owner)).
 For each, the document says what phase 1 builds while he is asked, so none
 of them blocks building. The work is tracked by #191 and the issues under
 [Work items](#work-items).
@@ -61,6 +61,7 @@ revisions of this document and are not reused.
 | D14 | Visitors use `ssh <board-name>@<site>`, the same on IPv4 and IPv6. They are never told to use `-p` | Tim, 2026-10-04: "We want people to always use something like `ssh pi-sw2-p47@welland.fpgas.online` without having to understand the complexity of a shared single ipv4." and "We don't want people to ever have to use `-p 10722` as that does not work with sshfp." |
 | D17 | The direct path `ssh pi@ipv6.<board-name>.<site>` is built and open. Reading added by engineering, E17: the board page shows the direct command only to a visitor who reached the website over IPv6 | Tim, 2026-10-05, asked whether to build and open the direct IPv6 path: "Build it, open it, the website shows the extra direct IPv6 is coming from an IPv6 source." |
 | D15 | **Not a decision: a reading of a sentence he wrote as a question** (O2). Read as: there are no `ipv4.` names and no plain `<board-name>.<site>` names, so the private A records under the plain names are removed. (The first half of the sentence, the `ipv6.` name, is now decided: D17) | Tim, 2026-10-04, as a question: "Maybe `ssh pi@ipv6.pi-sw2-p47.welland.fpgas.online` is equivalent to `ssh pi-sw2-p47@welland.fpgas.online` and `ssh pi@ipv4.pi-sw2-p47.welland.fpgas.online` and `ssh pi@pi-sw2-p47.welland.fpgas.online` don't work?" This reading was shown to him twice afterwards and drew no comment, so it is not confirmed |
+| D18 | The DNS records are deterministic: they change only when the number of switches changes. The operator of the zone's name server sets up the missing records. Reading added by engineering, E8: "the number of switches" covers the port count of each switch, and the site's addresses and keys are the other inputs | Tim, 2026-10-05, asked how the generated records get into the public zone: "The dns records should be deterministic and only change when the number of switches change, ask [the operator of the zone's name server] to set up any missing records." |
 | D16 | **One site proxy key, shared by both proxies.** Not the fleet key and not either machine's own sshd key. It is installed on the gateway's proxy and on the upstream gateway's proxy, so every client sees one key for `<site>` on IPv4 and IPv6, with one SSHFP record set | Tim, 2026-10-05, choosing "One shared host key on both proxies". The accepted text: "I generate one proxy host key for the site (not the fleet key, not either machine's own sshd key); it is installed on the fpgas.online gateway's proxy and on the upstream gateway's proxy; every client sees one key for the name on IPv4 and IPv6, with one SSHFP record. Cost: that private key also lives on the upstream gateway, so the fpgas.online docs must say a site's upstream proxy holds the site's proxy key." This replaces his 2026-10-04 choice of the key-types trick, which the lab disproved ([Rejected alternatives](#rejected-alternatives)) |
 
 Decided by engineering, open to the owner's veto:
@@ -74,7 +75,7 @@ Decided by engineering, open to the owner's veto:
 | E5 | Board names are password-only through the proxy, on every path and port. Phase 1 has no key pipes: the proxy holds no key for the boards and none for the gateway |
 | E6 | While the fleet key rotates, the `ipv6.` names carry both fingerprints and the proxy pins both. The old key comes from the role's own record of what it pinned last |
 | E7 | Boards get no login aliases. The direct path logs in as `pi`, and the proxy rewrites the name, so nothing needs `<board-name>` to exist as an account on a board |
-| E8 | The role writes the generated DNS records as a zone fragment. Loading it into the public zone is manual, by the zone's owner. The verify step that compares public DNS with the fragment has a switch of its own, `ssh_dns_verify`, default off, so verify is not red before the zone is loaded. Default while the owner is asked (O3) |
+| E8 | How D18 is built. One function in this repository renders the whole record set as a sorted zone fragment with no timestamp or serial, so that two renders of an unchanged site are byte-identical; a unit test asserts it. Readings: "number of switches" covers each switch's port count; a changed site address or key also changes the set. The comparison of the live zone with the fragment is behind `ssh_dns_verify`, default off, so verify is not red before the records are loaded |
 | E9 | failtoban runs with `--max-failures 20` and `--ban-duration 5m`, not its defaults of 5 and 60 minutes |
 | E10 | `gw.<site>` stops being a CNAME to `<site>` and gets address records of its own, with no SSHFP |
 | E11 | Boards offer only their Ed25519 host key |
@@ -272,8 +273,8 @@ internet on port 22.
   the board's own journal, lost at reset, is the only record of who logged
   in.
 - The host key a client sees on this path is the fleet key, which is
-  public. It is published as SSHFP on the `ipv6.` names if the zone
-  carries them (O3), and its fingerprint is on the board page.
+  public. It is published as SSHFP on the `ipv6.` names once the zone
+  carries them (D18), and its fingerprint is on the board page.
 - A client with several keys in its agent can use up the board's
   `MaxAuthTries` before the password prompt ("Too many authentication
   failures"). The board page gives the hint
@@ -291,13 +292,14 @@ internet on port 22.
 | `ipv6.<board-name>.<site>`, one per access port (D17; where `ssh_direct_ipv6` is on) | AAAA only: the board's global address | The board | `SSHFP 4 2 <SHA-256 of the fleet key>` |
 | `gw.<site>` | An A record (the public IPv4 address) and exactly one AAAA record (a gateway address that answers ssh from outside) of its own. Not a CNAME (E10) | As `<site>`; documented only with `-p 2223` and `-p 2224`, for operators | none |
 
-- `<board-name>.<site>` does not exist. The private A records under those
-  names are **removed**: a visitor's client that resolves a private address
+- `<board-name>.<site>` is not created by this design. The private A
+  records under those names today should be removed, and are not removed
+  until the owner says so (O2): a visitor's client that resolves a private address
   connects to whatever has that address on the visitor's own network and
   offers it the published password. The removal, and having no plain or
   `ipv4.` names, rest on a sentence the owner wrote as a question and has
   not confirmed (O2); the reason given here stands by itself.
-- Until the zone carries the `ipv6.` names (O3), the direct path works only
+- Until the zone carries the `ipv6.` names (D18), the direct path works only
   by address. The board page prints the name only at a site with
   `ssh_dns_verify` on, which is the site's statement that the zone is
   loaded; before that it prints the board's IPv6 address instead.
@@ -318,25 +320,52 @@ internet on port 22.
 - The zone is signed, which is what makes SSHFP worth publishing. A client
   uses it only with `VerifyHostKeyDNS yes` and a validating resolver.
 
-**Generated, not hand-written** (E8).
+**Deterministic, generated, loaded by the name server's operator** (D18, E8).
 
-- A converge writes the record set as a zone fragment on the gateway, at
-  `ssh_dns_fragment_path` (proposed default
+- **The record set is a pure function of the site's static description**:
+  the site name, the gateway's addresses, the site proxy key, the fleet
+  key, and the switches with their port counts (`switches |
+  port_vlan_map`, the same data that generates the VLANs). It does not
+  depend on which boards are plugged in, registered or verified. Every
+  access port of every switch has its `ipv6.<board-name>.<site>` AAAA
+  record, with the address from the per-port formula, and its SSHFP record
+  for the fleet key, whether or not a board is there.
+- **It changes only when** a switch is added or removed, a switch's port
+  count changes, one of the site's addresses changes, or a key changes
+  (the site proxy key; the fleet key, including the two-fingerprint period
+  of a rotation).
+- **One function renders it.** A small module in this repository (beside
+  `port_vlans.py`, usable as an Ansible filter and importable by tests)
+  takes those inputs and returns the fragment text. The role calls it and
+  writes the result to `ssh_dns_fragment_path` (proposed default
   `/var/lib/fpgas-online/dns/<site>.zone-fragment`, mode 0644).
-- Format: RFC 1035 master-file lines with fully qualified owner names, one
-  record per line, sorted, with a leading comment that names the converge
-  and lists the records to **remove** (the private `<board-name>.<site>` A
-  records, the `gw.<site>` CNAME). It can be pasted into a zone file or
-  read by a script.
-- Sources: names and addresses from `switches | port_vlan_map`; the fleet
-  fingerprint from the NFS root's `ssh_host_ed25519_key.pub`; the proxy
-  fingerprint from the installed public half of the site proxy key.
-- Loading it into the public zone is manual, by the zone's owner (O3).
-- The comparison with public DNS is a verify step behind `ssh_dns_verify`,
-  default `false`. While it is off, verify checks only that the fragment
-  exists and is well formed. Once the zone is loaded the site switches it
-  on, and from then on verify fails on any difference, including a private
-  A record or a `gw.<site>` CNAME that is still there.
+- **Format**: RFC 1035 master-file lines with fully qualified owner names,
+  one record per line, in a fixed sort order (owner name, then type, then
+  data). No timestamp, no serial, no host name, no converge id: two renders
+  of an unchanged site are byte-identical. Three sections, each under a
+  fixed comment line:
+  1. *Records to set*: A, AAAA and SSHFP for `<site>`'s ssh (the SSHFP
+     record), `gw.<site>` as A and AAAA records of its own, and the `ipv6.`
+     names.
+  2. *Records to remove*: the `gw.<site>` CNAME (E10), which the records in
+     section 1 replace.
+  3. *Records to remove, pending the owner; do not remove yet*: the private
+     `<board-name>.<site>` A records (O2). They are listed so that the
+     operator knows them, and kept apart so that nobody removes them
+     unasked.
+- **A unit test** asserts that two renders of the same inputs are
+  byte-identical, that adding a switch adds exactly that switch's records
+  and changes no other line, and that changing which boards exist changes
+  nothing (the function takes no such input).
+- **Loading.** The operator of the zone's name server loads the fragment,
+  at the owner's direction. A re-load is needed only when the fragment
+  changes, which the role reports as a changed file.
+- **Checking.** The verify step behind `ssh_dns_verify` (default `false`)
+  compares the live zone with sections 1 and 2 and reports each missing and
+  each extra record. Section 3 is reported and never fails verify while O2
+  is open. While the switch is off, verify checks only that the fragment
+  exists and is well formed. A site switches it on once its records are
+  loaded.
 
 ### Ports and listeners
 
@@ -917,11 +946,15 @@ been verified. The step that can cut the deployer off is step 5, and steps
 6. **The upstream gateway's proxy.** Its own sshd also on 2222; then the
    site proxy key and the proxy on public port 22, built from the same
    patched package. `ssh <board-name>@<site>` works over IPv4 from outside.
-7. **DNS.** The zone's owner loads the fragment: SSHFP on `<site>`,
-   `gw.<site>` as records of its own, the `ipv6.` names where
-   `ssh_direct_ipv6` is on; the private `<board-name>.<site>` A records are
-   removed in the same change. They never gave a visitor a working command.
-   Then `ssh_dns_verify` is switched on.
+7. **DNS.** The operator of the zone's name server loads the fragment
+   (D18): SSHFP on `<site>`, `gw.<site>` as records of its own, the
+   `ipv6.` names. The private `<board-name>.<site>` A records stay until
+   the owner has answered O2. Then `ssh_dns_verify` is switched on. The
+   fragment exists from step 3, and the `ipv6.` names and `gw.<site>`
+   may be loaded any time after it. The SSHFP record on `<site>` is
+   loaded only after step 6: until then port 22 of `<site>` still
+   answers with other keys, and a published record that does not match
+   is worse than none.
 8. **Verified from outside the site**, on IPv4 and on IPv6.
 9. **The board pages switch** to the new command. The
    `ssh -p <port> pi@<site>` line is removed in the same change, not kept
@@ -1078,13 +1111,14 @@ once the direct path logs in as `pi` (E7); they made every change to
 
 ## Open points for the owner
 
-Four. For each, phase 1 builds the stated default, so none blocks building.
+Three. For each, phase 1 builds the stated default, so none blocks building.
+O3 (how the DNS records get into the public zone) was decided on 2026-10-05
+and is D18; its number is not reused.
 
 | # | Open point | Built in phase 1 while he is asked |
 |---|---|---|
 | O1 | **Administrators on port 22.** His words assume the proxy carries them to the gateway (D13). Re-asked on 2026-10-05 with three options: (a) the proxy checks the administrator's key and logs in to the gateway with a key it holds; (b) no proxy on the gateway's port 22, with board names as locked accounts on the real sshd; (c) administrators stay on port 2223. Facts behind the question: relaying non-board names to a key-only sshd by password can never log anyone in and lets anyone hold that sshd's login slots; a key login needs the proxy to hold a key for the gateway's accounts, through a key pipe that is itself defective ([Future work](#future-work)); and for a non-board name, public IPv4 port 22 leads to the upstream gateway's sshd (E15), where the same facts apply if that sshd is key-only, while IPv6 port 22 leads to a refusal, under one host key | Non-board names are refused by the gateway's proxy (E1). Operators use `ssh -p 2223 <account>@gw.<site>`. **Phase 1 as written is right under all three options**: (c) is what it builds; (a) adds key pipes later, on top of it, once the package is patched; (b) changes only what answers port 22 on the gateway's uplink, which is one variable (`ssh_proxy_takes_port_22`), and leaves the proxy on 2224, the sshd on 2223, the boards, the DNS records and the upstream forwards as they are |
-| O2 | **The board names in DNS.** From a sentence he wrote as a question ("Maybe … ?") and has not confirmed; his answer of 2026-10-05 (D17) covers the `ipv6.` path only. Still unconfirmed: no `ipv4.` names; no plain `<board-name>.<site>` names; and with that the removal of the private A records those names carry today | No `ipv4.` or plain names are created. The fragment lists the private A records for removal, for the reason given under [Names and DNS records](#names-and-dns-records) |
-| O3 | **How the generated records get into the public zone.** Never asked. The zone is the owner's and hosted outside the site | The role writes the fragment; loading it is manual; `ssh_dns_verify` stays off until it is loaded, so verify is not red meanwhile, and stays red after it is switched on until public DNS matches (E8). Until the SSHFP record is loaded, visitors get the ordinary first-connection prompt |
+| O2 | **The board names in DNS.** From a sentence he wrote as a question ("Maybe … ?") and has not confirmed; his answer of 2026-10-05 (D17) covers the `ipv6.` path only. Still unconfirmed: no `ipv4.` names; no plain `<board-name>.<site>` names; and with that the removal of the private A records those names carry today | No `ipv4.` or plain names are created. The fragment lists the private A records in a section of their own, "to remove, pending the owner", and nothing removes them until he answers. The reason to remove them is under [Names and DNS records](#names-and-dns-records) |
 | O4 | **Removing the old `ssh -p <port> pi@<site>` line and the per-board ssh DNAT ports.** D14 says visitors are never told `-p`; it does not say when the old path goes | The line leaves the page with this rollout, the DNAT rules in the next converge, and there is no `legacy_port` (E13) |
 
 Not open, but to be done because of D16: the docs page for the upstream
@@ -1181,7 +1215,11 @@ not touched.
 10. **The board's sshd started** with the generated drop-ins (the existing
     ssh login check), on whichever OpenSSH the root has.
 11. **The fragment** exists, is well formed, has the SSHFP record for
-    `<site>`, no A record for any board name and no SSHFP on `gw.<site>`.
+    `<site>`, an AAAA and an SSHFP record for every access port's
+    `ipv6.` name, no A record for any board name among the records to
+    set, and no SSHFP on `gw.<site>`. A second converge leaves the file
+    byte-identical. The unit test of the rendering function (D18) runs
+    in `pytest`, not in the VM.
 
 ### Later: needs something the VM harness does not have today
 
@@ -1240,7 +1278,7 @@ what to build from.
 | 1 | #187 | Gateway role `ssh_proxy` (password pipes only); `roles/sshd` port 2223; the input and NAT rules, the per-source limit, the backup-port assert | It copies the fleet key to the proxy and binds the uplink address only. Its "unknown usernames are not forwarded anywhere" stands (E1) |
 | 1 | #186 | Boards: Ed25519-only host key; the penalty exemption on a root with OpenSSH 9.8 or later | Login aliases (E7) and the proxy's mapping key (E5) are dropped. "The same key the proxy presents" is wrong. The exemption line as written there breaks sshd on today's root |
 | 1 | #188 | Firewall: direct IPv6 to boards (D17), behind `ssh_direct_ipv6`, on by default at a site with a board prefix; boards cannot reach the public ssh ports | The internal IPv4 rule is dropped (D3) |
-| 1 | #189 | DNS: the generated fragment, and the comparing verify step behind `ssh_dns_verify` | Its record set (per-board A records, `ipv4.`, `private-ipv4.`, an internal view) is replaced by [Names and DNS records](#names-and-dns-records) |
+| 1 | #189 | DNS (D18): the function that renders the deterministic fragment, its unit test, and the comparing verify step behind `ssh_dns_verify`. Loading is done by the operator of the zone's name server | Its record set (per-board A records, `ipv4.`, `private-ipv4.`, an internal view) is replaced by [Names and DNS records](#names-and-dns-records) |
 | 1 | fpgas-online/fpgas.online-gw#2 | `/api/boards` `ssh` object | Fields as in [What the board pages print](#what-the-board-pages-print-fpgas-onlinefpgasonline-site44) |
 | 1 | fpgas-online/fpgas.online-site#44 | Board pages: the proxy command always; the direct IPv6 command only to a visitor who arrived over IPv6, known from the client address the gateway's nginx forwards | Its command, `ssh <board-name>@<board-name>.<site>`, is replaced. The page needs the visitor's address family, which the issue does not mention |
 | 1 | fpgas-online/fpgas.online-docs#16 | User documentation (password only, never forward an agent, what `Permission denied` can mean), and the upstream-network page | The upstream page must say the upstream proxy holds the site's proxy key (D16), and that logging and rate limiting there are required |
