@@ -182,7 +182,7 @@
       register: verify_pi_collected
       vars:
         verify_pi_collector: |
-          import base64, json, os, subprocess
+          import base64, json, os, subprocess, time
           {{ verify_pi_camera_probe }}
           def run(*argv, timeout=60):
               try:
@@ -219,9 +219,20 @@
                   if os.path.realpath(node) == "/sys/firmware/devicetree/base" + alias:
                       return tty
               return ""
+          # The per-port IPv6 address arrives by DHCPv6 once the board is up
+          # (fpgas-board-ipv6.service; nothing in the boot waits for it), so on
+          # a board that has only just booted give it a moment before reading
+          # the addresses. `-tentative`: past duplicate address detection.
+          ip6_deadline = time.monotonic() + 60
+          while (time.monotonic() < ip6_deadline and not
+                 run("ip", "-6", "-o", "addr", "show", "scope", "global", "-tentative")["stdout"]):
+              time.sleep(2)
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
+              "board_ipv6": {"active": run("systemctl", "is-active", "fpgas-board-ipv6.service"),
+                             "route": run("ip", "-6", "route", "show", "default"),
+                             "devices": run("nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")},
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
               # What sshd shows before authentication: ask for no method at
@@ -277,6 +288,7 @@
       ansible.builtin.set_fact:
         verify_pi_mounts: "{{ verify_pi_state.mounts }}"
         verify_pi_addrs: "{{ verify_pi_state.addrs }}"
+        verify_pi_board_ipv6: "{{ verify_pi_state.board_ipv6 }}"
         verify_pi_ping: "{{ verify_pi_state.ping }}"
         verify_pi_ssh: "{{ verify_pi_state.ssh }}"
         verify_pi_ssh_banner: "{{ verify_pi_state.ssh_banner }}"
@@ -341,6 +353,65 @@
         fail_msg: >-
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
+
+    # The board's routed IPv6 address, <site prefix><SS>::<P> for
+    # pi-sw<S>-p<P> (port_vlans.py; handed out by the gateway's DHCPv6,
+    # roles/pxe ports.conf.j2, and taken by the board's
+    # fpgas-board-ipv6.service, roles/onpi/tasks/ipv6.yml). It is the only
+    # address the board can be reached on over IPv6 (issue #222: no board
+    # held it). The site prefix is the gateway's variable, not this play's:
+    # match the part the hostname decides.
+    - name: Find the per-port IPv6 address
+      ansible.builtin.set_fact:
+        verify_pi_ip6: >-
+          {{ verify_pi_addrs.stdout
+             | regex_search('inet6 ([0-9a-f:]+'
+                            ~ (ansible_hostname | regex_replace('^pi-sw(\d+)-p(\d+)$', '\1') | int | string
+                               | regex_replace('^(\d)$', '0\1'))
+                            ~ '::'
+                            ~ (ansible_hostname | regex_replace('^pi-sw(\d+)-p(\d+)$', '\2'))
+                            ~ ')/[0-9]+ scope global', '\1')
+             | default([], true) | first | default('') }}
+
+    # Only when the assert below is about to fail: the unit's own account,
+    # which is otherwise only in the board's journal (root: the system journal).
+    - name: Read the journal of the board's DHCPv6 client
+      ansible.builtin.command: journalctl --no-pager -b -u fpgas-board-ipv6.service
+      become: true
+      changed_when: false
+      register: verify_pi_board_ipv6_journal
+      failed_when: false
+      when: verify_pi_ip6 | length == 0
+
+    - name: Assert per-port IPv6 address present
+      ansible.builtin.assert:
+        that:
+          - verify_pi_ip6 | length > 0
+        fail_msg: >-
+          {{ ansible_hostname }} holds no global IPv6 address ending in its
+          switch and port (<prefix><SS>::<P>); nothing can reach this board
+          over IPv6. Addresses: {{ verify_pi_addrs.stdout_lines | select('search', 'inet6') | list }}.
+          fpgas-board-ipv6.service is {{ verify_pi_board_ipv6.active.stdout }}
+          (journal: {{ verify_pi_board_ipv6_journal.stdout_lines | default([]) }})
+
+    # The client that took it is the unit of ours, still running (it renews
+    # the lease): not something else that happened to configure the address.
+    - name: Assert the board's DHCPv6 client is running
+      ansible.builtin.assert:
+        that: verify_pi_board_ipv6.active.stdout == "active"
+        fail_msg: >-
+          fpgas-board-ipv6.service is {{ verify_pi_board_ipv6.active.stdout }}
+          on {{ ansible_hostname }}, not active
+
+    # For the record of a run: the address, the route replies leave by (the
+    # kernel's, from the gateway's router advertisement) and what
+    # NetworkManager makes of the interfaces.
+    - name: What the board holds on IPv6
+      ansible.builtin.debug:
+        msg:
+          - "{{ ansible_hostname }} holds {{ verify_pi_ip6 }} (fpgas-board-ipv6.service {{ verify_pi_board_ipv6.active.stdout }})"
+          - "IPv6 default route: {{ verify_pi_board_ipv6.route.stdout }}"
+          - "NetworkManager devices: {{ verify_pi_board_ipv6.devices.stdout_lines }}"
 
     - name: Assert the Pi can reach the server
       ansible.builtin.assert:
@@ -1165,6 +1236,18 @@
       until: verify_pi_jump_hop.rc == 0
       retries: 3
       delay: 10
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+
+    # The address works both ways: the gateway connects to the board's sshd
+    # on it and reads sshd's greeting, which the board sends back by its
+    # IPv6 default route.
+    - name: The gateway reaches this Pi's sshd on its IPv6 address
+      ansible.builtin.wait_for:
+        host: "{{ verify_pi_ip6 }}"
+        port: 22
+        search_regex: "^SSH-2.0-"
+        timeout: 60
+      delegate_to: "{{ groups['nbp'][0] }}"
       when: groups['nbp'] is defined and groups['nbp'] | length > 0
 
     - name: Assert the jump hop logged in as the Pi user
