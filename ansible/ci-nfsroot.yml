@@ -203,6 +203,46 @@
         - fpgas-online-all-boards
         # fixpi/sunxi-image.yml: the Orange Pi H3 kernel every image carries.
         - linux-image-armmp
+        # roles/onpi/tasks/ipv6.yml: the DHCPv6 client behind the boards'
+        # per-port IPv6 address.
+        - dhcpcd-base
+
+    # The boards' DHCPv6 client (roles/onpi/tasks/ipv6.yml) must stay the one
+    # process our unit starts, IPv6 only, on the interface the NFS root is
+    # mounted over. The dhcpcd package brings a service that runs DHCP for
+    # IPv4 too on every interface; and a /var/lib/dhcpcd/duid baked into the
+    # image would give every board the same DHCPv6 identity, where each must
+    # derive its own from its MAC address at boot.
+    # (dpkg-query exits 1 for a package the database has never seen, which
+    # is the expected answer here; one status per line, as `not-installed`
+    # contains `installed`.)
+    - name: Read the status of the dhcpcd service package in the root
+      ansible.builtin.command: dpkg-query --root={{ nfs_root }}/root -W -f='${db:Status-Status}\n' dhcpcd dhcpcd5
+      register: ci_nfsroot_dhcpcd_service
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the root has no dhcpcd service package
+      ansible.builtin.assert:
+        that: "'installed' not in ci_nfsroot_dhcpcd_service.stdout_lines"
+        fail_msg: >-
+          The image has the dhcpcd service package (dhcpcd or dhcpcd5:
+          {{ ci_nfsroot_dhcpcd_service.stdout }}), whose service would run
+          DHCP on the interface the NFS root is mounted over. Only
+          dhcpcd-base belongs in the root.
+        quiet: true
+
+    - name: Check the image carries no DHCPv6 client identity
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/root/var/lib/dhcpcd/duid"
+      register: ci_nfsroot_dhcpcd_duid
+      failed_when: ci_nfsroot_dhcpcd_duid.stat.exists
+
+    - name: Check the unit that takes the board's IPv6 address is enabled in the image
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-board-ipv6.service"
+      register: ci_nfsroot_board_ipv6_unit
+      failed_when: not ci_nfsroot_board_ipv6_unit.stat.exists
 
     - name: Assert pi user exists in the root
       ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"

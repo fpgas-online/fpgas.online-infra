@@ -1,0 +1,40 @@
+---
+# The board's routed IPv6 address, <site prefix><SS>::<P>, which the gateway
+# hands out per switch port by DHCPv6 only (roles/pxe ports.conf.j2). The
+# kernel's ip=dhcp is IPv4 only and nothing else in the root starts a DHCPv6
+# client, so no board held the address (issue #222). This adds the client:
+# dhcpcd, IPv6 only, on the interface the NFS root is mounted over, started
+# by one unit of ours.
+#
+# dhcpcd-base, never dhcpcd: -base is the program alone (no service, no
+# ifupdown or initramfs hook), started only by our unit with our settings.
+# The dhcpcd package adds a service that runs DHCP for IPv4 too on every
+# interface, including the one the NFS root is mounted over.
+# Recommends stay off: wpasupplicant, for wireless.
+- name: Install the DHCPv6 client
+  ansible.builtin.apt:
+    name: dhcpcd-base
+    install_recommends: false
+
+- name: Install the settings of the board's DHCPv6 client
+  ansible.builtin.copy:
+    src: board-ipv6/fpgas-board-ipv6.conf
+    dest: /etc/fpgas-board-ipv6.conf
+    mode: "0644"
+
+- name: Install the script that starts the DHCPv6 client on the netboot interface
+  ansible.builtin.copy:
+    src: board-ipv6/fpgas-board-ipv6.sh
+    dest: /usr/local/sbin/fpgas-board-ipv6.sh
+    mode: "0755"
+
+- name: Install the unit that takes the board's IPv6 address
+  ansible.builtin.copy:
+    src: board-ipv6/fpgas-board-ipv6.service
+    dest: /etc/systemd/system/fpgas-board-ipv6.service
+    mode: "0644"
+
+- name: Enable the unit that takes the board's IPv6 address
+  ansible.builtin.systemd:
+    name: fpgas-board-ipv6.service
+    enabled: true

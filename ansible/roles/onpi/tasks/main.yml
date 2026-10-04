@@ -17,6 +17,7 @@
   ansible.builtin.include_tasks: nonfs.yml
 - {name: Install the Tiny Tapeout bridge and site catalogue, ansible.builtin.include_tasks: tt.yml}
 - {name: Enable the fleet agent units, ansible.builtin.include_tasks: fleet.yml}
+- {name: "Take the board's per-port IPv6 address by DHCPv6", ansible.builtin.include_tasks: ipv6.yml}
 - {name: Configure the Pi tftpd, ansible.builtin.include_tasks: tftpd.yml}
 # No ssh keys here: the site owns the root's authorized_keys (fixpi
 # authorized_keys.yml), and the image ships none.

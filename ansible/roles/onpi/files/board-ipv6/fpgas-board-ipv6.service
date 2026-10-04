@@ -1,0 +1,22 @@
+[Unit]
+Description=Take this board's per-port IPv6 address from the gateway (DHCPv6)
+# The gateway hands each switch port one IPv6 address, by DHCPv6 only. The
+# kernel's ip=dhcp configures IPv4 before the root is mounted and nothing
+# else in this root starts a DHCPv6 client (NetworkManager leaves the
+# interface the kernel configured alone), so this unit runs one: dhcpcd,
+# IPv6 only, on the interface the NFS root is mounted over, with its own
+# settings (/etc/fpgas-board-ipv6.conf). It only adds the address: IPv4,
+# routes, resolv.conf and the hostname are not touched.
+#
+# Nothing waits for it: boot, ssh and the NFS root need IPv4 only, and a
+# site whose gateway offers no DHCPv6 leaves it soliciting quietly.
+
+[Service]
+Type=exec
+# The interface is found by a script, not written here: see its comment.
+ExecStart=/usr/local/sbin/fpgas-board-ipv6.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
