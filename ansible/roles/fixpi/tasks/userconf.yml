@@ -1,53 +1,108 @@
 ---
-- name: create issue.d dir
-  file:
+- name: Create issue.d dir
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/issue.d"
     state: directory
+    mode: "0755"
 
-- name: display IP, pw and things on console
-  copy:
+- name: Display IP, pw and things on console
+  ansible.builtin.copy:
     src: "files/etc/issue"
     dest: "{{ nfs_root }}/root/etc/issue.d/banner.issue"
+    mode: "0644"
 
-- name: set the password and tell everyone
-  script: files/pipw.sh "{{user}}" "{{pi_pw}}" "{{nfs_root}}/boot" "{{nfs_root}}/root"
+# useradd (netboot.yml "create pi user") leaves the account's password locked.
+# pi_pw is the PLAINTEXT shared password: roles/site hands it (base64) to the
+# web terminal, which logs in to the Pi with it, so it cannot be a hash. Hash
+# it here on the server with openssl (the NFS root's own python3 would need
+# qemu, and the server's has no crypt module) and write it into the root's
+# /etc/shadow as a plain file edit. The salt is derived from the password, so
+# the hash is stable across runs and the tasks are idempotent.
+- name: Hash the pi user's password (sha512-crypt, salt derived from it)
+  ansible.builtin.command: openssl passwd -6 -salt {{ ((user ~ ':' ~ pi_pw) | hash('sha256'))[:16] }} -stdin
   args:
-    creates: "{{nfs_root}}/root/etc/ssh/password.txt"
-  tags:
-    - pipw
+    stdin: "{{ pi_pw }}"
+  register: fixpi_pi_pw_hash
+  changed_when: false
+  no_log: true
 
-- name: enable sshd
-  file:
+- name: Check whether the NFS root already carries that hash
+  ansible.builtin.command: grep -q -F "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:" "{{ nfs_root }}/root/etc/shadow"
+  register: fixpi_pi_pw_current
+  changed_when: false
+  failed_when: fixpi_pi_pw_current.rc not in [0, 1]
+  no_log: true
+
+# Rewriting /etc/shadow replaces it (new inode). The running Pis mount this root
+# as the lower layer of an overlayroot over NFS, and their sshd keeps the
+# old dentry: after this changes, every one of them closes each SSH
+# connection (key or password) until it is rebooted. Reboot them all.
+- name: Set the pi user's password in the NFS root
+  ansible.builtin.replace:
+    path: "{{ nfs_root }}/root/etc/shadow"
+    regexp: '^{{ user }}:[^:]*:'
+    replace: "{{ user }}:{{ fixpi_pi_pw_hash.stdout }}:"
+  when: fixpi_pi_pw_current.rc != 0
+  register: fixpi_pi_pw_set
+  no_log: true
+
+# Inline, not a handler (noqa): a handler only runs if the rest of the play
+# succeeds, and this warning must not be lost when the shadow was replaced
+# and a later task then fails.
+- name: Reboot every Pi booted from this root (their sshd cannot read the replaced shadow)
+  ansible.builtin.debug:
+    msg: >-
+      {{ nfs_root }}/root/etc/shadow was replaced. Every Pi booted from it
+      now refuses SSH until rebooted: PoE-cycle their switch ports.
+  when: fixpi_pi_pw_set is changed  # noqa: no-handler
+
+# Nothing reads these: the RPi OS first-boot wizard that would apply
+# boot/userconf.txt is masked in the NFS root (netboot.yml), and password.txt
+# was only ever a marker. userconf.txt holds the plaintext password in the
+# TFTP-served boot dir, so make sure it is gone.
+- name: Remove userconf.txt and the password marker
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ nfs_root }}/boot/userconf.txt"
+    - "{{ nfs_root }}/root/etc/ssh/password.txt"
+
+- name: Enable sshd
+  ansible.builtin.file:
     path: "{{ nfs_root }}/boot/ssh"
     state: touch
+    mode: "0644"
 
-- name: get fixed sshswitch
-  get_url:
+- name: Get fixed sshswitch
+  ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/RPi-Distro/raspberrypi-sys-mods/{{ dist }}/debian/raspberrypi-sys-mods.sshswitch.service"
     dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/sshswitch.service"
+    mode: "0644"
   when: false
 
-- name: sshd password settings
-  copy:
+- name: Sshd password settings
+  ansible.builtin.copy:
     src: "files/etc/ssh/sshd_config.d/password.conf"
     dest: "{{ nfs_root }}/root/etc/ssh/sshd_config.d/password.conf"
+    mode: "0644"
 
 - name: Generate ssh keys for server user
   ansible.builtin.user:
     name: "{{ user_name }}"
     generate_ssh_key: true  # This will not overwrite an existing SSH key.
-  tags:
-    - keys
 
-- name: create .ssh dirs
-  file:
+# 0700, like the ansible user's (ansible-home.yml) and the jump host's .ssh:
+# only the owner needs to list them. home/pi's is chowned to pi (uid 1000)
+# by "Set perms" below; root's stays root's.
+- name: Create .ssh dirs
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     state: directory
+    mode: "0700"
   with_items:
     - root
     - home/pi
-  tags:
-    - keys
 
 - name: Generate ssh keys for pi users pi and root
   community.crypto.openssh_keypair:
@@ -55,56 +110,17 @@
   with_items:
     - root
     - home/pi
-  tags:
-    - keys
 
-- name: Set authorized key for pi root user
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', '/home/{{ user_name }}/.ssh/id_rsa.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
-  with_items:
-    - root
-  tags:
-    - keys
-  when: false
+# Who may log in to the boards as pi and root: one exclusive write per file,
+# only when the key list changed (see authorized_keys.yml for why).
+- name: Write the NFS root's authorized_keys
+  ansible.builtin.include_tasks: authorized_keys.yml
 
-- name: Copy keys to pi pi and root authorized_keys
-  ansible.builtin.copy:
-    remote_src: true
-    src: "/home/{{ user_name }}/.ssh/id_rsa.pub"
-    dest: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  tags:
-    - keys
-
-# The controller's automation key (same mechanism as nspawn-pi/start.yml):
-# without it the control node can only reach real Pis through operator
-# keys, and verify-pi against hardware needed a hand-injected key every
-# rebuild (rebuild #2; "ephemeral" hack in rebuild #1's verify phase).
-- name: Authorize the controller key for pi and root (controller key)
-  ansible.posix.authorized_key:
-    user: root
-    state: present
-    key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh/authorized_keys"
-  with_items:
-    - root
-    - home/pi
-  when: ansible_ssh_private_key_file is defined
-  tags:
-    - keys
-
-- name: set perms (use numeric UID — pi user is UID 1000 on RPi OS)
+- name: Set perms (use numeric UID — pi user is UID 1000 on RPi OS)
   ansible.builtin.file:
-    path: "/srv/nfs/rpi/{{dist}}/root/{{item}}/.ssh"
+    path: "{{ nfs_root }}/root/{{ item }}/.ssh"
     recurse: true
     owner: "1000"
     group: "1000"
   with_items:
     - home/pi
-  tags:
-    - keys

@@ -253,7 +253,7 @@ SNMP read works with the `public` community on both switches. The per-switch
 SNMP **write** communities are resolved on ten64 via
 `gdoc2netcfg password --type snmp <switch>` and are stored, per switch, as the
 Ansible-vault vars `vault_switch1_snmp_rw_community` (s3300) and
-`vault_switch2_snmp_rw_community` (gsm7252ps) — see the switch-vlans role. They
+`vault_switch2_snmp_rw_community` (gsm7252ps) — see the switch_vlans role. They
 are deliberately not written in plaintext here (this repo is public).
 
 Caveats for the provisioning tool (Task 11 / hardware prototype Task 14):

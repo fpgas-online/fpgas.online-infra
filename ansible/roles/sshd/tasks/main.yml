@@ -1,0 +1,125 @@
+---
+# Public-key-only SSH login on the server (see defaults/main.yml).
+
+# --- Lockout guard ----------------------------------------------------------
+# Runs before the drop-in is written, on every converge: refuse to turn
+# passwords off while any account people (or Ansible) log in with has no key.
+
+# The account this very connection authenticated as, asked without
+# become (on by default in ansible.cfg). Off through the VARIABLE, not the
+# `become: false` keyword: tweed's host_vars set `ansible_become: true`,
+# and an inventory variable outranks the task keyword, so the keyword alone
+# ran `id -un` as root and the guard checked root's (absent) keys instead
+# of ansible's (the 2026-09-29 tweed deploy failure). The same pattern as
+# roles/automation_user/tasks/verify/main.yml and verify-pi.yml.
+#
+# Asked of the host rather than taken from `ansible_user`: that variable
+# can be unset (ssh.cfg, a -u flag or the local user then decide who logs
+# in), and `id -un` reports whoever really authenticated.
+- name: Find the account Ansible connects as
+  ansible.builtin.command: id -un
+  vars:
+    ansible_become: false
+  changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
+  register: sshd_connecting_user
+  when: sshd_pubkey_only | bool
+
+# Where the inventory names the login account, the probe must agree: a
+# mismatch means the probe itself ran under become (root) and would check
+# the wrong account's keys.
+- name: Assert the probe saw the inventory's login account
+  ansible.builtin.assert:
+    that:
+      - ansible_user is not defined or sshd_connecting_user.stdout == ansible_user
+    fail_msg: >-
+      id -un reported {{ sshd_connecting_user.stdout }} but Ansible logs in
+      to {{ inventory_hostname }} as {{ ansible_user | default('') }}; the
+      probe ran with become
+    success_msg: "Ansible connects as {{ sshd_connecting_user.stdout }}"
+  when: sshd_pubkey_only | bool
+
+- name: Accounts that must keep a working key
+  ansible.builtin.set_fact:
+    sshd_key_users: "{{ ([sshd_connecting_user.stdout] + sshd_pubkey_only_key_users) | unique }}"
+  when: sshd_pubkey_only | bool
+
+- name: Read the account database
+  ansible.builtin.getent:
+    database: passwd
+  when: sshd_pubkey_only | bool
+
+- name: Assert every key-login account exists
+  ansible.builtin.assert:
+    that:
+      - item in getent_passwd
+    fail_msg: >-
+      {{ item }} does not exist on {{ inventory_hostname }}; refusing to
+      disable SSH password login
+  loop: "{{ sshd_key_users }}"
+  when: sshd_pubkey_only | bool
+
+# ssh-keygen -l parses the file and prints one fingerprint per usable key,
+# so a file holding only comments or garbage counts as key-less.
+- name: List the usable keys of each key-login account
+  ansible.builtin.command:
+    argv: [ssh-keygen, -l, -f, "{{ getent_passwd[item][4] }}/.ssh/authorized_keys"]
+  loop: "{{ sshd_key_users }}"
+  register: sshd_authkeys
+  changed_when: false
+  check_mode: false  # read-only; --check needs the real answer
+  failed_when: false
+  when: sshd_pubkey_only | bool
+
+- name: Assert every key-login account has at least one usable key
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout_lines | length > 0
+    fail_msg: >-
+      {{ item.item }}@{{ inventory_hostname }} has no usable
+      ~/.ssh/authorized_keys ({{ item.stderr | default('') | trim }});
+      refusing to disable SSH password login, it would lock the account out
+    success_msg: "{{ item.item }}: {{ item.stdout_lines | length }} key(s)"
+  loop: "{{ sshd_authkeys.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: sshd_pubkey_only | bool
+
+# --- Configuration ----------------------------------------------------------
+- name: Public-key-only sshd drop-in
+  ansible.builtin.template:
+    src: pubkey-only.conf.j2
+    dest: "{{ sshd_pubkey_only_dropin }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd for pubkey-only
+  when: sshd_pubkey_only | bool
+
+- name: No public-key-only drop-in when the host does not ask for it
+  ansible.builtin.file:
+    path: "{{ sshd_pubkey_only_dropin }}"
+    state: absent
+  notify: Reload sshd for pubkey-only
+  when: not (sshd_pubkey_only | bool)
+
+# A drop-in cannot be checked on its own (template's validate would run
+# `sshd -t -f` on the fragment, not the configuration that includes it), so
+# check the whole configuration before the handler reloads it. Only when
+# the role wrote one: removing it cannot break the configuration, and a
+# host that has not opted in is left to its own sshd setup.
+- name: Sshd configuration is still valid
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+  check_mode: false  # read-only
+  when: sshd_pubkey_only | bool
+
+# The effective values, as the reloaded daemon will apply them. Fails the
+# converge (before the reload) if an earlier-sorting drop-in overrides ours.
+# Not in check mode: the template has not written the drop-in then, so the
+# effective settings are still the old ones (verify-server.yml checks them
+# after a real run).
+- name: Check the effective sshd settings
+  ansible.builtin.import_tasks: verify/main.yml
+  when: (sshd_pubkey_only | bool) and not ansible_check_mode

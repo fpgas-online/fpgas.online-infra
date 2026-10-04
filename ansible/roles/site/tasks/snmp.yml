@@ -7,8 +7,8 @@
 # switch.mpi_port/switch.nos (maintenance Pi + poe.sh port list). Per-port
 # VLAN hosts (switches defined, e.g. tweed) removed those fields in Task 10
 # and use fpgas-switch-setup instead, so this whole task is skipped there.
-- name: populate /etc/environment
-  lineinfile:
+- name: Populate /etc/environment
+  ansible.builtin.lineinfile:
     dest: "{{ item[0] }}"
     state: present
     regexp: "^{{ 'export ' if 'export' in item[0] else '' }}{{ item[1].key }}="
@@ -45,9 +45,9 @@
       - key: mpi_port
         value: "{{ switch.mpi_port }}"
       - key: mpi_ip
-        value: "{{ pib_network }}.{{ 100+switch.mpi_port }}"
+        value: "{{ pib_network }}.{{ 100 + switch.mpi_port }}"
       - key: pi_ports
-        value: "\"{% for pi in switch.nos | default([]) %}{{pi.port}} {% endfor %}\""
+        value: "\"{% for pi in switch.nos | default([]) %}{{ pi.port }} {% endfor %}\""
       - key: pi_dist
         value: "{{ dist }}"
       - key: nfs_pth
@@ -56,6 +56,3 @@
         value: "/srv/nfs/rpi/{{ dist }}/boot"
       - key: nfs_root
         value: "/srv/nfs/rpi/{{ dist }}/root"
-  tags:
-    - snmp
-    - manage

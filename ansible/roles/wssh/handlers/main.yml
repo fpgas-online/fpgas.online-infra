@@ -1,14 +1,14 @@
 ---
-- name: reload nginx
-  systemd:
+- name: Reload nginx
+  ansible.builtin.systemd:
     name: nginx
     state: reloaded
 
-- name: restart wssh
-  systemd:
+- name: Restart wssh
+  ansible.builtin.systemd:
     name: wssh.socket
     state: restarted
 
-- name: reload systemd
-  systemd:
+- name: Reload systemd
+  ansible.builtin.systemd:
     daemon_reload: true

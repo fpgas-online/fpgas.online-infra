@@ -1,0 +1,79 @@
+---
+# True only in the CI image build (inventory-ci-nfsroot): the tasks that
+# execute inside the ARM root (useradd, apt, dpkg) run there, natively on the
+# arm64 runner. Servers pull the finished image (roles/img) and apply only a
+# file-level site layer on top -- nothing on a server runs ARM code, so no
+# server needs qemu-user-static.
+fixpi_image_build: false
+
+# The Orange Pi (sunxi) kernel baked into every image (tasks/sunxi-image.yml).
+fixpi_sunxi_kernel_package: linux-image-armmp
+
+# Debian bookworm's own keyring package (Raspbian has none) for the sunxi
+# kernel apt source -- see tasks/sunxi.yml. Version + sha256 from
+# https://deb.debian.org/debian/dists/bookworm/main/binary-all/Packages.gz
+fixpi_sunxi_debian_keyring_deb: debian-archive-keyring_2023.3+deb12u2_all.deb
+fixpi_sunxi_debian_keyring_sha256: f699e2f88dca05212f2a452b58475f2993cb6993dfbafb1d0205a3291eb8b4b8
+
+# DTBs published to <tftp_root>/sunxi/dtbs/ (and given the I2C fixup below).
+fixpi_sunxi_dtbs:
+  - sun8i-h3-orangepi-pc.dtb
+  - sun8i-h3-orangepi-pc-plus.dtb
+  - sun8i-h3-orangepi-one.dtb
+# Header I2C controllers to force status=okay in the published DTBs: mainline
+# ships every H3 TWI disabled, so the kernel cannot see the Digilent Pmod HATs
+# (ID EEPROM on TWI1, Pmod I2C port on TWI0). Node paths from sun8i-h3.dtsi;
+# the nodes already carry their pinctrl, so flipping status is sufficient.
+fixpi_sunxi_i2c_nodes:
+  - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
+  - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
+
+# The gateway's restricted jump account's own public key (roles/jump makes
+# the keypair at jump_ssh_key; keep this path in step with it). Authorized
+# for the Pi `pi` user so that someone logged in to the jump account can
+# `ssh pi@10.21.S.P` onward. Read on the server, so it must exist when
+# fixpi runs: site.yml runs roles/jump first. Empty string to skip, for a
+# server without the jump role.
+fixpi_jump_ssh_pubkey: /home/pi/.ssh/id_ed25519.pub
+
+# The server user's public key (made by userconf.yml's "Generate ssh keys
+# for server user"), authorized for the Pi pi and root users.
+fixpi_server_user_pubkey: "/home/{{ user_name }}/.ssh/id_rsa.pub"
+
+# GitHub users whose keys (https://github.com/<user>.keys) are authorized
+# for the Pi `pi` and `root` users in the NFS root: the operators' (Tim,
+# Carl), from the gh: ids of operators_accounts (inventory
+# group_vars/all/ssh_keys.yml), so adding an operator there covers the
+# boards too.
+# Where <user>.keys is downloaded from (the tests point it at a local
+# server); roles/ssh_key_fetch fails the run on a user with no key.
+fixpi_github_keys_base_url: https://github.com
+
+fixpi_github_key_users: >-
+  {{ operators_accounts | default([])
+     | map(attribute='ssh_import_ids') | flatten
+     | select('match', '^gh:') | map('regex_replace', '^gh:', '') | list }}
+
+# The authorized_keys files fixpi owns in the NFS root (tasks/authorized_keys.yml),
+# relative to its root/, and their numeric owner (pi is UID/GID 1000 on RPi OS).
+# `key_sources` (optional) picks the key sources for that file from server,
+# controller, github and jump; without it a file gets the full set (server,
+# controller, github, plus jump for home/pi). The ansible automation
+# account trusts the controller's automation key and nothing else.
+fixpi_authorized_keys_files:
+  - {path: root, id: "0"}
+  - {path: home/pi, id: "1000"}
+  - {path: "home/{{ fixpi_ansible_user }}", id: "{{ fixpi_ansible_uid }}", key_sources: [controller]}
+
+# The automation account in the NFS root, the Pi-side twin of the server's
+# (roles/automation_user): passwordless sudo, logged in to only with the
+# automation key. The image build creates it (netboot.yml) with a fixed
+# uid/gid so every rebuild of every image agrees on who owns its home:
+# 1000 is pi, below 1000 is where Debian packages allocate system users
+# dynamically (from 999 downwards), so the first regular id after pi.
+fixpi_ansible_user: ansible
+fixpi_ansible_uid: 1001
+# The key it trusts is the controller's automation key alone, written by
+# authorized_keys.yml (its entry in fixpi_authorized_keys_files above);
+# verify reads it from the same file the writer uses.
+fixpi_ansible_public_key: "{{ lookup('file', ansible_ssh_private_key_file + '.pub') }}"

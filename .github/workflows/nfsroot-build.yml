@@ -1,0 +1,176 @@
+# Build the provisioned Pi NFS root and publish it to GHCR (issue #34;
+# design in docs/superpowers/specs/2026-08-31-ci-nfsroot-build-design.md).
+# Runs the same Ansible roles as site.yml's build path against a chroot on
+# an arm64 runner (native AArch32, spike PR #40), verifies per-model boot
+# material, and pushes ghcr.io/fpgas-online/nfsroot (dated and ci-<run_id>
+# tags; never the rolling tag production pulls, see below).
+name: nfsroot build
+
+# Only ever called by the VM test workflow (vm-test.yml), for pushes, PRs,
+# its schedules and its dispatch: that workflow boots the image this one
+# publishes (workflow_call output `image` = the dated tag) on a virtual Pi,
+# and only then, on main, points the rolling bookworm-armhf tag at it. An
+# image that has not netbooted and registered never becomes what
+# production pulls. `github.event_name` below is the caller's.
+on:
+  workflow_call:
+    inputs:
+      extra_tag:
+        description: "Also push this tag (the VM test picks it before the build starts)"
+        type: string
+        default: ""
+      from_scratch:
+        description: "Build on the upgraded RasPiOS stage instead of converging main's latest image"
+        type: boolean
+        default: false
+    outputs:
+      image:
+        description: "GHCR ref of the image this run pushed (dated tag)"
+        value: ${{ jobs.build.outputs.image }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # The RasPiOS stages the build starts from when it is not a warm build:
+  # nfsroot:base-<key> (the release, unpacked) and nfsroot:upgraded-<key>
+  # (that, fully upgraded). Only the schedule and a from-scratch dispatch
+  # rebuild them; PR and push builds unpack the published stage, or build
+  # it inline if none exists for their key. A scheduled run rebuilds both
+  # from the RasPiOS download once the base stage is a day old, whenever
+  # GitHub gets round to starting one (tests/ci/nfsroot_stages.py
+  # `scheduled`), and otherwise refreshes the upgraded stage.
+  stages:
+    if: >-
+      github.event_name == 'schedule'
+      || (github.event_name == 'workflow_dispatch' && inputs.from_scratch)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    outputs:
+      scratch: ${{ steps.stages.outputs.scratch }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up the build
+        uses: ./.github/actions/nfsroot-setup
+
+      - name: Rebuild the RasPiOS stages
+        id: stages
+        run: >-
+          uv run tests/ci/nfsroot_stages.py
+          ${{ github.event_name == 'workflow_dispatch' && 'all' || 'scheduled' }}
+
+  build:
+    # After `stages` when it runs (the schedules), at once when it is
+    # skipped (PR and push builds).
+    needs: stages
+    if: ${{ !cancelled() && needs.stages.result != 'failure' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    outputs:
+      image: ${{ steps.reuse.outputs.image || steps.publish.outputs.image }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # An image built from exactly these inputs (tests/ci/nfsroot_inputs.py:
+      # the build roles, playbooks, inventory and tooling, plus the UTC hour)
+      # is retagged instead of rebuilt; the steps below then skip. Every
+      # change to an image input gets a fresh build of this checkout. Not
+      # after the stages were rebuilt from the download: that run exists to
+      # build on them.
+      - name: Reuse an image built from the same inputs
+        if: needs.stages.outputs.scratch != 'true'
+        id: reuse
+        env:
+          NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
+        run: python3 tests/ci/nfsroot_publish.py --reuse
+
+      - name: Set up the build
+        if: steps.reuse.outputs.reused != 'true'
+        id: setup
+        uses: ./.github/actions/nfsroot-setup
+
+      # PR, push and scheduled builds converge the rolling tag: main's last
+      # image to pass the VM test (the roles are idempotent; their apt runs
+      # are then mostly no-ops).
+      # A run whose stages job rebuilt them from the download (the first
+      # scheduled run once the base is a day old, or a from-scratch
+      # dispatch) builds on them instead, so a warm chain is never much more
+      # than a day old. See tests/ci/nfsroot_warm.py.
+      - name: Start from main's latest image (warm build)
+        if: >-
+          steps.reuse.outputs.reused != 'true'
+          && needs.stages.outputs.scratch != 'true'
+          && !inputs.from_scratch
+        id: warm
+        run: python3 tests/ci/nfsroot_warm.py ghcr.io/fpgas-online/nfsroot:bookworm-armhf /srv/nfs/rpi/bookworm
+
+      # Not a warm build: start from the upgraded RasPiOS stage for this
+      # checkout's key, building it first if none is published.
+      - name: Start from the upgraded RasPiOS stage
+        if: steps.reuse.outputs.reused != 'true' && steps.warm.outputs.warm != 'true'
+        run: uv run tests/ci/nfsroot_stages.py ensure
+
+      - name: Build the NFS root (same roles as site.yml, chroot connection)
+        if: steps.reuse.outputs.reused != 'true'
+        working-directory: ansible
+        run: >-
+          sudo env "ANSIBLE_COLLECTIONS_PATH=$HOME/.ansible/collections"
+          "ANSIBLE_CALLBACKS_ENABLED=ansible.posix.profile_tasks"
+          "$(pwd)/../.venv/bin/ansible-playbook"
+          -i inventory-ci-nfsroot/hosts ci-nfsroot.yml
+
+      # apt leaves its root-only lock file and partial/ dir in the cache
+      # (the save's tar failed on them): keep only the debs, runner-owned.
+      - name: Tidy the build's deb cache for saving
+        if: steps.reuse.outputs.reused != 'true' && steps.setup.outputs.deb-cache-hit != 'true'
+        run: |
+          sudo find /var/cache/nfsroot-debs -mindepth 1 -maxdepth 1 ! -name '*.deb' -exec rm -rf {} +
+          sudo chown -R "$(id -un)" /var/cache/nfsroot-debs
+          du -sh /var/cache/nfsroot-debs
+
+      - name: Save the build's deb cache
+        if: steps.reuse.outputs.reused != 'true' && steps.setup.outputs.deb-cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: /var/cache/nfsroot-debs
+          key: nfsroot-debs-${{ steps.setup.outputs.day }}
+
+      - name: Write nfsroot manifest (packages, boot hashes, configs)
+        if: steps.reuse.outputs.reused != 'true'
+        run: |
+          sudo .venv/bin/python tests/ci/nfsroot_manifest.py \
+            /srv/nfs/rpi/bookworm manifest
+
+      - uses: actions/upload-artifact@v4
+        if: steps.reuse.outputs.reused != 'true'
+        with:
+          name: nfsroot-manifest
+          path: manifest/
+
+      - name: Publish to GHCR
+        if: steps.reuse.outputs.reused != 'true'
+        id: publish
+        env:
+          NFSROOT_EXTRA_TAG: ${{ inputs.extra_tag }}
+        run: |
+          # skopeo pushes the zstd OCI layout nfsroot_publish.py writes
+          # (both ship on the runner images; installed if one ever does not)
+          command -v skopeo && command -v zstd \
+            || { sudo apt-get update && sudo apt-get install -y skopeo zstd; }
+          uv run tests/ci/nfsroot_publish.py

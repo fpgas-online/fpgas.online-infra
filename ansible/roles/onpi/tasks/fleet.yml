@@ -1,0 +1,18 @@
+---
+# Fleet self-registration agent (fpgas.online-infra#47). The units ship in
+# the fpgas-online-setup-pi deb and are enabled here, in the shared image:
+# they are ConditionPathExists-gated on /etc/fpgas-online/fleet.toml, so they
+# stay inert until a site's server writes that file -- fixpi/tasks/fleet-site.yml,
+# the per-site layer applied after the image is pulled (the image itself is
+# built in CI without any site vars).
+- name: Enable the fleet agent and boot-stage event units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - fpgas-fleet-agent.service
+    - fpgas-fleet-event@network-online.service
+    - fpgas-fleet-event@time-synced.service
+    - fpgas-fleet-event@ssh-up.service
+    - fpgas-fleet-event@cam-streaming.service
+    - fpgas-fleet-event@tt-daemon-up.service

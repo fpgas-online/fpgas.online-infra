@@ -5,7 +5,4 @@ ansible_python_interpreter: /usr/bin/python3
 # templates reference it). Per-host eth_local is the FPGA-side NIC.
 eth_uplink: eth-uplink
 
-domain: fpgas.online
-# user_name: videoteam
-
-ssh_password_auth: false
+# user_name (the server's own account, roles/server_user) is per host.

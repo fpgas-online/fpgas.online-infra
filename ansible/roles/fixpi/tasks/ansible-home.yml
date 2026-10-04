@@ -1,0 +1,31 @@
+---
+# Site layer: get the NFS root's ansible automation account (built into the
+# image with its sudoers file by netboot.yml) ready for its key. The key
+# itself is written by authorized_keys.yml, the single writer of every
+# authorized_keys in the root (its home/ansible entry in
+# fixpi_authorized_keys_files: the controller's automation key alone), which
+# runs after this from userconf.yml. Like the key write, never in the CI
+# image build (fixpi/tasks/main.yml gates both on fixpi_image_build).
+#
+# The file lives in /home/ansible/.ssh, which the image does not carry, but
+# the img pull's rsync excludes every /home/*/.ssh/authorized_keys, so a new
+# image neither restores nor --deletes it: an unchanged key list keeps the
+# same file and inode across pulls and converges.
+
+# A root extracted from an image built before the account existed would get
+# a key for a user it does not have: fail here instead of shipping a root
+# whose automation login silently does not work.
+- name: Check the NFS root has the ansible user (built into the image)
+  ansible.builtin.command: grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:" "{{ nfs_root }}/root/etc/passwd"
+  changed_when: false
+  check_mode: false  # read-only; --check should fail on an old root too
+
+# 0700 and owned by the account: sshd's StrictModes refuses a key in a
+# directory others can write.
+- name: Create the ansible user's .ssh dir in the NFS root
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh"
+    state: directory
+    owner: "{{ fixpi_ansible_uid }}"
+    group: "{{ fixpi_ansible_uid }}"
+    mode: "0700"

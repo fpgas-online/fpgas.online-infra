@@ -1,15 +1,27 @@
 ---
-- name: don't helper resize the root fs
-  command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
+# dpkg-divert executes inside the ARM root: image build only (the diversions
+# live in the image's dpkg database).
+- name: Don't helper resize the root fs
+  when: fixpi_image_build | bool
+  ansible.builtin.command: chroot "{{ nfs_root }}/root" dpkg-divert --divert "{{ item }}.diverted" --rename "{{ item }}"
+  register: fixpi_divert
+  # dpkg-divert prints "Leaving 'diversion of ...'" when the diversion is
+  # already in place and "Adding ..." when it creates it.
+  changed_when: not fixpi_divert.stdout.startswith('Leaving')
   with_items:
     - "/var/lib/systemd/deb-systemd-helper-enabled/rpi-resize.service.dsh-also"
     - "/usr/lib/systemd/zram-generator.conf.d/20-rpi-swap-zram0-ctrl.conf"
     - "/usr/lib/systemd/system-generators/rpi-swap-generator"
-  tags:
-    - nogrow
 
-- name: don't resize the root fs
-  command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
+# noqa: command-instead-of-module -- `systemctl --root` masks units in the
+# offline NFS root; systemd_service acts on the running host's systemd and
+# has no --root.
+- name: Don't resize the root fs  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl --root "{{ nfs_root }}/root" mask "{{ item }}"
+  register: fixpi_mask
+  # systemctl reports "Created symlink ... -> /dev/null" (on stderr) only when
+  # it masks the unit; an already-masked unit prints nothing.
+  changed_when: "'Created symlink' in (fixpi_mask.stdout ~ fixpi_mask.stderr)"
   with_items:
     - "systemd-growfs@.service"
     - "systemd-growfs-root.service"
@@ -18,21 +30,17 @@
     - "swap.target"
     - "rpi-resize.service"
     - "systemd-networkd-persistent-storage.service"
-  tags:
-    - nogrow
 
 #     ./usr/lib/systemd/system/systemd-networkd-persistent-storage.service
-- name: don't manage a swap file
-  file:
+- name: Don't manage a swap file
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/{{ item }}"
     state: absent
   with_items:
     - "etc/systemd/system/multi-user.target.wants/dphys-swapfile.service"
     - "etc/systemd/system/dphys-swapfile.service"
-  tags:
-    - nogrow
 
-- name: don't resize the root fs
-  file:
+- name: Don't resize the root fs
+  ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/init.d/resize2fs_once"
     state: absent

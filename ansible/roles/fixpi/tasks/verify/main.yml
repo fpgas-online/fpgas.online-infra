@@ -1,76 +1,160 @@
 ---
-- name: Check qemu-user-static package installed
-  command: dpkg -s qemu-user-static
-  changed_when: false
-  register: fixpi_dpkg_qemu
-
-- name: Assert qemu-user-static is installed
-  assert:
-    that: fixpi_dpkg_qemu.rc == 0
-    fail_msg: "qemu-user-static package is not installed"
-
 - name: Check maintenance.sh script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/maintenance.sh
   register: fixpi_maintenance_stat
 
 - name: Assert maintenance.sh exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_maintenance_stat.stat.exists
     fail_msg: "/usr/local/sbin/maintenance.sh not found"
 
 - name: Check production.sh script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/production.sh
   register: fixpi_production_stat
 
 - name: Assert production.sh exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_production_stat.stat.exists
     fail_msg: "/usr/local/sbin/production.sh not found"
 
 - name: Check chroot-mount-pi-fs.bash script exists
-  stat:
+  ansible.builtin.stat:
     path: /usr/local/sbin/chroot-mount-pi-fs.bash
   register: fixpi_chroot_stat
 
 - name: Assert chroot-mount-pi-fs.bash exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_chroot_stat.stat.exists
     fail_msg: "/usr/local/sbin/chroot-mount-pi-fs.bash not found"
 
 - name: Check /srv/tftp/bootcode.bin symlink exists
-  stat:
+  ansible.builtin.stat:
     path: /srv/tftp/bootcode.bin
   register: fixpi_bootcode_stat
 
 - name: Assert /srv/tftp/bootcode.bin symlink exists
-  assert:
+  ansible.builtin.assert:
     that: fixpi_bootcode_stat.stat.exists and fixpi_bootcode_stat.stat.islnk
     fail_msg: "/srv/tftp/bootcode.bin symlink not found"
 
 # Legacy MAC-table scheme only (switch.nos); per-port VLAN hosts (switches
 # defined) have no switch.nos -- see (D) in task-11.
 - name: Check TFTP serial number directories from switch.nos
-  stat:
+  ansible.builtin.stat:
     path: "/srv/tftp/{{ item.sn }}"
   register: fixpi_sn_stats
   with_items: "{{ switch.nos }}"
   when: switches is not defined
 
 - name: Assert TFTP serial number directories exist
-  assert:
+  ansible.builtin.assert:
     that: item.stat.exists
     fail_msg: "/srv/tftp/{{ item.item.sn }} not found"
   with_items: "{{ fixpi_sn_stats.results }}"
   when: switches is not defined
 
 - name: Read cmdline.txt from nfs_root/boot
-  command: cat "{{ nfs_root }}/boot/cmdline.txt"
+  ansible.builtin.command: cat "{{ nfs_root }}/boot/cmdline.txt"
   changed_when: false
   register: fixpi_cmdline
 
 - name: Assert cmdline.txt contains nfsroot=
-  assert:
+  ansible.builtin.assert:
     that: "'nfsroot=' in fixpi_cmdline.stdout"
     fail_msg: "{{ nfs_root }}/boot/cmdline.txt does not contain 'nfsroot='"
+
+# The Pi 3/4 header UART (ttyAMA0 / serial0) is the FPGA board's serial link.
+# The command line must name a console, and not that one: with no console= the
+# kernel falls back to the firmware's stdout-path, serial0 (#155).
+- name: Assert cmdline.txt keeps the kernel console off the header UART
+  vars:
+    consoles: "{{ fixpi_cmdline.stdout.split() | select('match', '^console=') | list }}"
+  ansible.builtin.assert:
+    that:
+      - consoles | length > 0
+      - consoles | select('match', '^console=(serial0|ttyAMA0)(,|$)') | list | length == 0
+    fail_msg: >-
+      {{ nfs_root }}/boot/cmdline.txt names console(s) {{ consoles }}. It must name
+      one (console=tty1), and not serial0/ttyAMA0: otherwise the kernel console, and
+      systemd's boot status, go to the FPGA's UART.
+
+# --- Orange Pi (sunxi) netboot files (fixpi/tasks/sunxi.yml) ---
+- name: Read the sunxi PXE config
+  ansible.builtin.slurp:
+    src: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi"
+  register: fixpi_verify_sunxi_pxe
+  when: sunxi_boards is defined
+
+- name: Assert sunxi PXE config names the default DTB and the NFS root
+  ansible.builtin.assert:
+    that:
+      - fixpi_verify_sunxi_pxe.content | b64decode is search('fdt sunxi/dtbs/' ~ sunxi_default_dtb)
+      - fixpi_verify_sunxi_pxe.content | b64decode is search('nfsroot=' ~ eth_local_address ~ ':' ~ nfs_root ~ '/root')
+    fail_msg: "{{ tftp_root }}/pxelinux.cfg/default-arm-sunxi does not point at {{ sunxi_default_dtb }} / {{ nfs_root }}/root"
+  when: sunxi_boards is defined
+
+# Every image carries the armmp kernel (fixpi/sunxi-image.yml, CI build),
+# so a site with sunxi_boards must have published it.
+- name: Sunxi kernel payload present in tftp
+  ansible.builtin.stat:
+    path: "{{ tftp_root }}/sunxi/{{ item }}"
+  register: fixpi_verify_sunxi_payload
+  loop: [vmlinuz, initrd.img, "dtbs/{{ sunxi_default_dtb }}"]
+  when: sunxi_boards is defined
+
+- name: Assert sunxi kernel payload present
+  ansible.builtin.assert:
+    that: fixpi_verify_sunxi_payload.results | map(attribute='stat.exists') | list == [true, true, true]
+    fail_msg: "sunxi/vmlinuz, sunxi/initrd.img or {{ sunxi_default_dtb }} missing from {{ tftp_root }}/sunxi"
+  when: sunxi_boards is defined
+
+# --- The ansible automation account in the NFS root (netboot.yml builds it
+# into the image, authorized_keys.yml authorizes the key per site) ---
+- name: Check the ansible user in the NFS root's passwd (fixed uid/gid)
+  ansible.builtin.command: >-
+    grep -q "^{{ fixpi_ansible_user }}:x:{{ fixpi_ansible_uid }}:{{ fixpi_ansible_uid }}:"
+    {{ nfs_root }}/root/etc/passwd
+  changed_when: false
+
+# Locked ("!..."), never a usable password: the account is key-only.
+- name: Read the ansible user's shadow entry in the NFS root
+  ansible.builtin.command: grep "^{{ fixpi_ansible_user }}:" {{ nfs_root }}/root/etc/shadow
+  changed_when: false
+  check_mode: false  # read-only; the assert below needs the real entry
+  no_log: true
+  register: fixpi_verify_ansible_shadow
+
+- name: Assert the ansible user's password is locked
+  ansible.builtin.assert:
+    that: fixpi_verify_ansible_shadow.stdout.split(':')[1] is match('[!*]')
+    fail_msg: "{{ fixpi_ansible_user }} has a usable password in {{ nfs_root }}/root/etc/shadow"
+
+- name: Check the ansible user's sudoers file in the NFS root is valid
+  ansible.builtin.command: visudo -cf {{ nfs_root }}/root/etc/sudoers.d/010_{{ fixpi_ansible_user }}-nopasswd
+  changed_when: false
+
+- name: Stat the ansible user's authorized_keys in the NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+  register: fixpi_verify_ansible_keys_stat
+
+- name: Read the ansible user's authorized_keys in the NFS root
+  ansible.builtin.slurp:
+    src: "{{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys"
+  register: fixpi_verify_ansible_keys
+
+# sshd (StrictModes) ignores a key file the user does not own or others can
+# write, so owner and mode are part of "the key works".
+# Exactly one key (its fixpi_authorized_keys_files entry is `key_sources: [controller]`).
+- name: Assert the automation key is the ansible user's only key
+  ansible.builtin.assert:
+    that:
+      - (fixpi_verify_ansible_keys.content | b64decode).splitlines() | select | list | length == 1
+      - fixpi_ansible_public_key.split()[1] in (fixpi_verify_ansible_keys.content | b64decode)
+      - fixpi_verify_ansible_keys_stat.stat.uid == fixpi_ansible_uid | int
+      - fixpi_verify_ansible_keys_stat.stat.mode == '0600'
+    fail_msg: >-
+      {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys does not hold
+      exactly the automation key or is not {{ fixpi_ansible_uid }}-owned 0600

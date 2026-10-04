@@ -1,0 +1,13 @@
+---
+# The emulated Pi has no FPGA and no camera. verify-pi.yml needs nothing here
+# to know that: it finds neither on the Pi (fpgas-verify reports "missing",
+# the camera probe finds no sensor or capture device) and passes on that,
+# after checking the no-board path end to end (the check runs, and the Pi
+# still boots and takes ssh).
+
+# The VM's PXE U-Boot (fpgas-online/rpi-qemu) appends `earlycon=pl011,... console=ttyAMA0`
+# to cmdline.txt's command line: ttyAMA0 is the serial port QEMU captures, and
+# the only record of the Pi's boot. So its kernel console is on the header UART,
+# which verify-pi.yml otherwise fails; there is no FPGA on it to disturb.
+# fixpi's verify still checks the cmdline.txt this Pi and the real ones get.
+verify_pi_header_uart_console: true

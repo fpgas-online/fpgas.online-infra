@@ -1,3 +1,0 @@
----
-# Dedicated venv for the fpgas-switch-setup CLI (see tasks/main.yml).
-switch_cli_venv: /opt/fpgas-switch/venv

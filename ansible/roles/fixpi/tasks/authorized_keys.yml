@@ -1,0 +1,86 @@
+---
+# The NFS root's authorized_keys files (/root, /home/pi, /home/ansible:
+# fixpi_authorized_keys_files) belong to the site, not to the image:
+#   - the CI image ships none of them (ci-nfsroot.yml removes them),
+#   - the img pull's rsync excludes them all, so a pull neither restores an
+#     image copy nor --deletes the site's,
+#   - and this file builds the complete key list and writes each file once,
+#     exclusively, with `copy` (which leaves an identical file alone).
+# So a converge with no key change touches none of them. That matters: every
+# rewrite is a rename, i.e. a new inode, which the booted boards' overlay
+# over NFS answers with ESTALE, and it counts as a root change for
+# nfsroot_generation, so the whole fleet reboots. A key dropped from the
+# configuration disappears from the root at the next converge.
+#
+# The keys:
+#   - the server user's (user_name) id_rsa.pub, read on the server,
+#   - the controller's automation key (ansible_ssh_private_key_file .pub),
+#   - the operators' GitHub keys (fixpi_github_key_users), downloaded on
+#     the server by roles/ssh_key_fetch (github_keys.yml, which site.yml
+#     runs before the root update begins), each tagged with a "gh:<user>"
+#     comment. A download that fails or holds no key (after its retries)
+#     fails the play there, before the root is touched: an outage stops
+#     the converge rather than dropping or silently keeping a user's keys,
+#   - pi only: the gateway jump account's key (roles/jump), so someone
+#     logged in to it can `ssh pi@10.21.S.P` onward.
+# A file whose fixpi_authorized_keys_files entry names `key_sources` gets only those
+# sources: the ansible automation account's (home/ansible) is `[controller]`,
+# the automation key alone.
+
+- name: Read the server user's public key
+  ansible.builtin.slurp:
+    src: "{{ fixpi_server_user_pubkey }}"
+  register: fixpi_server_user_key
+
+# site.yml runs roles/jump (which makes this key) before fixpi.
+- name: Read the gateway jump account's public key
+  ansible.builtin.slurp:
+    src: "{{ fixpi_jump_ssh_pubkey }}"
+  register: fixpi_jump_key
+  when: fixpi_jump_ssh_pubkey | length > 0
+
+# Downloaded before the root update began (site.yml runs github_keys.yml
+# ahead of the update lock), or here when nothing has. A read-only GET
+# (check_mode: false in roles/ssh_key_fetch), so it runs in --check too: a
+# check run then shows the real difference.
+- name: Download the operators' GitHub keys (unless done before the root update)
+  ansible.builtin.include_tasks:
+    file: github_keys.yml
+  when: fixpi_github_keys is not defined
+
+- name: Build the NFS root's authorized_keys
+  ansible.builtin.set_fact:
+    fixpi_authorized_keys: >-
+      {%- set files = {} -%}
+      {%- for entry in fixpi_authorized_keys_files -%}
+        {%- set path = entry.path -%}
+        {%- set sources = entry.key_sources | default(['server', 'controller', 'github', 'jump']) -%}
+        {%- set keys = [] -%}
+        {%- if 'server' in sources -%}
+          {%- set _ = keys.append((fixpi_server_user_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- if 'controller' in sources and ansible_ssh_private_key_file is defined -%}
+          {%- set _ = keys.append(lookup('file', ansible_ssh_private_key_file + '.pub').strip()) -%}
+        {%- endif -%}
+        {%- for user in fixpi_github_key_users if 'github' in sources -%}
+          {%- for key in fixpi_github_keys['gh:' ~ user] -%}
+            {%- set _ = keys.append((key.split()[:2] | join(' ')) ~ ' gh:' ~ user) -%}
+          {%- endfor -%}
+        {%- endfor -%}
+        {%- if 'jump' in sources and path == 'home/pi' and fixpi_jump_key.content is defined -%}
+          {%- set _ = keys.append((fixpi_jump_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- set _ = files.update({path: keys | unique | join('\n') ~ '\n'}) -%}
+      {%- endfor -%}
+      {{ files }}
+
+- name: Write the NFS root's authorized_keys (only when the key list changed)
+  ansible.builtin.copy:
+    content: "{{ fixpi_authorized_keys[item.path] }}"
+    dest: "{{ nfs_root }}/root/{{ item.path }}/.ssh/authorized_keys"
+    owner: "{{ item.id }}"
+    group: "{{ item.id }}"
+    mode: "0600"
+  loop: "{{ fixpi_authorized_keys_files }}"
+  loop_control:
+    label: "{{ item.path }}"

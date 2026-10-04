@@ -1,0 +1,6 @@
+# {{ ansible_managed }} -- fpgas.online fleet agent config
+# (fpgas.online-infra#47). No credentials: the site broker's LAN listener
+# is anonymous (resolved D-4).
+site = "{{ fleet_site }}"
+broker = "{{ fleet_broker_address }}"
+port = 1883

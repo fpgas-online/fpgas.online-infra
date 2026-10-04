@@ -1,0 +1,94 @@
+---
+- name: "Verify: read the passwd database"
+  ansible.builtin.getent:
+    database: passwd
+
+- name: "Verify: the server account exists, with its home at /home/<name>"
+  ansible.builtin.assert:
+    that:
+      - user_name in ansible_facts.getent_passwd
+      - ansible_facts.getent_passwd[user_name][4] == '/home/' ~ user_name
+    fail_msg: "{{ user_name }} missing, or its home is not /home/{{ user_name }} (roles/fixpi reads its key from there)"
+
+- name: "Verify: the renamed-from account is gone"
+  ansible.builtin.assert:
+    that:
+      - server_user_rename_from not in ansible_facts.getent_passwd
+    fail_msg: "{{ server_user_rename_from }} still exists next to {{ user_name }}"
+  when: server_user_rename_from | length > 0
+
+- name: "Verify: no systemd unit still runs as the renamed-from account"
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "*.service"
+    contains: '^(User|Group)={{ server_user_rename_from }}\s*$'
+  register: server_user_v_units
+  when: server_user_rename_from | length > 0
+
+- name: "Verify: assert no unit names the renamed-from account"
+  ansible.builtin.assert:
+    that:
+      - server_user_v_units.files | length == 0
+    fail_msg: "units still name {{ server_user_rename_from }}: {{ server_user_v_units.files | map(attribute='path') | list }}"
+  when: server_user_rename_from | length > 0
+
+# The same download as the converge (roles/ssh_key_fetch): a failed or
+# keyless answer fails here, at the download, after the same retries.
+- name: "Verify: download the keys the account should hold"
+  ansible.builtin.include_role:
+    name: ssh_key_fetch
+  vars:
+    ssh_key_fetch_requests: >-
+      {%- set requests = [] -%}
+      {%- for id in server_user_ssh_import_ids -%}
+        {%- set _ = requests.append({'account': user_name, 'id': id}) -%}
+      {%- endfor -%}
+      {{ requests }}
+  when: server_user_ssh_import_ids | length > 0
+
+- name: "Verify: read the account's authorized_keys"
+  ansible.builtin.slurp:
+    src: "/home/{{ user_name }}/.ssh/authorized_keys"
+  register: server_user_v_keys
+  when: server_user_ssh_import_ids | length > 0
+
+# Compared as "type base64" pairs (comments and options aside): exactly
+# the published keys, none missing and none extra.
+- name: "Verify: authorized_keys holds exactly the published keys"
+  vars:
+    server_user_v_want: >-
+      {{ server_user_ssh_import_ids | map('extract', ssh_key_fetch_keys) | flatten
+         | map('regex_replace', '^(\S+\s+\S+).*$', '\1') | unique | sort }}
+    server_user_v_have: >-
+      {{ (server_user_v_keys.content | b64decode).splitlines() | map('trim') | select
+         | reject('match', '#') | map('regex_replace', '^.*?((ssh|ecdsa|sk)-\S+\s+\S+).*$', '\1') | unique | sort }}
+  ansible.builtin.assert:
+    that:
+      - server_user_v_want | length > 0
+      - server_user_v_have == server_user_v_want
+    fail_msg: >-
+      {{ user_name }}'s authorized_keys differs from the keys
+      {{ server_user_ssh_import_ids }} publish: extra
+      {{ server_user_v_have | difference(server_user_v_want) | length }},
+      missing {{ server_user_v_want | difference(server_user_v_have) | length }}
+  when: server_user_ssh_import_ids | length > 0
+
+- name: "Verify: the server account's sudoers file is valid"
+  ansible.builtin.command: "visudo -cf /etc/sudoers.d/{{ user_name }}"
+  changed_when: false
+  when: server_user_sudo | bool
+
+- name: "Verify: the server account gets root without a password"
+  ansible.builtin.command: sudo -n id -un
+  become: true
+  become_user: "{{ user_name }}"
+  register: server_user_v_sudo
+  changed_when: false
+  when: server_user_sudo | bool
+
+- name: "Verify: assert sudo made the server account root"
+  ansible.builtin.assert:
+    that:
+      - server_user_v_sudo.stdout == 'root'
+    fail_msg: "sudo -n id -un as {{ user_name }} printed '{{ server_user_v_sudo.stdout }}', not root"
+  when: server_user_sudo | bool

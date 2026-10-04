@@ -1,0 +1,43 @@
+---
+# Restricted SSH jump account on the site gateway (tweed). Lets people and
+# test harnesses reach the Pis (which are not routable from outside) with
+#   ssh -o ProxyJump=pi@tweed.welland.mithis.com pi@10.21.<switch>.<port>
+# or the older nested form
+#   ssh pi@tweed.welland.mithis.com "ssh pi@10.21.2.29 hostname"
+#
+# The account is a login shell of /bin/rbash whose PATH holds nothing but
+# `ssh` and `ssh-keyscan`, so it can forward and hop but not run anything
+# else on the gateway. It has no sudo. ProxyJump authenticates end to end
+# with the caller's key; someone who logs in to the account itself and hops
+# on with `ssh pi@10.21.S.P` uses the account's own keypair (jump_ssh_key),
+# which roles/fixpi authorizes for the `pi` user in the Pi NFS root.
+#
+# History: the previous tweed (Debian 12) had exactly this account, built by
+# hand on 2026-03-18 (/home/pi/bin/{ssh,ssh-keyscan} symlinks, .bash_profile
+# `export PATH=/home/pi/bin`, .ssh/config `StrictHostKeyChecking accept-new`).
+# It was never in Ansible, so the 2026-08-26 reinstall dropped it and every
+# consumer of pi@tweed broke. This role makes it part of the converge.
+jump_user: pi
+jump_home: "/home/{{ jump_user }}"
+jump_shell: /bin/rbash
+# Binaries reachable from the restricted shell, symlinked into ~/bin.
+jump_commands:
+    - /usr/bin/ssh
+    - /usr/bin/ssh-keyscan
+# The account's own keypair (ssh's default identity path, so a plain
+# `ssh pi@10.21.S.P` from the restricted shell offers it). roles/fixpi reads
+# the .pub from the same path (fixpi_jump_ssh_pubkey): keep the two in step.
+jump_ssh_key: "{{ jump_home }}/.ssh/id_ed25519"
+# Who may log in: the static keys (ssh_public_keys) plus the keys the
+# GitHub/Launchpad ids in ssh_imports publish (gh:<user>, lp:<user>, or a
+# bare <user> = lp:<user>; downloaded by roles/ssh_key_fetch, which fails
+# the converge on an id with no key), both from
+# inventory/group_vars/all/ssh_keys.yml. (The Pis trust a different list:
+# see roles/fixpi tasks/authorized_keys.yml.)
+jump_public_keys: "{{ ssh_public_keys | default([]) | map(attribute='keys') | flatten }}"
+jump_ssh_import_ids: "{{ ssh_imports | default([]) }}"
+# Ids whose previously imported keys are deleted from the account.
+jump_ssh_revoked_import_ids: "{{ ssh_imports_revoked | default([]) }}"
+# Static keys deleted from the account (authorized_key state=present only
+# ever adds, so dropping one from ssh_public_keys would leave it there).
+jump_revoked_public_keys: "{{ ssh_public_keys_revoked | default([]) }}"

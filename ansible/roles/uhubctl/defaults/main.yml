@@ -1,5 +1,5 @@
 ---
-usb_hubs:
+uhubctl_usb_hubs:
 
   - name: hub1
     description: "D-Link Corp. DUB-H7 7-port USB 2.0 hub"

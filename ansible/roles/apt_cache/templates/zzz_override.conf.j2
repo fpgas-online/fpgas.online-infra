@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Read after acng.conf and zz_debconf.conf, so these settings win. acng.conf
+# itself stays the package's (it carries the stock Remap-debrep/-secdeb).
+
+Port: {{ apt_cache_port }}
+CacheDir: {{ apt_cache_dir }}
+{% if apt_cache_bind_addresses %}
+BindAddress: {{ apt_cache_bind_addresses }}
+{% endif %}
+{% if apt_cache_upstream_proxy %}
+Proxy: {{ apt_cache_upstream_proxy }}
+{% endif %}
+
+{% for r in apt_cache_remaps %}
+Remap-{{ r.name }}: {{ r.path }} {{ r.aliases | join(' ') }} ; file:backends_{{ r.name }}
+{% endfor %}

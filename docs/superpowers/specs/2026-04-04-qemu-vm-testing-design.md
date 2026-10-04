@@ -1,5 +1,7 @@
 # QEMU VM Testing for Ansible Playbooks
 
+> **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
+
 **Date:** 2026-04-04
 **Status:** Approved
 
@@ -369,7 +371,7 @@ These are derived from production `host_vars/fpgas.online.yml` but with fake val
 | `switch.host` | PoE switch address | `10.21.0.200` (unreachable, OK) |
 | `switch.mac` | PoE switch MAC | `00:00:00:00:00:00` (dummy) |
 | `switch.nos` | Pi list with sn, mac, port | 1-2 entries; `sn` must match `pxe_test_clients.sn` |
-| `pi_pw` | Pi user password hash | plaintext test value (not vault-encrypted) |
+| `pi_pw` | Pi user password (plaintext; fixpi hashes it into the NFS root) | plaintext test value (not vault-encrypted) |
 | `user_name` | Pi system user | `testuser` |
 | `domain` | Server domain | `test.fpgas.online` |
 | `domain_name` | Hostname for pistat etc. | `test.fpgas.online` |

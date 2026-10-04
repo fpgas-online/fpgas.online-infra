@@ -1,15 +1,34 @@
 ---
+# Public-key-only SSH login, as on tweed (roles/sshd); tests/vm/run_tests.py
+# checks that a password login to the server VM is refused.
+sshd_pubkey_only: true
+
+# The ansible automation account, as on tweed (roles/automation_user).
+automation_user_manage: true
+
+# become as a host VARIABLE, as tweed's host_vars set it. A variable
+# outranks a task's `become: false` keyword, so a task that needs to run
+# as the connecting user must turn become off through `vars:
+# {ansible_become: false}`; with this set the VM test catches one that
+# uses the keyword (roles/sshd's lockout guard checked root, not ansible,
+# on the 2026-09-29 tweed deploy and CI did not notice).
+ansible_become: true
+
 # Network interfaces — must match QEMU NIC configuration
 eth_uplink_mac_address: "52:54:00:aa:bb:01"
-eth_uplink_static: false
-eth_uplink_static_address: 203.0.113.1  # TEST-NET-3 (RFC 5737)
-# QEMU net0 (user-mode NAT, cloud-init/ifupdown DHCP) is the VM's uplink;
-# the netif role must not rename it or move it to networkd under the
-# harness's SSH session. Names already match the kernel's, so no reboot.
-eth_uplink: enp0s2
-uplink_manage: false
+# Named, owned and addressed like tweed's (static, networkd, eth-uplink /
+# eth-local): the netif role renames the fresh VM's enp0s2/enp0s3 by MAC,
+# moves the uplink off ifupdown and reboots once -- the path a new tweed
+# takes. QEMU user-net's addressing is fixed: the guest is 10.0.2.15/24,
+# the gateway 10.0.2.2 and its DNS proxy 10.0.2.3.
+eth_uplink: eth-uplink
+eth_uplink_static: true
+eth_uplink_static_address: 10.0.2.15
+eth_uplink_static_netmask: 24
+eth_uplink_static_gateway: 10.0.2.2
+eth_uplink_dns_server: 10.0.2.3
 
-eth_local: enp0s3
+eth_local: eth-local
 eth_local_mac_address: "52:54:00:aa:bb:02"
 eth_local_address: 10.21.0.1
 # /16, not /24: in the per-port VLAN scheme the local net is the whole
@@ -17,7 +36,7 @@ eth_local_address: 10.21.0.1
 # 10.21.1.1), which fall outside 10.21.0.0/24. This netmask feeds the NFS
 # export (roles/nfs/templates/exports.j2) and the camera publish ACL, both
 # of which must admit every port's Pi. The eth-local trunk interface address
-# itself stays /24 (hardcoded in vlan-ports/templates/eth-local.network.j2).
+# itself stays /24 (hardcoded in vlan_ports/templates/eth-local.network.j2).
 eth_local_netmask: 16
 # dhcp_range intentionally absent: this host defines `switches` (per-port
 # addressing), so dnsmasq-base.conf.j2 skips the bare pool range and every
@@ -28,25 +47,26 @@ pib_network: "10.21"
 pib_network6_base: "2001:db8:a137:21"  # RFC 3849 doc range; test only
 pib_domain: test.fpgas.online
 
-firewall_internal_networks: [10.21.0.0/24]
-
-user_name: testuser
+# The server's own account, named and keyed as on tweed. The VM boots with
+# it under an old name (tests/vm/cloud_init.py: a keypair and a service
+# running as `testuser`), so every run exercises roles/server_user's
+# in-place rename, as tweed's videoteam -> admin; run_tests.py checks it.
+user_name: admin
+server_user_rename_from: testuser
+server_user_sudo: true
+server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
 conference_name: test
-room_name: test
-
-time_zone: UTC
-
-common_name: test.fpgas.online
-subject_alt_names: []
 
 streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"
 
-fixture_path: test.json
-
-switch_base: base
+# Fleet self-registration (fpgas.online-infra#47): the VM test covers the
+# broker + consumer wiring (and the Pi agent, once the fleet-enabled
+# fpgas-online-setup-pi deb reaches the apt repo).
+fleet_broker: true
+fleet_site: test
 
 # `nos`/`mpi_port`/`mpi_ip` removed: those are the legacy MAC-table scheme's
 # fields (see ansible/roles/site/tasks/snmp.yml, ansible/roles/fixpi), dropped
@@ -66,7 +86,7 @@ switch:
 
 # Single switch, one access port -- the VM harness's AccessPortSwitch(2101)
 # emulates switch 1 port 1 (see tests/vm/vswitch.py, tests/vm/run_tests.py).
-# switches_manage: false skips only the SNMP converge step of the switch-vlans
+# switches_manage: false skips only the SNMP converge step of the switch_vlans
 # role (no real switch here); the CLI install + config render still run.
 switches:
   - index: 1
@@ -78,28 +98,57 @@ switches:
     house_uplink_port: 52
 switches_manage: false
 
-pi_pw: "$6$test$testpasswordhash"
+# The pi user's PLAINTEXT shared password. roles/fixpi hashes it into the NFS
+# root's /etc/shadow; roles/site hands it (base64) to the web terminal, which
+# is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
+pi_pw: "fpgas-test-pi"
 
-# QEMU PXE test clients. With `switches:` defined, the per-port dhcp-range
-# in ports.conf.j2 assigns the Pi's IP by receiving VLAN interface (no MAC
-# involved), so the `ip`/`mac` DHCP host-entry task in
-# ansible/roles/pxe/tasks/test_clients.yml is skipped -- this list only
-# still triggers the ephemeral test SSH key injection into the Pi's
-# authorized_keys, which the harness needs regardless of addressing scheme.
-pxe_test_clients:
-  - name: test-pi
-    sn: "deadbeef"
-    mac: "52:54:00:12:34:56"
-    ip: "10.21.0.128"
-    nfs_root: "/srv/nfs/rpi/bookworm/root"
-    console: "ttyAMA0,115200"
-
-# tinytapeout.fpgas.online in the VM test: one live slot on the virtual Pi
-# (10.21.0.128 = switch 0 / port 128 in the legacy scheme), the rest unwired;
-# no public DNS => no certbot; no embed download.
+# tinytapeout.fpgas.online in the VM test: the live FPGA slot is the virtual
+# Pi's own port (switch 1 port 1), so the designs API route is exercised as
+# on tweed; the rest are unwired. No public DNS => no certbot.
 tt_boards:
-  - {slug: tt06, switch: 0, port: 128, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (VM)"}
+  - {slug: fpga-1, switch: 1, port: 1, kind: fpga, title: "FPGA (the virtual Pi)"}
+  # commander: legacy exercises the catalogue key end to end (template render,
+  # daemon tolerance, ttsite_loadboards) and the legacy embed bundle.
+  - {slug: tt03p5, port: null, kind: asic, shuttle: tt03p5, title: "TT 3.5 (unwired)", commander: legacy}
+  - {slug: tt06, port: null, kind: asic, shuttle: tt06, title: "Tiny Tapeout 6 (unwired)"}
   - {slug: kianv-1, port: null, kind: kianv, title: "KianV (unwired)"}
-  - {slug: fpga-1, port: null, kind: fpga, title: "FPGA (unwired)"}
 ttsite_certbot: false
-tt_commander_embed_version: ""
+# The Commander embed bundles tweed pins (ansible/inventory/host_vars/fpgas.online.yml).
+tt_commander_embed_version: "0.2.0"
+tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
+tt_commander_legacy_embed_version: "0.1.0"
+tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
+# The VM test runs concurrently with the nfsroot build that produces the
+# image it pulls (.github/workflows/vm-test.yml): wait up to 45 min for it.
+# Polled every 10 s: when the build is on the critical path (a from-scratch
+# build), every second between its push and the pull is added to the run.
+img_pull_retries: 270
+img_pull_delay: 10
+
+# Orange Pi netboot rendering (fixpi/sunxi.yml): publishes the armmp kernel
+# the pulled image carries (baked in by the CI build, fixpi/sunxi-image.yml).
+sunxi_default_dtb: sun8i-h3-orangepi-pc.dtb
+# hat_uuid + mac identify the physical board; switch/port/usb/host are its
+# current placement (see the production host_vars). Its FEL-boot hub host is
+# a Pi this test does not boot (the virtual Pi is pi-sw1-p1), so verify-pi's
+# hub-host and DT-model-gated checks do not apply to the virtual Pi.
+sunxi_boards:
+  - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 2, usb: "1-1.2.2", host: pi-sw1-p9}
+
+# Authoritative DNS for a delegated zone, and the off-net resolver allowed to
+# query it (tweed: fpgas.welland.mithis.com on eth-uplink for ten64 at
+# 10.99.21.1). The same dnsmasq auth-zone/auth-server and nftables rules
+# render and load here, on the VM's uplink with QEMU's user-net gateway as
+# the delegating resolver.
+dnsmasq_auth_zone: fpgas.test.fpgas.online
+dnsmasq_auth_glue: gw.fpgas.test.fpgas.online
+dnsmasq_auth_subnet: 10.21.0.0/16
+dnsmasq_auth_interface: eth-uplink
+firewall_dns_query_sources:
+  - 10.0.2.2
+
+# WebRTC/WHEP (roles/webrtc): converge + verify in CI. The advertised
+# candidate is the TEST-NET uplink address; no browser reaches it in CI.
+webrtc_media_port: 8189
+webrtc_additional_hosts: ["203.0.113.1"]

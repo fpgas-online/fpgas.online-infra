@@ -1,20 +1,10 @@
 ---
-- name: restart network-manager
-  systemd:
-    name: NetworkManager
-    state: restarted
-
-- name: restart networking
-  systemd:
-    name: networking
-    state: restarted
-
-- name: restart dnsmasq
-  systemd:
+- name: Restart dnsmasq
+  ansible.builtin.systemd:
     name: dnsmasq
     state: restarted
 
-- name: restart chrony
-  systemd:
+- name: Restart chrony
+  ansible.builtin.systemd:
     name: chrony
     state: restarted

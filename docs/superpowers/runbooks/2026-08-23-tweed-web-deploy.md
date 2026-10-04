@@ -15,13 +15,19 @@ Date: 2026-08-23. Spec for the TT part: `docs/superpowers/specs/2026-08-22-tinyt
   sudo make deploy-nginx` on ten64) before its cert can be issued / the name works
   over HTTPS; DNS is a CNAME to `welland.fpgas.online`.
 - Ansible runs from inside the Welland network: `ansible_host: 10.99.21.2`,
-  `ansible_user: ansible` (NOPASSWD sudo, key `ansible@hetzner-infrastructure`), `become`.
+  `ansible_user: ansible` (NOPASSWD sudo, trusts only the `fpgas.online-ansible` key,
+  managed by `roles/automation_user`), `become`.
 
 ## Deploy
 
+Run whole playbooks: no `--tags` or `--skip-tags`, and scope a run only with
+`--limit` and `-e`. If a role is too slow or disruptive for a full run, fix
+the role; unready work waits behind a variable that defaults to off
+(issue #157).
+
 ```bash
 uv run ansible-playbook ansible/web.yml --limit fpgas.online --vault-password-file <file>
-uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --tags site,ttsite,wssh
+uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --vault-password-file <file>
 ```
 
 ## tinytapeout.fpgas.online specifics
@@ -48,9 +54,10 @@ Commander embed `0.2.0`. Rollout order:
 ```bash
 # 1. tweed: site + embed 0.2.0 (pinned in host_vars)
 uv run ansible-playbook ansible/web.yml --limit fpgas.online --vault-password-file <file>
-uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --tags ttsite
-# 2. Pi NFS root: bake both debs (nspawn start -> fpgas-apt/onpi -> stop)
-uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi --tags pi,fpgas-apt,onpi --vault-password-file <file>
+uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online --vault-password-file <file>
+# 2. Pi NFS root: the debs arrive in the CI-built image; the full site.yml
+#    pulls it and applies the site layer
+uv run ansible-playbook ansible/site.yml --limit fpgas.online --vault-password-file <file>
 # 3. the running FPGA Pis only see the new root after a reboot; for an
 #    immediate test install into the overlay instead (lost on reboot, harmless):
 ssh root@10.21.2.33 'apt-get update && apt-get install -y fpgas-online-tt fpgas-online-tt-demos && systemctl restart fpgas-tt'
@@ -69,6 +76,6 @@ daemon's design list.
 ## Rollback
 
 - Site/Django: `pip install` an older `fpgas-online-site` ref into `/srv/www/pib/venv`
-  and re-run `web.yml --tags django`; `local_settings.py` is never overwritten.
+  and re-run `web.yml`; `local_settings.py` is never overwritten.
 - TT vhost: remove `/etc/nginx/sites-enabled/tinytapeout.fpgas.online.conf` and
   `/etc/nginx/includes/tinytapeout.fpgas.online-ws-boards.conf`, reload nginx.

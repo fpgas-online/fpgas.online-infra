@@ -15,5 +15,6 @@ tt_boards:
     pmods: {{ b.pmods | default([]) | to_json }}
     links: {{ b.links | default([]) | to_json }}
     enabled: {{ b.enabled | default(true) | to_json }}
+    commander: {{ b.commander | default('main') | to_json }}
     sort_order: {{ b.sort_order | default(0) }}
 {% endfor %}

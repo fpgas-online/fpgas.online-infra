@@ -1,0 +1,5 @@
+---
+# The end of a root update (see end.yml); the begin is begin.yml, included
+# from site.yml's pre_tasks.
+- name: Publish the Pi NFS root update
+  ansible.builtin.import_tasks: end.yml

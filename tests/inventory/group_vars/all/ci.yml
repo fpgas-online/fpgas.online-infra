@@ -1,1 +1,1 @@
-tftpd_port: 6069
+../../../../ansible/inventory/group_vars/all/ci.yml

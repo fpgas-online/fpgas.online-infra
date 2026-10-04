@@ -1,0 +1,16 @@
+---
+# Add the fpgas.online-fpga-tools apt repository: openfpgaloader-fpgasonline-git
+# and openocd-fpgasonline-git, which roles/onpi/tasks/apt.yml installs in place of
+# Debian's openocd / openfpgaloader (and in place of the older
+# openfpgaloader-rp1pio / openocd-rp1pio from the retired mithro/rp1-jtag).
+#
+# Fetched, pinned, format-checked and installed by tasks/repo.yml under the
+# repository's name, fpgas.online-fpga-tools (key, keyring and source).
+
+- name: Add the fpgas.online-fpga-tools apt repository (tasks/repo.yml)
+  ansible.builtin.include_tasks: repo.yml
+  vars:
+    repo_name: fpgas.online-fpga-tools
+    repo_url: "{{ fpgas_apt_fpga_tools_url }}"
+    repo_suite: "{{ fpgas_apt_fpga_tools_suite }}"
+    repo_key_fingerprint: "{{ fpgas_apt_fpga_tools_key_fingerprint }}"

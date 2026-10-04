@@ -68,14 +68,17 @@ The roles install packages from other fpgas-online repos rather than embedding s
 
 Collections: `uv run ansible-galaxy collection install -r requirements.yml`.
 
+Deploys and verification run whole playbooks, never with `--tags` or
+`--skip-tags`; scope a run with `--limit` and `-e` only (issue #157).
+
 `ansible.cfg` supplies the inventory and `become`; the only thing to add is
 the vault password for hosts with vaulted vars (tweed's switch communities):
 
 ```bash
 export ANSIBLE_VAULT_PASSWORD_FILE=~/.config/fpgas-online/vault-pass
 
-# Full deployment of tweed (server + its Pi NFS root via the piroot chroot host `pi`)
-uv run ansible-playbook ansible/site.yml --limit fpgas.online,pi
+# Full deployment of tweed (server + its prebuilt Pi NFS root)
+uv run ansible-playbook ansible/site.yml --limit fpgas.online
 
 # Full deployment (every host)
 uv run ansible-playbook ansible/site.yml
@@ -101,6 +104,9 @@ nginx reverse proxy / SNI router on ten64 as `welland.fpgas.online`,
 playbooks from inside the Welland network. Vault-encrypted host vars need
 `--vault-password-file`.
 
+Who can log in to tweed and to the netbooted Pis, with which keys, how to add
+or remove a person, and how to verify it: [docs/access.md](docs/access.md).
+
 ### Verify
 
 Two verification playbooks check the deployment:
@@ -109,13 +115,18 @@ Two verification playbooks check the deployment:
 # Verify server setup (TFTP, NFS, dnsmasq, NFS root contents)
 uv run ansible-playbook ansible/verify-server.yml
 
-# Verify running Pi (NFS mount, overlayfs, services, packages)
-# Run after Pis have booted
-uv run ansible-playbook ansible/verify-pi.yml
-
-# Skip hardware-dependent checks (camera, FPGA detection)
-uv run ansible-playbook ansible/verify-pi.yml --skip-tags hw-camera,hw-fpga
+# Verify running Pi (NFS mount, overlayfs, services, packages, camera, FPGA)
+# Run after Pis have booted. The inventory lists no Pis: name them by address.
+uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -e verify_pi_hosts=all
 ```
+
+A `verify-pi.yml` run that selects no Pi fails: it does not pass by checking
+nothing. `--limit fpgas.online` selects no Pi. (`--start-at-task` skips that
+check along with every other task before the one named.)
+
+Both always run in full: no `--tags` or `--skip-tags`. verify-pi finds the
+camera and the FPGA board on each Pi itself; a Pi without one passes and
+says so, one whose camera or board is there but not working fails.
 
 ### Test (QEMU VMs)
 
@@ -135,30 +146,34 @@ differs between test and production.
 | Pi PXE chain | DHCP lease, TFTP (bootcode, kernel, DTB, initramfs), kernel handoff |
 | Kernel boot | `root=/dev/nfs`, overlayroot `tmpfs` overlay, NFS client, systemd → `multi-user.target` |
 | SSH reachability | `sshd` running on the Pi, reachable from the server via ProxyCommand |
-| `verify-pi.yml` | 14 assertions: NFS mount, overlayfs, 10.21.0.x IP, ping server, SSH service, python3, hostname, overlayroot package |
+| `verify-pi.yml` | Mounts, per-port address, services, packages, JTAG tools, camera/TT services, nfsroot-watchdog, and fleet registration with the server (`/fleet/<serial>/` online with the current boot id) |
 
 **Run locally:**
 
 ```bash
 # Install qemu-rpi packages
-echo "deb [trusted=yes] https://fpgas-online.github.io/rpi-qemu trixie main" \
-  | sudo tee /etc/apt/sources.list.d/qemu-rpi.list
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://fpgas.online/rpi-qemu/rpi-qemu.gpg | sudo tee /etc/apt/keyrings/rpi-qemu.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/rpi-qemu.gpg] https://fpgas.online/rpi-qemu/trixie/ ./" \
+  | sudo tee /etc/apt/sources.list.d/rpi-qemu.list
 sudo apt-get update && sudo apt-get install -y qemu-rpi-system-arm qemu-rpi-pxeboot
 
-# Full run (server + Pi + both verify playbooks)
-uv run tests/vm/run_tests.py --phase all
+# Full run (server + Pi + both verify playbooks). --nfsroot-image names the
+# prebuilt Pi root the server pulls: the rolling tag, or a CI run's tag.
+uv run tests/vm/run_tests.py --phase all \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
-# Server phase only (faster iteration — skips the slow Pi boot)
-uv run tests/vm/run_tests.py --phase server --keep-vm
+# Server phase only (faster iteration)
+uv run tests/vm/run_tests.py --phase server --keep-vm \
+  --nfsroot-image ghcr.io/fpgas-online/nfsroot:bookworm-armhf
 
 # Debug: SSH into the running VMs after setup
-uv run tests/vm/run_tests.py --phase all --ssh-to-server --keep-vm
-uv run tests/vm/run_tests.py --phase all --ssh-to-pi --keep-vm
+uv run tests/vm/run_tests.py --phase all --ssh-to-server --keep-vm --nfsroot-image ...
+uv run tests/vm/run_tests.py --phase all --ssh-to-pi --keep-vm --nfsroot-image ...
 ```
 
-A full run under TCG takes roughly 2 hours (server phase is the long pole). KVM
-acceleration is used automatically when `/dev/kvm` is available, which cuts runtime
-substantially.
+With KVM (used automatically when `/dev/kvm` is available) a full run takes
+about 13-14 minutes; see CLAUDE.md's Testing section for where the time goes.
 
 **CI:** `.github/workflows/vm-test.yml` runs the full end-to-end test on every push
 to `main` and on pull requests. Serial logs are uploaded as an artifact on every run
@@ -180,25 +195,26 @@ test coverage grows correspondingly.
 
 | Role | Target | Purpose |
 |------|--------|---------|
+| `jump` | server (SSH) | Restricted `pi` jump account (rbash, only `ssh`/`ssh-keyscan`, no sudo) so `ssh -o ProxyJump=pi@<gateway> pi@10.21.<sw>.<port>` reaches the Pis from outside |
 | `firewall` | server (SSH) | nftables firewall rules |
 | `nfs` | server (SSH) | NFS server for Pi netboot filesystems |
 | `img` | server (SSH) | Download and extract Raspberry Pi OS images |
 | `fixpi` | server (SSH) | Configure Pi OS in the NFS root (boot config, users, chroot installs) |
 | `pxe` | server (SSH) | dnsmasq DHCP/DNS/TFTP for Pi network booting |
-| `nspawn-pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
+| `nspawn_pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
 | `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
-| `cam/stream-server` | server (SSH) | nginx-rtmp HLS streaming server |
+| `stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
-| `fpgas-apt` | NFS root (nspawn) | Add fpgas.online apt repository |
-| `cam/pi` | NFS root (nspawn) | Install camera capture package |
+| `fpgas_apt` | NFS root (nspawn) | Add fpgas.online apt repository |
+| `cam_pi` | NFS root (nspawn) | Install camera capture package |
 | `onpi` | NFS root (nspawn) | Install Pi environment setup package |
 
 ## Linting
 
 - **yamllint**: blocking (zero errors)
-- **ansible-lint**: advisory (legacy issues tracked in [#4](https://github.com/fpgas-online/fpgas.online-infra/issues/4))
+- **ansible-lint**: blocking; pinned in `pyproject.toml`, run with `cd ansible && uv run ansible-lint`
 
 ## Related Repos
 
