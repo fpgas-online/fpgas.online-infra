@@ -1,7 +1,7 @@
 # CI-built Pi NFS root published to GHCR — design
 
 **Date:** 2026-08-31
-**Status:** Proposal (no implementation started; no prior issues or PRs exist for this work)
+**Status:** Implemented; kept as a record (merged 2026-10-04). The build is `.github/workflows/nfsroot-build.yml` and `ansible/ci-nfsroot.yml`, the gateway pulls the image through the `img` role, and Welland has run the pulled root since 2026-09-25. Where this text and the code disagree, the code and `docs/ci.md` are right.
 **Related:** apt repo secretless pull model, PR #28 (Orange Pi netboot design), todo#4 (trixie upgrade)
 
 ## Problem
