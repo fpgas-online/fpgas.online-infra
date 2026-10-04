@@ -51,14 +51,41 @@ def test_every_installed_pi5_kernel_gets_its_modules_both_flavours():
         "linux-image-6.12.96+rpt-rpi-v8\tarm64\tinstalled",
         "linux-image-6.12.109+rpt-rpi-v8\tarm64\tinstalled",
         "linux-image-6.12.109+rpt-rpi-2712\tarm64\tinstalled",
-        "linux-image-6.1.0-rpi8-rpi-2712\tarm64\tinstalled",  # the 6.1 kernels are named like this
     ]
     assert lm.packages(lines) == [
-        "fpgas-online-acorn-litepcie-modules-6.1.0-rpi8-rpi-2712:arm64",
         "fpgas-online-acorn-litepcie-modules-6.12.109+rpt-rpi-2712:arm64",
         "fpgas-online-acorn-litepcie-modules-6.12.109+rpt-rpi-v8:arm64",
         "fpgas-online-acorn-litepcie-modules-6.12.96+rpt-rpi-v8:arm64",
     ]
+
+
+# A root built from scratch on 2026-10-05 (fpgas.online-infra run 37213351442): the base image's 6.6.31 kernel
+# is still installed beside the one the fleet boots.
+FROM_SCRATCH = WELLAND + ["linux-image-6.6.31+rpt-rpi-v8\tarm64\tinstalled"]
+
+
+def test_a_pi5_kernel_below_the_packages_floor_gets_no_modules_and_is_named():
+    """fpgas.online-test-designs builds module packages from kernel 6.12 on (kernels.toml, min_kernel): asking
+    apt for one below that fails the whole image build."""
+    assert lm.packages(FROM_SCRATCH) == ["fpgas-online-acorn-litepcie-modules-6.12.109+rpt-rpi-v8:arm64"]
+    assert lm.left_out(FROM_SCRATCH) == ["6.6.31+rpt-rpi-v8"]
+    assert lm.left_out(WELLAND) == []
+    lines = ["linux-image-6.1.0-rpi8-rpi-2712\tarm64\tinstalled",  # the 6.1 kernels are named like this
+             "linux-image-6.11.9+rpt-rpi-2712\tarm64\tinstalled",
+             "linux-image-6.12.0+rpt-rpi-2712\tarm64\tinstalled",
+             "linux-image-7.0.3+rpt-rpi-v8\tarm64\tinstalled"]  # fmt: skip
+    assert [k for k, _ in lm.kernels(lines)] == ["6.12.0+rpt-rpi-2712", "7.0.3+rpt-rpi-v8"]
+    assert lm.left_out(lines) == ["6.1.0-rpi8-rpi-2712", "6.11.9+rpt-rpi-2712"]
+
+
+def test_a_root_whose_only_pi5_kernel_is_below_the_floor_needs_nothing_and_says_which():
+    """The role's own assert then fails the build: no kernel a Pi 5 boots has a driver."""
+    lines = ["linux-image-6.6.31+rpt-rpi-v8\tarm64\tinstalled"]
+    assert lm.packages(lines) == [] and lm.left_out(lines) == ["6.6.31+rpt-rpi-v8"]
+
+
+def test_the_floor_is_the_packages_floor():
+    assert lm.MIN_KERNEL == (6, 12)
 
 
 def test_a_kernel_that_is_removed_but_not_purged_is_not_counted():
