@@ -33,7 +33,8 @@ onpi_nfsroot_watchdog_dry_run: false
 onpi_fpga_verify_package: fpgas-online-all-boards
 
 # The prebuilt LitePCIe driver for the Acorn PCIe SoC (tasks/litepcie.yml): litepcie.ko for every kernel in
-# the root that a Pi 5 boots, which fpgas-verify's Acorn `dma` test needs. Off until the fpgas.online apt
-# repository serves fpgas-online-acorn-litepcie-modules-<kernel> (fpgas.online-test-designs releases them,
-# and fpgas-online/apt collects them like its other packages): with it on before then, the root's build fails at the install.
-onpi_litepcie_modules: false
+# the root that a Pi 5 boots, which fpgas-verify's Acorn `dma` test needs. The fpgas.online apt repository
+# serves fpgas-online-acorn-litepcie-modules-<kernel> since 2026-10-04 (fpgas.online-test-designs releases
+# them, and fpgas-online/apt collects them like its other packages). The root's build fails at the install
+# for a Pi 5 kernel that has no module package; set this false only for a root no Pi 5 or CM5 boots.
+onpi_litepcie_modules: true
