@@ -18,6 +18,7 @@
  * Lab prototype (tests/lab/sshd_native_routing). Static binary, no NSS.
  */
 #define _GNU_SOURCE
+#include <signal.h>
 #include <stdlib.h>
 
 #include "board_name.h"
@@ -108,6 +109,14 @@ int main(int argc, char **argv)
 
 	if (sandbox_apply() != 0)
 		return 126;
+	/* Die with the sshd session. Without a terminal nothing else tells the
+	 * ssh client that the visitor has gone, and it would stay, holding a
+	 * process and a connection to the board, until the board's command
+	 * ended. The setting survives the exec below. */
+	if (prctl(PR_SET_PDEATHSIG, SIGHUP) != 0 || getppid() == 1) {
+		fprintf(stderr, "board relay: the session is gone\n");
+		return 126;
+	}
 
 	clearenv();
 	setenv("PATH", "/usr/bin", 1);

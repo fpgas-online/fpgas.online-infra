@@ -459,11 +459,11 @@ compromised relay would stand can reach.
     t = threading.Thread(target=lab.pty, args=(spec,))
     t.start()
     time.sleep(2.5)
-    tree = gw(["ps", "-eo", "pid,ppid,user:12,tty,args"]).out
+    tree = gw(["ps", "-eo", "pid,ppid,user:12,rss,tty,args"]).out
     t.join()
     time.sleep(0.5)
     rep.add("S-procs", "what runs on the gateway for one board login, and what the log says", relay_proc_count() == 0,
-            "gw# ps -eo pid,ppid,user,tty,args      (during an interactive board session)\n" + tree +
+            "gw# ps -eo pid,ppid,user,rss,tty,args      (during an interactive board session; rss in KiB)\n" + tree +
             "\n# gateway log for that login (sshd LogLevel VERBOSE):\n" + "\n".join(lab.gw_log_since(mark)) +
             f"\n\n# processes of uid 950 after the session ended: {relay_proc_count()}\n",
             "sshd's privileged monitor (root) keeps the pty and the PAM session; the session process and the relay's ssh "
@@ -619,7 +619,7 @@ def summarise(results: list[tuple[float, int, float]]) -> str:
 
 
 def flood_case(rep: Report, tid: str, title: str, startups: str, kind: str, sources: tuple[int, int] | None, finding: str,
-               seconds: int = 30) -> None:
+               seconds: int = 30, workers: int = 1) -> None:
     lab.start_gateway(startups=startups)
     a = lab.client("a")
     first, last = sources if sources else (21, 21)
@@ -630,8 +630,8 @@ def flood_case(rep: Report, tid: str, title: str, startups: str, kind: str, sour
 
     def attack() -> None:
         if kind == "password":
-            holder["r"] = dexec(a, ["flood.sh", BOARD, str(seconds), lab.UP4, str(first), str(last)], timeout=seconds + 60,
-                                env={**lab.ssh_env("wrong-guess"), "LAB_ASKPASS_LOG": "/dev/null"})
+            holder["r"] = dexec(a, ["flood.sh", BOARD, str(seconds), lab.UP4, str(first), str(last), str(workers)],
+                                timeout=seconds + 60, env={**lab.ssh_env("wrong-guess"), "LAB_ASKPASS_LOG": "/dev/null"})
         else:
             extra = [lab.UP4, str(first), str(last)] if sources else []
             holder["r"] = dexec(a, ["holdopen.py", SITE, "22", "160", str(seconds), *extra], timeout=seconds + 60)
@@ -650,27 +650,32 @@ def flood_case(rep: Report, tid: str, title: str, startups: str, kind: str, sour
         w.join()
     t.join()
     log = lab.gw_log_since(mark)
+    drops: dict[str, int] = {}
+    for line in log:
+        m = re.search(r"drop connection #\d+ from \S+ on \S+ (.*)", line)
+        if m:
+            reason = re.sub(r"\d+", "N", m.group(1))
+            drops[reason] = drops.get(reason, 0) + 1
     counts = {
-        "connections accepted": sum("Connection from" in line for line in log),
-        "dropped for a penalty": sum("penalty" in line and "drop connection" in line for line in log),
-        "dropped past MaxStartups": sum("past Maxstartups" in line or "MaxStartups" in line and "drop" in line for line in log),
-        "dropped past PerSourceMaxStartups": sum("per-source" in line.lower() and "drop" in line for line in log),
+        "connections taken": sum("Connection from" in line for line in log),
         "failed passwords": sum("Failed password" in line for line in log),
+        "drop lines by reason (sshd logs only a sample of its drops)": drops,
     }
-    samples = sorted({re.sub(r"port \d+|#\d+|\d+ seconds|\[\S+\]:\d+", "*", line)[:150] for line in log
-                      if re.search(r"drop|penal|exited MaxStartups|throttl", line)})[:8]
     src = f"{last - first + 1} source addresses" if sources else "one source address (the abuser's)"
-    out = (f"# gateway sshd: {'defaults' if startups == 'default' else 'PerSourceMaxStartups 10, LoginGraceTime 30'}; "
-           f"attack for {seconds} s from {src}\n")
+    if kind == "password":
+        src += f", {workers} login loop{'s' if workers > 1 else ''} per address"
+    conf = ("defaults (MaxStartups 10:30:100, LoginGraceTime 120, PerSourcePenalties on)" if startups == "default"
+            else "defaults plus PerSourceMaxStartups 5, LoginGraceTime 30")
+    out = f"# gateway sshd: {conf}\n# attack for {seconds} s from {src}\n"
     out += f"# attacker's view:\n{clip(holder['r'].text, 900)}\n"
     out += f"# sshd listener mid-attack: {listener}\n"
     out += f"# administrator from ANOTHER address: {summarise(res_b)}\n"
     if res_a:
         out += f"# administrator from the ABUSER'S address: {summarise(res_a)}\n"
-    out += "# gateway log counts: " + json.dumps(counts) + "\n# gateway log samples:\n" + "\n".join(samples) + "\n"
+    out += "# gateway log: " + json.dumps(counts, indent=1) + "\n"
     good_b = sum(1 for r in res_b if r[1] == 0)
-    rep.add(tid, title, None, out, finding + f" Measured: administrator from another address, {summarise(res_b)}.")
-    rep.rows[-1] = (tid, title, f"{good_b}/{len(res_b)} admin logins")
+    rep.add(tid, title, None, out, finding)
+    rep.rows[-1] = (tid, title, f"administrator elsewhere: {good_b} of {len(res_b)} key logins succeeded")
 
 
 def g_abuse(rep: Report) -> None:
@@ -680,27 +685,31 @@ gateway sshd's unauthenticated slots (MaxStartups 10:30:100) until
 administrators' key logins were dropped. Here the same sshd takes the board
 names directly. Throughout each attack an administrator logs in by key every
 half second from another address (client b), and where the attack has one
-source also from the attacker's own address.
+source also from the attacker's own address. "Hardened" means two global
+lines: `PerSourceMaxStartups 5` and `LoginGraceTime 30`.
 """)
-    flood_case(rep, "X-guess-1", "wrong-password flood for a board name, one source, sshd defaults", "default", "password", None,
-               "PerSourcePenalties (on by default since OpenSSH 9.8) stops it: after a few failures the source's new "
-               "connections are dropped at accept, before they take a slot. Administrators elsewhere do not notice; "
-               "an administrator behind the abuser's address is locked out with them while the penalty lasts.")
-    flood_case(rep, "X-guess-60", "wrong-password flood for a board name, 60 sources at once, sshd defaults", "default", "password",
-               (lab.MANY_FIRST, lab.MANY_LAST),
+    many = (lab.MANY_FIRST, lab.MANY_LAST)
+    flood_case(rep, "X-guess-seq", "wrong passwords one after another, one source (what sank the proxy's catch-all)", "default", "password", None,
+               "No effect on anyone: a refused password frees its slot at once, nothing is left open, and the board is never contacted.")
+    flood_case(rep, "X-guess-1", "wrong-password flood, one source, 40 logins at a time, sshd defaults", "default", "password", None,
+               "The first wave fills unauthenticated slots; then PerSourcePenalties drops the source's connections at accept, "
+               "before they take a slot.", workers=40)
+    flood_case(rep, "X-guess-1h", "wrong-password flood, one source, 40 logins at a time, hardened", "hardened", "password", None,
+               "With a per-source cap below MaxStartups' start value one source cannot reach the point where sshd starts dropping.", workers=40)
+    flood_case(rep, "X-guess-60", "wrong-password flood, 60 sources at once, sshd defaults", "default", "password", many,
                "Each source is penalised separately, so a spread-out flood gets many more attempts in. Each attempt holds "
                "an unauthenticated slot for the two seconds PAM takes to refuse a password.")
+    flood_case(rep, "X-guess-60h", "wrong-password flood, 60 sources at once, hardened", "hardened", "password", many,
+               "The per-source cap does nothing against many sources that each stay under it.")
     flood_case(rep, "X-hold-1", "160 silent connections held open, one source, sshd defaults", "default", "hold", None,
                "This attack needs no login name at all and works against any sshd, with or without board names: "
-               "connections that never authenticate hold slots for LoginGraceTime (120 s).")
-    flood_case(rep, "X-hold-1h", "160 silent connections held open, one source, PerSourceMaxStartups 10", "hardened", "hold", None,
-               "With a per-source cap the single-source form of the attack is harmless.")
-    flood_case(rep, "X-hold-60", "160 silent connections held open, 60 sources, sshd defaults", "default", "hold",
-               (lab.MANY_FIRST, lab.MANY_LAST),
-               "The spread-out form, for comparison with X-guess-60: it is the stronger attack and owes nothing to board names.")
-    flood_case(rep, "X-hold-60h", "160 silent connections held open, 60 sources, PerSourceMaxStartups 10", "hardened", "hold",
-               (lab.MANY_FIRST, lab.MANY_LAST),
-               "A per-source cap does not stop many sources; a shorter LoginGraceTime shortens it. Nothing in this design changes that.")
+               "connections that never authenticate hold slots for LoginGraceTime.")
+    flood_case(rep, "X-hold-1h", "160 silent connections held open, one source, hardened", "hardened", "hold", None,
+               "With the per-source cap the single-source form is harmless to everyone else.")
+    flood_case(rep, "X-hold-60", "160 silent connections held open, 60 sources, sshd defaults", "default", "hold", many,
+               "The spread-out form, for comparison with X-guess-60: at least as strong, and it owes nothing to board names.")
+    flood_case(rep, "X-hold-60h", "160 silent connections held open, 60 sources, hardened", "hardened", "hold", many,
+               "A per-source cap does not stop many sources. Nothing in this design changes that, in either direction.")
 
     # Successful logins in bulk: resources and clean-up.
     lab.start_gateway(extra_env={"PER_BOARD": "8", "NPROC": "200"})
@@ -708,11 +717,14 @@ source also from the attacker's own address.
     boards = [BOARD, BOARD2, "pi-sw2-p46"]
 
     def one(i: int) -> lab.Result:
-        return visitor(["ssh", f"{boards[i % 3]}@{SITE}", "sleep 8; hostname"], timeout=60)
+        return visitor(["ssh", f"{boards[i % 3]}@{SITE}", "sleep 14; hostname"], timeout=60)
 
     with concurrent.futures.ThreadPoolExecutor(36) as pool:
-        futures = [pool.submit(one, i) for i in range(36)]
-        time.sleep(5)
+        futures = []
+        for i in range(36):  # a quarter of a second apart, so the logins themselves stay under MaxStartups
+            futures.append(pool.submit(one, i))
+            time.sleep(0.25)
+        time.sleep(2)
         during = relay_proc_count()
         r_admin = admin("b")
         results = [f.result() for f in futures]
@@ -731,9 +743,13 @@ source also from the attacker's own address.
             "nftables `ct count` rule bounds connections per board; the surplus see `Connection refused`.")
 
     lab.start_gateway(extra_env={"PER_BOARD": "100", "NPROC": "30"})
+    trixie_before = len(lab.board_log("pi-sw2-p46"))
     with concurrent.futures.ThreadPoolExecutor(30) as pool:
-        futures = [pool.submit(one, i) for i in range(30)]
-        time.sleep(5)
+        futures = []
+        for i in range(30):
+            futures.append(pool.submit(one, i))
+            time.sleep(0.25)
+        time.sleep(2)
         during = relay_proc_count()
         r_admin = admin("b")
         results = [f.result() for f in futures]
@@ -745,9 +761,16 @@ source also from the attacker's own address.
             msgs[key] = msgs.get(key, 0) + 1
     rep.add("X-nproc", "30 logins at once with a process limit of 30 for the shared uid (pam_limits nproc)", r_admin.rc == 0,
             f"sessions that ran: {good} of 30\nrefused: {json.dumps(msgs, indent=1)}\nprocesses of uid 950 during: {during}\n"
-            f"administrator's key login during: exit {r_admin.rc} in {r_admin.secs:.1f} s\n",
-            "One shared uid means one process budget for all visitors together (two processes per session). When it is "
-            "used up, further board logins fail; administrators are separate users and are unaffected.")
+            f"administrator's key login during: exit {r_admin.rc} in {r_admin.secs:.1f} s\n"
+            "# the trixie board's sshd log during this (pi-sw2-p46, OpenSSH 10.0):\n" +
+            "\n".join(sorted({re.sub(r"port \d+|#\d+|\]:\d+|\d+ seconds", "*", line) for line in lab.board_log("pi-sw2-p46")[trixie_before:]
+                              if re.search("penal|drop|Failed", line)})) + "\n",
+            "One shared uid means one process budget for all visitors together (two processes per session, and a third "
+            "for a moment while the relay's ssh runs its password helper). When it is used up, further board logins "
+            "fail; administrators are separate users and are unaffected. The way they fail matters: the relay's ssh "
+            "cannot start its password helper, sends no password, and the BOARD records a failed login from the "
+            "gateway's address. On a board with OpenSSH 9.8 or later that feeds the board's penalty (section 8). The "
+            "budget must be generous, and such boards must exempt the gateway.")
 
     lab.start_gateway()
     dexec(a, ["sh", "-c", f"SSH_ASKPASS=/usr/local/bin/askpass SSH_ASKPASS_REQUIRE=force LAB_PASSWORD={BOARD_PASSWORD} "
@@ -756,8 +779,11 @@ source also from the attacker's own address.
     dexec(a, ["pkill", "-9", "-x", "ssh"])
     time.sleep(2)
     after = relay_procs()
-    rep.add("X-kill", "the visitor's client dies (kill -9) in mid-session", relay_proc_count() == 0,
-            f"# uid 950 processes on the gateway during the session:\n{before}\n# two seconds after the client was killed:\n{after}\n")
+    rep.add("X-kill", "the visitor's client dies (kill -9) in the middle of a remote command", relay_proc_count() == 0,
+            f"# uid 950 processes on the gateway during `ssh {BOARD}@{SITE} 'sleep 300'`:\n{before}\n# two seconds after the client was killed:\n{after}\n",
+            "The relay asks the kernel to hang its ssh up when the sshd session process dies (PR_SET_PDEATHSIG). Without "
+            "that, a command with no terminal left the relay's ssh on the gateway, holding a process and one of the "
+            "board's connection slots, until the board's command ended.")
 
 
 # --------------------------------------------------------------------------
@@ -770,12 +796,12 @@ Every relayed login reaches a board from the gateway's address. OpenSSH 9.8+
 on a board penalises a source address after failed logins.
 """)
     lab.start_gateway()
-    out = ""
     ok = True
+    before = len(lab.board_log("pi-sw2-p46"))
     for i in range(20):
         r = visitor(["ssh", f"pi-sw2-p46@{SITE}", "hostname"])
         ok = ok and r.out.strip() == "pi-sw2-p46"
-    pen = interesting(lab.board_log("pi-sw2-p46"), "penal|drop")
+    pen = interesting(lab.board_log("pi-sw2-p46")[before:], "penal|drop")
     rep.add("B-good", "20 logins in a row to a trixie board", ok and not pen, f"all 20 succeeded: {ok}\nboard log lines about penalties: {pen or 'none'}\n",
             "The gateway has already checked the password, so the relay's login at the board does not fail and nothing is penalised.")
     for name, label in (("pi-sw2-p43", "no exemption"), ("pi-sw2-p42", f"PerSourcePenaltyExemptList {lab.GW_BOARDS}")):

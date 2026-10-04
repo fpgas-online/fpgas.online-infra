@@ -55,7 +55,7 @@ install -m 644 /lab/keys/gateway_key.pub /etc/ssh/ssh_host_ed25519_key.pub
     echo "HostKey /etc/ssh/ssh_host_ed25519_key"
     echo "LogLevel VERBOSE"
     if [ "$STARTUPS" = hardened ]; then
-        echo "PerSourceMaxStartups 10"
+        echo "PerSourceMaxStartups 5"
         echo "LoginGraceTime 30"
     fi
 } > /etc/ssh/sshd_config.d/10-lab.conf
