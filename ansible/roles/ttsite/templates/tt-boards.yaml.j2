@@ -2,10 +2,12 @@
 # Source: fpgas.online-infra host_vars tt_boards. Read by Django on the web
 # server (manage.py ttsite_loadboards). Words about boards, by USB serial:
 # nothing here says where a board is plugged in or what its page offers.
+# A usb_serial goes through as YAML read it: one written without quotes that
+# YAML took for a number arrives as a number, and the loader refuses it.
 tt_boards:
 {% for b in tt_boards %}
   - slug: {{ b.slug | to_json }}
-    usb_serial: {{ b.usb_serial | default('') | string | to_json }}
+    usb_serial: {{ b.usb_serial | default('') | to_json }}
     kind: {{ b.kind | default('asic') | to_json }}
     shuttle: {{ b.shuttle | default('') | to_json }}
     title: {{ b.title | default(b.slug) | to_json }}

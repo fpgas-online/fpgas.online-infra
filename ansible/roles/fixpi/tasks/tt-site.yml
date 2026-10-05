@@ -11,6 +11,22 @@
 # the board (its USB serial, and the boot check's report on the Pi), never
 # from a list (fpgas.online-tt issue #14).
 
+# The bridge that reads no catalogue is fpgas-online-tt 0.0.post64 and later
+# (it has identity.py, which reads the boot check's report). An older bridge
+# reads the catalogue at every start: taking the file from under it would
+# leave every Tiny Tapeout board a plain serial bridge.
+- name: Look for the bridge that reads no catalogue in the NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/usr/lib/python3/dist-packages/fpgas_tt/identity.py"
+  register: fixpi_tt_identity
+
+- name: Assert the NFS root's bridge reads no catalogue
+  ansible.builtin.assert:
+    that: fixpi_tt_identity.stat.exists
+    fail_msg: >-
+      The NFS root's fpgas-online-tt is older than 0.0.post64 (no fpgas_tt/identity.py): it still reads
+      /etc/fpgas-online/tt-boards.yaml. Update the root before this layer takes the file away.
+
 - name: No Tiny Tapeout catalogue in the NFS root (a root from before the bridge stopped reading one)
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"

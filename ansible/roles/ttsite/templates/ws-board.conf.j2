@@ -6,10 +6,14 @@
 # "X-Accel-Redirect: /_tt-serial/<that Pi's address>". nginx then serves the
 # same request (its Upgrade headers with it) from this internal location.
 # Only an address on the Pi network is accepted, and only from Django:
-# "internal" refuses a client that asks for /_tt-serial/ itself.
+# "internal" refuses a client that asks for /_tt-serial/ itself, and a
+# Pi's own answer cannot send the request on to another Pi (visitors have
+# root on the Pis): X-Accel-Redirect from the bridge is ignored. The
+# request's query string does not go with it; the bridge reads none.
 location ~ "^/_tt-serial/(?<tt_pi>{{ ttsite_pi_network | replace('.', '\\.') }}\.[0-9]{1,3}\.[0-9]{1,3})$" {
     internal;
     proxy_pass http://$tt_pi:{{ ttsite_daemon_port }}/serial;
+    proxy_ignore_headers X-Accel-Redirect;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";

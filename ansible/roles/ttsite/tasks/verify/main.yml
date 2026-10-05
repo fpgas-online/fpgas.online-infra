@@ -27,20 +27,28 @@
     src: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
   register: ttsite_v_ws
 
+- name: Lines of the serial bridge include that are not comments
+  ansible.builtin.set_fact:
+    ttsite_v_ws_lines: "{{ (ttsite_v_ws.content | b64decode).splitlines() | reject('match', '^\\s*#') | list }}"
+
 - name: Locations in the serial bridge include
   ansible.builtin.set_fact:
-    ttsite_v_ws_locations: "{{ (ttsite_v_ws.content | b64decode).splitlines() | select('match', '^\\s*location\\s') | list }}"
+    ttsite_v_ws_locations: "{{ ttsite_v_ws_lines | select('match', '^\\s*location\\s') | list }}"
 
 - name: Assert one internal serial bridge location and none per board
   ansible.builtin.assert:
     that:
       - ttsite_v_ws_locations | length == 1
       - "'/_tt-serial/' in ttsite_v_ws_locations[0]"
-      - "'internal;' in (ttsite_v_ws.content | b64decode)"
+      - ttsite_v_ws_lines | select('match', '^\\s*internal;\\s*$') | list | length == 1
+      - ttsite_v_ws_lines | select('search', 'proxy_ignore_headers\\s+X-Accel-Redirect;') | list | length == 1
     fail_msg: "the serial bridge include must hold exactly one internal /_tt-serial/ location: {{ ttsite_v_ws_locations }}"
 
 # Asked where the application is served: over https once the site has its
 # certificate (plain http only redirects there, which would show nothing).
+# The 404 must be nginx's own page: if the location stopped matching, the
+# request would fall through to Django, whose 404 page does not name nginx
+# (the Server header is nginx's either way, so it shows nothing).
 - name: A client cannot ask for the internal location itself
   ansible.builtin.uri:
     url: "{{ 'https' if ttsite_certbot else 'http' }}://127.0.0.1/_tt-serial/{{ ttsite_pi_network }}.1.1"
@@ -48,7 +56,16 @@
       Host: "{{ ttsite_domain }}"
     validate_certs: false
     status_code: [404]
+    return_content: true
     follow_redirects: none
+  register: ttsite_v_internal
+
+- name: Assert it was nginx that refused, not Django or another vhost
+  ansible.builtin.assert:
+    that: "'nginx' in (ttsite_v_internal.content | default('') | lower)"
+    fail_msg: >-
+      /_tt-serial/ was answered 404 by something other than nginx's internal location (the page does not
+      name nginx): the location no longer matches, or another vhost answered
 
 - name: No row of the catalogue says where a board is
   ansible.builtin.assert:
@@ -109,7 +126,7 @@
 - name: First catalogue row that names an FPGA board by serial ('' when none)
   ansible.builtin.set_fact:
     ttsite_v_fpga: >-
-      {{ (tt_boards | selectattr('usb_serial', 'defined') | selectattr('kind', 'defined')
+      {{ (tt_boards | selectattr('usb_serial', 'defined') | selectattr('usb_serial') | selectattr('kind', 'defined')
           | selectattr('kind', 'equalto', 'fpga') | map(attribute='slug') | list + [''])[0] }}
 
 - name: Designs API answers on the TT host

@@ -45,6 +45,22 @@
 - name: Tiny Tapeout bridge enabled (when this site runs the Tiny Tapeout site)
   when: onpi_tt_boards is defined
   block:
+    # The bridge that reads no catalogue is fpgas-online-tt 0.0.post64 and later
+    # (it has identity.py, which reads the boot check's report). An older bridge
+    # reads the catalogue at every start: taking the file from under it would
+    # leave every Tiny Tapeout board a plain serial bridge.
+    - name: Look for the bridge that reads no catalogue in the Pi root
+      ansible.builtin.stat:
+        path: /usr/lib/python3/dist-packages/fpgas_tt/identity.py
+      register: onpi_tt_identity
+
+    - name: Assert the Pi root's bridge reads no catalogue
+      ansible.builtin.assert:
+        that: onpi_tt_identity.stat.exists
+        fail_msg: >-
+          The Pi root's fpgas-online-tt is older than 0.0.post64 (no fpgas_tt/identity.py): it still reads
+          /etc/fpgas-online/tt-boards.yaml. Update the root before this layer takes the file away.
+
     - name: No Tiny Tapeout catalogue in the Pi root (a root from before the bridge stopped reading one)
       ansible.builtin.file:
         path: /etc/fpgas-online/tt-boards.yaml

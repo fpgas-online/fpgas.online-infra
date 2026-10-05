@@ -17,7 +17,7 @@
 - {name: "Set the pi user's password and console banner", ansible.builtin.include_tasks: userconf.yml, when: not (fixpi_image_build | bool)}
 - {name: Apply the NFS root tweaks, ansible.builtin.include_tasks: tweeks.yml}
 - {name: Stop the root filesystem resizing and the swap file, ansible.builtin.include_tasks: nogrow.yml}
-# Server-side TT site catalogue (pull-mode roots never see onpi/tt.yml).
+# Server-side enablement of the Tiny Tapeout bridge (pull-mode roots never see onpi/tt.yml).
 - {name: Enable the Tiny Tapeout bridge in the NFS root, ansible.builtin.include_tasks: tt-site.yml, when: tt_boards is defined}
 # Server-side fleet agent config (same reason).
 - {name: Bake the fleet agent config into the NFS root, ansible.builtin.include_tasks: fleet-site.yml, when: fleet_broker | default(false)}
