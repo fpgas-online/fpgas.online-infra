@@ -10,20 +10,11 @@ interface={{ e.iface }}
 # (RESULTS.md, v4-single-range-by-tag -- a literal /32 here makes dnsmasq
 # refuse the request with "no address range available").
 dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,12h
-{% if pxe_board_ipv6 | bool %}
-# v6: the prefix length (64) must match the gw's own /64 address on this
-# interface, not /128 (RESULTS.md, v6-single-range-by-tag).
-# The lease is short ({{ pxe_port_lease6 }}, defaults/main.yml): the range holds
-# one address and dnsmasq keeps it for the board that took it (by its DUID)
-# until the lease runs out, refusing any other board plugged into the port.
-dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},64,{{ pxe_port_lease6 }}
-{% else %}
 # v6: off-link MUST precede the prefix-length field (64), and 64 must match
 # the gw's own /64 address on this interface, not /128 (RESULTS.md,
 # v6-single-range-by-tag). off-link clears the RA on-link (L) bit so Pi
 # traffic routes via the gateway instead of assuming direct reachability.
 dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,12h
-{% endif %}
 host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.ip6 }}
 {% endfor %}
 
@@ -35,13 +26,6 @@ host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.
 interface={{ eth_local }}
 dhcp-range=tag:{{ eth_local }},{{ pib_network }}.0.128,{{ pib_network }}.0.150,255.255.255.0,1h
 
-{% if pxe_board_ipv6 | bool %}
-# No enable-ra, and no router advertisement mode on any range: dnsmasq serves
-# DHCPv6 and advertises nothing. The router advertisements on the per-port
-# interfaces are radvd's (radvd.conf.j2, which says why); two advertisers
-# on one port would each tell a board something of their own.
-{% else %}
 # RA is enabled once, globally, for all per-port interfaces above (each
 # range's off-link flag shapes what gets advertised per-interface).
 enable-ra
-{% endif %}

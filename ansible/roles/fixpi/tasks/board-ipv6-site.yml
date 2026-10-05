@@ -1,0 +1,40 @@
+---
+# The site's part of "boards get routed IPv6" in the NFS root: the image
+# carries the boards' DHCPv6 client and its unit, switched off
+# (roles/onpi/tasks/ipv6.yml), and the unit is enabled here on a gateway
+# that serves the address and the router advertisements (pxe_board_ipv6,
+# roles/pxe/defaults/main.yml: the gateway's variable, off where it is not
+# set). Boards start the client at their next boot. Off, the link is
+# removed, so a site that turned it off is as one that never had it on.
+- name: Look for the unit that takes the board's IPv6 address in the NFS root
+  ansible.builtin.stat:
+    path: "{{ nfs_root }}/root/etc/systemd/system/fpgas-board-ipv6.service"
+  register: fixpi_board_ipv6_unit
+  when: pxe_board_ipv6 | default(false) | bool
+
+- name: Assert the NFS root carries that unit
+  ansible.builtin.assert:
+    that: fixpi_board_ipv6_unit.stat.exists
+    fail_msg: >-
+      pxe_board_ipv6 is on, but the NFS root at {{ nfs_root }}/root has no
+      fpgas-board-ipv6.service: it is older than the boards' DHCPv6 client.
+      Pull a current root; the gateway must not advertise addresses no board
+      can take.
+  when: pxe_board_ipv6 | default(false) | bool
+
+- name: Enable fpgas-board-ipv6.service in the NFS root
+  ansible.builtin.file:
+    src: /etc/systemd/system/fpgas-board-ipv6.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-board-ipv6.service"
+    state: link
+    # The src path is absolute inside the NFS root (valid once the Pi boots
+    # with nfs_root/root as /) but does not exist on the server -- force,
+    # like the other wants links in netboot.yml.
+    force: true
+  when: pxe_board_ipv6 | default(false) | bool
+
+- name: No fpgas-board-ipv6.service link in the NFS root of a site without IPv6 for its boards
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-board-ipv6.service"
+    state: absent
+  when: not (pxe_board_ipv6 | default(false) | bool)

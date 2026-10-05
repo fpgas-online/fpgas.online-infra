@@ -1,4 +1,31 @@
 ---
+# Boards get routed IPv6: their per-port address <prefix><SS>::<P> by DHCPv6
+# and a default route that lasts. One switch for everything that takes:
+#
+#   on the gateway (this role)   radvd sends the router advertisements, on
+#                                every port by itself; dnsmasq stops sending
+#                                its own and gives the port's address a
+#                                short lease (the variables below);
+#   in the Pi root (roles/fixpi) the unit that runs the boards' DHCPv6
+#                                client is enabled. The image always carries
+#                                the client and the unit (roles/onpi),
+#                                switched off;
+#   verify-server, verify-pi     check all of it, on the gateway and on
+#                                every board.
+#
+# Off, the default: the gateway is configured as it was before any of this
+# (dnsmasq's ports.conf byte for byte, no radvd), no board runs the client,
+# and neither verify playbook asks for IPv6. Set it to true in a site's
+# inventory, on the gateway's host, when that site's upstream routes the
+# per-port prefixes to the gateway and back and someone is there to read
+# the result on real boards: the change reaches the boards when they next
+# boot. Turned off again, a run brings the gateway back to the state of a
+# site where it was never on (tasks/main.yml removes radvd).
+#
+# roles/fixpi and verify-pi.yml read it as the gateway's variable, with off
+# for a gateway that does not set it.
+pxe_board_ipv6: false
+
 # Lease time of a switch port's one IPv6 address (templates/ports.conf.j2),
 # in dnsmasq's notation; dnsmasq's minimum is 2m.
 #
@@ -30,9 +57,10 @@ pxe_port_lease6: 10m
 # several ports for longer than the lifetime). The lifetime is three
 # intervals, RFC 4861's default: two advertisements in a row can be lost.
 #
-# radvd's limits: the interval is between 10 and 1800, the lifetime at
-# least the interval and at most 9000. radvd does not refuse a file outside
-# them; it starts and advertises nothing on the port. tasks/main.yml checks
-# them for that reason.
+# The interval is between 10 and 1800 and the lifetime at most 9000:
+# radvd's limits. It does not refuse a file outside them; it starts and
+# advertises nothing on the port, so tasks/main.yml checks them. The
+# lifetime is at least three intervals: verify-pi.yml tells a refreshed
+# route from a stale one by that margin.
 pxe_ra_interval: 600
 pxe_ra_lifetime: 1800

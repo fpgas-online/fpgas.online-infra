@@ -13,7 +13,7 @@
     that: pxe_dnsmasq_active.stdout == "active"
     fail_msg: "dnsmasq service is not active (got: {{ pxe_dnsmasq_active.stdout }})"
 
-# Per-port VLAN scheme: the router advertisements on the port interfaces
+# Where boards have IPv6 (pxe_board_ipv6): the router advertisements on the port interfaces
 # are radvd's alone (templates/radvd.conf.j2). A board's IPv6 default route
 # lives on them, so radvd has to be running, on a file it accepts, with one
 # interface for every port dnsmasq serves; and dnsmasq must advertise
@@ -23,7 +23,7 @@
   changed_when: false
   register: pxe_radvd_active
   failed_when: false
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Assert radvd service is active
   ansible.builtin.assert:
@@ -31,32 +31,32 @@
     fail_msg: >-
       radvd is not active (got: {{ pxe_radvd_active.stdout }}): no port gets
       a router advertisement, and every board loses its IPv6 default route
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Check radvd accepts /etc/radvd.conf
   ansible.builtin.command: radvd --configtest --config /etc/radvd.conf
   changed_when: false
   register: pxe_radvd_configtest
   failed_when: false
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Assert radvd accepts /etc/radvd.conf
   ansible.builtin.assert:
     that: pxe_radvd_configtest.rc == 0
     fail_msg: "radvd --configtest failed: {{ pxe_radvd_configtest.stdout }} {{ pxe_radvd_configtest.stderr }}"
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Read /etc/radvd.conf
   ansible.builtin.slurp:
     src: /etc/radvd.conf
   register: pxe_radvd_conf
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Read /etc/dnsmasq.d/ports.conf
   ansible.builtin.slurp:
     src: /etc/dnsmasq.d/ports.conf
   register: pxe_ports_conf
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Assert radvd advertises on every port dnsmasq serves, as the design needs
   ansible.builtin.assert:
@@ -76,7 +76,7 @@
     pxe_radvd_ifaces: "{{ pxe_radvd_text | regex_findall('(?m)^interface (\\S+) \\{$') }}"
     pxe_dnsmasq_ports: >-
       {{ pxe_ports_conf.content | b64decode | regex_findall('(?m)^dhcp-range=tag:(\S+?),[0-9a-f:]*::[0-9a-f:]*,') }}
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 # Every way dnsmasq can be told to advertise: enable-ra, a range with a
 # router advertisement mode, ra-param. Comments are not settings.
@@ -88,7 +88,7 @@
   changed_when: false
   register: pxe_dnsmasq_ra
   failed_when: pxe_dnsmasq_ra.rc not in [0, 1]
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Assert dnsmasq advertises nothing (radvd does)
   ansible.builtin.assert:
@@ -96,7 +96,45 @@
     fail_msg: >-
       dnsmasq is configured to send router advertisements as well as radvd:
       {{ pxe_dnsmasq_ra.stdout_lines }}
-  when: switches is defined
+  when: switches is defined and pxe_board_ipv6 | bool
+
+# The files say what dnsmasq will do when it next starts; what it does now
+# is what it read when it last started. A run that wrote ports.conf and
+# failed before its handlers leaves dnsmasq running on the older file,
+# still advertising beside radvd, and the next run sees no change and never
+# restarts it. So the running dnsmasq must be younger than every file it
+# reads (/proc/<pid> carries the time the process started).
+- name: Find the running dnsmasq  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl show dnsmasq --property=MainPID --value
+  changed_when: false
+  register: pxe_dnsmasq_pid
+  when: switches is defined and pxe_board_ipv6 | bool
+
+- name: Read when the running dnsmasq started
+  ansible.builtin.stat:
+    path: "/proc/{{ pxe_dnsmasq_pid.stdout }}"
+  register: pxe_dnsmasq_proc
+  when: switches is defined and pxe_board_ipv6 | bool
+
+- name: Read when dnsmasq's configuration last changed
+  ansible.builtin.find:
+    paths: [/etc/dnsmasq.d]
+    file_type: file
+  register: pxe_dnsmasq_files
+  when: switches is defined and pxe_board_ipv6 | bool
+
+- name: Assert the running dnsmasq has read its present configuration
+  ansible.builtin.assert:
+    that:
+      - pxe_dnsmasq_proc.stat.exists
+      - pxe_dnsmasq_files.files | length > 0
+      - pxe_dnsmasq_proc.stat.mtime >= pxe_dnsmasq_files.files | map(attribute='mtime') | max
+    fail_msg: >-
+      dnsmasq (pid {{ pxe_dnsmasq_pid.stdout }}) started before
+      {{ pxe_dnsmasq_files.files | sort(attribute='mtime') | map(attribute='path') | last | default('?') }}
+      was last written: it is running an older configuration, in which it
+      may still send router advertisements beside radvd. Restart it.
+  when: switches is defined and pxe_board_ipv6 | bool
 
 - name: Check /etc/dnsmasq.d/rpi.conf exists
   ansible.builtin.stat:

@@ -9,10 +9,8 @@
     name: chrony
     state: restarted
 
-# A reload, not a restart: radvd reads the file again and carries on. When
-# it is stopped it tells every board that the router is gone (a last
-# advertisement with a lifetime of zero), and a restart would take the
-# boards' IPv6 default route away until its first advertisements.
+# A reload: radvd reads the file again and carries on, with every
+# interface's timer running.
 - name: Reload radvd
   ansible.builtin.systemd:
     name: radvd

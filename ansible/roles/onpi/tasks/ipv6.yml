@@ -74,7 +74,11 @@
     dest: /etc/systemd/system/fpgas-board-ipv6.service
     mode: "0644"
 
-- name: Enable the unit that takes the board's IPv6 address
+# Installed, not enabled: the image is one for every site, and a site's
+# boards run the client only where its gateway serves it (pxe_board_ipv6,
+# roles/pxe/defaults/main.yml). The gateway enables the unit in its own copy
+# of the root (roles/fixpi/tasks/board-ipv6-site.yml).
+- name: Leave the unit that takes the board's IPv6 address disabled in the image
   ansible.builtin.systemd:
     name: fpgas-board-ipv6.service
-    enabled: true
+    enabled: false

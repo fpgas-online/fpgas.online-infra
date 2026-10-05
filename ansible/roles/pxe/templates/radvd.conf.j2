@@ -25,12 +25,35 @@
 # IgnoreIfMissing: a port's interface can be missing or down when radvd
 # starts, and radvd takes it up when it appears. It is radvd's default,
 # stated because the gateway's start depends on it.
+#
+# RemoveAdvOnExit off: left to its default, a stopping radvd tells every
+# board that the router is gone, and the boards drop their default route
+# at once and have none until radvd is back (seen in
+# tests/test_board_ipv6_netns.py's scenario: ten seconds stopped, ten
+# seconds without a route). But the router is this gateway's kernel, which
+# forwards whether radvd runs or not. With this off a restart, a package
+# upgrade or a stop shorter than the lifetime costs a board nothing; a
+# radvd that stays down costs it the route when the lifetime runs out.
+#
+# What these advertisements leave out, which dnsmasq's carried:
+#   - the link's MTU. The gateway pins every port interface to 1500
+#     (roles/vlan_ports), the value a board's interface has already; the
+#     option told a board nothing.
+#   - a DNS server. A board's resolv.conf names the gateway's IPv4 address
+#     (the image's file) and nothing on a board reads the option: the
+#     kernel does not, NetworkManager leaves the interface alone, and the
+#     DHCPv6 client runs no hook. The resolver it named was this gateway
+#     over IPv6, and the firewall admits DNS from the boards' IPv4
+#     addresses only (roles/firewall), so whatever did start listening for
+#     the option would be handed a resolver that does not answer.
+# verify-pi.yml holds both on every board: the one nameserver, the MTU.
 {% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
 
 # {{ e.hostname }}: switch {{ e.switch }} port {{ e.port }}
 interface {{ e.iface }} {
     AdvSendAdvert on;
     IgnoreIfMissing on;
+    RemoveAdvOnExit off;
     AdvManagedFlag on;
     AdvOtherConfigFlag on;
     MaxRtrAdvInterval {{ pxe_ra_interval }};

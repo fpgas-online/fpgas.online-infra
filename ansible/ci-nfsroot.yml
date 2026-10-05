@@ -250,11 +250,20 @@
       register: ci_nfsroot_dhcpcd_duid
       failed_when: ci_nfsroot_dhcpcd_duid.stat.exists
 
-    - name: Check the unit that takes the board's IPv6 address is enabled in the image
+    # The image carries the unit and leaves it off: a site's gateway turns
+    # it on in its own root (pxe_board_ipv6). An image with it enabled would
+    # start the client on every board of every site at their next boot.
+    - name: Check the image carries the unit that takes the board's IPv6 address
       ansible.builtin.stat:
-        path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-board-ipv6.service"
+        path: "{{ nfs_root }}/root/etc/systemd/system/fpgas-board-ipv6.service"
       register: ci_nfsroot_board_ipv6_unit
       failed_when: not ci_nfsroot_board_ipv6_unit.stat.exists
+
+    - name: Check that unit is not enabled in the image
+      ansible.builtin.stat:
+        path: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-board-ipv6.service"
+      register: ci_nfsroot_board_ipv6_wanted
+      failed_when: ci_nfsroot_board_ipv6_wanted.stat.exists
 
     - name: Assert pi user exists in the root
       ansible.builtin.command: "grep ^{{ user }}: {{ nfs_root }}/root/etc/passwd"

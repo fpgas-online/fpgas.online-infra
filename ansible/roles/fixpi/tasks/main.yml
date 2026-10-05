@@ -19,5 +19,7 @@
 - {name: Stop the root filesystem resizing and the swap file, ansible.builtin.include_tasks: nogrow.yml}
 # Server-side enablement of the Tiny Tapeout bridge (pull-mode roots never see onpi/tt.yml).
 - {name: Enable the Tiny Tapeout bridge in the NFS root, ansible.builtin.include_tasks: tt-site.yml, when: tt_boards is defined}
+# Server-side enablement of the boards' DHCPv6 client: a site's choice, never the image's.
+- {name: Enable or disable the boards' DHCPv6 client in the NFS root, ansible.builtin.include_tasks: board-ipv6-site.yml, when: not (fixpi_image_build | bool)}
 # Server-side fleet agent config (same reason).
 - {name: Bake the fleet agent config into the NFS root, ansible.builtin.include_tasks: fleet-site.yml, when: fleet_broker | default(false)}

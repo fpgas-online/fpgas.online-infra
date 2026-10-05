@@ -14,6 +14,9 @@ REPO = Path(__file__).resolve().parent.parent
 PXE = REPO / "ansible/roles/pxe"
 TEMPLATE = PXE / "templates/ports.conf.j2"
 RADVD_TEMPLATE = PXE / "templates/radvd.conf.j2"
+# ports.conf.j2 of the commit this branch left main at: what a gateway has
+# while pxe_board_ipv6 is off.
+MAIN_TEMPLATE = REPO / "tests/fixtures/ports.conf.j2.main"
 DEFAULTS = PXE / "defaults/main.yml"
 
 # A site whose `switches` is one switch with one access port: switch 1
@@ -40,20 +43,29 @@ def defaults() -> dict:
     return yaml.safe_load(DEFAULTS.read_text())
 
 
-def switches(access_ports: int) -> list[dict]:
-    """SITE's one switch with `access_ports` ports, for `render(switches=...)`."""
-    return [{**SITE["switches"][0], "access_ports": access_ports}]
+def switches(*access_ports: int) -> list[dict]:
+    """Switches 1, 2, ... like SITE's, with these numbers of access ports, for `render(switches=...)`."""
+    return [{**SITE["switches"][0], "index": index, "access_ports": count}
+            for index, count in enumerate(access_ports, start=1)]
 
 
 def _render(template: Path, overrides: dict) -> str:
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
+    # trim_blocks: as Ansible's template module renders, so the bytes are a gateway's.
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True, trim_blocks=True)
     env.filters["port_vlan_map"] = _port_vlan_map()
+    # Ansible's `bool` filter, for the values these templates give it.
+    env.filters["bool"] = lambda value: value if isinstance(value, bool) else str(value).lower() in ("1", "true", "yes", "on")
     return env.from_string(template.read_text()).render(**{**defaults(), **SITE, **overrides})
 
 
 def render(**overrides) -> str:
     """ports.conf for SITE with the role's defaults, and `overrides` on top."""
     return _render(TEMPLATE, overrides)
+
+
+def render_as_on_main(**overrides) -> str:
+    """ports.conf from the template as it was before boards had IPv6 (tests/fixtures), for the same site."""
+    return _render(MAIN_TEMPLATE, overrides)
 
 
 def render_radvd(**overrides) -> str:

@@ -56,6 +56,18 @@
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live') }}"
   vars:
+    # Whether this site's boards have routed IPv6: the gateway's
+    # pxe_board_ipv6 (roles/pxe/defaults/main.yml), off where the gateway
+    # does not set it or the inventory has no gateway. Off, nothing below
+    # asks a board for an IPv6 address, a route or the DHCPv6 client.
+    verify_pi_ipv6: >-
+      {{ groups['nbp'] | default([]) | length > 0
+         and hostvars[groups['nbp'][0]].pxe_board_ipv6 | default(false) | bool }}
+    # The gateway's address on the boards' network, which every board's
+    # resolv.conf names.
+    verify_pi_gateway4: >-
+      {{ hostvars[groups['nbp'][0]].eth_local_address | default('10.21.0.1')
+         if groups['nbp'] | default([]) | length > 0 else '10.21.0.1' }}
     # The camera fpgas-cam would use, found the way it finds one
     # (find_camera() in fpgas.online-cam's gst-libcam.sh): a CSI sensor the
     # kernel bound (a v4l-subdev named "<driver> <i2c bus>-<addr>", e.g.
@@ -228,11 +240,17 @@
                   if os.path.realpath(node) == "/sys/firmware/devicetree/base" + alias:
                       return tty
               return ""
+          def netboot_interface():
+              # The interface the NFS root is mounted over (the one the
+              # kernel routes to the gateway through), and its MTU.
+              words = run("ip", "-o", "route", "get", "{{ verify_pi_gateway4 }}")["stdout"].split()
+              name = words[words.index("dev") + 1] if "dev" in words else ""
+              return {"name": name, "mtu": run("cat", "/sys/class/net/" + name + "/mtu")["stdout"] if name else ""}
           # The per-port IPv6 address arrives by DHCPv6 once the board is up
           # (fpgas-board-ipv6.service; nothing in the boot waits for it), so on
           # a board that has only just booted give it a moment before reading
           # the addresses. `-tentative`: past duplicate address detection.
-          ip6_deadline = time.monotonic() + 60
+          ip6_deadline = time.monotonic() + {{ 60 if verify_pi_ipv6 | bool else 0 }}
           while (time.monotonic() < ip6_deadline and not
                  run("ip", "-6", "-o", "addr", "show", "scope", "global", "-tentative")["stdout"]):
               time.sleep(2)
@@ -242,6 +260,8 @@
               "board_ipv6": {"active": run("systemctl", "is-active", "fpgas-board-ipv6.service"),
                              "route": run("ip", "-6", "route", "show", "default"),
                              "uptime": run("cat", "/proc/uptime"),
+                             "resolv_conf": run("cat", "/etc/resolv.conf"),
+                             "netboot": netboot_interface(),
                              "devices": run("nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")},
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
@@ -395,7 +415,7 @@
       changed_when: false
       register: verify_pi_board_ipv6_journal
       failed_when: false
-      when: verify_pi_ip6 | length == 0
+      when: verify_pi_ipv6 | bool and verify_pi_ip6 | length == 0
 
     - name: Assert per-port IPv6 address present
       ansible.builtin.assert:
@@ -407,6 +427,7 @@
           over IPv6. Addresses: {{ verify_pi_addrs.stdout_lines | select('search', 'inet6') | list }}.
           fpgas-board-ipv6.service is {{ verify_pi_board_ipv6.active.stdout }}
           (journal: {{ verify_pi_board_ipv6_journal.stdout_lines | default([]) }})
+      when: verify_pi_ipv6 | bool
 
     # The client that took it is the unit of ours, still running (it renews
     # the lease): not something else that happened to configure the address.
@@ -416,6 +437,7 @@
         fail_msg: >-
           fpgas-board-ipv6.service is {{ verify_pi_board_ipv6.active.stdout }}
           on {{ ansible_hostname }}, not active
+      when: verify_pi_ipv6 | bool
 
     # For the record of a run: the address, the route replies leave by (the
     # kernel's, from the gateway's router advertisement) and what
@@ -426,6 +448,35 @@
           - "{{ ansible_hostname }} holds {{ verify_pi_ip6 }} (fpgas-board-ipv6.service {{ verify_pi_board_ipv6.active.stdout }})"
           - "IPv6 default route: {{ verify_pi_board_ipv6.route.stdout }}"
           - "NetworkManager devices: {{ verify_pi_board_ipv6.devices.stdout_lines }}"
+      when: verify_pi_ipv6 | bool
+
+    # What the gateway's router advertisements deliberately do not carry
+    # (roles/pxe/templates/radvd.conf.j2): a DNS server and the link's MTU.
+    # Both are right on a board without them, and this holds it: the board's
+    # resolv.conf names the gateway's IPv4 address and nothing else (the
+    # image's file, which nothing on a board rewrites), and the interface
+    # its root is mounted over has the MTU the gateway pins its port to.
+    - name: Assert the board resolves names through the gateway's IPv4 address only
+      ansible.builtin.assert:
+        that: verify_pi_nameservers == [verify_pi_gateway4]
+        fail_msg: >-
+          {{ ansible_hostname }}'s /etc/resolv.conf names {{ verify_pi_nameservers }},
+          not only the gateway ({{ verify_pi_gateway4 }}):
+          {{ verify_pi_board_ipv6.resolv_conf.stdout_lines }}
+      vars:
+        verify_pi_nameservers: >-
+          {{ verify_pi_board_ipv6.resolv_conf.stdout_lines | select('match', '^\s*nameserver\s')
+             | map('regex_replace', '^\s*nameserver\s+(\S+).*$', '\1') | list }}
+      when: verify_pi_ipv6 | bool
+
+    - name: Assert the netboot interface has the MTU of the gateway's port
+      ansible.builtin.assert:
+        that: verify_pi_board_ipv6.netboot.mtu == "1500"
+        fail_msg: >-
+          {{ ansible_hostname }}'s netboot interface
+          '{{ verify_pi_board_ipv6.netboot.name }}' has MTU
+          '{{ verify_pi_board_ipv6.netboot.mtu }}', not 1500
+      when: verify_pi_ipv6 | bool
 
     - name: Assert the Pi can reach the server
       ansible.builtin.assert:
@@ -1291,13 +1342,14 @@
           advertisement (ip -6 route show default:
           '{{ verify_pi_board_ipv6.route.stdout }}'), {{ verify_pi_board_ipv6.uptime.stdout.split() | first }} s
           after boot: nothing it sends from {{ verify_pi_ip6 }} leaves the port
+      when: verify_pi_ipv6 | bool
 
     - name: Read the gateway's router advertisement settings
       ansible.builtin.slurp:
         src: /etc/radvd.conf
       delegate_to: "{{ groups['nbp'][0] }}"
       register: verify_pi_radvd_conf
-      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+      when: verify_pi_ipv6 | bool and groups['nbp'] is defined and groups['nbp'] | length > 0
 
     # So look at how fresh the route is: every advertisement sets its
     # remaining time back to the lifetime, and the gateway sends one at
@@ -1321,7 +1373,7 @@
           uptime: "{{ verify_pi_board_ipv6.uptime.stdout.split() | first | float | int }}"
       vars:
         verify_pi_ra_text: "{{ verify_pi_radvd_conf.content | b64decode }}"
-      when: verify_pi_radvd_conf is not skipped
+      when: verify_pi_ipv6 | bool and verify_pi_radvd_conf is not skipped
 
     - name: Assert the gateway keeps the board's IPv6 default route fresh
       ansible.builtin.assert:
@@ -1349,7 +1401,7 @@
         verify_pi_ra_settled: "{{ 2 * (verify_pi_ra.interval | int) + 15 }}"
         verify_pi_ra_provable: "{{ verify_pi_ra.uptime | int > verify_pi_ra_settled | int }}"
         verify_pi_ra_fresh: "{{ verify_pi_ra.lifetime | int - verify_pi_ra_settled | int }}"
-      when: verify_pi_radvd_conf is not skipped
+      when: verify_pi_ipv6 | bool and verify_pi_radvd_conf is not skipped
 
     - name: The gateway reaches this Pi on its IPv6 address
       ansible.builtin.command: ping -6 -c 3 -W 5 {{ verify_pi_ip6 }}
@@ -1360,7 +1412,7 @@
       until: verify_pi_ping6.rc == 0
       retries: 3
       delay: 5
-      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+      when: verify_pi_ipv6 | bool and groups['nbp'] is defined and groups['nbp'] | length > 0
 
     - name: Assert the jump hop logged in as the Pi user
       ansible.builtin.assert:

@@ -98,6 +98,11 @@ switches:
     house_uplink_port: 52
 switches_manage: false
 
+# Boards get routed IPv6 here (roles/pxe/defaults/main.yml): off at every
+# site until its inventory says so, on in the test so that every run proves
+# it on the virtual Pi. verify-pi.yml reads it from this host.
+pxe_board_ipv6: true
+
 # Router advertisements on the port every few seconds, not every ten minutes
 # as on a site (roles/pxe/defaults/main.yml): by the time verify-pi.yml looks
 # at the virtual Pi, minutes after it booted, the gateway's periodic
