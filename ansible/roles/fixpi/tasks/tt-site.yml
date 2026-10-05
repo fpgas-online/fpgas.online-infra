@@ -1,22 +1,20 @@
 ---
-# Server-side application of the Tiny Tapeout site catalogue to the NFS
-# root. Mirrors the chroot path in onpi/tasks/tt.yml (which still runs in
-# build mode; both converge to the same files) so that pull-mode roots --
-# prebuilt in CI without any site vars -- still get the catalogue and the
-# service enablement (issue #34 phase 3). The fpgas-online-tt debs
-# themselves are generic and already baked into the image (tt_install).
+# Server-side part of the Tiny Tapeout site layer in the NFS root: the bridge
+# is enabled on every Pi of a site that runs the Tiny Tapeout site. Mirrors the
+# chroot path in onpi/tasks/tt.yml (which still runs in build mode; both
+# converge to the same files) so that pull-mode roots -- prebuilt in CI
+# without any site vars -- still get the service enablement (issue #34 phase
+# 3). The fpgas-online-tt debs themselves are generic and already baked into
+# the image (tt_install).
+#
+# No catalogue goes into the root: the bridge learns what its board is from
+# the board (its USB serial, and the boot check's report on the Pi), never
+# from a list (fpgas.online-tt issue #14).
 
-- name: Create /etc/fpgas-online in the NFS root
+- name: No Tiny Tapeout catalogue in the NFS root (a root from before the bridge stopped reading one)
   ansible.builtin.file:
-    path: "{{ nfs_root }}/root/etc/fpgas-online"
-    state: directory
-    mode: "0755"
-
-- name: Bake tt-boards.yaml into the NFS root
-  ansible.builtin.template:
-    src: "{{ role_path }}/../ttsite/templates/tt-boards.yaml.j2"
-    dest: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"
-    mode: "0644"
+    path: "{{ nfs_root }}/root/etc/fpgas-online/tt-boards.yaml"
+    state: absent
 
 - name: Enable fpgas-tt.service in the NFS root
   ansible.builtin.file:

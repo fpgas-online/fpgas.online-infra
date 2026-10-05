@@ -204,7 +204,7 @@ test coverage grows correspondingly.
 | `nspawn_pi` | server (SSH) | Start/stop nspawn+sshd for Pi NFS root provisioning |
 | `site` | server (SSH) | Deploy Django web app (pip install, nginx, gunicorn, daphne) |
 | `wssh` | server (SSH) | Web SSH terminal (webssh) |
-| `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue, Commander embed bundle, nginx vhost + per-board WebSocket proxies (hosts with `tt_boards`) |
+| `ttsite` | server (SSH) | tinytapeout.fpgas.online: board catalogue (words by USB serial; boards are found from the Pis' boot check reports), Commander embed bundle, nginx vhost + one internal serial-bridge location (hosts with `tt_boards`) |
 | `stream_server` | server (SSH) | nginx-rtmp HLS streaming server |
 | `uhubctl` | server (SSH) | USB hub power control for FPGA board resets |
 | `fpgas_apt` | NFS root (nspawn) | Add fpgas.online apt repository |

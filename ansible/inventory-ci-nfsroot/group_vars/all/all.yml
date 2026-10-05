@@ -23,8 +23,8 @@ fixpi_image_build: true
 fixpi_server_monitor: false
 
 # Bake the generic Tiny Tapeout daemon/demo debs even though the CI build
-# has no tt_boards catalogue (see roles/onpi/tasks/tt.yml); the site
-# catalogue + service enablement are applied by the consuming server.
+# has no tt_boards (see roles/onpi/tasks/tt.yml); the service enablement is
+# applied by the consuming server.
 tt_install: true
 
 # Don't pre-generate ssh host keys into the published image — they would be
