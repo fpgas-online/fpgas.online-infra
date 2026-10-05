@@ -19,10 +19,11 @@
 # (seen on CI's virtual Pi: `audit: type=1326 ... comm="dhcpcd" sig=31
 # arch=40000028 syscall=384 compat=1`, 384 being getrandom on 32-bit ARM;
 # with the sandbox out of the way the same 9.4.1 got the address). 10.1's
-# list has it. The backport is Debian's armhf build (ARMv7), which every
-# board that can netboot runs. A root of a later release has 10.1 or newer
-# in its own archive and needs neither file; ci-nfsroot.yml fails the build
-# on a version older than 10 either way.
+# list has it. The backport is Debian's armhf build, which is ARMv7: an
+# ARMv6 board (Pi Zero, Pi 1) cannot run it, and booted from this root would
+# have a failing unit and no IPv6 address, nothing else. A root of a later
+# release has 10.1 or newer in its own archive and needs neither file;
+# ci-nfsroot.yml fails the build on a version older than 10 either way.
 - name: Debian backports apt source for the DHCPv6 client
   ansible.builtin.copy:
     src: board-ipv6/debian-backports-dhcpcd.sources
