@@ -293,5 +293,5 @@ def test_verify_pi_checks_a_booted_board_for_the_address():
     for name in ("Find the per-port IPv6 address",
                  "Assert per-port IPv6 address present",
                  "Assert the board's DHCPv6 client is running",
-                 "The gateway reaches this Pi's sshd on its IPv6 address"):
+                 "The gateway reaches this Pi on its IPv6 address"):
         assert name in names
