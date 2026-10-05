@@ -76,4 +76,5 @@ jobs:
           # Being unable to run the board IPv6 namespace test is a failure
           # here, not a skip.
           BOARD_IPV6_NETNS_TEST: "1"
-        run: uv run pytest -q tests
+        # -rs: the tests that were skipped are named, with the reason.
+        run: uv run pytest -q -rs tests
