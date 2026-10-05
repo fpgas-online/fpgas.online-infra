@@ -1,7 +1,9 @@
 ---
-# tinytapeout.fpgas.online on the web server: board catalogue -> Django,
-# ttsite settings, the Commander embed bundle and the nginx vhost with one
-# WebSocket proxy per live board to the Pi-side fpgas-tt daemon.
+# tinytapeout.fpgas.online on the web server: the catalogue (words about
+# boards, by USB serial) -> Django, ttsite settings, the Commander embed bundle
+# and the nginx vhost with ONE internal location that proxies a board's serial
+# WebSocket to whichever Pi Django says carries the board now. Nothing here
+# says which board is on which switch port (fpgas.online-tt issue #14).
 # Spec: docs/superpowers/specs/2026-08-22-tinytapeout-fpgas-online-design.md
 - name: Assert embed pin is complete
   ansible.builtin.assert:

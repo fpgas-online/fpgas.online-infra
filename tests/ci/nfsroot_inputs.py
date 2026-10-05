@@ -52,7 +52,6 @@ INPUTS = [
     "ansible/roles/onpi",
     # fixpi includes it (the keys layer, which the build skips)
     "ansible/roles/ssh_key_fetch",
-    "ansible/roles/ttsite/templates/tt-boards.yaml.j2",
     # the build and publish machinery itself
     ".github/workflows/nfsroot-build.yml",
     ".github/actions/nfsroot-setup",

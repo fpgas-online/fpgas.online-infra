@@ -275,14 +275,13 @@
 
     # The site layer fixpi applies on top of the pulled image (the image has
     # no site identity): without these the Pis boot but never register with
-    # this site's fleet broker, or run no TT catalogue.
+    # this site's fleet broker.
     - name: Check the site layer's files in the NFS root
       ansible.builtin.stat:
         path: "{{ nfs_root }}/root/etc/fpgas-online/{{ item }}"
       register: verify_site_layer
       loop: >-
-        {{ (['fleet.toml'] if fleet_broker | default(false) else [])
-           + (['tt-boards.yaml'] if tt_boards is defined else []) }}
+        {{ ['fleet.toml'] if fleet_broker | default(false) else [] }}
 
     - name: Assert the site layer's files are in the NFS root
       ansible.builtin.assert:

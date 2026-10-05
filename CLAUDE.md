@@ -27,7 +27,7 @@ virtual Pi has netbooted that image and registered). The server
 runs dnsmasq (DHCP/TFTP), NFS, and a Django web app; its `img` role pulls the
 image (podman, digest-stamped) and extracts it to `/srv/nfs/rpi/<dist>`, and
 `fixpi` applies the site layer (pi password, ssh host keys, controller
-authorized_keys, TT catalogue, per-site config) on top. The image build
+authorized_keys, the Tiny Tapeout bridge's enablement, per-site config) on top. The image build
 keeps the site layer out with `fixpi_image_build` (true only in
 `inventory-ci-nfsroot`), not with tags: the build runs `ci-nfsroot.yml` in
 full, refuses to run without that variable, and fails if the image carries
@@ -117,7 +117,7 @@ data -- addresses, names, the switch it cannot reach):
 - `site.yml` converges a fresh Debian 13 server (tweed's OS), pulling and
   extracting the NFS root image built from the same checkout
 - `verify-server.yml`: firewall, dnsmasq, TFTP layout, NFS exports, NFS root
-  packages and the site layer (`fleet.toml`, `tt-boards.yaml`), web tier
+  packages and the site layer (`fleet.toml`), web tier
 - Virtual Pi PXE boots from the flat per-port-VLAN TFTP root, exactly as
   production Pis do: DHCP → TFTP → kernel → initramfs → NFS root read-only
   with overlayroot → systemd; SSH and the web terminal's password login work
