@@ -19,7 +19,8 @@ over, started by one unit. These tests fail if:
     itself (radvd, one interface per port), starts advertising from
     dnsmasq as well, or advertises the prefix as on-link or for
     autoconfiguration,
-  - verify-pi.yml stops checking a booted board for the address.
+  - verify-pi.yml stops checking a booted board for the address and for a
+    default route that the gateway keeps fresh.
 
 tests/test_board_ipv6_netns.py runs the client against a real dnsmasq and a
 real radvd.
@@ -407,6 +408,23 @@ def test_verify_pi_checks_a_booted_board_for_the_address():
     for name in ("Find the per-port IPv6 address",
                  "Assert per-port IPv6 address present",
                  "Assert the board's DHCPv6 client is running",
+                 "Assert the board has an IPv6 default route from a router advertisement",
+                 "Assert the gateway keeps the board's IPv6 default route fresh",
                  "The gateway reaches this Pi on its IPv6 address"):
         assert name in names
 
+
+def test_the_vm_test_must_prove_the_periodic_advertisement():
+    """Minutes after boot a route proves nothing at a site's ten-minute interval.
+
+    So the VM test's gateway advertises every few seconds, and its Pi's
+    verification fails if it could not tell a refreshed route from the one
+    the Pi asked for at boot.
+    """
+    inventory = REPO / "tests/inventory/host_vars"
+    gateway = yaml.safe_load((inventory / "test-vm.yml").read_text())
+    pi = yaml.safe_load((inventory / "test-pi.yml").read_text())
+    assert pi["verify_pi_require_periodic_ra"] is True
+    # verify-pi.yml can tell once the Pi has been up for two intervals and
+    # a little; the virtual Pi takes longer than that to answer ssh.
+    assert 10 <= gateway["pxe_ra_interval"] <= 20

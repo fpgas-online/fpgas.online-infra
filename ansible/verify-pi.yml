@@ -241,6 +241,7 @@
               "addrs": run("ip", "addr", "show"),
               "board_ipv6": {"active": run("systemctl", "is-active", "fpgas-board-ipv6.service"),
                              "route": run("ip", "-6", "route", "show", "default"),
+                             "uptime": run("cat", "/proc/uptime"),
                              "devices": run("nmcli", "-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")},
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
@@ -1275,6 +1276,81 @@
     # unfinished (fpgas-online/rpi-qemu issue #43), so the gateway drops
     # the board's SYN-ACK; with the board computing its own checksums the
     # same connection works.
+    # The board's IPv6 default route is the kernel's, taken from the
+    # gateway's router advertisements, and it lasts one router lifetime. The
+    # kernel asks for an advertisement only when the link comes up; after
+    # that the route lives on the advertisements the gateway sends on this
+    # board's port by itself (radvd, roles/pxe). When those were missing a
+    # board had the route for one lifetime after boot and then held an
+    # address it could not use, which a check made soon after boot passed.
+    - name: Assert the board has an IPv6 default route from a router advertisement
+      ansible.builtin.assert:
+        that: "' proto ra ' in verify_pi_board_ipv6.route.stdout"
+        fail_msg: >-
+          {{ ansible_hostname }} has no IPv6 default route from a router
+          advertisement (ip -6 route show default:
+          '{{ verify_pi_board_ipv6.route.stdout }}'), {{ verify_pi_board_ipv6.uptime.stdout.split() | first }} s
+          after boot: nothing it sends from {{ verify_pi_ip6 }} leaves the port
+
+    - name: Read the gateway's router advertisement settings
+      ansible.builtin.slurp:
+        src: /etc/radvd.conf
+      delegate_to: "{{ groups['nbp'][0] }}"
+      register: verify_pi_radvd_conf
+      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+
+    # So look at how fresh the route is: every advertisement sets its
+    # remaining time back to the lifetime, and the gateway sends one at
+    # least every interval. Once the board has been up for longer than two
+    # intervals, a route with more left than the lifetime less two intervals
+    # can only have been refreshed by a periodic advertisement (one may be
+    # lost). Before that the board's own solicitation at boot explains the
+    # route and nothing is proven: a failure where verify_pi_require_periodic_ra
+    # is set (CI, whose gateway advertises every few seconds), said in the
+    # record otherwise.
+    - name: Work out whether a periodic router advertisement refreshed the route
+      ansible.builtin.set_fact:
+        verify_pi_ra:
+          interval: >-
+            {{ verify_pi_ra_text | regex_search('MaxRtrAdvInterval (\d+);', '\1') | first | int }}
+          lifetime: >-
+            {{ verify_pi_ra_text | regex_search('AdvDefaultLifetime (\d+);', '\1') | first | int }}
+          expires: >-
+            {{ verify_pi_board_ipv6.route.stdout | regex_search('expires (\d+)sec', '\1')
+               | default(['-1'], true) | first | int }}
+          uptime: "{{ verify_pi_board_ipv6.uptime.stdout.split() | first | float | int }}"
+      vars:
+        verify_pi_ra_text: "{{ verify_pi_radvd_conf.content | b64decode }}"
+      when: verify_pi_radvd_conf is not skipped
+
+    - name: Assert the gateway keeps the board's IPv6 default route fresh
+      ansible.builtin.assert:
+        that:
+          - verify_pi_ra.interval | int > 0 and verify_pi_ra.lifetime | int >= 3 * (verify_pi_ra.interval | int)
+          - verify_pi_ra_provable | bool or not (verify_pi_require_periodic_ra | default(false) | bool)
+          - not (verify_pi_ra_provable | bool) or verify_pi_ra.expires | int >= verify_pi_ra_fresh | int
+        fail_msg: >-
+          {{ ansible_hostname }}'s IPv6 default route has {{ verify_pi_ra.expires }} s left,
+          {{ verify_pi_ra.uptime }} s after boot. The gateway advertises a
+          lifetime of {{ verify_pi_ra.lifetime }} s at least every
+          {{ verify_pi_ra.interval }} s, so a route refreshed by its periodic
+          advertisements has at least {{ verify_pi_ra_fresh }} s left; less
+          means no periodic advertisement reaches this port and the route
+          will run out. (If the uptime is {{ verify_pi_ra_settled }} s or
+          less, nothing can be told yet and this run requires that it can.)
+        success_msg: >-
+          {{ verify_pi_ra_provable | bool
+             | ternary('periodic router advertisements reach this port:',
+                       'NOT PROVEN (the board booted too recently), only that it has a route:') }}
+          {{ verify_pi_ra.expires }} s left of {{ verify_pi_ra.lifetime }} s,
+          {{ verify_pi_ra.uptime }} s after boot, advertised every {{ verify_pi_ra.interval }} s
+      vars:
+        # Two intervals, and a little for the clocks and the advertisement's way here.
+        verify_pi_ra_settled: "{{ 2 * (verify_pi_ra.interval | int) + 15 }}"
+        verify_pi_ra_provable: "{{ verify_pi_ra.uptime | int > verify_pi_ra_settled | int }}"
+        verify_pi_ra_fresh: "{{ verify_pi_ra.lifetime | int - verify_pi_ra_settled | int }}"
+      when: verify_pi_radvd_conf is not skipped
+
     - name: The gateway reaches this Pi on its IPv6 address
       ansible.builtin.command: ping -6 -c 3 -W 5 {{ verify_pi_ip6 }}
       delegate_to: "{{ groups['nbp'][0] }}"

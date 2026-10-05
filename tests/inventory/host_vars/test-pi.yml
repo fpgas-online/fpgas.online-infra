@@ -11,3 +11,12 @@
 # which verify-pi.yml otherwise fails; there is no FPGA on it to disturb.
 # fixpi's verify still checks the cmdline.txt this Pi and the real ones get.
 verify_pi_header_uart_console: true
+
+# verify-pi.yml must be able to tell that the gateway's periodic router
+# advertisements reach this Pi's port, and fail if it cannot: the test
+# gateway advertises every few seconds (pxe_ra_interval,
+# host_vars/test-vm.yml), so by the time the Pi answers ssh its default
+# route has been refreshed or it never will be. On a site, a board that
+# booted within the last two advertisement intervals proves nothing yet,
+# and the check says so instead of failing.
+verify_pi_require_periodic_ra: true

@@ -98,6 +98,14 @@ switches:
     house_uplink_port: 52
 switches_manage: false
 
+# Router advertisements on the port every few seconds, not every ten minutes
+# as on a site (roles/pxe/defaults/main.yml): by the time verify-pi.yml looks
+# at the virtual Pi, minutes after it booted, the gateway's periodic
+# advertisement has to have refreshed its IPv6 default route many times
+# over, and the check there can tell (verify_pi_require_periodic_ra,
+# host_vars/test-pi.yml). The lifetime is the site's.
+pxe_ra_interval: 10
+
 # The pi user's PLAINTEXT shared password. roles/fixpi hashes it into the NFS
 # root's /etc/shadow; roles/site hands it (base64) to the web terminal, which
 # is why it cannot be a hash. tests/vm/run_tests.py logs in with it.
