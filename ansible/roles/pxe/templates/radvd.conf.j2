@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+# Router advertisements on the per-port interfaces: what gives a board its
+# IPv6 default route, and tells it to take its address by DHCPv6 (which
+# dnsmasq serves, ports.conf.j2).
+#
+# One block per switch port, because the advertisement has to go out on
+# every port by itself, periodically. dnsmasq cannot do that here: all port
+# interfaces of a switch hold the same gateway address in the same /64
+# (roles/vlan_ports), and dnsmasq keeps one advertisement timer per prefix
+# and sends on one interface that holds it. The other ports then only ever
+# got the answer to the solicitation a board's kernel sends when its link
+# comes up, and the board lost its default route one router lifetime later.
+# So dnsmasq advertises nothing (no enable-ra in ports.conf.j2) and radvd,
+# whose timers are per interface, does.
+#
+# What a board is told, the same on every port:
+#   - this gateway is a default router, for {{ pxe_ra_lifetime }} s, said again at
+#     least every {{ pxe_ra_interval }} s (defaults/main.yml);
+#   - "managed": addresses come from DHCPv6;
+#   - the switch's prefix, NOT on-link and NOT for autoconfiguration: a
+#     board holds only its port's /128, makes no address of its own, and
+#     sends everything, the other ports of its switch included, through
+#     the gateway.
+#
+# IgnoreIfMissing: a port's interface can be missing or down when radvd
+# starts, and radvd takes it up when it appears. It is radvd's default,
+# stated because the gateway's start depends on it.
+{% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
+
+# {{ e.hostname }}: switch {{ e.switch }} port {{ e.port }}
+interface {{ e.iface }} {
+    AdvSendAdvert on;
+    IgnoreIfMissing on;
+    AdvManagedFlag on;
+    AdvOtherConfigFlag on;
+    MaxRtrAdvInterval {{ pxe_ra_interval }};
+    AdvDefaultLifetime {{ pxe_ra_lifetime }};
+    prefix {{ pib_network6_base }}{{ '%02d' | format(e.switch) }}::/64 {
+        AdvOnLink off;
+        AdvAutonomous off;
+    };
+};
+{% endfor %}

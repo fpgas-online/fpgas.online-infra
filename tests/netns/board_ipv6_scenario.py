@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
-"""Boot boards on one switch port against a real dnsmasq and watch the port's IPv6 address.
+"""Boot boards on a switch's ports against the real gateway daemons and watch their IPv6.
 
 Run by tests/test_board_ipv6_netns.py, never by hand on a real host: it
 must start as root in a network and a mount namespace of its own:
 
-    sudo unshare --net --mount python3 board_ipv6_scenario.py PORTS_CONF BOARD_CONF WORKDIR
+    sudo unshare --net --mount python3 board_ipv6_scenario.py \\
+        PORTS_CONF RADVD_CONF BOARD_CONF WORKDIR ROUTER_LIFETIME
 
-The namespace it starts in becomes the gateway, with the per-port interface
-of switch 1 port 1 as roles/vlan_ports configures it and a real dnsmasq
-that reads PORTS_CONF (roles/pxe's ports.conf.j2, rendered for that site).
-A board is a second network namespace on the other end of that interface,
-with IPv4 already configured as the kernel's ip=dhcp leaves it, running the
-real dhcpcd with BOARD_CONF (roles/onpi's fpgas-board-ipv6.conf) the way
+The namespace it starts in becomes the gateway: three per-port interfaces
+of switch 1 as roles/vlan_ports configures them (every one with the SAME
+gateway address in the SAME /64, and a host route to its port's board), a
+real dnsmasq that reads PORTS_CONF (roles/pxe's ports.conf.j2) and a real
+radvd that reads RADVD_CONF (roles/pxe's radvd.conf.j2), both rendered for
+that site. Behind the gateway is one more namespace, "beyond", for an
+address a board can only reach through its default route.
+
+A board is a network namespace on the other end of a port's interface, with
+IPv4 already configured as the kernel's ip=dhcp leaves it, running the real
+dhcpcd with BOARD_CONF (roles/onpi's fpgas-board-ipv6.conf) the way
 fpgas-board-ipv6.sh starts it. dhcpcd's state directories are a fresh tmpfs
 at every boot, as on a board, whose root is a tmpfs overlay.
 
-It boots, in turn:
+Ports 2 and 3 each get a board that stays up for the whole run: longer than
+several router lifetimes (ROUTER_LIFETIME, the seconds RADVD_CONF was
+rendered with), which is what a board's default route has to survive. A
+board asks for a router advertisement only when its link comes up; after
+that its route lives on the gateway's periodic ones.
+
+Meanwhile port 1 boots, in turn:
 
     first      board A, for the first time
     reboot     board A again after a power cut: nothing is left of the first
@@ -23,7 +35,9 @@ It boots, in turn:
     swap       board B (another MAC address) in the same port, straight
                after board A was unplugged
 
-and prints one JSON object with what each boot saw.
+It prints one JSON object with what each boot saw, what the boards that
+stayed up hold at the end, and every router advertisement and solicitation
+that crossed a port interface.
 
 Standard library only: it runs under the system python3, as root.
 """
@@ -31,21 +45,27 @@ Standard library only: it runs under the system python3, as root.
 import json
 import os
 import re
+import select
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
+import threading
 import time
 
-IFACE = "v2101"  # the gateway's interface for switch 1 port 1
 TRUNK = "eth-local"  # tests/ports_conf_render.py's eth_local
 GATEWAY4 = "10.21.0.1"
-BOARD4 = "10.21.1.1"
-PREFIX6 = "2001:db8:a137:2101"  # tests/test_board_ipv6_netns.py renders PORTS_CONF for it
-BOARD6 = f"{PREFIX6}::1"
+PREFIX6 = "2001:db8:a137:2101"  # switch 1 of tests/ports_conf_render.py's site
+# Beyond the gateway: its uplink, and a host there.
+UPLINK = "eth-uplink"
+UPLINK6 = "2001:db8:ffff::1"
+BEYOND = "beyond"
+BEYOND6 = "2001:db8:ffff::2"
 MAC_A = "02:00:00:b6:00:0a"
 MAC_B = "02:00:00:b6:00:0b"
-NETNS = "board"
+MAC_HELD = {2: "02:00:00:b6:00:0c", 3: "02:00:00:b6:00:0d"}
 # How long a board that is the port's known client may take to hold the
 # address (DHCPv6's first solicit waits up to a second; then duplicate
 # address detection).
@@ -55,6 +75,12 @@ PROMPT = 30
 # in the test), and then the board's next solicit has to come round; they
 # are sent at doubling intervals.
 PATIENT = 330
+# The boards that stay up are looked at once they have been up for this many
+# router lifetimes.
+LIFETIMES_HELD = 3
+# The kernel settings of the board's interface that the test reads before
+# the client starts and afterwards.
+SYSCTLS = ("accept_ra", "autoconf", "addr_gen_mode")
 
 
 def run(*argv: str, check: bool = True) -> str:
@@ -64,8 +90,22 @@ def run(*argv: str, check: bool = True) -> str:
     return proc.stdout
 
 
-def board(*argv: str, check: bool = True) -> str:
-    return run("ip", "netns", "exec", NETNS, *argv, check=check)
+def reaches(*argv: str) -> bool:
+    return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True).returncode == 0
+
+
+class Port:
+    """A switch port: the gateway's interface for it, and the board plugged into it."""
+
+    def __init__(self, number: int) -> None:
+        self.number = number
+        self.iface = f"v21{number:02d}"  # the gateway's interface for switch 1 port `number`
+        self.netns = f"board{number}"
+        self.board4 = f"10.21.1.{number}"
+        self.board6 = f"{PREFIX6}::{number}"
+
+    def board(self, *argv: str, check: bool = True) -> str:
+        return run("ip", "netns", "exec", self.netns, *argv, check=check)
 
 
 def duid_ll(mac: str) -> str:
@@ -73,10 +113,98 @@ def duid_ll(mac: str) -> str:
     return "00:03:00:01:" + mac
 
 
+class Wire(threading.Thread):
+    """Every router advertisement the gateway sends and every solicitation it hears, by interface."""
+
+    def __init__(self, started: float) -> None:
+        super().__init__(daemon=True)
+        self.started = started
+        self.stopping = threading.Event()
+        self.seen: dict = {}
+        # Packets the gateway sends are shown only to a socket that asks
+        # for every protocol.
+        self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(3))
+
+    def run(self) -> None:
+        while not self.stopping.is_set():
+            if not select.select([self.sock], [], [], 0.2)[0]:
+                continue
+            packet, (iface, protocol, pkttype, _hatype, _addr) = self.sock.recvfrom(2048)
+            # IPv6 (0x86DD), next header ICMPv6 (58), no extension headers.
+            if protocol != 0x86DD or len(packet) < 48 or packet[6] != 58:
+                continue
+            outgoing = pkttype == 4  # PACKET_OUTGOING
+            kind = packet[40]
+            now = round(time.monotonic() - self.started, 1)
+            seen = self.seen.setdefault(iface, {
+                "to_all_nodes": [], "unicast": [], "solicitations": [],
+                "router_lifetimes": set(), "managed": set(), "prefixes": set()})
+            if kind == 133 and not outgoing:
+                seen["solicitations"].append(now)
+            elif kind == 134 and outgoing and len(packet) >= 56:
+                destination = socket.inet_ntop(socket.AF_INET6, packet[24:40])
+                seen["to_all_nodes" if destination == "ff02::1" else "unicast"].append(now)
+                seen["router_lifetimes"].add(struct.unpack("!H", packet[46:48])[0])
+                seen["managed"].add(bool(packet[45] & 0x80))
+                options = packet[56:]
+                while len(options) >= 2 and options[1]:
+                    if options[0] == 3 and len(options) >= 32:  # prefix information
+                        seen["prefixes"].add((
+                            f"{socket.inet_ntop(socket.AF_INET6, options[16:32])}/{options[2]}",
+                            "on-link" if options[3] & 0x80 else "off-link",
+                            "autonomous" if options[3] & 0x40 else "not autonomous"))
+                    options = options[options[1] * 8:]
+
+    def result(self) -> dict:
+        self.stopping.set()
+        self.join(timeout=5)
+        return {iface: {key: sorted(value) if isinstance(value, set) else value for key, value in seen.items()}
+                for iface, seen in sorted(self.seen.items())}
+
+
+class RouteWatch(threading.Thread):
+    """Once a second: does each board that stays up have its IPv6 default route?"""
+
+    def __init__(self, ports: list, started: float) -> None:
+        super().__init__(daemon=True)
+        self.ports = ports
+        self.started = started
+        self.stopping = threading.Event()
+        # missing: how many samples found no route after the first that
+        # found one, and when the first few of them were.
+        self.seen = {port.number: {"samples": 0, "first_seen": None, "missing": 0, "missing_from": [],
+                                   "least_expires": None}
+                     for port in ports}
+
+    def run(self) -> None:
+        while not self.stopping.wait(1):
+            for port in self.ports:
+                route = port.board("ip", "-6", "route", "show", "default", check=False).strip()
+                now = round(time.monotonic() - self.started, 1)
+                seen = self.seen[port.number]
+                seen["samples"] += 1
+                if route:
+                    if seen["first_seen"] is None:
+                        seen["first_seen"] = now
+                    expires = re.search(r"expires (\d+)sec", route)
+                    if expires and (seen["least_expires"] is None or int(expires.group(1)) < seen["least_expires"]):
+                        seen["least_expires"] = int(expires.group(1))
+                elif seen["first_seen"] is not None:
+                    seen["missing"] += 1
+                    if len(seen["missing_from"]) < 5:
+                        seen["missing_from"].append(now)
+
+    def result(self) -> dict:
+        self.stopping.set()
+        self.join(timeout=10)
+        return self.seen
+
+
 class Gateway:
-    def __init__(self, ports_conf: str, workdir: str) -> None:
+    def __init__(self, ports_conf: str, radvd_conf: str, workdir: str) -> None:
         self.log = os.path.join(workdir, "dnsmasq.log")
         self.leases = os.path.join(workdir, "dnsmasq.leases")
+        self.radvd_log = os.path.join(workdir, "radvd.log")
         # The gateway forwards (roles/firewall), so its neighbour
         # advertisements say "router" and a board keeps the default route it
         # took from the router advertisement.
@@ -87,6 +215,16 @@ class Gateway:
         # starts, to make its own DHCPv6 server identifier from.
         run("ip", "link", "add", TRUNK, "type", "dummy")
         run("ip", "link", "set", TRUNK, "up")
+        # The uplink, and a host beyond it that knows the switch's prefix
+        # is behind this gateway.
+        run("ip", "netns", "add", BEYOND)
+        run("ip", "link", "add", UPLINK, "type", "veth", "peer", "name", "eth0", "netns", BEYOND)
+        run("ip", "addr", "add", f"{UPLINK6}/64", "dev", UPLINK, "nodad")
+        run("ip", "link", "set", UPLINK, "up")
+        run("ip", "netns", "exec", BEYOND, "ip", "link", "set", "lo", "up")
+        run("ip", "netns", "exec", BEYOND, "ip", "addr", "add", f"{BEYOND6}/64", "dev", "eth0", "nodad")
+        run("ip", "netns", "exec", BEYOND, "ip", "link", "set", "eth0", "up")
+        run("ip", "netns", "exec", BEYOND, "ip", "route", "add", f"{PREFIX6}::/64", "via", UPLINK6)
         # A copy of the binary: where dnsmasq is confined by an AppArmor
         # profile attached to its path, the profile allows it neither this
         # lease file nor this log.
@@ -98,66 +236,91 @@ class Gateway:
              "--bind-dynamic", "--port=0", "--log-dhcp", f"--log-facility={self.log}",
              f"--dhcp-leasefile={self.leases}", "--pid-file=", "--user=root"],
             stdin=subprocess.DEVNULL)
+        # radvd as its Debian unit starts it, but in the foreground. It is
+        # started before any port has an interface, as on a gateway whose
+        # port interfaces come up after it.
+        with open(self.radvd_log, "w") as log:
+            self.radvd = subprocess.Popen(
+                ["radvd", "--nodaemon", "--logmethod", "stderr_clean", "--config", radvd_conf,
+                 "--pidfile", "/run/radvd.pid"],
+                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 10
         while not os.path.exists(self.log):
             if self.proc.poll() is not None or time.monotonic() > deadline:
                 raise RuntimeError(f"dnsmasq did not start (exit status {self.proc.poll()})")
             time.sleep(0.1)
+        self.check()
 
-    def plug(self, mac: str) -> None:
+    def check(self) -> None:
+        if self.proc.poll() is not None:
+            raise RuntimeError(f"dnsmasq exited ({self.proc.poll()})")
+        if self.radvd.poll() is not None:
+            with open(self.radvd_log) as f:
+                raise RuntimeError(f"radvd exited ({self.radvd.poll()}): {f.read()}")
+
+    def plug(self, port: Port, mac: str) -> None:
         """A board on the port: the far end of the gateway's per-port interface."""
-        run("ip", "netns", "add", NETNS)
-        run("ip", "link", "add", IFACE, "type", "veth", "peer", "name", "eth0", "address", mac, "netns", NETNS)
-        # roles/vlan_ports, vlan.network.j2: the gateway's own addresses and
-        # a host route to the board on each family.
-        run("ip", "addr", "add", f"{GATEWAY4}/32", "dev", IFACE)
-        run("ip", "addr", "add", f"{PREFIX6}::ffff/64", "dev", IFACE, "nodad")
-        run("ip", "link", "set", IFACE, "up")
-        run("ip", "route", "add", f"{BOARD4}/32", "dev", IFACE)
-        run("ip", "route", "add", f"{BOARD6}/128", "dev", IFACE)
+        run("ip", "netns", "add", port.netns)
+        run("ip", "link", "add", port.iface, "type", "veth", "peer", "name", "eth0", "address", mac,
+            "netns", port.netns)
+        # roles/vlan_ports, vlan.network.j2: the gateway's own addresses,
+        # the same on every port of the switch, and a host route to the
+        # board on each family.
+        run("ip", "addr", "add", f"{GATEWAY4}/32", "dev", port.iface)
+        run("ip", "addr", "add", f"{PREFIX6}::ffff/64", "dev", port.iface, "nodad")
+        run("ip", "link", "set", port.iface, "up")
+        run("ip", "route", "add", f"{port.board4}/32", "dev", port.iface)
+        run("ip", "route", "add", f"{port.board6}/128", "dev", port.iface)
 
-    def unplug(self, client: subprocess.Popen) -> None:
+    def unplug(self, port: Port, client: subprocess.Popen | None) -> None:
         """A power cut: every process of the board dies where it stands."""
-        # dhcpcd and the helpers it forks are one process group (boot());
+        # dhcpcd and the helpers it forks are one process group (start_client());
         # then whatever else is still in the board's namespace.
-        try:
-            os.killpg(client.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        for pid in run("ip", "netns", "pids", NETNS).split():
+        if client is not None:
+            try:
+                os.killpg(client.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        for pid in run("ip", "netns", "pids", port.netns).split():
             try:
                 os.kill(int(pid), signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        run("ip", "netns", "del", NETNS)  # takes both ends of the veth with it
+        run("ip", "netns", "del", port.netns)  # takes both ends of the veth with it
         deadline = time.monotonic() + 10
-        while run("ip", "-o", "link", "show", "dev", IFACE, check=False) and time.monotonic() < deadline:
+        while run("ip", "-o", "link", "show", "dev", port.iface, check=False) and time.monotonic() < deadline:
             time.sleep(0.1)
 
-    def answers(self, duid: str) -> list[str]:
+    def answers(self, port: Port, duid: str) -> list[str]:
         """What dnsmasq answered this client, oldest first."""
         with open(self.log) as f:
             return [m.group(1) for m in re.finditer(
-                rf"DHCP(?:ADVERTISE|REPLY)\({IFACE}\) (.*?)\s*$", f.read(), re.MULTILINE) if duid in m.group(1)]
+                rf"DHCP(?:ADVERTISE|REPLY)\({port.iface}\) (.*?)\s*$", f.read(), re.MULTILINE) if duid in m.group(1)]
 
     def stop(self) -> None:
-        self.proc.terminate()
-        self.proc.wait(timeout=10)
+        for proc in (self.proc, self.radvd):
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=10)
 
 
 RESOLV_CONF = "nameserver 10.21.0.1\n"  # what the image carries (ansible/ci-nfsroot.yml)
 
 
-def boot(board_conf: str, resolv_conf: str) -> subprocess.Popen:
-    """The board as it is when fpgas-board-ipv6.service starts, and the client the service runs."""
+def prepare(port: Port) -> None:
+    """The board as it is when fpgas-board-ipv6.service starts."""
+    port.board("sysctl", "-q", "-w", "net.ipv6.conf.all.accept_ra=1", "net.ipv6.conf.default.accept_ra=1")
+    port.board("ip", "link", "set", "lo", "up")
+    # What the kernel's ip=dhcp leaves: the address and a default route.
+    port.board("ip", "addr", "add", f"{port.board4}/16", "dev", "eth0")
+    port.board("ip", "link", "set", "eth0", "up")
+    port.board("ip", "route", "add", "default", "via", GATEWAY4, "dev", "eth0")
+
+
+def start_client(port: Port, board_conf: str, resolv_conf: str) -> subprocess.Popen:
+    """The client fpgas-board-ipv6.service runs."""
     with open(resolv_conf, "w") as f:
         f.write(RESOLV_CONF)
-    board("sysctl", "-q", "-w", "net.ipv6.conf.all.accept_ra=1", "net.ipv6.conf.default.accept_ra=1")
-    board("ip", "link", "set", "lo", "up")
-    # What the kernel's ip=dhcp leaves: the address and a default route.
-    board("ip", "addr", "add", f"{BOARD4}/16", "dev", "eth0")
-    board("ip", "link", "set", "eth0", "up")
-    board("ip", "route", "add", "default", "via", GATEWAY4, "dev", "eth0")
     # /run and /var/lib/dhcpcd are where dhcpcd keeps its pid, its DUID and
     # its lease: empty at every boot, and never the test host's own. Its
     # hooks must not run; if a change to BOARD_CONF lets them, what they
@@ -173,7 +336,7 @@ def boot(board_conf: str, resolv_conf: str) -> subprocess.Popen:
     else:
         raise RuntimeError(f"/etc/resolv.conf is {target}, not a file: cannot stand the board's in for it")
     return subprocess.Popen(
-        ["ip", "netns", "exec", NETNS, "unshare", "--mount", "--uts", "sh", "-c",
+        ["ip", "netns", "exec", port.netns, "unshare", "--mount", "--uts", "sh", "-c",
          'mount -t tmpfs tmpfs /run && mount -t tmpfs tmpfs /var/lib/dhcpcd && ' + place +
          'mount --bind "$1" "$2" && exec dhcpcd -B -f "$0" eth0',
          board_conf, resolv_conf, target],
@@ -181,88 +344,136 @@ def boot(board_conf: str, resolv_conf: str) -> subprocess.Popen:
         start_new_session=True)
 
 
-def ipv4_state() -> dict:
-    return {"addresses": re.findall(r"inet (\S+)", board("ip", "-4", "-o", "addr", "show", "dev", "eth0")),
-            "routes": sorted(board("ip", "-4", "route", "show").splitlines())}
+def ipv4_state(port: Port) -> dict:
+    return {"addresses": re.findall(r"inet (\S+)", port.board("ip", "-4", "-o", "addr", "show", "dev", "eth0")),
+            "routes": sorted(port.board("ip", "-4", "route", "show").splitlines())}
 
 
-def global6() -> list[str]:
+def sysctls(port: Port) -> dict:
+    return {name: port.board("cat", f"/proc/sys/net/ipv6/conf/eth0/{name}").strip() for name in SYSCTLS}
+
+
+def global6(port: Port) -> list[str]:
     """The board's usable global IPv6 addresses (not still in duplicate address detection)."""
-    out = board("ip", "-6", "-o", "addr", "show", "dev", "eth0", "scope", "global", "-tentative")
+    out = port.board("ip", "-6", "-o", "addr", "show", "dev", "eth0", "scope", "global", "-tentative")
     return re.findall(r"inet6 (\S+)", out)
 
 
-def watch(gateway: Gateway, mac: str, board_conf: str, workdir: str, patience: int) -> tuple[dict, subprocess.Popen]:
+def holds(port: Port, client: subprocess.Popen) -> dict:
+    """What a board holds now, and whether its address works in both directions."""
+    return {
+        "addresses": global6(port),
+        "ipv4_after": ipv4_state(port),
+        "default_route6": port.board("ip", "-6", "route", "show", "default").strip(),
+        "sysctls_after": sysctls(port),
+        "gateway_reaches_board": reaches("ping", "-6", "-c", "1", "-W", "3", port.board6),
+        # Beyond the gateway and back: the board's side of this is its
+        # default route, the port's prefix being off-link.
+        "board_reaches_beyond": reaches("ip", "netns", "exec", port.netns, "ping", "-6", "-c", "1", "-W", "3", BEYOND6),
+        "beyond_reaches_board": reaches("ip", "netns", "exec", BEYOND, "ping", "-6", "-c", "1", "-W", "3", port.board6),
+        "client_running": client.poll() is None,
+    }
+
+
+def watch(gateway: Gateway, port: Port, mac: str, board_conf: str, workdir: str,
+          patience: int) -> tuple[dict, subprocess.Popen]:
     """Boot the board that is plugged in; report what it holds once it has an address, or at the deadline."""
     started = time.monotonic()
-    resolv_conf = os.path.join(workdir, "board-resolv.conf")
-    client = boot(board_conf, resolv_conf)
-    ipv4_before = ipv4_state()
+    resolv_conf = os.path.join(workdir, f"board{port.number}-resolv.conf")
+    prepare(port)
+    ipv4_before = ipv4_state(port)
+    sysctls_before = sysctls(port)
+    client = start_client(port, board_conf, resolv_conf)
     early = None  # what the board held, and was told, 15 s into the boot
     while time.monotonic() - started < patience:
-        addresses = global6()
+        addresses = global6(port)
         if early is None and (addresses or time.monotonic() - started > 15):
-            early = {"addresses": addresses, "answers": gateway.answers(duid_ll(mac))}
+            early = {"addresses": addresses, "answers": gateway.answers(port, duid_ll(mac))}
         if addresses:
             break
         if client.poll() is not None:
             raise RuntimeError(f"the board's client exited ({client.returncode}): {client.communicate()[0]}")
-        if gateway.proc.poll() is not None:
-            raise RuntimeError(f"dnsmasq exited ({gateway.proc.poll()})")
+        gateway.check()
         time.sleep(0.5)
     seconds = round(time.monotonic() - started, 1)
     # The default route is the kernel's, from the router advertisement that
     # answers its solicitation: on a known board the address can be there first.
     deadline = time.monotonic() + 15
-    while not board("ip", "-6", "route", "show", "default").strip() and time.monotonic() < deadline:
+    while not port.board("ip", "-6", "route", "show", "default").strip() and time.monotonic() < deadline:
         time.sleep(0.5)
     result = {
         "seconds": seconds,
-        "addresses": global6(),
         "early": early,
-        "answers": gateway.answers(duid_ll(mac)),
+        "answers": gateway.answers(port, duid_ll(mac)),
         "ipv4_before": ipv4_before,
-        "ipv4_after": ipv4_state(),
+        "sysctls_before": sysctls_before,
         "resolv_conf_untouched": open(resolv_conf).read() == RESOLV_CONF,
-        "default_route6": board("ip", "-6", "route", "show", "default").strip(),
-        "accept_ra": board("cat", "/proc/sys/net/ipv6/conf/eth0/accept_ra").strip(),
-        "gateway_reaches_board": subprocess.run(
-            ["ping", "-6", "-c", "1", "-W", "3", BOARD6], stdin=subprocess.DEVNULL, capture_output=True).returncode == 0,
-        "client_running": client.poll() is None,
+        **holds(port, client),
     }
     return result, client
 
 
 def main() -> int:
-    ports_conf, board_conf, workdir = sys.argv[1:4]
+    ports_conf, radvd_conf, board_conf, workdir, router_lifetime = sys.argv[1:6]
     if os.geteuid() != 0:
         sys.exit("must be root, in a network and mount namespace of its own (see the docstring)")
     # `ip netns add` leaves a file in /run/netns: keep it, too, out of the
     # host's /run. The mount namespace is ours (unshare --mount).
     run("mount", "-t", "tmpfs", "tmpfs", "/run")
-    gateway = Gateway(ports_conf, workdir)
-    results: dict = {}
+    started = time.monotonic()
+    story, held = Port(1), [Port(2), Port(3)]
+    gateway = Gateway(ports_conf, radvd_conf, workdir)
+    wire = Wire(started)
+    wire.start()
+    routes = RouteWatch(held, started)
+    results: dict = {"held": {}}
     logs: dict = {}
+    plugged: dict = {}  # port -> its board's client, for the boards there now
     try:
-        gateway.plug(MAC_A)
-        results["first"], client = watch(gateway, MAC_A, board_conf, workdir, PROMPT)
-        gateway.unplug(client)
-        logs["first"] = client.communicate()[0]
+        # The boards that stay up.
+        booted = {}
+        for port in held:
+            gateway.plug(port, MAC_HELD[port.number])
+            plugged[port] = None
+            booted[port] = time.monotonic()
+            boot, plugged[port] = watch(gateway, port, MAC_HELD[port.number], board_conf, workdir, PROMPT)
+            results["held"][str(port.number)] = {"booted_at": round(booted[port] - started, 1), "boot": boot}
+        routes.start()
 
-        gateway.plug(MAC_A)
-        results["reboot"], client = watch(gateway, MAC_A, board_conf, workdir, PROMPT)
-        gateway.unplug(client)
-        logs["reboot"] = client.communicate()[0]
+        # Port 1's three boots.
+        for name, mac, patience in (("first", MAC_A, PROMPT), ("reboot", MAC_A, PROMPT), ("swap", MAC_B, PATIENT)):
+            gateway.plug(story, mac)
+            plugged[story] = None
+            results[name], plugged[story] = watch(gateway, story, mac, board_conf, workdir, patience)
+            client = plugged.pop(story)
+            gateway.unplug(story, client)
+            logs[name] = client.communicate()[0]
 
-        gateway.plug(MAC_B)
-        results["swap"], client = watch(gateway, MAC_B, board_conf, workdir, PATIENT)
-        gateway.unplug(client)
-        logs["swap"] = client.communicate()[0]
+        # The boards that stayed up, several router lifetimes after they came up.
+        for port in held:
+            remaining = booted[port] + LIFETIMES_HELD * int(router_lifetime) + 1 - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            gateway.check()
+            results["held"][str(port.number)]["later"] = {
+                "uptime": round(time.monotonic() - booted[port], 1),
+                "answers": gateway.answers(port, duid_ll(MAC_HELD[port.number])),
+                **holds(port, plugged[port])}
+        results["route_watch"] = routes.result()
+        results["wire"] = wire.result()
     finally:
+        routes.stopping.set()
+        wire.stopping.set()
+        for port, client in list(plugged.items()):
+            gateway.unplug(port, client)
+            if client is not None:
+                logs[f"held{port.number}"] = client.communicate()[0]
         gateway.stop()
     results["client_logs"] = logs
     with open(gateway.log) as f:
         results["dnsmasq_log"] = f.read()
+    with open(gateway.radvd_log) as f:
+        results["radvd_log"] = f.read()
     print(json.dumps(results))
     return 0
 

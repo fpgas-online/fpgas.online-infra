@@ -1,4 +1,8 @@
-"""Render roles/pxe's ports.conf.j2 (the per-port dnsmasq configuration) for tests."""
+"""Render roles/pxe's per-port gateway configuration for tests.
+
+ports.conf.j2 is dnsmasq's (DHCP for each switch port), radvd.conf.j2 is
+radvd's (the router advertisements on each switch port).
+"""
 
 import importlib.util
 from pathlib import Path
@@ -9,6 +13,7 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 PXE = REPO / "ansible/roles/pxe"
 TEMPLATE = PXE / "templates/ports.conf.j2"
+RADVD_TEMPLATE = PXE / "templates/radvd.conf.j2"
 DEFAULTS = PXE / "defaults/main.yml"
 
 # A site whose `switches` is one switch with one access port: switch 1
@@ -35,8 +40,22 @@ def defaults() -> dict:
     return yaml.safe_load(DEFAULTS.read_text())
 
 
-def render(**overrides) -> str:
-    """ports.conf for SITE with the role's defaults, and `overrides` on top."""
+def switches(access_ports: int) -> list[dict]:
+    """SITE's one switch with `access_ports` ports, for `render(switches=...)`."""
+    return [{**SITE["switches"][0], "access_ports": access_ports}]
+
+
+def _render(template: Path, overrides: dict) -> str:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
     env.filters["port_vlan_map"] = _port_vlan_map()
-    return env.from_string(TEMPLATE.read_text()).render(**{**defaults(), **SITE, **overrides})
+    return env.from_string(template.read_text()).render(**{**defaults(), **SITE, **overrides})
+
+
+def render(**overrides) -> str:
+    """ports.conf for SITE with the role's defaults, and `overrides` on top."""
+    return _render(TEMPLATE, overrides)
+
+
+def render_radvd(**overrides) -> str:
+    """radvd.conf for SITE with the role's defaults, and `overrides` on top."""
+    return _render(RADVD_TEMPLATE, overrides)

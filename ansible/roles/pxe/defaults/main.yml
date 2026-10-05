@@ -9,8 +9,7 @@
 # once. A DIFFERENT board plugged into the port is answered "no addresses
 # available" until the lease of the board that was there before has run out;
 # it keeps asking, at growing intervals, and takes the address then
-# (tests/test_board_ipv6_netns.py runs all three cases against a real
-# dnsmasq).
+# (tests/test_board_ipv6_netns.py runs these cases against a real dnsmasq).
 #
 # So this is how long a port's IPv6 address can stay unusable after its
 # board was swapped. The price of a short lease is that every board renews
@@ -18,3 +17,22 @@
 # when the gateway has been away for longer than the lease (it comes back
 # once the gateway answers again). IPv4 and the NFS root do not depend on it.
 pxe_port_lease6: 10m
+
+# Router advertisements on the per-port interfaces (templates/radvd.conf.j2),
+# in seconds: the longest time between two unsolicited advertisements on a
+# port, and how long a board keeps the default route it took from one.
+#
+# A board's only IPv6 default route is the one its kernel takes from these
+# advertisements, and the kernel asks for one (a router solicitation) only
+# when its link comes up. After that the route lives on the periodic
+# advertisement alone: none within the lifetime and the board has an IPv6
+# address it cannot use (tests/test_board_ipv6_netns.py holds boards on
+# several ports for longer than the lifetime). The lifetime is three
+# intervals, RFC 4861's default: two advertisements in a row can be lost.
+#
+# radvd's limits: the interval is between 10 and 1800, the lifetime at
+# least the interval and at most 9000. radvd does not refuse a file outside
+# them; it starts and advertises nothing on the port. tasks/main.yml checks
+# them for that reason.
+pxe_ra_interval: 600
+pxe_ra_lifetime: 1800

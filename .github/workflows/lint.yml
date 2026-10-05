@@ -62,13 +62,14 @@ jobs:
         run: uv sync
       # attr: setfattr/getfattr for the split-image round trip
       # (tests/test_nfsroot_layers_podman.py, which needs sudo + podman).
-      # dnsmasq-base, dhcpcd-base, iproute2, iputils-ping, util-linux: a
-      # board taking its port's IPv6 address from a real dnsmasq, in network
-      # namespaces (tests/test_board_ipv6_netns.py, which needs sudo).
+      # dnsmasq-base, radvd, dhcpcd-base, iproute2, iputils-ping, util-linux:
+      # boards taking their ports' IPv6 addresses from a real dnsmasq and
+      # their default route from a real radvd, in network namespaces
+      # (tests/test_board_ipv6_netns.py, which needs sudo).
       - name: Install the round-trip and board IPv6 tests' tools
         run: >-
           sudo apt-get install -y --no-install-recommends
-          attr dnsmasq-base dhcpcd-base iproute2 iputils-ping util-linux
+          attr dnsmasq-base radvd dhcpcd-base iproute2 iputils-ping util-linux
       - name: Run the unit tests
         env:
           NFSROOT_PODMAN_TEST: "1"

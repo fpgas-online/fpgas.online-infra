@@ -13,6 +13,91 @@
     that: pxe_dnsmasq_active.stdout == "active"
     fail_msg: "dnsmasq service is not active (got: {{ pxe_dnsmasq_active.stdout }})"
 
+# Per-port VLAN scheme: the router advertisements on the port interfaces
+# are radvd's alone (templates/radvd.conf.j2). A board's IPv6 default route
+# lives on them, so radvd has to be running, on a file it accepts, with one
+# interface for every port dnsmasq serves; and dnsmasq must advertise
+# nothing, or a port hears two routers' worth of settings.
+- name: Check radvd service active  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl is-active radvd
+  changed_when: false
+  register: pxe_radvd_active
+  failed_when: false
+  when: switches is defined
+
+- name: Assert radvd service is active
+  ansible.builtin.assert:
+    that: pxe_radvd_active.stdout == "active"
+    fail_msg: >-
+      radvd is not active (got: {{ pxe_radvd_active.stdout }}): no port gets
+      a router advertisement, and every board loses its IPv6 default route
+  when: switches is defined
+
+- name: Check radvd accepts /etc/radvd.conf
+  ansible.builtin.command: radvd --configtest --config /etc/radvd.conf
+  changed_when: false
+  register: pxe_radvd_configtest
+  failed_when: false
+  when: switches is defined
+
+- name: Assert radvd accepts /etc/radvd.conf
+  ansible.builtin.assert:
+    that: pxe_radvd_configtest.rc == 0
+    fail_msg: "radvd --configtest failed: {{ pxe_radvd_configtest.stdout }} {{ pxe_radvd_configtest.stderr }}"
+  when: switches is defined
+
+- name: Read /etc/radvd.conf
+  ansible.builtin.slurp:
+    src: /etc/radvd.conf
+  register: pxe_radvd_conf
+  when: switches is defined
+
+- name: Read /etc/dnsmasq.d/ports.conf
+  ansible.builtin.slurp:
+    src: /etc/dnsmasq.d/ports.conf
+  register: pxe_ports_conf
+  when: switches is defined
+
+- name: Assert radvd advertises on every port dnsmasq serves, as the design needs
+  ansible.builtin.assert:
+    that:
+      - pxe_radvd_ifaces | length > 0
+      - pxe_radvd_ifaces | sort == pxe_dnsmasq_ports | sort
+      - pxe_radvd_text | regex_findall('AdvManagedFlag on;') | length == pxe_radvd_ifaces | length
+      - pxe_radvd_text | regex_findall('AdvOnLink off;') | length == pxe_radvd_ifaces | length
+      - pxe_radvd_text | regex_findall('AdvAutonomous off;') | length == pxe_radvd_ifaces | length
+    fail_msg: >-
+      /etc/radvd.conf does not give every per-port interface a managed,
+      off-link, no-autoconfiguration advertisement: radvd has
+      {{ pxe_radvd_ifaces | sort }}, dnsmasq's ports.conf has
+      {{ pxe_dnsmasq_ports | sort }}
+  vars:
+    pxe_radvd_text: "{{ pxe_radvd_conf.content | b64decode }}"
+    pxe_radvd_ifaces: "{{ pxe_radvd_text | regex_findall('(?m)^interface (\\S+) \\{$') }}"
+    pxe_dnsmasq_ports: >-
+      {{ pxe_ports_conf.content | b64decode | regex_findall('(?m)^dhcp-range=tag:(\S+?),[0-9a-f:]*::[0-9a-f:]*,') }}
+  when: switches is defined
+
+# Every way dnsmasq can be told to advertise: enable-ra, a range with a
+# router advertisement mode, ra-param. Comments are not settings.
+- name: Find router advertisement settings in dnsmasq's configuration
+  ansible.builtin.command: >-
+    grep -rnE
+    '^[[:space:]]*(enable-ra|ra-param)|^[[:space:]]*dhcp-range=.*(ra-only|ra-names|ra-stateless|ra-advrouter|slaac|off-link)'
+    /etc/dnsmasq.conf /etc/dnsmasq.d
+  changed_when: false
+  register: pxe_dnsmasq_ra
+  failed_when: pxe_dnsmasq_ra.rc not in [0, 1]
+  when: switches is defined
+
+- name: Assert dnsmasq advertises nothing (radvd does)
+  ansible.builtin.assert:
+    that: pxe_dnsmasq_ra.rc == 1
+    fail_msg: >-
+      dnsmasq is configured to send router advertisements as well as radvd:
+      {{ pxe_dnsmasq_ra.stdout_lines }}
+  when: switches is defined
+
 - name: Check /etc/dnsmasq.d/rpi.conf exists
   ansible.builtin.stat:
     path: /etc/dnsmasq.d/rpi.conf

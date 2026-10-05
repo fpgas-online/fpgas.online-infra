@@ -15,9 +15,14 @@ over, started by one unit. These tests fail if:
   - the start script names an interface instead of finding the one the NFS
     root is mounted over, or carries on when it cannot find it,
   - the gateway's lease for the port's one address stops being short,
+  - the gateway stops sending router advertisements on every port by
+    itself (radvd, one interface per port), starts advertising from
+    dnsmasq as well, or advertises the prefix as on-link or for
+    autoconfiguration,
   - verify-pi.yml stops checking a booted board for the address.
 
-tests/test_board_ipv6_netns.py runs the client against a real dnsmasq.
+tests/test_board_ipv6_netns.py runs the client against a real dnsmasq and a
+real radvd.
 """
 
 import configparser
@@ -28,7 +33,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.ports_conf_render import defaults, render
+from tests.ports_conf_render import SITE, defaults, render, render_radvd, switches
 
 REPO = Path(__file__).resolve().parent.parent
 ONPI = REPO / "ansible/roles/onpi"
@@ -42,6 +47,7 @@ BACKPORTS_PIN = FILES / "debian-backports-dhcpcd.pref"
 ARMMP_PIN = REPO / "ansible/roles/fixpi/templates/apt/debian-armmp.pref.j2"
 CI_NFSROOT = REPO / "ansible/ci-nfsroot.yml"
 VERIFY_PI = REPO / "ansible/verify-pi.yml"
+PXE = REPO / "ansible/roles/pxe"
 
 # A board's /proc/mounts: the NFS root read-only under overlayroot's tmpfs.
 OVERLAYROOT_MOUNTS = """\
@@ -268,8 +274,8 @@ def lease_seconds(lease: str) -> int:
 def test_the_ports_ipv6_range_is_one_address_with_the_roles_lease():
     lease = str(defaults()["pxe_port_lease6"])
     lines = [line for line in render().splitlines() if line.startswith("dhcp-range=") and "::" in line]
-    assert lines == [f"dhcp-range=tag:v2101,2001:db8:a137:2101::1,2001:db8:a137:2101::1,off-link,64,{lease}"]
-    assert render(pxe_port_lease6="2m").count(",off-link,64,2m\n") == 1
+    assert lines == [f"dhcp-range=tag:v2101,2001:db8:a137:2101::1,2001:db8:a137:2101::1,64,{lease}"]
+    assert render(pxe_port_lease6="2m").count("::1,64,2m\n") == 1
 
 
 def test_the_ports_ipv6_lease_is_short():
@@ -286,6 +292,114 @@ def test_the_ipv4_range_is_unchanged():
     assert "dhcp-range=tag:v2101,10.21.1.1,10.21.1.1,255.255.0.0,12h\n" in render()
 
 
+# --- the gateway: router advertisements on every port -----------------------
+
+TWO_SWITCHES = [{**SITE["switches"][0], "index": 1, "access_ports": 3},
+                {**SITE["switches"][0], "index": 2, "access_ports": 2}]
+
+
+def radvd_interfaces(conf: str) -> dict[str, str]:
+    """radvd.conf's interface blocks, by interface name, comments removed."""
+    code = "\n".join(line for line in conf.splitlines() if not line.lstrip().startswith("#"))
+    return dict(re.findall(r"^interface (\S+) \{\n(.*?)^\};$", code, re.MULTILINE | re.DOTALL))
+
+
+def test_radvd_advertises_on_every_port_dnsmasq_serves():
+    """One interface block per port: radvd's timers are per interface.
+
+    dnsmasq's are per prefix, and every port of a switch shares one: it sent
+    its periodic advertisement on one port of each switch only.
+    """
+    ports = re.findall(r"^dhcp-range=tag:(\S+?),[0-9a-f:]*::", render(switches=TWO_SWITCHES), re.MULTILINE)
+    assert ports == ["v2101", "v2102", "v2103", "v2201", "v2202"]
+    assert list(radvd_interfaces(render_radvd(switches=TWO_SWITCHES))) == ports
+
+
+def test_radvd_says_what_the_per_port_addressing_needs():
+    """Addresses by DHCPv6; the switch's prefix neither on-link nor for autoconfiguration."""
+    values = defaults()
+    blocks = radvd_interfaces(render_radvd(switches=TWO_SWITCHES))
+    for iface, block in blocks.items():
+        settings = [line.strip() for line in block.splitlines() if line.strip()]
+        prefix = "2001:db8:a137:210" + iface[2]  # v2SPP: switch S's /64
+        assert settings == [
+            "AdvSendAdvert on;",
+            "IgnoreIfMissing on;",
+            "AdvManagedFlag on;",
+            "AdvOtherConfigFlag on;",
+            f"MaxRtrAdvInterval {values['pxe_ra_interval']};",
+            f"AdvDefaultLifetime {values['pxe_ra_lifetime']};",
+            f"prefix {prefix}::/64 {{",
+            "AdvOnLink off;",
+            "AdvAutonomous off;",
+            "};",
+        ], iface
+
+
+def test_the_default_route_outlives_lost_advertisements():
+    """A board's default route lasts the lifetime; the gateway repeats itself every interval."""
+    values = defaults()
+    # radvd's own limits, and RFC 4861's default of three intervals.
+    assert 10 <= values["pxe_ra_interval"] <= 1800
+    assert 3 * values["pxe_ra_interval"] <= values["pxe_ra_lifetime"] <= 9000
+
+
+def test_dnsmasq_advertises_nothing():
+    """radvd does. Two advertisers on a port would each tell a board something of their own."""
+    settings = [line.strip() for line in render(switches=TWO_SWITCHES).splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    assert not [line for line in settings if re.match(r"(enable-ra|ra-param)\b", line)]
+    assert not [line for line in settings if line.startswith("dhcp-range=")
+                and re.search(r"\b(ra-only|ra-names|ra-stateless|ra-advrouter|slaac|off-link)\b", line)]
+
+
+def test_the_role_installs_checks_and_starts_radvd():
+    tasks = {task["name"]: task for task in yaml.safe_load((PXE / "tasks/main.yml").read_text())}
+    install = tasks["Install radvd (router advertisements on the per-port interfaces)"]
+    configure = tasks["Configure radvd (one interface per switch port)"]
+    start = tasks["Enable and start radvd"]
+    assert install["ansible.builtin.apt"]["name"] == "radvd"
+    assert configure["ansible.builtin.template"]["dest"] == "/etc/radvd.conf"
+    # radvd reads the file before it replaces the one in use.
+    assert configure["ansible.builtin.template"]["validate"] == "radvd --configtest --config %s"
+    assert start["ansible.builtin.systemd"] == {"name": "radvd", "enabled": True, "state": "started"}
+    # Only where the per-port scheme is in use, as ports.conf.
+    assert all(task["when"] == "switches is defined" for task in (install, configure, start))
+    order = list(tasks)
+    assert order.index(install["name"]) < order.index(configure["name"]) < order.index(start["name"])
+
+
+def test_the_role_refuses_timing_radvd_would_silently_drop():
+    """radvd runs on with a value outside its limits and advertises nothing on the port."""
+    tasks = {task["name"]: task for task in yaml.safe_load((PXE / "tasks/main.yml").read_text())}
+    check = tasks["Check the router advertisement timing is within radvd's limits"]
+    assert check["ansible.builtin.assert"]["that"] == [
+        "pxe_ra_interval | int >= 10",
+        "pxe_ra_interval | int <= 1800",
+        "pxe_ra_lifetime | int >= pxe_ra_interval | int",
+        "pxe_ra_lifetime | int <= 9000",
+    ]
+    order = list(tasks)
+    assert order.index(check["name"]) < order.index("Configure radvd (one interface per switch port)")
+
+
+def test_a_changed_radvd_file_is_reloaded_not_restarted():
+    """A stopping radvd tells every board the router is gone; a reload does not."""
+    tasks = {task["name"]: task for task in yaml.safe_load((PXE / "tasks/main.yml").read_text())}
+    handlers = {task["name"]: task for task in yaml.safe_load((PXE / "handlers/main.yml").read_text())}
+    assert tasks["Configure radvd (one interface per switch port)"]["notify"] == "Reload radvd"
+    assert handlers["Reload radvd"]["ansible.builtin.systemd"] == {"name": "radvd", "state": "reloaded"}
+
+
+def test_verify_server_checks_the_advertiser():
+    names = [task["name"] for task in yaml.safe_load((PXE / "tasks/verify/main.yml").read_text())]
+    for name in ("Assert radvd service is active",
+                 "Assert radvd accepts /etc/radvd.conf",
+                 "Assert radvd advertises on every port dnsmasq serves, as the design needs",
+                 "Assert dnsmasq advertises nothing (radvd does)"):
+        assert name in names
+
+
 # --- verify-pi ------------------------------------------------------------
 
 def test_verify_pi_checks_a_booted_board_for_the_address():
@@ -295,3 +409,4 @@ def test_verify_pi_checks_a_booted_board_for_the_address():
                  "Assert the board's DHCPv6 client is running",
                  "The gateway reaches this Pi on its IPv6 address"):
         assert name in names
+

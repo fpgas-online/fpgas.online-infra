@@ -1,10 +1,15 @@
-"""A board takes its port's IPv6 address, again after a reboot, and so does a board swapped in (#222).
+"""Boards take their ports' IPv6 addresses and keep IPv6 working for as long as they are up (#222).
 
 The VM test (verify-pi.yml) shows a netbooted virtual Pi holding its
-address, once: the harness never reboots the Pi and has one board per port.
-This test runs what the VM test cannot: a real dnsmasq with the per-port
-configuration roles/pxe renders, and the real dhcpcd with the settings
-roles/onpi installs, in network namespaces (tests/netns/board_ipv6_scenario.py):
+address, once, minutes after it booted: the harness never reboots the Pi
+and has one board on one port. This test runs what the VM test cannot: a
+real dnsmasq and a real radvd with the per-port configuration roles/pxe
+renders, and the real dhcpcd with the settings roles/onpi installs, in
+network namespaces (tests/netns/board_ipv6_scenario.py). The gateway has
+several port interfaces that share one /64 and one gateway address, as
+every port of a switch does (roles/vlan_ports).
+
+On one port, in turn:
 
   - a board gets <prefix><SS>::<P>, under a client identifier made from its
     MAC address, with IPv4 on the interface left exactly as it was;
@@ -17,10 +22,19 @@ roles/onpi installs, in network namespaces (tests/netns/board_ipv6_scenario.py):
     why the lease is short (roles/pxe/defaults/main.yml); the test renders
     it at dnsmasq's minimum of two minutes, and takes about three.
 
+On two more ports, all that time, a board each that stays up: for several
+router lifetimes (rendered short here). A board asks for a router
+advertisement only when its link comes up, so after one lifetime its
+default route, and with it every use of its address, depends on the
+gateway advertising on that board's port by itself, periodically. dnsmasq
+did not: it advertises once per prefix, on one of the interfaces that hold
+it, and real boards lost their default route half an hour after booting
+while the VM test, which looks sooner, passed.
+
 It needs to be root, in a network and a mount namespace of its own: it runs
 as root, or through passwordless sudo (an unprivileged user namespace will
 not do: dhcpcd drops privileges to its own user). Where it cannot run, or
-dnsmasq or dhcpcd is missing, it is skipped, except with
+one of the programs is missing, it is skipped, except with
 BOARD_IPV6_NETNS_TEST=1 (set in CI, lint.yml's pytest job), where being
 unable to run is a failure.
 """
@@ -34,21 +48,30 @@ from pathlib import Path
 
 import pytest
 
-from tests.ports_conf_render import render
+from tests.ports_conf_render import render, render_radvd, switches
 
 REPO = Path(__file__).resolve().parent.parent
 SCENARIO = REPO / "tests/netns/board_ipv6_scenario.py"
 BOARD_CONF = REPO / "ansible/roles/onpi/files/board-ipv6/fpgas-board-ipv6.conf"
 REQUIRED = os.environ.get("BOARD_IPV6_NETNS_TEST") == "1"
-# dnsmasq, dhcpcd, ip and sysctl live in sbin, which is not on every user's PATH.
+# dnsmasq, radvd, dhcpcd, ip and sysctl live in sbin, which is not on every user's PATH.
 ENV = {**os.environ, "PATH": os.environ.get("PATH", "") + ":/usr/sbin:/sbin"}
-TOOLS = ("dnsmasq", "dhcpcd", "ip", "unshare", "mount", "sysctl", "ping")
+TOOLS = ("dnsmasq", "radvd", "dhcpcd", "ip", "unshare", "mount", "sysctl", "ping")
 
-# What the scenario's site (tests/ports_conf_render.py) gives switch 1 port 1.
-BOARD6 = "2001:db8:a137:2101::1"
+# What the scenario's site (tests/ports_conf_render.py) gives switch 1.
+PREFIX6 = "2001:db8:a137:2101"
+BOARD6 = f"{PREFIX6}::1"  # port 1, where boards come and go
 MAC_A = "02:00:00:b6:00:0a"
 MAC_B = "02:00:00:b6:00:0b"
 REFUSED = "no addresses available"
+BOOTS = ["first", "reboot", "swap"]
+HELD = ["2", "3"]  # the ports whose board stays up
+# The router advertisements' timing, in seconds, far shorter than a site's
+# (roles/pxe/defaults/main.yml) so that the boards that stay up outlive the
+# lifetime several times over. The interval is radvd's shortest for which
+# its other defaults still hold.
+RA_INTERVAL = 10
+RA_LIFETIME = 30
 
 
 def _root_command() -> list[str] | None:
@@ -61,7 +84,7 @@ def _root_command() -> list[str] | None:
 
 
 @pytest.fixture(scope="module")
-def boots(tmp_path_factory):
+def run(tmp_path_factory):
     missing = [tool for tool in TOOLS if not shutil.which(tool, path=ENV["PATH"])]
     prefix = None if missing else _root_command()
     if prefix is None:
@@ -70,20 +93,40 @@ def boots(tmp_path_factory):
             pytest.fail(f"BOARD_IPV6_NETNS_TEST=1 but the test cannot run: {reason}")
         pytest.skip(reason)
     workdir = tmp_path_factory.mktemp("board-ipv6")
+    site = {"switches": switches(access_ports=3)}
     ports_conf = workdir / "ports.conf"
     # dnsmasq's shortest lease: the swap waits for it to run out.
-    ports_conf.write_text(render(pxe_port_lease6="2m"))
-    proc = subprocess.run([*prefix, sys.executable, str(SCENARIO), str(ports_conf), str(BOARD_CONF), str(workdir)],
-                          env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+    ports_conf.write_text(render(**site, pxe_port_lease6="2m"))
+    radvd_conf = workdir / "radvd.conf"
+    radvd_conf.write_text(render_radvd(**site, pxe_ra_interval=RA_INTERVAL, pxe_ra_lifetime=RA_LIFETIME))
+    proc = subprocess.run(
+        [*prefix, sys.executable, str(SCENARIO), str(ports_conf), str(radvd_conf), str(BOARD_CONF), str(workdir),
+         str(RA_LIFETIME)],
+        env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=900)
     assert proc.returncode == 0, f"the scenario failed:\n{proc.stdout}\n{proc.stderr}"
     return json.loads(proc.stdout)
 
 
-def _story(boots: dict, boot: str) -> str:
-    """What to print when an assertion about a boot fails."""
-    return (f"{json.dumps(boots[boot], indent=1)}\n--- dhcpcd\n{boots['client_logs'][boot]}"
-            f"\n--- dnsmasq\n{boots['dnsmasq_log']}")
+@pytest.fixture(scope="module")
+def boots(run):
+    return run
 
+
+def _story(run: dict, boot: str) -> str:
+    """What to print when an assertion about one of port 1's boots fails."""
+    return (f"{json.dumps(run[boot], indent=1)}\n--- dhcpcd\n{run['client_logs'][boot]}"
+            f"\n--- dnsmasq\n{run['dnsmasq_log']}\n--- radvd\n{run['radvd_log']}")
+
+
+def _held_story(run: dict, port: str) -> str:
+    """What to print when an assertion about a board that stayed up fails."""
+    return (f"{json.dumps(run['held'][port], indent=1)}\n--- its default route, once a second\n"
+            f"{json.dumps(run['route_watch'][port])}\n--- router advertisements and solicitations, by interface\n"
+            f"{json.dumps(run['wire'], indent=1)}\n--- dhcpcd\n{run['client_logs']['held' + port]}"
+            f"\n--- radvd\n{run['radvd_log']}")
+
+
+# --- port 1: a first boot, a reboot, another board ----------------------------
 
 def test_a_board_gets_its_ports_address(boots):
     first = boots["first"]
@@ -97,7 +140,7 @@ def test_the_gateway_knows_the_board_by_its_mac_address(boots):
     assert all(answer == f"{BOARD6} 00:03:00:01:{MAC_A}" for answer in boots["first"]["answers"]), _story(boots, "first")
 
 
-@pytest.mark.parametrize("boot", ["first", "reboot", "swap"])
+@pytest.mark.parametrize("boot", BOOTS)
 def test_ipv4_on_the_interface_is_left_as_it_was(boots, boot):
     """The NFS root is mounted over it."""
     assert boots[boot]["ipv4_before"] == boots[boot]["ipv4_after"], _story(boots, boot)
@@ -105,21 +148,42 @@ def test_ipv4_on_the_interface_is_left_as_it_was(boots, boot):
     assert any(route.startswith("default via 10.21.0.1 dev eth0") for route in boots[boot]["ipv4_after"]["routes"])
 
 
-@pytest.mark.parametrize("boot", ["first", "reboot", "swap"])
+@pytest.mark.parametrize("boot", BOOTS)
 def test_router_advertisements_stay_with_the_kernel(boots, boot):
-    """dhcpcd adds the address and nothing else: the default route is the kernel's own."""
-    assert boots[boot]["accept_ra"] == "1", _story(boots, boot)
+    """The default route is the kernel's own, from the gateway's advertisement, not the client's."""
+    assert boots[boot]["sysctls_after"]["accept_ra"] == "1", _story(boots, boot)
     assert " proto ra " in boots[boot]["default_route6"], _story(boots, boot)
 
 
-@pytest.mark.parametrize("boot", ["first", "reboot", "swap"])
+@pytest.mark.parametrize("boot", BOOTS)
+def test_the_client_changes_one_kernel_setting_of_the_interface(boots, boot):
+    """addr_gen_mode, from 0 to 1, and it stays: the kernel makes no link-local address
+    the next time the interface is brought up. The address it has is kept, and a
+    netbooted board never takes the interface its root is mounted over down. dhcpcd
+    does this on every interface it runs on, before it reads `noipv6rs`. Whether the
+    kernel takes router advertisements and makes addresses from them is left alone.
+    """
+    assert boots[boot]["sysctls_before"] == {"accept_ra": "1", "autoconf": "1", "addr_gen_mode": "0"}, \
+        _story(boots, boot)
+    assert boots[boot]["sysctls_after"] == {"accept_ra": "1", "autoconf": "1", "addr_gen_mode": "1"}, \
+        _story(boots, boot)
+
+
+@pytest.mark.parametrize("boot", BOOTS)
 def test_no_hook_rewrites_resolv_conf(boots, boot):
     assert boots[boot]["resolv_conf_untouched"], _story(boots, boot)
 
 
-@pytest.mark.parametrize("boot", ["first", "reboot", "swap"])
+@pytest.mark.parametrize("boot", BOOTS)
 def test_the_gateway_reaches_the_board_on_the_address(boots, boot):
     assert boots[boot]["gateway_reaches_board"], _story(boots, boot)
+
+
+@pytest.mark.parametrize("boot", BOOTS)
+def test_the_address_works_beyond_the_gateway_in_both_directions(boots, boot):
+    """The swapped-in board has by then waited out the old lease: several router lifetimes."""
+    assert boots[boot]["board_reaches_beyond"], _story(boots, boot)
+    assert boots[boot]["beyond_reaches_board"], _story(boots, boot)
 
 
 def test_the_same_board_gets_the_address_again_after_a_power_cut(boots):
@@ -143,3 +207,75 @@ def test_another_board_in_the_port_gets_the_address_once_the_old_lease_has_run_o
     swap = boots["swap"]
     assert swap["addresses"] == [f"{BOARD6}/128"], _story(boots, "swap")
     assert swap["answers"][-1] == f"{BOARD6} 00:03:00:01:{MAC_B}", _story(boots, "swap")
+
+
+# --- ports 2 and 3: boards that stay up ---------------------------------------
+
+@pytest.mark.parametrize("port", HELD)
+def test_each_port_gives_its_own_address(run, port):
+    """The ports share a /64 and the gateway's address; each board still gets its port's address."""
+    boot = run["held"][port]["boot"]
+    assert boot["addresses"] == [f"{PREFIX6}::{port}/128"], _held_story(run, port)
+    assert boot["ipv4_before"] == boot["ipv4_after"], _held_story(run, port)
+    assert boot["resolv_conf_untouched"], _held_story(run, port)
+
+
+@pytest.mark.parametrize("port", HELD)
+def test_a_board_keeps_its_default_route_past_the_router_lifetime(run, port):
+    """Never without it, from the first advertisement to several lifetimes later."""
+    later, watched = run["held"][port]["later"], run["route_watch"][port]
+    assert later["uptime"] > 3 * RA_LIFETIME, _held_story(run, port)
+    assert " proto ra " in later["default_route6"], _held_story(run, port)
+    assert watched["first_seen"] is not None and watched["samples"] > RA_LIFETIME, _held_story(run, port)
+    assert watched["missing"] == 0, _held_story(run, port)
+
+
+@pytest.mark.parametrize("port", HELD)
+def test_a_board_still_talks_ipv6_both_ways_past_the_router_lifetime(run, port):
+    later = run["held"][port]["later"]
+    assert later["board_reaches_beyond"], _held_story(run, port)
+    assert later["beyond_reaches_board"], _held_story(run, port)
+    assert later["gateway_reaches_board"], _held_story(run, port)
+
+
+@pytest.mark.parametrize("port", HELD)
+def test_a_board_that_stays_up_holds_its_one_address_and_nothing_else_changed(run, port):
+    """No address made from the advertised prefix, IPv4 as at boot, the client still there."""
+    boot, later = run["held"][port]["boot"], run["held"][port]["later"]
+    assert later["addresses"] == [f"{PREFIX6}::{port}/128"], _held_story(run, port)
+    assert later["ipv4_after"] == boot["ipv4_before"], _held_story(run, port)
+    assert later["sysctls_after"] == {"accept_ra": "1", "autoconf": "1", "addr_gen_mode": "1"}, _held_story(run, port)
+    assert later["client_running"], _held_story(run, port)
+
+
+@pytest.mark.parametrize("port", HELD)
+def test_a_board_that_stays_up_renews_its_lease(run, port):
+    """The lease (two minutes here) is renewed at half its time: the gateway answered again, with the same address."""
+    boot, later = run["held"][port]["boot"], run["held"][port]["later"]
+    renewals = later["answers"][len(boot["answers"]):]
+    assert renewals, _held_story(run, port)
+    assert all(answer == f"{PREFIX6}::{port} 00:03:00:01:02:00:00:b6:00:0{'cd'[int(port) - 2]}"
+               for answer in later["answers"]), _held_story(run, port)
+
+
+@pytest.mark.parametrize("port", HELD)
+def test_the_gateway_advertises_on_every_port_by_itself(run, port):
+    """Periodic advertisements to all nodes of the port, long after the board last asked.
+
+    The board's kernel solicits when its link comes up; a lifetime later
+    only the gateway's own timer for this interface can be behind an
+    advertisement here.
+    """
+    seen = run["wire"].get(f"v210{port}", {"to_all_nodes": []})
+    after_one_lifetime = [at for at in seen["to_all_nodes"] if at > run["held"][port]["booted_at"] + RA_LIFETIME]
+    assert len(after_one_lifetime) >= 3, _held_story(run, port)
+
+
+@pytest.mark.parametrize("iface", ["v2101", "v2102", "v2103"])
+def test_what_the_gateway_advertises(run, iface):
+    """A default router for the rendered lifetime; addresses by DHCPv6; the prefix neither on-link nor for autoconfiguration."""
+    seen = run["wire"].get(iface)
+    assert seen and seen["to_all_nodes"], json.dumps(run["wire"], indent=1)
+    assert seen["router_lifetimes"] == [RA_LIFETIME], json.dumps(seen)
+    assert seen["managed"] == [True], json.dumps(seen)
+    assert seen["prefixes"] == [[f"{PREFIX6}::/64", "off-link", "not autonomous"]], json.dumps(seen)
