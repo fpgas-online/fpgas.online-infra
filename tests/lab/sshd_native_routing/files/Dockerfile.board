@@ -1,0 +1,13 @@
+# Lab board: the distribution's own openssh-server, user pi, one shared host key.
+ARG BASE=amd64/debian:bookworm
+FROM ${BASE}
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        openssh-server openssh-sftp-server rsync busybox procps \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd /srv/www \
+ && useradd -m -s /bin/bash pi \
+ && rm -f /etc/ssh/ssh_host_*
+COPY board-entrypoint.sh /usr/local/sbin/board-entrypoint
+RUN chmod 755 /usr/local/sbin/board-entrypoint
+ENTRYPOINT ["/usr/local/sbin/board-entrypoint"]
