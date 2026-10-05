@@ -151,8 +151,11 @@
 # /etc/resolv.conf. Copy the server's resolver config -- but never the
 # systemd-resolved stub (127.0.0.53), which is unreachable from the chroot's
 # point of view on a Pi and useless once it boots; resolved keeps the real
-# upstream list in /run/systemd/resolve/resolv.conf. (Pis rewrite this file
-# from DHCP at boot anyway.)
+# upstream list in /run/systemd/resolve/resolv.conf. This is for the build
+# only: the image is published with a resolv.conf that names the gateway
+# (ci-nfsroot.yml, "Neutralize build-host resolv.conf in the image"), and a
+# booted Pi keeps that file: nothing on it rewrites resolv.conf from DHCP
+# (verify-pi.yml reads it on every board where pxe_board_ipv6 is on).
 - name: Check for systemd-resolved's upstream resolv.conf
   ansible.builtin.stat:
     path: /run/systemd/resolve/resolv.conf
