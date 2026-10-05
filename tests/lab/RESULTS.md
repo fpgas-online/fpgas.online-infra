@@ -234,6 +234,35 @@ design, does) overlap across VLANs.
 - No radvd required anywhere in this design; dnsmasq's built-in RA plus the
   `off-link` mode flag fully covers goal (c).
 
+## Correction, 5 October 2026: the router advertisements moved to radvd
+
+"ra-received" and "ra-no-onlink-prefix" above asked dnsmasq for an
+advertisement (`rdisc6` sends a solicitation) and looked at the answer. They
+did not look at the advertisements dnsmasq sends by itself, and those are
+what a board's default route lives on once it has been up for one router
+lifetime.
+
+- dnsmasq keeps one advertisement timer per prefix, not per interface
+  (`radv.c`, `iface_search`: "zero timers for other contexts on the same
+  subnet, so they don't timeout independently"), and sends on one interface
+  that holds the prefix. Every port interface of a switch holds the same
+  address in the same /64, so one port per switch got periodic
+  advertisements and the others none; a solicitation was still answered.
+- Seen on real boards as an IPv6 default route that is there after boot and
+  gone half an hour later (fpgas.online-infra issue 222).
+- Tried against the real dnsmasq with three port interfaces: `ra-param` for
+  every interface (by name and by wildcard) and `constructor:<interface>`
+  ranges still advertise on one interface only. `bridge-interface` does
+  advertise on every port, but treats a DHCP request from any port as
+  coming from the first, so every board is offered port 1's IPv4 address.
+- So the advertisements are radvd's, one interface block per port
+  (`roles/pxe/templates/radvd.conf.j2`), dnsmasq has no `enable-ra`, and the
+  `off-link` flag left the `dhcp-range` lines (it only shaped dnsmasq's
+  advertisements; radvd's `AdvOnLink off` says the same). The v4 and v6
+  range findings above stand.
+- `tests/test_board_ipv6_netns.py` holds boards on several ports that share
+  a /64 for longer than the router lifetime.
+
 ## Switch VLAN capacity (design risk #1)
 
 Verified 2026-08-14 against BOTH real switches via
