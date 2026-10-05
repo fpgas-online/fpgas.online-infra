@@ -182,7 +182,7 @@
       register: verify_pi_collected
       vars:
         verify_pi_collector: |
-          import base64, json, os, subprocess, time
+          import base64, configparser, json, os, subprocess, time
           {{ verify_pi_camera_probe }}
           def run(*argv, timeout=60):
               try:
@@ -193,6 +193,15 @@
               return {"rc": rc, "stdout": out, "stderr": err, "stdout_lines": out.splitlines()}
           def exists(path):
               return {"stat": {"exists": os.path.lexists(path)}}
+          def ini_value(path, section, key):
+              # As fpgas-verify reads its configuration: configparser, one section, a missing key is None.
+              parser = configparser.ConfigParser()
+              try:
+                  with open(path) as f:
+                      parser.read_file(f)
+              except (OSError, configparser.Error, UnicodeDecodeError) as e:
+                  return {"value": None, "error": type(e).__name__ + ": " + str(e)}
+              return {"value": parser.get(section, key, fallback=None), "error": ""}
           def read(path):
               try:
                   with open(path, "rb") as f:
@@ -259,6 +268,7 @@
               "tt": run("systemctl", "is-enabled", "fpgas-tt"),
               "tt_demos": exists("/usr/share/fpgas-tt/demos/index.json"),
               "fpga_verify_enabled": run("systemctl", "is-enabled", "fpgas-verify.service"),
+              "fpga_verify_publish": ini_value("/etc/fpgas-verify/fleet.ini", "verify", "publish"),
               # /sbin/modinfo: /usr/sbin is not on the login user's PATH
               "litepcie": {"packages": run("dpkg-query", "-W", "-f=${Package} ${Status}\n",
                                            "fpgas-online-acorn-litepcie-common"),
@@ -307,6 +317,7 @@
         verify_pi_tt: "{{ verify_pi_state.tt }}"
         verify_pi_tt_demos: "{{ verify_pi_state.tt_demos }}"
         verify_pi_fpga_verify_enabled: "{{ verify_pi_state.fpga_verify_enabled }}"
+        verify_pi_fpga_verify_publish: "{{ verify_pi_state.fpga_verify_publish }}"
         verify_pi_litepcie: "{{ verify_pi_state.litepcie }}"
         verify_pi_failed: "{{ verify_pi_state.failed }}"
         verify_pi_dt_model: "{{ verify_pi_state.dt_model }}"
@@ -809,6 +820,19 @@
           ({{ verify_pi_fpga_verify_enabled.stderr }}) -- no fpgas-verify mode package
           (fpgas-online-all-boards, or one board's) in the NFS root, or
           roles/onpi/tasks/fpga_verify.yml has not run against it
+
+    # The root tells the boot check to publish its result (roles/onpi/tasks/fpga_verify.yml writes the
+    # file). An fpgas-verify that publishes only where configured reports nothing without it, silently,
+    # and the site then lists no board: so the built root is checked for it, not only the role's source.
+    - name: Assert the root tells the FPGA boot check to publish its result
+      ansible.builtin.assert:
+        that: verify_pi_fpga_verify_publish.value == "on"
+        fail_msg: >-
+          /etc/fpgas-verify/fleet.ini does not say `publish = on` under [verify]
+          (read: {{ verify_pi_fpga_verify_publish.value | to_json }}
+          {{ verify_pi_fpga_verify_publish.error }}) -- the NFS root predates
+          roles/onpi/tasks/fpga_verify.yml writing it; boards on such a root stop
+          reporting their boot check once fpgas-verify publishes only where configured
 
     # verify-pi starts as soon as the Pi answers ssh, and after a boot (a PoE cycle, the VM test) that
     # is often before fpgas-verify has finished: it takes ~33 s on the VM test's emulated Pi and minutes
