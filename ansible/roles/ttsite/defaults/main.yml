@@ -2,7 +2,8 @@
 ttsite_boards_path: /etc/fpgas-online/tt-boards.yaml
 ttsite_daemon_port: 8765
 ttsite_ws_read_timeout: 3600s
-# Pi addresses are DERIVED from (switch, port) exactly as ttsite's Board model
-# does: <ttsite_pi_network>.<switch>.<port>.  The VLAN-per-port scheme uses
-# 10.21.<switch>.<port>; the legacy flat net is reachable as switch 0 / port 1xx.
+# The network the Pis are on: nginx's internal serial-bridge location accepts
+# only an address in it (<ttsite_pi_network>.<n>.<n>). Django names the address
+# from the hostname the Pi registered; the VLAN-per-port scheme gives
+# 10.21.<switch>.<port>, the legacy flat net 10.21.0.<100+port>.
 ttsite_pi_network: "10.21"

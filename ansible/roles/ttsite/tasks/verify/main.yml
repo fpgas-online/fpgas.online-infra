@@ -19,22 +19,63 @@
     that: ttsite_v_vhost.stat.exists
     fail_msg: "/etc/nginx/sites-enabled/{{ ttsite_domain }}.conf missing"
 
-- name: Count ws-boards locations
-  ansible.builtin.command: grep -c "location = /ws/board/" "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
+# The serial bridge hand-off: ONE internal location, and no location that
+# names a board (fpgas.online-tt issue #14). tests/test_ttsite_serial_handoff.py
+# runs a real nginx over the rendered file.
+- name: Read the serial bridge include
+  ansible.builtin.slurp:
+    src: "/etc/nginx/includes/{{ ttsite_domain }}-ws-boards.conf"
   register: ttsite_v_ws
-  changed_when: false
-  failed_when: false
 
-- name: Live boards
+- name: Lines of the serial bridge include that are not comments
   ansible.builtin.set_fact:
-    ttsite_v_live: "{{ tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none') | rejectattr('enabled', 'defined') | list
-                       + tt_boards | selectattr('port', 'defined') | rejectattr('port', 'none')
-                       | selectattr('enabled', 'defined') | selectattr('enabled') | list }}"
+    ttsite_v_ws_lines: "{{ (ttsite_v_ws.content | b64decode).splitlines() | reject('match', '^\\s*#') | list }}"
 
-- name: Assert one ws location per live board
+- name: Locations in the serial bridge include
+  ansible.builtin.set_fact:
+    ttsite_v_ws_locations: "{{ ttsite_v_ws_lines | select('match', '^\\s*location\\s') | list }}"
+
+- name: Assert one internal serial bridge location and none per board
   ansible.builtin.assert:
-    that: (ttsite_v_ws.stdout | int) == (ttsite_v_live | length)
-    fail_msg: "ws-boards include has {{ ttsite_v_ws.stdout }} locations, expected {{ ttsite_v_live | length }}"
+    that:
+      - ttsite_v_ws_locations | length == 1
+      - "'/_tt-serial/' in ttsite_v_ws_locations[0]"
+      - ttsite_v_ws_lines | select('match', '^\\s*internal;\\s*$') | list | length == 1
+      - ttsite_v_ws_lines | select('search', 'proxy_ignore_headers\\s+X-Accel-Redirect;') | list | length == 1
+    fail_msg: >-
+      the serial bridge include must hold exactly one location, /_tt-serial/, with `internal;` and
+      `proxy_ignore_headers X-Accel-Redirect;` (not in a comment): {{ ttsite_v_ws_lines }}
+
+# Asked where the application is served: over https once the site has its
+# certificate (plain http only redirects there, which would show nothing).
+# The 404 must be nginx's own page: if the location stopped matching, the
+# request would fall through to Django, whose 404 page does not name nginx
+# (the Server header is nginx's either way, so it shows nothing).
+- name: A client cannot ask for the internal location itself
+  ansible.builtin.uri:
+    url: "{{ 'https' if ttsite_certbot else 'http' }}://127.0.0.1/_tt-serial/{{ ttsite_pi_network }}.1.1"
+    headers:
+      Host: "{{ ttsite_domain }}"
+    validate_certs: false
+    status_code: [404]
+    return_content: true
+    follow_redirects: none
+  register: ttsite_v_internal
+
+- name: Assert it was nginx that refused, not Django or another vhost
+  ansible.builtin.assert:
+    that: "'nginx' in (ttsite_v_internal.content | default('') | lower)"
+    fail_msg: >-
+      /_tt-serial/ was answered 404 by something other than nginx itself (the page does not name nginx):
+      the internal location no longer matches and the request reached Django
+
+- name: No row of the catalogue says where a board is
+  ansible.builtin.assert:
+    that: tt_boards | selectattr(item, 'defined') | list | length == 0
+    fail_msg: >-
+      tt_boards rows carry `{{ item }}`: the catalogue names a board by usb_serial and never says where it is
+      plugged in, whether it is there or which Commander drives it (fpgas.online-tt issue #14)
+  loop: [switch, port, enabled, commander]
 
 - name: Nginx config valid
   ansible.builtin.command: nginx -t
@@ -78,24 +119,24 @@
     fail_msg: "legacy Commander embed bundle {{ tt_commander_legacy_embed_version }} not unpacked"
   when: tt_commander_legacy_embed_version | length > 0
 
-- name: Live fpga boards
+# The site proxies /api/board/<slug>/designs to the bridge of the Pi that
+# reports the board. 200 = the bridge answered; 502 = no bridge answered; 503
+# = the bridge has not been told what its board is yet; 404 = no Pi reports
+# that board at this moment (it is off, or elsewhere). Every one of them shows
+# the route exists and answers JSON, which is all this can assert without a
+# board: which boards are connected is the fleet's to say, not the inventory's.
+- name: First catalogue row that names an FPGA board by serial ('' when none)
   ansible.builtin.set_fact:
-    ttsite_v_fpga_boards: "{{ ttsite_v_live | selectattr('kind', 'defined') | selectattr('kind', 'equalto', 'fpga') | list }}"
+    ttsite_v_fpga: >-
+      {{ (tt_boards | selectattr('usb_serial', 'defined') | selectattr('usb_serial') | selectattr('kind', 'defined')
+          | selectattr('kind', 'equalto', 'fpga') | map(attribute='slug') | list + [''])[0] }}
 
-- name: First live fpga board slug ('' when none)
-  ansible.builtin.set_fact:
-    ttsite_v_fpga: "{{ ttsite_v_fpga_boards[0].slug if ttsite_v_fpga_boards | length > 0 else '' }}"
-
-# Phase 2: the site proxies /api/board/<slug>/designs to the Pi's daemon. 200 =
-# the daemon answered; 502 = Django reached no daemon but the route exists and
-# answers JSON. Skipped when no live fpga board is defined (the VM inventory
-# has none wired, so this only runs in production).
 - name: Designs API answers on the TT host
   ansible.builtin.uri:
     url: "http://127.0.0.1/api/board/{{ ttsite_v_fpga }}/designs"
     headers:
       Host: "{{ ttsite_domain }}"
-    status_code: [200, 502]
+    status_code: [200, 404, 502, 503]
     return_content: true
   register: ttsite_v_designs
   when: ttsite_v_fpga | length > 0

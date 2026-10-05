@@ -42,7 +42,6 @@ CONFIG_FILES = [
     "root/etc/resolve.conf",
     "root/etc/hostname",
     "root/etc/systemd/timesyncd.conf.d/fpgas.conf",
-    "root/etc/fpgas-online/tt-boards.yaml",
     "root/usr/sbin/policy-rc.d",
 ]
 CONFIG_GLOBS = [
