@@ -279,6 +279,8 @@ def test_the_rendered_file_names_no_board_and_no_port():
     text = render(8765)
     locations = [line for line in text.splitlines() if line.lstrip().startswith("location")]
     assert len(locations) == 1 and "/_tt-serial/" in locations[0]
+    # an octet is one to three digits: nothing longer is taken for an address (nginx then refuses 300 itself)
+    assert r"127\.0\.[0-9]{1,3}\.[0-9]{1,3})$" in locations[0]
     live = [line.strip() for line in text.splitlines() if not line.lstrip().startswith("#")]
     assert "internal;" in live and "proxy_ignore_headers X-Accel-Redirect;" in live
     assert "/ws/board/" not in "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))

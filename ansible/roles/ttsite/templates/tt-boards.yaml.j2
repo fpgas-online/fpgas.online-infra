@@ -3,7 +3,7 @@
 # server (manage.py ttsite_loadboards). Words about boards, by USB serial:
 # nothing here says where a board is plugged in or what its page offers.
 # A usb_serial goes through as YAML read it: one written without quotes that
-# YAML took for a number arrives as a number, and the loader refuses it.
+# YAML took for a number (or for false) arrives as that, and the loader refuses it.
 tt_boards:
 {% for b in tt_boards %}
   - slug: {{ b.slug | to_json }}

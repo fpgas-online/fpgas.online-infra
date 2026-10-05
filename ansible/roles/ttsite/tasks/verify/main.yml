@@ -42,7 +42,9 @@
       - "'/_tt-serial/' in ttsite_v_ws_locations[0]"
       - ttsite_v_ws_lines | select('match', '^\\s*internal;\\s*$') | list | length == 1
       - ttsite_v_ws_lines | select('search', 'proxy_ignore_headers\\s+X-Accel-Redirect;') | list | length == 1
-    fail_msg: "the serial bridge include must hold exactly one internal /_tt-serial/ location: {{ ttsite_v_ws_locations }}"
+    fail_msg: >-
+      the serial bridge include must hold exactly one location, /_tt-serial/, with `internal;` and
+      `proxy_ignore_headers X-Accel-Redirect;` (not in a comment): {{ ttsite_v_ws_lines }}
 
 # Asked where the application is served: over https once the site has its
 # certificate (plain http only redirects there, which would show nothing).
@@ -64,8 +66,8 @@
   ansible.builtin.assert:
     that: "'nginx' in (ttsite_v_internal.content | default('') | lower)"
     fail_msg: >-
-      /_tt-serial/ was answered 404 by something other than nginx's internal location (the page does not
-      name nginx): the location no longer matches, or another vhost answered
+      /_tt-serial/ was answered 404 by something other than nginx itself (the page does not name nginx):
+      the internal location no longer matches and the request reached Django
 
 - name: No row of the catalogue says where a board is
   ansible.builtin.assert:
