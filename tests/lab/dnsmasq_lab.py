@@ -34,6 +34,13 @@ the deviations from the initial guess this script started from):
     requires the range's prefix-len to be >= the interface's real prefix.
   - RA: dnsmasq's own `off-link` dhcp-range mode flag (2.90+) suppresses
     the on-link (L) bit in the advertised prefix -- no radvd needed.
+
+This is the configuration roles/pxe renders while pxe_board_ipv6 is off
+(the default). The lab asks dnsmasq for an advertisement and looks at the
+answer; it does not look at the advertisements dnsmasq sends by itself,
+which reach one port per switch only. Where pxe_board_ipv6 is on, radvd
+sends them instead (RESULTS.md, "Correction, 5 October 2026";
+tests/test_board_ipv6_netns.py is the test of that configuration).
 """
 
 import re

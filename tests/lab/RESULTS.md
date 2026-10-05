@@ -255,13 +255,84 @@ lifetime.
   ranges still advertise on one interface only. `bridge-interface` does
   advertise on every port, but treats a DHCP request from any port as
   coming from the first, so every board is offered port 1's IPv4 address.
-- So the advertisements are radvd's, one interface block per port
+- So, on a gateway whose boards have IPv6 (`pxe_board_ipv6`, off by
+  default), the advertisements are radvd's, one interface block per port
   (`roles/pxe/templates/radvd.conf.j2`), dnsmasq has no `enable-ra`, and the
-  `off-link` flag left the `dhcp-range` lines (it only shaped dnsmasq's
+  `off-link` flag leaves the `dhcp-range` lines (it only shaped dnsmasq's
   advertisements; radvd's `AdvOnLink off` says the same). The v4 and v6
   range findings above stand.
+- With `pxe_board_ipv6` off the role renders the configuration this lab
+  arrived at, unchanged, and `dnsmasq_lab.py` is still that configuration.
 - `tests/test_board_ipv6_netns.py` holds boards on several ports that share
   a /64 for longer than the router lifetime.
+
+### radvd on a site's number of ports: one recorded run, 5 October 2026
+
+`BOARD_IPV6_NETNS_PORTS=48,48` (two switches of 48 ports, the shape of a
+real site): 96 port interfaces, the 48 of a switch sharing its /64 and the
+gateway's address in it. One port where boards come and go, a board that
+stays up on four (the second and last port of switch 1, the first and last
+of switch 2), and 91 ports with a link and nothing speaking. Debian 13's
+radvd 2.20, dnsmasq 2.91 and dhcpcd 10.1.0 (amd64) in namespaces on a
+workstation; advertisement interval 10 s, router lifetime 30 s.
+
+```
+ports: 48,48 | interfaces seen advertising: 96 | idle: 91 | held: ['v2102', 'v2148', 'v2201', 'v2248'] | story: v2101
+radvd: {'started_at': 1.5, 'memory_kb': 3040}
+idle interfaces: first advertisement between 11.5 and 11.5 s (radvd started at 1.5)
+longest gap between two advertisements on any interface but the story's: 10.6 s; interfaces with fewer than two: []
+fewest advertisements on an interface: 23
+router lifetimes [30], managed [true], other [true], MTU or DNS options []   (the same on all 96)
+v2102 uptime 187.2 route: default via fe80::... dev eth0 proto ra | out/in True True | addr ['2001:db8:a137:2101::2/128'] | watch {'samples': 152, 'missing': 0, 'least_expires': 21}
+v2148 uptime 181.5 route: default via fe80::... dev eth0 proto ra | out/in True True | addr ['2001:db8:a137:2101::48/128'] | watch {'samples': 152, 'missing': 0, 'least_expires': 19}
+v2201 uptime 175.4 route: default via fe80::... dev eth0 proto ra | out/in True True | addr ['2001:db8:a137:2102::1/128'] | watch {'samples': 152, 'missing': 0, 'least_expires': 20}
+v2248 uptime 169.8 route: default via fe80::... dev eth0 proto ra | out/in True True | addr ['2001:db8:a137:2102::48/128'] | watch {'samples': 152, 'missing': 0, 'least_expires': 20}
+```
+
+- Every one of the 96 interfaces got its periodic advertisement, never more
+  than the interval (plus the 0.6 s of this recorder's clock) apart.
+- radvd's two processes held 3040 kB of memory together.
+- radvd's first advertisement on the interfaces that were there when it
+  started came 10 s after its start, on all of them at once. That wait is
+  radvd's, not the number of ports': with an interval of 60 s and two
+  interfaces the first advertisement came 16 s after the start, and on an
+  interface that appeared later, 17 s after it appeared. So after a start a
+  port waits up to 16 s for its first unsolicited advertisement.
+- The gaps are those of a 10 s interval. A site's interval is 600 s; this
+  run sent sixty times as many advertisements as a site does.
+
+### What stopping radvd costs a board: measured, 5 October 2026
+
+The same scenario reloads radvd, restarts it (stop, then start at once) and
+stops it for a third of the router lifetime before starting it again, with
+the boards that stayed up read five times a second.
+
+With radvd's default (`RemoveAdvOnExit on`), three ports:
+
+```
+reload           withdrawals {'v2102': 0, 'v2103': 0}   both boards: missing 0
+restart          withdrawals {'v2102': 1, 'v2103': 1}   both boards: missing 0
+stop_then_start  withdrawals {'v2102': 1, 'v2103': 1}   both boards: {'samples': 223, 'missing': 49, 'lost_at': 0.0, 'back_at': 10.1, 'without_route_s': 10.1}
+```
+
+A stopping radvd sends an advertisement with a router lifetime of zero, and
+a board drops its default route on it at once: stopped for 10 s, no route
+for 10.1 s. A restart sent the same withdrawal, and the route was back
+before the next read, 0.2 s later.
+
+With `RemoveAdvOnExit off`, which the role sets (the router is the
+gateway's kernel, and it forwards whether radvd runs or not), three ports
+and again in the 96-port run:
+
+```
+reload           withdrawals 0 on every board's port   every board: missing 0
+restart          withdrawals 0 on every board's port   every board: missing 0
+stop_then_start  withdrawals 0 on every board's port   every board: missing 0
+```
+
+No board lost its route. A radvd that stays down for longer than the
+router lifetime still costs every board its route when the lifetime runs
+out; `tests/test_board_ipv6_netns.py` asserts the three cases above.
 
 ## Switch VLAN capacity (design risk #1)
 
