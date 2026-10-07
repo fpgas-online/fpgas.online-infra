@@ -34,21 +34,34 @@
       - nftables
       - nmap
 
+# validate: a ruleset nft cannot parse is never written, so the reload
+# below cannot fail on the file.
 - name: Write nftables rules
   ansible.builtin.template:
     src: templates/nftables.conf.j2
     dest: /etc/nftables.conf
     mode: "0755"
-  notify: Reload nftables
+    validate: nft -c -f %s
+  register: firewall_rules
 
 # started, never restarted: Debian's nftables.service stops with
 # `nft flush ruleset` and starts with `nft -f`, so a restart on every
-# converge left the gateway with no filter and no NAT between the two. A rule
-# change reaches the kernel through the Reload nftables handler instead,
-# atomically: the template begins with `flush ruleset`, so the flush and the
-# new rules are one `nft -f` transaction.
+# converge left the gateway with no filter and no NAT between the two. On a
+# new gateway this starts the service from the file just written.
 - name: Enable nftables service
   ansible.builtin.systemd:
     service: nftables.service
     enabled: true
     state: started
+
+# A rule change reaches the kernel here, in the same task list as the write,
+# not in a handler: a handler is skipped when a later role fails, and the next
+# converge, finding the file unchanged, would never load it. The reload is
+# atomic: the template begins with `flush ruleset`, so the flush and the new
+# rules are one `nft -f` transaction.
+- name: Load changed nftables rules
+  ansible.builtin.systemd:
+    service: nftables.service
+    state: reloaded
+  # A task on purpose, see above: a handler would be lost when a later role fails.
+  when: firewall_rules is changed  # noqa: no-handler
