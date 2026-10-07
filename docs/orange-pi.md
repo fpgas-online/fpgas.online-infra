@@ -56,15 +56,15 @@ Each board is identified by its Digilent Pmod HAT's UUID (`hat_uuid`, read from 
 MAC; its port and USB path are where it is plugged in now, and change if it is recabled. All on switch 2, all
 `orangepi-pc`, all FEL-booted from `pi-sw2-p30` (`sunxi_boards`, read from the hardware 2026-09-04):
 
-| Port | Name | HAT UUID | MAC | USB path on the hub host |
+| HAT UUID | MAC | Port (read 4 Sep 2026) | Name | USB path on the hub host |
 |---|---|---|---|---|
-| 18 | pi-sw2-p18 | 66196f35-58f5-4b03-b479-d9eb1f696204 | 02:81:0b:12:20:44 | 1-1.3.4 |
-| 19 | pi-sw2-p19 | 547291f7-1440-4be9-a49a-c3081fa92984 | 02:81:e1:ce:7d:46 | 1-1.3.3 |
-| 20 | pi-sw2-p20 | 0d05d999-1d10-49e7-b94a-8c2252816633 | 02:81:bf:f6:b7:99 | 1-1.2.2 |
-| 21 | pi-sw2-p21 | 02b54c27-053b-463d-a74a-e6614129ed88 | 02:81:31:f4:6e:48 | 1-1.3.1 |
-| 22 | pi-sw2-p22 | 6c12f955-093c-4272-a94d-8824363bffaa | 02:81:2e:b7:a3:4e | 1-1.3.2 |
-| 23 | pi-sw2-p23 | 55fc28c9-257a-4d0d-8888-117834bd52ab | 02:81:1f:e1:45:1d | 1-1.2.3 |
-| 24 | pi-sw2-p24 | 2577845e-7668-460a-a9d1-2c97373b1da9 | 02:81:f5:c0:a6:10 | 1-1.2.4 |
+| 66196f35-58f5-4b03-b479-d9eb1f696204 | 02:81:0b:12:20:44 | 18 | pi-sw2-p18 | 1-1.3.4 |
+| 547291f7-1440-4be9-a49a-c3081fa92984 | 02:81:e1:ce:7d:46 | 19 | pi-sw2-p19 | 1-1.3.3 |
+| 0d05d999-1d10-49e7-b94a-8c2252816633 | 02:81:bf:f6:b7:99 | 20 | pi-sw2-p20 | 1-1.2.2 |
+| 02b54c27-053b-463d-a74a-e6614129ed88 | 02:81:31:f4:6e:48 | 21 | pi-sw2-p21 | 1-1.3.1 |
+| 6c12f955-093c-4272-a94d-8824363bffaa | 02:81:2e:b7:a3:4e | 22 | pi-sw2-p22 | 1-1.3.2 |
+| 55fc28c9-257a-4d0d-8888-117834bd52ab | 02:81:1f:e1:45:1d | 23 | pi-sw2-p23 | 1-1.2.3 |
+| 2577845e-7668-460a-a9d1-2c97373b1da9 | 02:81:f5:c0:a6:10 | 24 | pi-sw2-p24 | 1-1.2.4 |
 
 On 6 October 2026 four of them answered after the root update: ports 19, 21, 22 and 24, with the MACs above
 ([Hosts and boards at welland](https://docs.fpgas.online/en/latest/sites/welland-boards.html#what-was-up-on-6-october-2026)). Ports 18, 20 and 23
