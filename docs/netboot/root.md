@@ -27,9 +27,9 @@ The root is built from a pinned Raspberry Pi OS image, `2024-07-04-raspios-bookw
 
 ## Packages come last
 
-`fpgas-apt` adds the fpgas.online APT repository (see [Packages](https://docs.fpgas.online/en/latest/packages.html)), then `cam/pi` and `onpi` install the camera capture and Pi environment packages, all inside the root, none on a running Pi (from the earlier docs page, not re-checked).
+`fpgas_apt` adds the fpgas.online APT repositories (see [Packages](https://docs.fpgas.online/en/latest/packages.html)), then `cam_pi` and `onpi` install the camera and Pi packages, all inside the root, none on a running Pi (`ansible/ci-nfsroot.yml`, "Install the Pi roles into the NFS root").
 
 <a id="the-ci-inventory"></a>
 ## The CI build
 
-CI builds the root on an arm64 runner (`ansible/ci-nfsroot.yml`, with `ci-nfsroot-base.yml`, `-runner.yml` and `-upgrade.yml`, against the inventory `ansible/inventory-ci-nfsroot`), over Ansible's `community.general.chroot` connection, and publishes it as an OCI image. That the roles it runs are `img`, `fixpi`, `fpgas-apt`, `cam/pi` and `onpi` is from the earlier docs page, not re-checked. The gateway no longer runs those roles: it pulls the image, and the pull leaves the site's `authorized_keys` files and SSH host keys alone (the rsync excludes in `roles/img/tasks/pull.yml`). `fixpi` then applies the per-site layer.
+CI builds the root on an arm64 runner (`ansible/ci-nfsroot.yml`, with `ci-nfsroot-base.yml`, `-runner.yml` and `-upgrade.yml`, against the inventory `ansible/inventory-ci-nfsroot`), over Ansible's `community.general.chroot` connection, and publishes it as an OCI image. It runs `fixpi` on the build host, then `fpgas_apt`, `cam_pi` and `onpi` inside the root (`ansible/ci-nfsroot.yml`, main, read 2026-10-07). The gateway no longer runs those roles: it pulls the image, and the pull leaves the site's `authorized_keys` files and SSH host keys alone (the rsync excludes in `roles/img/tasks/pull.yml`). `fixpi` then applies the per-site layer.
