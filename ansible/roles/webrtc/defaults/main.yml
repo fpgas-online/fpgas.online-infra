@@ -23,7 +23,7 @@ webrtc_rtmp_source_app: pib
 # Single ICE media port (UDP+TCP, all WebRTC sessions are muxed onto it).
 # Must be reachable from viewers: input accept on this host (roles/firewall)
 # plus, for IPv4, a DNAT on the router that owns the public address
-# (docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+# (docs/superpowers/runbooks/2026-09-02-webrtc-media-port-upstream-router.md).
 webrtc_media_port: 8189
 
 # webrtc_additional_hosts (list of IPs advertised as ICE candidates: the
