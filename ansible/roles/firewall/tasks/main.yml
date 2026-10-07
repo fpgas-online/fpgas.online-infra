@@ -41,8 +41,14 @@
     mode: "0755"
   notify: Reload nftables
 
+# started, never restarted: Debian's nftables.service stops with
+# `nft flush ruleset` and starts with `nft -f`, so a restart on every
+# converge left the gateway with no filter and no NAT between the two. A rule
+# change reaches the kernel through the Reload nftables handler instead,
+# atomically: the template begins with `flush ruleset`, so the flush and the
+# new rules are one `nft -f` transaction.
 - name: Enable nftables service
   ansible.builtin.systemd:
     service: nftables.service
     enabled: true
-    state: restarted
+    state: started
