@@ -1,542 +1,1288 @@
-# Design: per-board SSH names and a username-routing SSH proxy
+# Design: ssh to boards by name, through a username-routing ssh proxy
 
-Date: 2026-10-03
-Status: proposed. Nothing here is implemented or deployed. The decisions in
-[Decisions needed](#decisions-needed) are open, and the work is tracked by
-#191 and the issues under [Work items](#work-items).
+Date: 2026-10-03, revised 2026-10-04 and 2026-10-05
+Status: decided, not yet built. Nothing here is deployed. The owner's
+decisions are in [Decisions](#decisions), with the engineering decisions
+and readings kept apart from his words. Three points are open with the
+owner (O1, O2 and O4, [Open points for the owner](#open-points-for-the-owner)).
+For each, the document says what phase 1 builds while he is asked, so none
+of them blocks building. The work is tracked by #191 and the issues under
+[Work items](#work-items).
+
+Words used here:
+
+- The **gateway** is the site's fpgas.online gateway, the host this
+  repository configures.
+- The **upstream gateway** is the separately managed router a site may sit
+  behind. It holds the site's public IPv4 address. This repository does not
+  configure it and never names it.
+- The **transit address** is the gateway's uplink IPv4 address
+  (`eth_uplink_static_address`), private at a site behind an upstream
+  gateway.
+- `<site>` is the site's public name, for example `welland.fpgas.online`.
+- `<board-name>` is a board's login name, for example `pi-sw2-p47`. It names
+  a switch port, a place, and not a device: whatever is plugged in there
+  answers.
+- The **fleet key** is the one ssh host key that every board presents,
+  because every board boots the same root. Anyone who logs in to a board can
+  read it.
+- The **site proxy key** is the one ssh host key that answers port 22 of
+  `<site>`.
+
+## What a visitor types
+
+```
+ssh pi-sw2-p47@welland.fpgas.online            # through the proxy; IPv4 or IPv6
+ssh pi@ipv6.pi-sw2-p47.welland.fpgas.online    # straight to the board; IPv6 only
+```
+
+No port number, no client configuration. The first form is the one every
+board page prints. The second is also open (D17), and the page prints it
+only to a visitor who reached the website over IPv6.
+
+## Decisions
+
+Tim's words are quoted from the question record; the answers of 2026-10-04
+are also copied on #191. Where a quote named a machine, the name is replaced
+by its role in square brackets, and a bracket after a phrase says what the
+phrase refers to. The middle column says only what his words say; what
+engineering added to make them buildable is in the second table.
+
+The numbers are not consecutive: D4 and D6 to D12 belonged to earlier
+revisions of this document and are not reused.
+
+| # | Decision | Source |
+|---|---|---|
+| D1 | The upstream gateway gets a username-routing ssh proxy of its own. It forwards "piXXX" users to the gateway. Backup ports: 2222 is the upstream gateway's own sshd, 2223 the gateway's own sshd, 2224 the gateway's proxy. Readings added by engineering: E15 | Tim, 2026-10-04: "The site's gateway [the upstream gateway] should get it's own proxy which works in a somewhat similar manner to the proxy on the fpgas.online gateway. piXXX users will be forwarded the fpgas.online gateway. As a backup, port 2222 should go to [the upstream gateway]'s ssh server and port 2223 should forwarded directly to [the fpgas.online gateway's] ssh server and port 2224 should forward directly to [the fpgas.online gateway's] ssh proxy." |
+| D2 | The fleet key is not what protects traffic between a client and a proxy. The proxy has a host key that is not public | Tim, 2026-10-04: "Unclear, the ssh host key is on the rpi and available to anyone who logs into that system, so should *not* be what encrypts traffic to [the fpgas.online gateway]" |
+| D3 | Devices on the site's own LAN reach everything through the gateway, like internet devices. A board talks only to the gateway | Tim, 2026-10-04: "Other devices behind [the upstream gateway] should access all welland.fpgas.online resources via gw.welland.fpgas.online and look pretty much like any internet device except with a private IP addresses. Devices inside XXX.welland.fpgas.online should not be accessing other XXX.welland.fpgas.online devices, they should only be talking to gw.welland.fpgas.online -- IE really pi1.welland.fgpas.online<->gw.welland.fgpas.online should be considered a direct point to point link." |
+| D5 | sshpiper is packaged from the mirror repository fpgas-online/sshpiper | Tim, 2026-10-04: "Mirror repo fpgas-online/sshpiper; I will create it". The repository exists since 2026-10-04 |
+| D13 | Visitor-to-board data is treated as public. Admin-to-gateway data must be encrypted. The client-to-proxy hop therefore uses a key that is not public; the hop behind the proxy need not be protected. His sentence takes it as a premise that the proxy carries admins to the gateway; it does not decide that, and phase 1 does not build it (O1) | Tim, 2026-10-04: "Data from visitor<->pi should be treated as effectively unencrypted (everyone on the planet has root on the pi and could just intercept it there). Data from admin<->gateway needs to be encrypted. As the proxy is doing both XXX<-A1->proxy<-B1->pi and XXX<-A2->proxy<-B2->gateway and we can't tell if XXX is a visitor or an admin before setting up A1 or A2, they both needs to be encrypted with a key that is not publically available. Both B1 and B2 being unecrypted is also fine as B2 is a trusted step." |
+| D14 | Visitors use `ssh <board-name>@<site>`, the same on IPv4 and IPv6. They are never told to use `-p` | Tim, 2026-10-04: "We want people to always use something like `ssh pi-sw2-p47@welland.fpgas.online` without having to understand the complexity of a shared single ipv4." and "We don't want people to ever have to use `-p 10722` as that does not work with sshfp." |
+| D17 | The direct path `ssh pi@ipv6.<board-name>.<site>` is built and open. Reading added by engineering, E17: the board page shows the direct command only to a visitor who reached the website over IPv6 | Tim, 2026-10-05, asked whether to build and open the direct IPv6 path: "Build it, open it, the website shows the extra direct IPv6 is coming from an IPv6 source." |
+| D15 | **Not a decision: a reading of a sentence he wrote as a question** (O2). Read as: there are no `ipv4.` names and no plain `<board-name>.<site>` names, so the private A records under the plain names are removed. (The first half of the sentence, the `ipv6.` name, is now decided: D17) | Tim, 2026-10-04, as a question: "Maybe `ssh pi@ipv6.pi-sw2-p47.welland.fpgas.online` is equivalent to `ssh pi-sw2-p47@welland.fpgas.online` and `ssh pi@ipv4.pi-sw2-p47.welland.fpgas.online` and `ssh pi@pi-sw2-p47.welland.fpgas.online` don't work?" This reading was shown to him twice afterwards and drew no comment, so it is not confirmed |
+| D18 | The DNS records are deterministic: they change only when the number of switches changes. The operator of the zone's name server sets up the missing records. Reading added by engineering, E8: "the number of switches" covers the port count of each switch, and the site's addresses and keys are the other inputs | Tim, 2026-10-05, asked how the generated records get into the public zone: "The dns records should be deterministic and only change when the number of switches change, ask [the operator of the zone's name server] to set up any missing records." |
+| D16 | **One site proxy key, shared by both proxies.** Not the fleet key and not either machine's own sshd key. It is installed on the gateway's proxy and on the upstream gateway's proxy, so every client sees one key for `<site>` on IPv4 and IPv6, with one SSHFP record set | Tim, 2026-10-05, choosing "One shared host key on both proxies". The accepted text: "I generate one proxy host key for the site (not the fleet key, not either machine's own sshd key); it is installed on the fpgas.online gateway's proxy and on the upstream gateway's proxy; every client sees one key for the name on IPv4 and IPv6, with one SSHFP record. Cost: that private key also lives on the upstream gateway, so the fpgas.online docs must say a site's upstream proxy holds the site's proxy key." This replaces his 2026-10-04 choice of the key-types trick, which the lab disproved ([Rejected alternatives](#rejected-alternatives)) |
+
+Decided by engineering, open to the owner's veto:
+
+| # | Decision |
+|---|---|
+| E1 | On the gateway's proxy a name that is not a board name is **refused by the proxy itself**. Nothing from the proxy reaches the gateway's own sshd in phase 1. Operators reach that sshd on port 2223. This is the default while the owner is asked (O1) |
+| E2 | The login name is `<board-name>`, the board's host name `pi-sw<S>-p<P>`, and nothing else for now. Names from the fleet registry can be added later as further pipes |
+| E3 | On the gateway's uplink, port 22 is the proxy, port 2223 the gateway's own sshd and port 2224 the proxy, on IPv4 and on IPv6 alike. A client inside the site, a client on IPv6 and the upstream gateway's forwards all find the same thing on the same port |
+| E4 | A board cannot reach the site's own public ssh entry points, nor the proxy |
+| E5 | Board names are password-only through the proxy, on every path and port. Phase 1 has no key pipes: the proxy holds no key for the boards and none for the gateway |
+| E6 | While the fleet key rotates, the `ipv6.` names carry both fingerprints and the proxy pins both. The old key comes from the role's own record of what it pinned last |
+| E7 | Boards get no login aliases. The direct path logs in as `pi`, and the proxy rewrites the name, so nothing needs `<board-name>` to exist as an account on a board |
+| E8 | How D18 is built. One function in this repository renders the whole record set as a sorted zone fragment with no timestamp or serial, so that two renders of an unchanged site are byte-identical; a unit test asserts it. Readings: "number of switches" covers each switch's port count; a changed site address or key also changes the set. The comparison of the live zone with the fragment is behind `ssh_dns_verify`, default off, so verify is not red before the records are loaded |
+| E9 | failtoban runs with `--max-failures 20` and `--ban-duration 5m`, not its defaults of 5 and 60 minutes |
+| E10 | `gw.<site>` stops being a CNAME to `<site>` and gets address records of its own, with no SSHFP |
+| E11 | Boards offer only their Ed25519 host key |
+| E12 | The first converge with the proxy enabled reboots the fleet once, because it changes sshd drop-ins in the shared root. It is a planned step of the rollout |
+| E13 | The old `ssh -p <port> pi@<site>` line leaves the board pages in the same change that adds the new command, and the API carries no `legacy_port`. It never worked from outside at a site behind an upstream gateway, and D14 says visitors are never told `-p`. The per-board `<s><pp>22` DNAT rules are removed in the next converge. Default while the owner is asked (O4) |
+| E14 | What `pi@<site>` means. On the gateway's proxy (IPv6, port 2224, inside the site): refused, like any non-board name. On public IPv4 port 22: whatever the upstream gateway's sshd does with the name `pi` (E15). It is never a board. The board pages say that the login name is the board's name |
+| E15 | Readings of D1 that his words do not state: (a) on the upstream gateway's proxy, every name that is not a board name goes to the upstream gateway's own sshd; (b) "piXXX" means the names matching `^pi-sw[0-9]+-p[0-9]+$`; (c) the upstream gateway's proxy connects onward to the gateway's proxy on port 2224, the same port his "2224" backup forward reaches. On (a): a key login cannot pass through a proxy, so the upstream gateway's administrators reach its sshd on 2222 from outside; and if that sshd is key-only, relaying non-board names to it by password is as pointless there as it was on the gateway (E1). Whether the upstream proxy relays them or refuses them is part of O1 |
+| E16 | The proxy is not exposed on any public port until our package carries the patch that closes a failed onward connection ([The required package patch](#the-required-package-patch)) |
+| E17 | How D17 is built. `ssh_direct_ipv6` defaults to true at a site with a routed board prefix (`pib_network6_base` defined) and `ssh_proxy_enabled`. Reading of "the website shows the extra direct IPv6 is coming from an IPv6 source": the board page prints the direct command only when the visitor's own connection to the website arrived over IPv6; the proxy command is always printed |
 
 ## Problem
 
-Users reach a board today through a per-board port on the site's one public
-IPv4 address. fpgas.online-site prints it on the board page (`Pi.ssh_port`):
+A board page prints this today (`Pi.ssh_port` in fpgas.online-site):
 
 ```
-ssh -p 10722 pi@welland.fpgas.online
+ssh -p <per-board port> pi@<site>
 ```
 
-The port is the gateway's per-port DNAT
+The port is the gateway's per-board DNAT
 ([`roles/firewall`](../../../ansible/roles/firewall/templates/nftables.conf.j2),
-`<switch><pp>22 -> 10.21.<s>.<p>:22`). This has three problems:
+`<switch><pp>22` to the board's port 22). It has four problems:
 
-1. **The port has to be copied from a web page.** Nothing in DNS can tell an
-   SSH client which port to use (see [Findings](#findings-that-shape-the-design)).
-2. **The host key cannot be checked against DNS.** SSHFP is looked up by
-   name only, and every board shares the one name `welland.fpgas.online`.
-3. **IPv6 is not used**, although every board already has a global IPv6
-   address.
+1. **It does not work from outside at a site behind an upstream gateway**
+   unless that gateway forwards one port per board. Observed 2026-10-05 at
+   Welland: the upstream gateway's own sshd holds public IPv4 port 22, and no
+   ssh port is forwarded to the gateway. So no ssh command reaches a board
+   from the IPv4 internet there.
+2. **The port has to be copied from a web page.** Nothing in DNS tells an ssh
+   client which port to use.
+3. **The host key cannot be checked against DNS.** SSHFP is looked up by name
+   only, with no port.
+4. **IPv6 is not used**, although every board has a global IPv6 address.
 
-## Goal
+## Goal and phases
 
-Every board gets one name and one login that work the same over IPv4 and
-IPv6 with a stock OpenSSH client and no client configuration:
+Every board is reachable from outside with a stock OpenSSH client, with the
+first command under [What a visitor types](#what-a-visitor-types), and with
+the second where the site has switched the direct path on. A default
+client is asked once to accept the key of `<site>` and never sees a
+changed-key refusal because it took the other address family. A client that
+opts in checks the key against DNS (SSHFP).
 
-```
-ssh pi-sw1-p7@pi-sw1-p7.<site-domain>
-```
-
-The host key it presents is the same on both paths, so switching between
-IPv4 and IPv6 never produces a prompt or a changed-key warning, and it can be
-checked against DNS (SSHFP) by users who opt in.
-
-- **Phase 1:** a username-routing SSH proxy (sshpiper) on the gateway carries
-  the IPv4 path, and IPv6 goes straight to the board. The board sees the
-  gateway's address as the source of proxied connections.
-- **Phase 2:** transparent IPv4 source rewriting, so the board sees the
-  client's real address on proxied connections too.
+- **Phase 1:** works from outside on IPv4 and IPv6. On the proxied path the
+  board sees the gateway's address as the source.
+- **Phase 2** (#190): transparent proxying, so the board sees the client's
+  address on proxied IPv4 logins. Phase 1 does not depend on it in any way.
 
 ## Non-goals
 
-- Changing how operators, Ansible and the jump account reach the gateway's own
-  sshd ([`docs/access.md`](../../access.md)). The gateway's sshd keeps port 22
-  on its own addresses. Decision D1 does change the outside-IPv4 route to the
-  site router itself; that is called out there.
-- Removing the per-port DNAT. It stays as the legacy path until the board
-  pages stop printing it. Removing it is a later, separate change.
-- An IPv6-only Pi network. Pi 3 network boot is IPv4-only, Pi 4 IPv6 boot is an
-  experimental alpha that needs ISC DHCP, and the Orange Pi FEL/U-Boot path and
-  the NFS root are IPv4. The proxy-to-board hop could later use IPv6 with the
-  client's IPv4 address embedded (RFC 6052), but phase 2 does not need it.
-- Per-board host keys. Every board shares one NFS root and so one host key
-  (access.md, "Host key"). This design keeps that; see
-  [Trust](#trust-what-the-host-key-proves).
-- ps1.fpgas.online and other hosts without `switches:`. Every template and task
-  below is guarded `when: switches is defined`, like the rest of the per-port
-  model.
+- Configuring the upstream gateway from this repository. This document
+  states what the gateway needs from it
+  ([What the upstream gateway must provide](#what-the-upstream-gateway-must-provide)).
+- Per-board host keys. Every board shares one root and so one host key.
+- An IPv6-only board network. Network boot and the NFS root are IPv4.
+- A path from the site's own LAN to the boards, or from one board to
+  another (D3).
+- Hosts without `switches:`. Every template and task here is guarded
+  `when: switches is defined`, like the rest of the per-port model.
 
 ## Findings that shape the design
 
-These come from reading the OpenSSH 10.5p1 source, the RFCs and sshpiper's
-source on 2026-10-03, and from live DNS queries. No SSH behaviour has been
-tested against a real board yet. [Verification](#verification) lists the
-tests that must pass before each phase merges.
+From the OpenSSH source, the RFCs, the sshpiper source at commit `2038d993`
+of fpgas-online/sshpiper, live DNS queries, and the lab in
+[`tests/lab/ssh_key_types`](../../../tests/lab/ssh_key_types/README.md)
+(PR #214). Only the lab rows were tested with real clients.
 
 | Finding | Evidence | Consequence |
 |---|---|---|
-| No SSH client uses SRV or SVCB to find a port. OpenSSH takes the port only from `-p`, `host:port`, `Port` or `getservbyname("ssh")`. | OpenSSH `ssh.c` and `readconf.c`; bz#2217 (2014) and openssh-portable PR #228 (2021) are unmerged; RFC 9460 requires a per-protocol SVCB mapping and none exists for SSH | The port cannot come from DNS. The only zero-config paths are port 22 on the board's own address (IPv6) and port 22 on a proxy that routes on the username (IPv4). |
-| SSHFP has no port dimension. OpenSSH looks SSHFP up at the connection host name only. | RFC 4255; `dns.c` `verify_host_key_dns()` | Each board needs its own DNS name. |
-| The server sends its host key during key exchange, before the client sends a username. | RFC 4253 §8, RFC 4252 §5 | The proxy cannot choose a host key per board. It presents one key to every client. |
-| A client's public-key signature covers the session identifier, which differs on each side of a proxy. | RFC 4252 §7 | The proxy cannot relay public-key logins. It checks the client's key itself and logs in to the board with its own key (sshpiper's "mapping key"). Passwords are relayed as they are. sshpiper's YAML plugin offers only password and public-key logins. |
-| `UpdateHostKeys` defaults to `yes` (OpenSSH 8.5 and later) unless `VerifyHostKeyDNS` is on or a custom `UserKnownHostsFile` is set. After login the client treats known_hosts keys for that name that the server does not list as deprecated, and removes them, unless one of the keys also appears under another known_hosts name. | `readconf.c:2950-2957`; `clientloop.c:2189-2196`, `check_old_keys_othernames()` and the removal path after it | If the two paths presented different keys under one name, a user who knows only that one name would lose one path's key on each login with the other path and be prompted again, repeatedly. The proxy and the boards must present the same key. |
-| An authoritative DNS server sees the resolver, not the client. The client-subnet option (RFC 7871) is optional and describes the path to the resolver. | Live `o-o.myaddr.l.google.com TXT` queries via 8.8.8.8, 2001:4860:4860::8888, 1.1.1.1 and a site resolver, 2026-10-03 | DNS cannot hand different SSHFP records to IPv4 and IPv6 clients. One key on both paths makes that unnecessary. |
-| sshd has no PROXY-protocol support. sshpiper accepts PROXY headers from its clients (`--allowed-proxy-addresses`) but never sends them upstream. | OpenSSH source; sshpiper `cmd/sshpiperd/main.go` | The only way for a board to see the client's address on the IPv4 path is IP-level transparent proxying (phase 2). |
-| Since OpenSSH 9.8, sshd penalises a source address after repeated failed logins (`PerSourcePenalties`, on by default, nothing exempt). The boards run OpenSSH 10.0 (trixie). | `sshd_config(5)` | In phase 1 every proxied login reaches the board from the gateway's address, as do the web terminal, the upload page and the jump route. A few wrong passwords through the proxy would make that board refuse the gateway for up to 10 minutes. |
-| `VerifyHostKeyDNS` defaults to `no`. A "secure" SSHFP answer needs a DNSSEC-validated response and, with glibc 2.31 and later, `options trust-ad` in resolv.conf. | `readconf.c:2977`, `ssh_config(5)`, glibc 2.31 NEWS | SSHFP helps only users who opt in. Everyone else gets one ordinary first-connection prompt. |
-
-An earlier draft gave the proxy its own ECDSA key and split the SSHFP set by
-algorithm. OpenSSH does compare only same-algorithm SSHFP records
-(`dns.c:259-281`), so the DNS side of that works, but `UpdateHostKeys` (row
-five above) makes it churn known_hosts for default clients that use a single
-board. It is recorded under decision D2 as the rejected alternative.
+| No ssh client takes a port from DNS | OpenSSH `ssh.c`, `readconf.c`; no SVCB mapping exists for ssh | The only paths without a port number are port 22 on the board's own address and port 22 on a proxy that routes on the user name |
+| SSHFP has no port. OpenSSH looks it up at the host name only | RFC 4255; `dns.c` `verify_host_key_dns()` | A name's SSHFP records describe one port's key. A name gets SSHFP only for the key on its port 22, and no other port is documented under that name |
+| The server sends its host key before the client sends a user name | RFC 4253 §8, RFC 4252 §5 | A proxy presents one key to every client. It cannot choose a key per board, or per visitor and admin |
+| A client's public-key signature covers the session identifier, which differs on each side of a proxy | RFC 4252 §7 | A proxy cannot relay a public-key login. It checks the client's key itself and logs in onward with a key of its own. Passwords are relayed as typed |
+| OpenSSH's known_hosts check is not per key type. If a name has any stored key and the presented key equals none, the result is "changed", whatever the types | `check_hostkeys_by_key_or_type()` in `hostfile.c`; lab scenarios 1a to 1d, 2a, 2b on OpenSSH 8.2, 8.9, 9.2, 9.6, 10.0 and 10.5 ([results](../../../tests/lab/ssh_key_types/results-2026-10-04.md)) | Two proxies with two different keys under one name do not work for a default client, even with different key types. One name and port needs one key (D16) |
+| After login a server announces its host keys (`hostkeys-00@openssh.com`). OpenSSH 8.5 and later then removes stored keys the server did not list. sshpiper forwards the backend's announcement unless told not to | Lab scenarios 3b, 6d to 6g | Both proxies run with `--drop-hostkeys-message`. Without it the client is offered the board's or the sshd's keys under the proxy's name |
+| `VerifyHostKeyDNS` defaults to `no`. With `yes` and a DNSSEC-validated matching SSHFP record the key is accepted with no prompt. If SSHFP records exist and none matches, the client prints the changed-key banner | `sshconnect.c` `verify_host_key()`, `ssh_config(5)`. Not tested in the lab | SSHFP helps only clients that opt in, and only from a signed zone. A published record that does not match is worse than none |
+| An authoritative DNS server sees the resolver, not the client | Live queries, 2026-10-03 | DNS cannot hand different SSHFP records to IPv4 and IPv6 clients |
+| sshpiperd listens on one address and one port (`--address`, `--port`). `--server-key` defaults to `/etc/ssh/ssh_host_ed25519_key` | `cmd/sshpiperd/main.go`, `daemon.go` | One instance on a wildcard address; the firewall maps port 22 to it. The key path is always given explicitly, or the proxy would present the gateway's own sshd key |
+| The yaml plugin tries pipes in file order and uses the first whose user name matches and whose check passes. A pipe with `authorized_keys` is a public-key pipe; one without is a password pipe and relays the password unchecked. `username_regex_match` makes the name a regular expression. `authorized_keys` paths may contain `$DOWNSTREAM_USER`. The proxy offers every client the union of all pipes' methods | `plugin/yaml/skel.go`, `libplugin/skel/skel.go` | Only board names have pipes. A name with no pipe is still offered a password prompt and is refused after it ("no matching pipe"). The timing differs: the reviewer measured 0.07 s for a refused non-board name and 2.2 s for a wrong password on a board name, so a client can tell which names have pipes. That is harmless: the names follow a public formula |
+| sshpiperd does not close an onward connection whose login failed. It stays open until the target sshd's `LoginGraceTime` and holds one of that sshd's unauthenticated slots (`MaxStartups 10:30:100`) | Measured by the reviewer of this document with the real sshpiperd and OpenSSH in containers, 2026-10-05: 18 wrong passwords through the proxy left the target sshd at 18 startups, and 5 of 20 key logins made to it directly were dropped. `authUpstream` in the sshpiper.crypto fork never closes the connection | About ten wrong passwords in two minutes for one board name start dropping the web terminal's and the jump route's logins to that board. A catch-all pipe to the gateway's sshd would let anyone do the same to the operators' logins. So: no catch-all (E1), and a required patch in our package (E16) |
+| A key pipe logs in onward before the client has proved it holds the key. A client that offers an authorised **public** key with a non-matching private key is denied, but the proxy has already logged in to the target with its mapping key, and that authenticated onward session stays alive | Reviewer's test with the real sshpiperd, 2026-10-05: the board logged `Accepted publickey for pi`, and a gateway sshd behind a key pipe logged an accepted login. Operators' public keys are published (GitHub) | Anyone could open authenticated sessions on a board or the gateway without a key. No key pipes until our package fixes this (E5, [Future work](#future-work)) |
+| The yaml and failtoban plugins are built only with the Go build tag `full` | `//go:build full` in `plugin/yaml`, `plugin/failtoban` | The package builds with that tag |
+| failtoban counts per client address: a wrong password for a board name counts 2, a refused non-board name counts 1, any aborted connection counts 1, a default `ssh-keyscan` (which probes several key types) counts 5. Refused keys are not counted. The limit is a fixed window that starts at the client's first connection and lasts `--ban-duration`, not a ban from the last failure, and a successful login does not reset it. A client over the limit sees `Connection closed by … port 2224`. An `--ignore-ip` address is never limited | `plugin/failtoban/main.go`; reviewer's measurements with the real sshpiperd, 2026-10-05 | Explicit, gentler values (E9). The upstream proxy's address is ignored. Verification and the VM test use `ssh-keyscan -t ed25519`, and the test client must stay under the limit or be listed in `--ignore-ip` |
+| A login to a board name whose port is empty is answered after about 3 seconds with `Permission denied`, exactly like a wrong password | Reviewer's test, 2026-10-05 | The board page says so |
+| sshpiperd has no cap on connections before key exchange, and writes an ERROR line for each refused non-board name | Reviewer's test, 2026-10-05 | A per-source limit on new connections in the firewall; `LimitNOFILE` and `TasksMax` in the unit; journald's rate limit bounds the log |
+| After login sshpiper passes agent, X11 and port-forward channels through untouched. `ssh -W` through a board name worked | Reviewer's test, 2026-10-05 | A board is a machine every visitor has root on. The documentation says: never forward an agent to a board |
+| sshd has no PROXY-protocol support. sshpiper accepts PROXY headers (`--allowed-proxy-addresses`) and never sends them | OpenSSH source; `cmd/sshpiperd/main.go` | A board sees the client's address on a proxied login only through transparent proxying (phase 2) |
+| Since OpenSSH 9.8 sshd penalises a source address after failed logins (`PerSourcePenalties`, on by default). Before 9.8 the option `PerSourcePenaltyExemptList` does not exist: it is a configuration error and sshd does not start. The boards' root is Debian bookworm today (inventory `dist: bookworm`), OpenSSH 9.2 | `sshd_config(5)`; reviewer's test on OpenSSH 9.2, 2026-10-05: `sshd -t` exits 255 with the line present | On a root with OpenSSH 9.8 or later, every proxied login reaches a board from the gateway's address, as do the web terminal and the jump route, so the boards exempt that address. On an older root there is no penalty and the line must not be written |
 
 ## Current state this builds on
 
-From `main` at 96a7336d and [`docs/access.md`](../../access.md):
+From `main` at 9bc1430 (2026-10-05).
 
-- **Board names.** `pi-sw<S>-p<P>`, IPv4 `10.21.<S>.<P>`, IPv6
-  `<pib_network6_base><S:02d>::<P>` (`port_vlans.py`). dnsmasq publishes them
-  in `pib_domain` through `host-record=` lines
-  (`roles/pxe/templates/ports.conf.j2`). The site router delegates that zone
-  to the gateway's dnsmasq. The delegation answers A records only:
-  `dnsmasq_auth_subnet` is `10.21.0.0/16`, and dnsmasq serves only addresses
-  inside the auth subnets. dnsmasq cannot sign a zone. `dns-rr=` records are
-  served in auth zones (dnsmasq(8)).
-- **Board accounts.** Every board shares one NFS root and so one `pi` account
-  (uid 1000, NOPASSWD sudo), one password (`pi_pw`, public by design), one set
-  of `authorized_keys`, and one host key. The root holds RSA, ECDSA and Ed25519
-  host keys (`roles/fixpi/tasks/netboot.yml`, "Pre-generate SSH host keys"),
-  and sshd offers all three.
-- **Image pulls replace the root's account files.** `roles/img/tasks/pull.yml`
-  runs `rsync --delete` and excludes only the host keys, the `authorized_keys`
-  files and the watchdog directory. Every new image therefore replaces
-  `/etc/passwd`, `/etc/shadow` and `/etc/group`; fixpi re-applies `pi`'s
-  password hash after each pull.
-- **Root changes reboot the fleet.** A changed file in the root gets a new
-  inode, which the booted boards answer with ESTALE, and it bumps the NFS root
-  generation (access.md, "why a key change reboots the fleet").
-- **IPv4.** The one public IPv4 address belongs to the site router. The router
-  runs its own sshd on port 22 and DNATs chosen ports to the gateway
-  (`eth_uplink_static_address`). Neither the router nor the gateway SNATs
-  those connections, so on the legacy path the board sees the client's real
-  address.
-- **IPv6.** The site router routes the boards' /56 to the gateway, but the
-  gateway's forward chain drops every new connection from the uplink to a
-  `v*` interface (it accepts only established, DNATed and outbound traffic).
-- **Isolation.** The forward chain drops `v*` to `v*` traffic, so one board
-  cannot reach another. The input chain accepts a service on every interface,
-  `v*` included, unless the rule names an interface.
-- **The gateway's own sshd** is public-key only (`sshd_pubkey_only`), on port
-  22, and carries the `pi` jump account.
+- **Board names and addresses.** `pi-sw<S>-p<P>`, IPv4 `10.21.<S>.<P>`, IPv6
+  `<pib_network6_base><S:02d>::<P>`, all from `switches | port_vlan_map`
+  (`port_vlans.py`). No per-board configuration exists and none is added.
+- **The public zone.** `fpgas.online` is the owner's zone, hosted outside the
+  site and DNSSEC-signed (queried 2026-10-04). It holds, for a site: `<site>`
+  with an A record (the public IPv4 address) and an AAAA record (the
+  gateway); `gw.<site>` as a CNAME to `<site>`; and `<board-name>.<site>`
+  names with A records that carry the boards' **private** addresses.
+- **Board accounts.** One `pi` account (NOPASSWD sudo), one published
+  password (`pi_pw`), one set of `authorized_keys` and one set of host keys
+  (RSA, ECDSA, Ed25519), shared by every board.
+- **Root changes reboot the fleet** (`docs/access.md`, "why a key change
+  reboots the fleet").
+- **The gateway's own sshd** is public-key only (`roles/sshd`,
+  `sshd_pubkey_only`) and listens on port 22 of every address: no role sets
+  `Port` or `ListenAddress` today. Its accounts are the operators, the
+  automation account, and `pi`, a restricted jump account
+  (`roles/jump`). Ansible reaches it at `gw.<site>` over IPv6.
+- **The firewall** accepts tcp 22 on every interface in its input chain, and
+  `internal_networks` accepts everything from the board network. The
+  per-board DNAT rules name the uplink interface (#204, fixed). The forward
+  chain drops new IPv6 connections from the uplink to a board.
 
 ## Design
 
+### Host keys in plain words
+
+When an ssh client connects, the server proves who it is with its **host
+key**. The client remembers the public half under the name it connected to.
+The first connection to a name asks the user to accept the key; later ones
+are silent while the key is the same, and refused if it differs. The host
+key does not itself encrypt the session, but whoever holds its private half
+can pretend to be the server to any client whose traffic they can intercept,
+and then read everything, passwords included.
+
+| Key | Where its private half is | Presented by | Published as |
+|---|---|---|---|
+| The site proxy key (Ed25519) | The Ansible vault; the gateway, readable only by the proxy's service user; **and the upstream gateway**, where its operator installs it | Both proxies, on port 22 of `<site>` | SSHFP on `<site>`; the fingerprint on the board pages |
+| The fleet key (Ed25519) | The boards' shared root: readable by every visitor | Every board | Where the direct path is on: SSHFP on each `ipv6.<board-name>.<site>`, and the fingerprint on the board pages. Otherwise nowhere |
+| The gateway's sshd keys | The gateway, `/etc/ssh`, as today | The gateway's own sshd | Not in DNS |
+
+**The site proxy key.**
+
+- One key per site, type Ed25519. One type only: each proxy then offers
+  exactly one key, there is one SSHFP record set, and the lab shows that a
+  second type buys nothing. Ed25519 is the type every supported client
+  prefers and the type the boards use.
+- Generated once by the site's operator (`ssh-keygen -t ed25519`, no
+  passphrase) and stored in the vault as `vault_ssh_proxy_host_key`. It is
+  never the fleet key and never a key that an sshd presents.
+- The `ssh_proxy` role installs it on the gateway. The role does not
+  generate it and fails without it.
+- **It also lives on the upstream gateway** (D16). The site's operator
+  copies it there from the vault by hand; this repository does not manage
+  the upstream gateway. This is the stated cost of D16: whoever controls
+  the upstream gateway can pretend to be the site's proxy, on IPv6 as well
+  as IPv4, and can read every session that passes through its own proxy.
+  The upstream gateway is on the IPv4 path of every session anyway.
+- A site with no upstream gateway has the key only on the gateway.
+
+**Rotating the site proxy key.** Both proxies and the SSHFP records change
+together:
+
+1. Generate the new key and put it in the vault.
+2. Lower the TTL of the SSHFP records on `<site>`; wait out the old TTL.
+3. Install the new key on the upstream gateway's proxy and converge the
+   gateway, in one maintenance step. Between the two, the address families
+   answer with different keys.
+4. Replace the SSHFP records and the fingerprint on the board pages.
+
+Every visitor who has connected before gets the changed-key refusal once and
+clears it with `ssh-keygen -R <site>`. There is no way around that, so the
+key is rotated only when it has to be: when it may have leaked, or when the
+upstream gateway changes hands.
+
+**What each key proves.**
+
+- The site proxy key proves "this is one of the site's proxies". It protects
+  the client-to-proxy hop. In phase 1 only visitors use that hop; the key
+  is not public so that it could also protect an administrator's (D13, O1).
+- The fleet key proves only "this is some fpgas.online board, or someone who
+  has logged in to one". The direct IPv6 path crosses the internet under
+  this key alone. That is accepted (D13, D17): visitor-to-board data is
+  treated as public.
+- Each proxy ends the client's ssh connection and starts a new one, so
+  **each proxy on the path sees the whole session in clear**. On public
+  IPv4 port 22 that is the upstream gateway's proxy and then the gateway's.
+- Behind the gateway's proxy, the hop to a board runs on that board's own
+  VLAN, where the gateway is the only other device. The proxy pins the
+  fleet key there, which catches a wrong address, not an attacker.
+
+**What the direct IPv6 path exposes** (D17). Every board's sshd, with the
+published `pi` password and NOPASSWD sudo, is reachable from the whole IPv6
+internet on port 22.
+
+- What protects a board is not its sshd: the board holds nothing secret, it
+  is reset on every boot and by the regular reset, it sits alone on its own
+  VLAN, and the gateway's forward chain lets nothing else in (only tcp 22
+  to the board addresses) and keeps boards from reaching each other.
+- The board's sshd keeps its own limits: `MaxStartups`, `MaxAuthTries`,
+  and, on a root with OpenSSH 9.8 or later, `PerSourcePenalties` per
+  client address. There is no failtoban on this path and no proxy log;
+  the board's own journal, lost at reset, is the only record of who logged
+  in.
+- The host key a client sees on this path is the fleet key, which is
+  public. It is published as SSHFP on the `ipv6.` names once the zone
+  carries them (D18), and its fingerprint is on the board page.
+- A client with several keys in its agent can use up the board's
+  `MaxAuthTries` before the password prompt ("Too many authentication
+  failures"). The board page gives the hint
+  `ssh -o PubkeyAuthentication=no pi@ipv6.<board-name>.<site>`.
+- A visitor's own key works here once added to
+  `~pi/.ssh/authorized_keys` on the board, until the board resets.
+- What a visitor does over this path, and what the board then does on the
+  internet, is the same as over the proxy: the proxy never limited that.
+
 ### Names and DNS records
 
-For each board (example `pi-sw1-p7`). `<site-domain>` is decision D4.
-
-| Name | External view | Internal view (site resolver) | Purpose |
+| Name | Records | Port 22 is answered by | SSHFP |
 |---|---|---|---|
-| `pi-sw1-p7.<site-domain>` | A = site public IPv4; AAAA = board IPv6 | A = `10.21.1.7`; AAAA = board IPv6 | The name users type |
-| `ipv4.pi-sw1-p7.<site-domain>` | CNAME `ipv4.gw.<site-domain>` | CNAME `private-ipv4.pi-sw1-p7.<site-domain>` | Force the IPv4 path |
-| `ipv6.pi-sw1-p7.<site-domain>` | AAAA = board IPv6 | same | Force the direct IPv6 path |
-| `private-ipv4.pi-sw1-p7.<site-domain>` | A = `10.21.1.7` | same | Inside the site |
-| `ipv4.gw.<site-domain>` | A = site public IPv4 | — | The proxy |
+| `<site>` | A: the public IPv4 address. AAAA: the gateway. Both exist today | IPv4: the upstream gateway's proxy. IPv6: the gateway's proxy. Both present the site proxy key | `SSHFP 4 2 <SHA-256 of the site proxy key>` |
+| `ipv6.<board-name>.<site>`, one per access port (D17; where `ssh_direct_ipv6` is on) | AAAA only: the board's global address | The board | `SSHFP 4 2 <SHA-256 of the fleet key>` |
+| `gw.<site>` | An A record (the public IPv4 address) and exactly one AAAA record (a gateway address that answers ssh from outside) of its own. Not a CNAME (E10) | As `<site>`; documented only with `-p 2223` and `-p 2224`, for operators | none |
 
-Every name that is not a CNAME also carries the same record,
-`SSHFP 4 2 <fleet Ed25519 SHA-256>`, in both views. A CNAME cannot hold other
-records (RFC 2181 §10.1); OpenSSH's SSHFP query follows it and gets the
-target's record, which is the same one. Because the key is the same on every
-path, split horizon changes only addresses and CNAME targets, never
-fingerprints.
+- `<board-name>.<site>` is not created by this design. The private A
+  records under those names today should be removed, and are not removed
+  until the owner says so (O2): a visitor's client that resolves a private address
+  connects to whatever has that address on the visitor's own network and
+  offers it the published password. The removal, and having no plain or
+  `ipv4.` names, rest on a sentence the owner wrote as a question and has
+  not confirmed (O2); the reason given here stands by itself.
+- Until the zone carries the `ipv6.` names (D18), the direct path works only
+  by address. The board page prints the name only at a site with
+  `ssh_dns_verify` on, which is the site's statement that the zone is
+  loaded; before that it prints the board's IPv6 address instead.
+- The inventory already requires `gw.<site>` to "keep exactly one AAAA
+  record, an address that answers ssh from outside" (the site's host_vars).
+  That stays true. Nothing in this design needs `<site>` or `gw.<site>` to
+  have more than one.
+- There are no `ssh.`, `proxy.`, `ipv4.` or `private-ipv4.` names and no
+  internal DNS view.
+- `gw.<site>` stops being a CNAME because a lookup through a CNAME finds the
+  SSHFP records of `<site>`, and ports 2223 and 2224 do not both answer with
+  that key. With records of its own and no SSHFP, a client that has
+  `VerifyHostKeyDNS` on sees no mismatch on the backup ports.
+- `known_hosts` stores a non-default port as `[gw.<site>]:2223`, apart from
+  the port 22 entry, so the keys on the three ports never meet.
+- Any other name that is a CNAME to `<site>` (a second web site at the same
+  address) answers ssh exactly as `<site>` does.
+- The zone is signed, which is what makes SSHFP worth publishing. A client
+  uses it only with `VerifyHostKeyDNS yes` and a validating resolver.
 
-Notes:
+**Deterministic, generated, loaded by the name server's operator** (D18, E8).
 
-- **The login name is not in DNS.** `pi-sw1-p7@` is only what the user types.
-  The proxy routes on it.
-- **Who answers the internal view.** The gateway's dnsmasq is authoritative
-  for `pib_domain`, not for `<site-domain>`. The internal view of
-  `<site-domain>` (the private A records and internal CNAME targets) has to
-  come from the site resolver, as an internal zone or override for
-  `<site-domain>`. That is part of decision D4.
-- **Signing.** SSHFP is "secure" only from a DNSSEC-signed zone with a DS
-  record in a signed parent. The external view is decision D4. Until the
-  internal view is signed too, users inside the site get the ordinary prompt
-  even with `VerifyHostKeyDNS yes`.
-- **Generated, not hand-written.** Names and addresses come from
-  `switches | port_vlan_map`. The fingerprint is not in the inventory: the
-  generator reads it from the NFS root's `ssh_host_ed25519_key.pub` on every
-  converge, so a regenerated key (infra#126) updates the records.
-- **The shared A record depends on D1.** The external A record points at the
-  site's public IPv4 address. That is right only if the router forwards port 22
-  there to the proxy. Without D1, port 22 there is the router's own sshd, and
-  the board names must not carry that A record.
-- **No happy eyeballs.** OpenSSH tries addresses one at a time, so a client
-  with broken IPv6 waits out the TCP connect timeout before it falls back to
-  IPv4. The user docs recommend `ConnectTimeout` and point at the `ipv4.` name.
-- **The internal A record needs a firewall rule** (decision D3). Today nothing
-  inside the site can open a connection to `10.21.x.y`, and LAN clients cannot
-  hairpin the router's public DNAT.
+- **The record set is a pure function of the site's static description**:
+  the site name, the gateway's addresses, the site proxy key, the fleet
+  key, and the switches with their port counts (`switches |
+  port_vlan_map`, the same data that generates the VLANs). It does not
+  depend on which boards are plugged in, registered or verified. Every
+  access port of every switch has its `ipv6.<board-name>.<site>` AAAA
+  record, with the address from the per-port formula, and its SSHFP record
+  for the fleet key, whether or not a board is there.
+- **It changes only when** a switch is added or removed, a switch's port
+  count changes, one of the site's addresses changes, or a key changes
+  (the site proxy key; the fleet key, including the two-fingerprint period
+  of a rotation).
+- **One function renders it.** A small module in this repository (beside
+  `port_vlans.py`, usable as an Ansible filter and importable by tests)
+  takes those inputs and returns the fragment text. The role calls it and
+  writes the result to `ssh_dns_fragment_path` (proposed default
+  `/var/lib/fpgas-online/dns/<site>.zone-fragment`, mode 0644).
+- **Format**: RFC 1035 master-file lines with fully qualified owner names,
+  one record per line, in a fixed sort order (owner name, then type, then
+  data). No timestamp, no serial, no host name, no converge id: two renders
+  of an unchanged site are byte-identical. Three sections, each under a
+  fixed comment line:
+  1. *Records to set*: A, AAAA and SSHFP for `<site>`'s ssh (the SSHFP
+     record), `gw.<site>` as A and AAAA records of its own, and the `ipv6.`
+     names.
+  2. *Records to remove*: the `gw.<site>` CNAME (E10), which the records in
+     section 1 replace.
+  3. *Records to remove, pending the owner; do not remove yet*: the private
+     `<board-name>.<site>` A records (O2). They are listed so that the
+     operator knows them, and kept apart so that nobody removes them
+     unasked.
+- **A unit test** asserts that two renders of the same inputs are
+  byte-identical, that adding a switch adds exactly that switch's records
+  and changes no other line, and that changing which boards exist changes
+  nothing (the function takes no such input).
+- **Loading.** The operator of the zone's name server loads the fragment,
+  at the owner's direction. A re-load is needed only when the fragment
+  changes, which the role reports as a changed file.
+- **Checking.** The verify step behind `ssh_dns_verify` (default `false`)
+  compares the live zone with sections 1 and 2 and reports each missing and
+  each extra record. Section 3 is reported and never fails verify while O2
+  is open. While the switch is off, verify checks only that the fragment
+  exists and is well formed. A site switches it on once its records are
+  loaded.
 
-### Host keys: one key on every path
+### Ports and listeners
 
-- **The proxy presents the fleet's Ed25519 host key.** The gateway already
-  holds it in the NFS root. The converge copies it into the proxy's
-  configuration directory, owned by the proxy's service user with mode 0600,
-  re-copies it whenever it changes, and passes it explicitly with
-  `--server-key /etc/sshpiper/ssh_host_ed25519_key`. The flag must be set:
-  sshpiperd's default is `/etc/ssh/ssh_host_ed25519_key`, the gateway's own
-  sshd key, and with that default the proxy would silently present the wrong
-  key.
-- **Boards offer Ed25519 only.** A fixpi sshd drop-in sets
-  `HostKey /etc/ssh/ssh_host_ed25519_key`. The RSA and ECDSA key files stay
-  on disk but are not offered. Every path then presents exactly one key,
-  whatever the client's algorithm preference. Clients that exclude Ed25519
-  (for example in FIPS mode) cannot connect on either path.
-- **The proxy drops the board's host-key announcement.** After login sshd
-  announces its host keys (`hostkeys-00@openssh.com`), and sshpiper, which is a
-  packet pipe after authentication, forwards it to the client by default. The
-  proxy runs with `--drop-hostkeys-message`, so the proxied path never touches
-  known_hosts. Without the flag, Ed25519-only boards would still be harmless:
-  the client already knows the one announced key. If a board ever announced
-  RSA or ECDSA again, the client would ask for a proof, which the board signs
-  over its own session, and the client would log "server gave bad signature"
-  and abandon the update.
-- **Rotation.** sshd loads its host keys when it starts, so after the NFS
-  root's key changes (#126) booted boards keep the old key until their
-  staggered reboot, up to about 33 minutes. During that window the proxy pins
-  both the old and the new board key in `known_hosts_data`, and the proxy's own
-  key and the SSHFP records switch to the new key when the reboot wave starts.
-  Clients see the key change once, as they would without the proxy.
+On the gateway's uplink, for IPv4 (the transit address) and IPv6 (any
+global address the gateway itself holds) alike:
 
-### Trust: what the host key proves
+| Port on the uplink | Answered by | Key | How |
+|---|---|---|---|
+| 22 | The gateway's proxy | site proxy key | A firewall rewrite of port 22 to 2224, on the uplink interface only, switched on by `ssh_proxy_takes_port_22` |
+| 2223 | The gateway's own sshd | the gateway's sshd keys | sshd listens on 2223 as well as on 22; the firewall admits 2223 on the uplink only |
+| 2224 | The gateway's proxy | site proxy key | sshpiperd listens here |
 
-The fleet key is readable by anyone with root on any board, and every board
-user has NOPASSWD sudo. Today that already lets a board user impersonate every
-other board to a client they can intercept. Reusing the key for the proxy
-extends that to the proxy. A verified SSHFP match therefore proves "an
-fpgas.online board or proxy at this site", not "this board". Per-board keys
-would need per-board state outside the shared root and are out of scope.
+Seen from outside:
 
-The proxy also holds the mapping key, which the boards accept for `pi`. Since
-`pi` has NOPASSWD sudo, **whoever controls the proxy has root on every
-board**. The proxy therefore runs as its own unprivileged user, with systemd
-hardening, and the mapping key is readable only by that user.
+| Public address and port | Leads to |
+|---|---|
+| IPv4 22 | The upstream gateway's proxy. Board names go to the gateway's port 2224; every other name goes to the upstream gateway's own sshd (E15) |
+| IPv4 2222 | The upstream gateway's own sshd |
+| IPv4 2223 | Forwarded to the gateway's port 2223: the gateway's own sshd |
+| IPv4 2224 | Forwarded to the gateway's port 2224: the gateway's proxy |
+| IPv6 22 | The gateway's proxy |
+| IPv6 2223 | The gateway's own sshd |
+| IPv6 2224 | The gateway's proxy |
 
-### Phase 1: the gateway proxy
+Every forward on the upstream gateway is to the same port number on the
+transit address. Ports 2222 to 2224 are backup and operator routes. Visitors
+are never told about them (D14).
 
-**Software.** [sshpiper](https://github.com/tg123/sshpiper) with its YAML
-plugin. It is not packaged in Debian (`apt-cache policy sshpiper` returns
-nothing on trixie), so it is packaged for the fpgas.online apt repository
-(decision D5).
+A client inside the site resolves `<site>` to the transit address
+(docs, "Clients inside the site") and finds the proxy on port 22 there, with
+the same key as outside (E3, D3).
 
-**Where it listens.** The intended layout (Tim, 2026-10-03) was the proxy on
-the gateway's port 22, the gateway's own sshd moved to 2222, and a catch-all
-rule forwarding every unknown username to the local sshd. Two facts change
-that at Welland:
+### The gateway role `ssh_proxy` (#187)
 
-- The public IPv4 address, port 22 included, belongs to the site router. The
-  proxy only sees what the router forwards to it.
-- The gateway's sshd is public-key only. A catch-all through sshpiper is a
-  terminating proxy like any other and cannot relay public-key logins, so every
-  operator, the jump account and Ansible would need their keys loaded into
-  sshpiper and a mapping key into their own account. Their logins would stop
-  being end to end, and a mistake in the catch-all would lock Ansible out.
+**Package.** `sshpiper`, from the fpgas.online apt repository, built from
+the mirror repository fpgas-online/sshpiper (D5, fpgas-online/apt#21) with
+the build tag `full` and the required patch. It carries `sshpiperd` and the
+plugins `yaml` and `failtoban`. Where it puts them is the packaging work's
+choice, which is in progress (the sshpiper project's own release layout
+puts plugins in `plugins/` beside the binary), so the role takes both
+paths as variables and asserts that the files exist. The unit, user and
+configuration belong to the role, not the package.
 
-Recommended (D1, D6):
+**Variables.** The first group is read by more than one role
+(`ssh_proxy`, `sshd`, `firewall`, and the verify plays), so it lives in the
+inventory, `group_vars/all/`, with site values in host_vars, and not in one
+role's defaults:
 
-- The proxy listens on its own port (`ssh_proxy_listen_port`, for example
-  2022), bound to the gateway's uplink address (`--address`), so the unit
-  starts `After=network-online.target`.
-- The input rule accepts that port only on `iifname {{ eth_uplink }}`. Boards
-  must never reach the proxy. Every board is reachable from the internet
-  anyway, so the point is not board-to-board access as such: connections
-  that come from the proxy carry the gateway's identity (`10.21.0.1`, which
-  the boards exempt from login penalties, below) and, in phase 2, the
-  transparent path. Neither should be in a board user's hands.
-- The gateway's sshd stays on port 22, unchanged.
-- The site router forwards public IPv4 port 22 to the proxy port.
-- Unknown usernames are not forwarded anywhere. sshpiper offers every client
-  the union of all pipes' methods, so an unknown name (or `pi@`) is offered a
-  password prompt and refused after it ("no matching pipe"). That also means
-  the proxy does not reveal which names exist.
-- The yaml plugin refuses configuration files with group or other permission
-  bits, so the generated files are mode 0600.
-- sshpiper's `failtoban` plugin is chained after the yaml plugin
-  (`sshpiperd yaml ... -- failtoban`). It sees the real client address, so a
-  password guesser is blocked at the proxy instead of at the boards.
+| Variable | Default | Read by | Meaning |
+|---|---|---|---|
+| `ssh_proxy_enabled` | `false` | all three | Nothing is installed or opened while false |
+| `ssh_proxy_listen_port` | `2224` | `ssh_proxy`, `firewall` | |
+| `sshd_backup_port` | `2223` | `sshd`, `firewall` | Used only where `ssh_proxy_enabled` |
+| `ssh_proxy_takes_port_22` | `false` | `firewall` | The rewrite of port 22 on the uplink. Off until the operators' and Ansible's route has moved to 2223 ([Rollout](#rollout-and-removal-of-the-old-path)) |
+| `ssh_direct_ipv6` | `true` where `pib_network6_base` is defined, else `false` | `firewall`, the DNS fragment, the API | The forward rule and the `ipv6.` records of the direct path (D17, E17) |
+| `site_public_ipv4` | none; site data | `firewall`, the DNS fragment | The site's public IPv4 address. **New**: no inventory variable holds it today; it appears only inside `webrtc_additional_hosts` |
+| `ssh_dns_verify` | `false` | verify | Compare public DNS with the fragment (E8) |
 
-**Routing rules** are generated from `switches | port_vlan_map`: one pair per
-access port (88 at Welland, empty ports included), no regex. Two pipes may
-share a username; sshpiper offers the union of their methods and picks the
-pipe that matches the method the client uses.
+The rest are the `ssh_proxy` role's own defaults:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ssh_proxy_sshpiperd_path` | `/usr/bin/sshpiperd` (proposal) | The daemon |
+| `ssh_proxy_plugin_dir` | `/usr/lib/sshpiper` (proposal) | Where `yaml` and `failtoban` are |
+| `ssh_dns_fragment_path` | see [Names and DNS records](#names-and-dns-records) | |
+| `ssh_proxy_host_key` | `{{ vault_ssh_proxy_host_key }}` | The site proxy key's private half. The role fails if it is empty |
+| `ssh_proxy_host_key_path` | `/etc/sshpiper/ssh_host_ed25519_key` | Where it is installed: owner `sshpiper`, mode 0600 |
+| `ssh_proxy_listen_address` | `::` | Wildcard; one dual-stack socket |
+| `ssh_proxy_failtoban_ignore` | `[]` | Addresses that failtoban and the firewall's per-source limit never limit. At a site behind an upstream gateway: the address its proxy connects from. In the VM test inventory: the one address every test client arrives from |
+| `ssh_proxy_max_failures`, `ssh_proxy_ban_duration` | `20`, `5m` | failtoban (E9) |
+| `ssh_proxy_connection_rate` | `30/minute` burst `30` (proposal) | New connections to the proxy port per source address, in the firewall |
+
+**The service.** User `sshpiper`, unprivileged, with systemd hardening
+(`ProtectSystem=strict`, `NoNewPrivileges=yes`), `LimitNOFILE=4096` and
+`TasksMax=512` (proposals; sshpiperd itself has no cap on connections),
+`After=network-online.target`, `Restart=on-failure`:
+
+```
+{{ ssh_proxy_sshpiperd_path }} \
+  --address :: --port 2224 \
+  --server-key /etc/sshpiper/ssh_host_ed25519_key \
+  --drop-hostkeys-message \
+  {{ ssh_proxy_plugin_dir }}/yaml --config /etc/sshpiper/pipes.yaml \
+  -- \
+  {{ ssh_proxy_plugin_dir }}/failtoban --max-failures 20 --ban-duration 5m \
+      [--ignore-ip <address> for each of ssh_proxy_failtoban_ignore]
+```
+
+- `--server-key` is always given. The default is the gateway's own sshd key.
+  `--server-key-generate-mode` stays at its default, `disable`.
+- `--drop-hostkeys-message` is required (see the findings table).
+- `--ignore-ip` is left out altogether when the list is empty.
+- The role fails if the proxy's public key equals the fleet key or one of
+  the gateway's sshd keys.
+- `pipes.yaml` is mode 0600 because the yaml plugin refuses a configuration
+  file with group or other permission bits. The plugin makes no such check
+  on the host key; that file is 0600 because it is a secret.
+- Go opens a dual-stack socket for `::` on Linux unless `bindv6only` is
+  set. The verify play checks that the port answers on both families.
+
+**Where the role runs.** The pipes pin the fleet key, which the role reads
+from the NFS root's `ssh_host_ed25519_key.pub`. On a fresh gateway that file
+exists only after the play "Update the Pi NFS root" in `site.yml`, which is
+later than "Configure the server services". The `ssh_proxy` role therefore
+runs in a play of its own after that one, and fails if the file is missing.
+`roles/sshd` and `roles/firewall` stay where they are: they need only the
+shared variables.
+
+**How board names are known.** The pipes are generated from `switches |
+port_vlan_map`, the same map that makes the VLANs, the addresses and the
+DHCP entries. One pipe per access port, empty ports included. This is
+chosen over the fleet registry because a board name is a port's name and its
+address follows from the port by formula: no board has to be registered, or
+even present, for its name to route; nothing is configured per board; and a
+login does not depend on the registry being up. A login to an empty port
+is answered after about 3 seconds with `Permission denied`, the same as a
+wrong password; the client cannot tell the two apart.
+
+**Routing rules**, in this order in `pipes.yaml`:
 
 ```yaml
 version: "1.0"
 pipes:
+  # One pipe per access port: password logins, relayed as typed.
   - from:
-      - username: "pi-sw1-p7"           # password logins, relayed
+      - username: "pi-sw2-p47"
     to:
-      host: "10.21.1.7:22"
+      host: "10.21.2.47:22"
       username: "pi"
       known_hosts_data:
-        - "<base64 of: 10.21.1.7 ssh-ed25519 AAAA...>"
-  - from:
-      - username: "pi-sw1-p7"           # public-key logins
-        authorized_keys: "/etc/sshpiper/authorized_keys"
-    to:
-      host: "10.21.1.7:22"
-      username: "pi"
-      private_key: "/etc/sshpiper/mapping_key"
-      known_hosts_data:
-        - "<base64 of: 10.21.1.7 ssh-ed25519 AAAA...>"
+        - "<base64 of: 10.21.2.47 ssh-ed25519 AAAA... (the fleet key)>"
 ```
 
-`known_hosts_data` takes base64-encoded known_hosts lines whose host field
-matches the dialled address. Upstream host keys are always pinned: the sshpiper
-README warns that leaving them out disables the check. The pin is regenerated
-from the NFS root on every converge. If it goes stale, sshpiper reports every
-proxied login as `Permission denied (publickey)`, which is why the verify play
-logs in end to end.
+- A board name reaches that board's sshd as user `pi`.
+- **There are no key pipes in phase 1** (E5). No pipe has
+  `authorized_keys`, the proxy holds no private key other than its host
+  key, and it offers clients the method `password` only.
+- There is no catch-all pipe. Any other name is refused by the proxy after
+  the password prompt, and no connection is made to anything (E1).
+- `pi@<site>` is therefore refused on the gateway's proxy. The board pages
+  say that the login name is the board name.
+- Board host keys are always pinned. With a stale pin every proxied login
+  fails, which is why the verify play logs in end to end.
 
-**Authentication to the board.**
+**How the proxy authenticates onward.**
 
-- **Passwords** are relayed. With the published `pi` password this is the
-  zero-setup path.
-- **Public keys** are checked by the proxy against the keys the boards already
-  trust for `pi` (the operators' GitHub keys, the server-user key, the
-  controller key and the jump account key). The proxy then logs in with its
-  mapping key. fixpi adds the mapping key's public half as a new key source,
-  `ssh_proxy`, for `pi` only (like `jump`), never for root. Only those keys
-  pass the proxy: an ordinary user's own key cannot work over IPv4 (the proxy
-  has no way to know it), though it would work over IPv6 if the user adds it
-  to the board. Ordinary users log in with the password on IPv4.
-- **What does not work through the proxy:**
-  - `pi@` and `root@`, because the proxy only knows `pi-sw<S>-p<P>` names and
-    always logs in as `pi`. `pi@pi-sw1-p7.<site-domain>` therefore works over
-    IPv6 and is refused over IPv4. The user docs say to always use the
-    `pi-sw<S>-p<P>@` form.
-  - `ansible@`. Ansible keeps using the jump route.
+- **Passwords are relayed.** With the published `pi` password this is the
+  visitor's path, and it works through both proxies.
+- **Public keys do not work through the proxy, for anyone, on any path**
+  (E5). A key login cannot be relayed (findings table), and sshpiper's
+  substitute, a key pipe, is not safe to use as it is: it logs in onward
+  for anyone who merely offers an authorised public key (findings table).
+  Operators reach a board with their key through the gateway's sshd on
+  port 2223 (`ssh -J <account>@gw.<site>:2223 pi@<board address>`), as
+  `docs/access.md` describes today with port 22. A visitor's own key works
+  on the direct IPv6 path, where that is switched on, once the visitor has
+  added it on the board.
+- **An admin and a non-board name.** In phase 1 the gateway's proxy refuses
+  it (E1). **The admin does not get in through port 22 of the gateway.**
+  The admin's route is `ssh -p 2223 <account>@gw.<site>`, which reaches the
+  gateway's sshd directly, on IPv4 and IPv6, with the admin's key checked
+  end to end.
 
-**Firewall.**
+  **OPEN POINT O1.** The owner's words take it as given that the proxy also
+  carries admins to the gateway ("As the proxy is doing both … and
+  XXX<-A2->proxy<-B2->gateway"). Phase 1 does not build that, for two
+  measured reasons: relaying non-board names to the gateway's key-only sshd
+  lets anyone exhaust that sshd's login slots (findings table), and a
+  public-key login cannot be relayed at all, so the proxy would have to
+  hold a key that logs in to the gateway's accounts
+  ([Future work](#future-work)). Until the owner decides otherwise, admins
+  use port 2223. The question is with him again, with three options, and
+  phase 1 as written is right under each of them
+  ([Open points for the owner](#open-points-for-the-owner), O1).
 
-- Input: the proxy port, on the uplink interface only.
-- Forward, IPv6: `iifname {{ eth_uplink }} oifname "v*" ip6 daddr <board
-  addresses> tcp dport 22 accept`. This exposes each board's sshd, with the
-  published password, to the IPv6 internet. The per-port DNAT already gives the
-  same exposure over IPv4.
-- Forward, IPv4 from inside the site: decision D3.
+  A consequence to know: over IPv4, public port 22 is the upstream
+  gateway's proxy, and non-board names there go to the upstream gateway's
+  own sshd (a reading of D1, E15). Over IPv6 the same command is refused by
+  the gateway's proxy. Both present the same host key, so no warning marks
+  the difference. `ssh -p 2223 <account>@gw.<site>` reaches the gateway's
+  sshd on both families.
 
-**Board side** (fixpi):
+- **failtoban.** The password is public, so limiting guesses protects no
+  secret. It limits noise and keeps a board's sshd responsive. Logins that
+  arrive through the upstream gateway's proxy all come from its address,
+  which is ignored; limiting those is the upstream proxy's job, and a
+  requirement on it.
+  - What counts is in the findings table. With `--max-failures 20` and
+    `--ban-duration 5m` (E9) a client gets about ten wrong passwords in a
+    five-minute window that starts at its first connection; then it sees
+    `Connection closed by … port 2224` until the window ends. A successful
+    login does not reset the count.
+  - Keys in a client's agent are not a problem on the proxy: it offers only
+    `password`, and refused keys are not counted. The hint "if you see 'Too
+    many authentication failures', use `ssh -o PubkeyAuthentication=no`"
+    belongs to the direct IPv6 path only, where a board's sshd counts every
+    offered key.
+- **Channels.** After login the proxy passes every channel through:
+  agent forwarding, X11, port forwarding, `-W`. The user documentation
+  says: never forward an agent to a board.
 
-- The Ed25519-only `HostKey` drop-in.
-- **Exempt the gateway from login penalties.** The same drop-in sets
-  `PerSourcePenaltyExemptList` to the gateway's board-side address
-  (`{{ pib_network }}.0.1`). Otherwise a few failed logins through the proxy
-  would lock the web terminal, the upload page, the jump route and every
-  other proxied user out of that board for up to 10 minutes. Brute-force
-  protection for the IPv4 path moves to the proxy (`failtoban`). After phase 2
-  proxied logins carry the client's address and are penalised per client
-  again; the exemption stays for the gateway's own connections.
-- **Login aliases.** sshd has no username-alias option and looks the account up
-  itself, so fixpi adds one passwd entry per access port. Each shares `pi`'s
-  uid, gid, home and shell, and gets a shadow entry with the same `pi_pw` hash,
-  written on the gateway only, like `pi`'s:
+**Who holds what.** The proxy holds one secret, the site proxy key. It holds
+no key that a board or the gateway accepts. Whoever controls the proxy sees
+every proxied session in clear, which for a board is no more than every
+visitor can do with root on that board.
 
-  ```
-  pi-sw1-p7:x:1000:1000::/home/pi:/bin/bash
-  ```
+### The required package patch
 
-  Each alias is also added to every supplementary group `pi` is in. sshd calls
-  `initgroups()` with the login name, and without this an alias would lose
-  `dialout`, `gpio`, `i2c`, `spi`, `video` and the other groups that hardware
-  access depends on.
+sshpiperd leaves an onward connection open after its login failed (findings
+table). Our package carries a patch, on the packaging branch of
+fpgas-online/sshpiper and nowhere else, so that **a failed onward
+authentication closes the upstream connection** (`authUpstream` in the
+sshpiper.crypto fork is where it is never closed).
 
-  - The root is shared, so every board carries every alias:
-    `pi-sw2-p33@` also works on `pi-sw1-p7`.
-  - `whoami` shows `pi`, the first entry for uid 1000, while the logs show the
-    alias. sudo resolves the user from the uid, so `pi`'s sudoers rule applies.
-    Verification checks this rather than assuming it.
-  - The proxy rewrites the name to `pi`, so the aliases matter only on the
-    direct IPv6 path, and inside the site under D3.
-  - The aliases also go into `/etc/gshadow` group member lists, so `grpck`
-    stays clean.
-  - An image pull replaces `/etc/passwd`, `/etc/shadow`, `/etc/group` and
-    `/etc/gshadow`, so fixpi re-applies the aliases after every pull, as it
-    already does for `pi`'s hash.
-  - Every write is idempotent: a file is rewritten only when its content
-    differs. A rewritten `/etc/shadow` makes booted boards refuse SSH until
-    they reboot (access.md), so a converge that rewrote it every time would
-    reboot the fleet every time.
+- The patch is required for phase 1, not an improvement. Without it a
+  handful of wrong passwords for a board name locks the web terminal and
+  the jump route out of that board, and the patch is the only fix: the
+  proxy's own limits count per client address, the leak is per target.
+- The VM test asserts it: after N failed proxied logins to a board (N above
+  the sshd's `MaxStartups` start value), the board's sshd shows no
+  lingering unauthenticated sessions, and a correct login to that board
+  made at once succeeds.
+- **Until a package with the patch is published, the proxy is not exposed
+  on a public port** (E16): `ssh_proxy_enabled` is set only in the VM test
+  inventory, and no production site sets it
+  ([Rollout](#rollout-and-removal-of-the-old-path)).
 
-**What reboots the fleet.** Each of these changes a file in the shared root:
+### The gateway's own sshd on port 2223 (`roles/sshd`)
 
-- the first phase 1 converge, which writes `/etc/passwd`, `/etc/shadow`,
-  `/etc/group`, the sshd drop-in and `pi`'s `authorized_keys`;
-- every new image, which already reboots the fleet; the aliases are re-applied
-  in the same converge;
-- any change to `switches` or `access_ports`, because the alias list follows
-  `port_vlan_map`;
-- regenerating the mapping key, for example after a gateway reinstall.
+`roles/sshd` owns the gateway's sshd configuration, and today it sets no
+`Port` or `ListenAddress`. It gains a drop-in, written when
+`ssh_proxy_enabled`:
 
-**DNS.** Phase 1 publishes the records above. Hosting and signing the external
-view is decision D4. In the gateway's own zone (`pib_domain`), a new variable
-adds the boards' IPv6 /56 to the `auth-zone=` line only, so the delegated zone
-answers AAAA records. `dnsmasq_auth_subnet` itself is left alone, because it
-also feeds `domain=`, which takes a single range. `dns-rr=` lines carry the
-SSHFP records there.
+```
+ListenAddress 0.0.0.0:22
+ListenAddress [::]:22
+ListenAddress 0.0.0.0:{{ sshd_backup_port }}
+ListenAddress [::]:{{ sshd_backup_port }}
+```
 
-**What the board pages show.** fpgas.online-gw serves `/api/boards`, and its
-`ssh` object gains `user` and `host`:
+- Port 22 stays on every address, exactly as today: boards, the web tier
+  and anything on the gateway itself are not affected.
+- Port 2223 is on the wildcard addresses too, and **the firewall admits it
+  on the uplink interface only**. A `ListenAddress` that names an address
+  the host does not have yet makes sshd log a bind failure and never try
+  again, so the transit address is not named here.
+- Over IPv4 it is what the upstream gateway's same-port forward of 2223
+  reaches. Over IPv6 it is the operators' and Ansible's route once port 22
+  on the uplink is the proxy.
+- Once one `ListenAddress` is given, sshd listens only on those listed,
+  which is why the two port 22 lines are written out.
+- Nothing else changes in the gateway's sshd. The proxy never connects to
+  it (E1), so it needs no penalty exemption.
+- The role's lockout guard and `sshd -t` run before the reload, as for the
+  key-only drop-in.
+
+### Firewall (`roles/firewall`, #187 and #188)
+
+All in the per-port branch of `nftables.conf.j2`.
+
+Input:
+
+- `iifname {{ eth_uplink }} tcp dport { 2223, 2224 } accept`, and a drop of
+  those two ports on every other interface, placed before
+  `jump internal_networks`. Without the drop a board would reach the proxy:
+  `internal_networks` accepts everything from the board network. The
+  loopback interface is accepted earlier in the chain, as today.
+- A per-source limit on new connections to the proxy port, before that
+  accept: `ssh_proxy_connection_rate`, over which new connections are
+  dropped. It needs one rule per address family: one meter keyed on
+  `ip saddr`, and one keyed on the source's /64
+  (`ip6 saddr and ffff:ffff:ffff:ffff::`), since one IPv6 client holds a
+  whole /64.
+  sshpiperd has no cap of its own before key exchange. The addresses in
+  `ssh_proxy_failtoban_ignore` are exempt, since every IPv4 visitor
+  arrives from them.
+- The existing `tcp dport ssh accept` stays: boards and the site's services
+  reach the gateway's sshd on port 22 as today.
+
+NAT, rendered only when **both** `ssh_proxy_enabled` and
+`ssh_proxy_takes_port_22` are true. The role asserts the combination:
+`ssh_proxy_takes_port_22` without `ssh_proxy_enabled` fails the converge
+rather than being ignored.
+
+- Switching off goes in the reverse order. Setting
+  `ssh_proxy_takes_port_22: false` removes the redirect first, and port 22
+  on the uplink is the sshd again. Only then may `ssh_proxy_enabled` be set
+  false, which stops the proxy and closes 2224. The sshd's backup-port
+  drop-in stays as long as `sshd_backup_port` is defined, whatever the
+  proxy's state, so the route Ansible is using is never removed by the
+  converge that runs over it.
+- `iifname {{ eth_uplink }} fib daddr type local tcp dport 22 redirect to
+  :2224`, in the existing `ip nat` prerouting chain and in an `ip6 nat`
+  prerouting chain. `fib daddr type local` limits it to the gateway's own
+  addresses, so connections forwarded to a board's port 22 (the direct IPv6
+  path) are not rewritten. The proxy listens on the wildcard address, so
+  whichever local address `redirect` picks is answered. This is argued from
+  netfilter semantics and is proved in the VM test.
+- Only connections arriving on the uplink are rewritten. Port 22 from a
+  board or from the gateway itself is still the sshd.
+- From then on nothing arriving on the uplink reaches the sshd on port 22.
+  It is on 2223.
+
+Forward:
+
+- **The direct IPv6 path** (D17), when `ssh_direct_ipv6`:
+  `iifname {{ eth_uplink }} oifname "v*"
+  ip6 daddr { <board addresses from port_vlan_map> } tcp dport 22 accept`.
+  This exposes each board's sshd, with the published password, to the IPv6
+  internet under the public fleet key
+  ([Host keys in plain words](#host-keys-in-plain-words), "What the direct
+  IPv6 path exposes"). Only port 22, only to addresses the port map
+  generates, only arriving on the uplink.
+- **Boards going out and back in (E4):** `iifname "v*" ip daddr
+  {{ site_public_ipv4 }} tcp dport { 22, 2222, 2223, 2224 } drop`
+  before the rule that accepts `v*` to the uplink.
+- `v*` to `v*` stays dropped. Nothing is opened from the site's LAN to the
+  boards' IPv4 addresses (D3).
+
+The per-board DNAT rules are not touched in phase 1. Their removal is in
+[Rollout](#rollout-and-removal-of-the-old-path).
+
+### Boards (`roles/fixpi`, #186)
+
+- **Ed25519 only** (E11). An sshd drop-in sets
+  `HostKey /etc/ssh/ssh_host_ed25519_key`. There is then one fleet
+  fingerprint to publish, one SSHFP record per `ipv6.` name and one pin per
+  board in the proxy. The RSA and ECDSA files stay on disk, unused.
+- **`PerSourcePenaltyExemptList {{ pib_network }}.0.1`, only on a root
+  whose OpenSSH is 9.8 or later.** The address is the gateway's board-side
+  one. On such a root, a few wrong passwords through the proxy would
+  otherwise lock the web terminal, the upload page, the jump route and
+  every other proxied visitor out of that board.
+  - The line goes in a drop-in of its own, written by fixpi only when the
+    root's `openssh-server` version, read from the extracted root at deploy
+    time (`dpkg-query --root=<the root> -W openssh-server`), is 9.8 or
+    later; otherwise fixpi removes the file. It is not keyed on `dist`.
+    The comparison is `dpkg --compare-versions <version> ge 1:9.8~`:
+    the package version carries an epoch (`1:9.2p1-2+deb12u…`), and an
+    Ansible `version` test against `9.8` would compare it wrongly.
+  - Today's root is bookworm with OpenSSH 9.2: the option is unknown there,
+    sshd would refuse to start, and every board would lose ssh. There is
+    also no penalty to exempt on 9.2. The line appears by itself when the
+    root moves to trixie.
+  - The check that the root's sshd accepts its configuration is the VM
+    test: the virtual Pi boots this root, and its existing ssh login check
+    fails if sshd did not start. The gateway cannot run the root's
+    `sshd -t` itself: the root is for another architecture.
+  - The gateway's own sshd gets no such line (the proxy never connects to
+    it). For the record, the Welland gateway and the VM test's server run
+    Debian 13 (trixie), whose OpenSSH is 10.0 and knows the option.
+- **No new key in `authorized_keys`.** The proxy has no key for the boards
+  (E5), so fixpi gains no key source.
+- **The login banner, the `pi` account and its password stay as today.**
+- **No login aliases** (E7).
+- **The direct path** (D17) needs nothing else on the board: its sshd
+  already
+  listens on its global IPv6 address, and `ssh pi@ipv6.<board-name>.<site>`
+  is an ordinary login. The visitor's own key works there once added to
+  `~pi/.ssh/authorized_keys`, until the board resets.
+- The first converge changes files in the shared root and so reboots the
+  fleet (E12). A later change to `switches` does not, because nothing on the
+  boards follows the port map any more.
+- The web terminal's host-key policy is checked before boards go
+  Ed25519-only. It lives in this repository, in the `wssh` role's unit (the
+  webssh flags) and root's `known_hosts` on the gateway, not in the site.
+
+**Fleet key rotation (E6).** After the root's key changes, booted boards
+keep the old key until their reboot. For the length of the reboot wave the
+proxy pins both keys and the `ipv6.` names carry both SSHFP records. Proxied
+visitors notice nothing; direct visitors see the key change once.
+
+Where the second key comes from: the root holds only the new key, so the
+role keeps its own record. It stores the public key it pinned at the last
+converge in `/etc/sshpiper/fleet_host_key.pub`. When the root's key differs
+from that file, the role moves the stored key to
+`fleet_host_key.previous.pub`, and pins and publishes both. The first later
+converge that finds the root's key unchanged removes the `.previous` file,
+and with it the old pin and the old SSHFP records. If the role's record is
+lost (a rebuilt gateway), only the new key is pinned and boards still on the
+old key refuse proxied logins until they reboot. The site
+proxy key is not involved.
+
+### What the board pages print (fpgas-online/fpgas.online-site#44)
+
+fpgas.online-gw serves `/api/boards`; its `ssh` object becomes:
 
 ```json
-{"host": "pi-sw1-p7.<site-domain>", "user": "pi-sw1-p7", "port": 22, "legacy_port": 10722}
+{"user": "pi-sw2-p47", "host": "welland.fpgas.online",
+ "host_key_fingerprint": "SHA256:<site proxy key>",
+ "direct_user": "pi", "direct_host": "ipv6.pi-sw2-p47.welland.fpgas.online",
+ "direct_host_key_fingerprint": "SHA256:<fleet key>"}
 ```
 
-fpgas.online-site renders the board pages. They print
-`ssh pi-sw1-p7@pi-sw1-p7.<site-domain>` first, with the legacy `-p` form
-underneath until the DNAT is retired.
+The three `direct_` fields are present only where `ssh_direct_ipv6` is on.
+There is no `legacy_port` (E13).
 
-**Source address.** On the proxied path the board sees the gateway's address.
-The legacy DNAT path shows the client's real address, so phase 1 is a
-regression for proxied logins until phase 2.
+The page prints:
 
-**Monitoring.** If the proxy is down, IPv4 logins are gone. The proxy runs
-under systemd with `Restart=on-failure`, and `verify-server.yml` checks that
-it is listening and that a login through it reaches a board.
+```
+ssh pi-sw2-p47@welland.fpgas.online
+scp FILE pi-sw2-p47@welland.fpgas.online:Uploads/
+```
 
-### Phase 2: transparent IPv4 source
+with:
 
-The goal is that on a proxied connection the board sees the client's real
-address, as it already does on the direct IPv6 path.
+- the password, as today;
+- "The login name is the board's name, not `pi`.";
+- "Log in with the password. ssh keys are not accepted on this path.";
+- "If you get `Permission denied` with the right password, the board may
+  be off or not plugged in: check its status on this page.";
+- "Do not forward your ssh agent (`-A`) to a board.";
+- the site proxy key's fingerprint.
 
-The mechanism is Linux transparent proxying, the same one as nginx
-`proxy_bind $remote_addr transparent`
+**Only to a visitor whose own connection to the website arrived over IPv6**
+(E17, a reading of D17), and only where `ssh_direct_ipv6` is on, the page
+adds, under "Directly over IPv6":
+
+```
+ssh pi@ipv6.pi-sw2-p47.welland.fpgas.online
+```
+
+with the fleet key's fingerprint, "This key is shared by every board and is
+public.", and "If you see 'Too many authentication failures', use
+`ssh -o PubkeyAuthentication=no pi@ipv6.pi-sw2-p47.welland.fpgas.online`".
+
+How the site knows the visitor's address family: the website runs behind
+the gateway's nginx, so the application sees nginx's address, not the
+visitor's. nginx passes the client address on (`$remote_addr`, as
+`X-Real-IP` or `X-Forwarded-For`), and the page shows the direct block when
+that address is an IPv6 address. The header must be set by the gateway's
+own nginx and never taken from the request, and the page must not be cached
+across visitors. Whether the site's nginx template already passes the
+address to the application was not checked for this document; it is part of
+site#44. An IPv4 visitor, including one inside the site, sees only the
+proxy command.
+
+No line on the page contains `-p`: the old `ssh -p <port> pi@<site>` line
+is removed in the same change (E13). A site without `ssh_proxy_enabled`
+keeps today's page.
+
+### What the upstream gateway must provide
+
+For a site behind an upstream gateway. These are requirements; how the
+upstream gateway meets them is its operator's business. They belong on the
+docs page "What a site needs from its upstream network"
+(fpgas-online/fpgas.online-docs, `docs/setup/upstream-gateway.md`).
+
+IPv4, under the decided host-key option (D16):
+
+1. **Public tcp 22: a username-routing ssh proxy.**
+   - It presents the **site proxy key** and no other host key. The site's
+     operator installs the key from the fpgas.online vault.
+   - It does not pass host-key announcements on to clients (for sshpiper,
+     `--drop-hostkeys-message`).
+   - A user name matching `^pi-sw[0-9]+-p[0-9]+$` (the reading of "piXXX",
+     E15) is connected to the gateway's transit address, port 2224 (E15),
+     with the same user name, relaying the password. It needs no list of
+     boards.
+   - On that onward connection it pins the site proxy key, which is what the
+     gateway's proxy presents. As a known_hosts line the pin is
+     `[<transit address>]:2224 ssh-ed25519 <the site proxy key>`.
+   - It has password pipes only, so it offers clients the method `password`
+     only, like the gateway's proxy. No key pipes (the same defect applies).
+   - Every other user name goes to the upstream gateway's own sshd (E15).
+     Only a password can be relayed there. If that sshd is key-only, the
+     relay can never log anyone in and only costs it login slots, so
+     refusing those names at the proxy is the better form of the same
+     reading (O1).
+   - **It runs the same patched package**, or closes failed onward
+     connections by other means. Otherwise wrong passwords for non-board
+     names through it hold the login slots of the upstream gateway's own
+     sshd, which sees all of them arriving from the loopback address.
+   - **Required: it logs each login** with the client's address, the user
+     name and the time, **and limits failed logins and new connections per
+     client address.** The gateway sees only the upstream proxy's address
+     for IPv4 visitors, cannot tell them apart, and exempts that address
+     from its own limits. Without this, IPv4 visitors are neither limited
+     nor attributable.
+   - To know: through two proxies one wrong password makes two login
+     attempts at the board.
+2. **Public tcp 2222:** the upstream gateway's own sshd. Key logins cannot
+   pass through its proxy, so from the moment public port 22 is the proxy
+   this is its administrators' only route from outside. It is verified,
+   with a key login from outside, **before** public port 22 moves.
+3. **Public tcp 2223:** forwarded to the gateway's transit address, port
+   2223, keeping the client's source address.
+4. **Public tcp 2224:** forwarded to the gateway's transit address, port
+   2224, keeping the client's source address.
+5. **Inside the site:** `<site>` resolves to, or is routed to, the gateway's
+   transit address, where ports 22, 2223 and 2224 answer as in
+   [Ports and listeners](#ports-and-listeners).
+
+IPv6: the upstream gateway lets tcp 22, 2223 and 2224 reach the gateway's
+global address, and tcp 22 reach the board prefix (D17; not needed at a
+site with `ssh_direct_ipv6` off). Nothing is proxied or forwarded. The allowance for 2223
+and 2224 is needed **before** the gateway's operators move to port 2223
+([Rollout](#rollout-and-removal-of-the-old-path), step 2).
+
+The per-board ssh ports (`<s><pp>22`) are no longer asked for.
+
+**What changes under the two options that were not chosen** is in
+[Rejected alternatives](#rejected-alternatives). The gateway side is built
+so that either is a change of inventory values.
+
+### A site whose gateway is on a public address
+
+There is no upstream gateway and no second proxy. With
+`ssh_proxy_takes_port_22` the gateway's proxy answers public port 22 on
+both families itself, the sshd is on 2223, and the site proxy key lives only
+on the gateway. No site with `switches:` is built this way today.
+
+### Rollout and removal of the old path
+
+Each step leaves every existing route working until its replacement has
+been verified. The step that can cut the deployer off is step 5, and steps
+2 to 4 exist to make it safe.
+
+1. **Package published** (apt#21), **with the required patch**, and the VM
+   test's leak assertion green. The VM harness's two new host forwards (to
+   guest 2223 and 2224) are development work for this step: the assertions
+   cannot run without them. Until then `ssh_proxy_enabled` is set only
+   in the VM test inventory and no later step is taken at any site (E16).
+2. **The upstream gateway admits the backup ports first.** Over IPv6 it lets
+   tcp 2223 and 2224 reach the gateway's global address; over IPv4 it
+   forwards public 2223 and 2224 to the transit address. Nothing listens
+   there yet. This comes before anything moves to 2223, because an upstream
+   IPv6 filter exists: `docs/access.md` records one of the gateway's IPv6
+   addresses timing out on port 22 from outside.
+3. **Gateway converge with `ssh_proxy_enabled: true`** and
+   `ssh_proxy_takes_port_22: false`: proxy on 2224, sshd also on 2223,
+   firewall rules, board changes. This converge reboots the fleet once
+   (E12). Port 22 is untouched. Checked from outside the site:
+   `ssh -p 2223` reaches the gateway's sshd over IPv6 and over IPv4, and
+   `ssh -p 2224 <board-name>@gw.<site>` reaches a board.
+4. **Everything that reaches the gateway's sshd from the uplink side moves
+   to port 2223, in one step:**
+   - Ansible: `ansible_port: 2223` in the site's host_vars.
+   - The jump route: `ssh -J pi@gw.<site>:2223 pi@<board address>`, and the
+     hop from the jump shell, `ssh -p 2223 pi@gw.<site>`.
+   - Every other command in `docs/access.md` that names the gateway: the
+     operators' own logins, the automation account, `-J <account>@…` to a
+     board as `ansible` or `root`.
+   - Every ssh client configuration that points at the gateway on port 22:
+     each operator's own, and the managed configuration the automation
+     sessions use. `known_hosts` gains `[gw.<site>]:2223` with the sshd's
+     keys.
+   - The VM harness already has its forwards to guest 2223 and 2224 (step
+     1; today it has only `hostfwd=tcp::<port>-:22` in
+     `tests/vm/vm_manager.py`). What moves here is which one its Ansible
+     uses ([Verification](#verification), "Converges").
+   - **Automation nobody listed.** Before this step, and until step 5, the
+     firewall carries a temporary rule that counts and logs new connections
+     to port 22 arriving on the uplink (source address, rate-limited log).
+     Step 5 is taken only after the log has been read and every source in
+     it is either moved to 2223 or known to be a stranger. The rule is
+     removed with step 5.
+
+   Not affected, because they never cross the uplink: the web terminal and
+   the upload page (they connect from the gateway to a board's address on
+   its VLAN), the jump account's own hop from the gateway to a board, and
+   boards reaching the gateway's sshd on port 22. This is from
+   `docs/access.md` and the roles; the VM test's existing web-terminal
+   login check confirms it at step 5.
+
+   Then a full converge and both verify playbooks run through port 2223.
+5. **`ssh_proxy_takes_port_22: true`.** Port 22 on the uplink becomes the
+   proxy. `roles/firewall` asserts, before it changes anything, that the
+   Ansible connection it is running over arrived on the backup port: the
+   server port in `$SSH_CONNECTION` (its fourth field) must equal
+   `sshd_backup_port`. The variable is read by a task that runs **without
+   become** (`vars: ansible_become: false`, the pattern `roles/sshd`
+   already uses for `id -un`): sudo's `env_reset` drops `SSH_CONNECTION`,
+   and the keyword `become: false` is outranked by the inventory's
+   `ansible_become`. A converge that still arrives on port 22 fails at
+   the assert and changes nothing. After it,
+   `ssh <board-name>@<site>` works over IPv6 from outside.
+6. **The upstream gateway's proxy.** Its own sshd also on 2222; then the
+   site proxy key and the proxy on public port 22, built from the same
+   patched package. `ssh <board-name>@<site>` works over IPv4 from outside.
+7. **DNS.** The operator of the zone's name server loads the fragment
+   (D18): SSHFP on `<site>`, `gw.<site>` as records of its own, the
+   `ipv6.` names. The private `<board-name>.<site>` A records stay until
+   the owner has answered O2. Then `ssh_dns_verify` is switched on. The
+   fragment exists from step 3, and the `ipv6.` names and `gw.<site>`
+   may be loaded any time after it. The SSHFP record on `<site>` is
+   loaded only after step 6: until then port 22 of `<site>` still
+   answers with other keys, and a published record that does not match
+   is worse than none.
+8. **Verified from outside the site**, on IPv4 and on IPv6.
+9. **The board pages switch** to the new command. The
+   `ssh -p <port> pi@<site>` line is removed in the same change, not kept
+   underneath (E13, O4).
+10. **The per-board `<s><pp>22` DNAT rules** leave the gateway's firewall
+    and the upstream requirements in the next converge after step 9. The
+    `<s><pp>44` rules are not part of this.
+
+At a site where the `-p` command does work from outside today (none with
+`switches:` does), steps 9 and 10 are the only ones that take a working
+command away, and they come after step 8.
+
+### Monitoring
+
+The proxy runs under systemd with `Restart=on-failure`. `verify-server.yml`
+checks that it is active and listening; `verify-pi.yml` checks that a login
+through it reaches a board ([Verification](#verification)). The proxy's log
+is the only record of which client address logged in to which board name,
+so it is kept in the journal like the sshd's. Each refused non-board name
+writes an ERROR line (keys are not offered to a password-only proxy, so
+they write nothing); journald's rate limit bounds that. The public IPv4 path also depends on the upstream gateway's proxy, which only a
+check from outside the site can see.
+
+## Phase 2: transparent IPv4 source (#190)
+
+The goal is that on a proxied IPv4 connection the board sees the client's
+address. Phase 1 works without any of this.
+
+The mechanism is Linux transparent proxying
 ([tproxy.rst](https://docs.kernel.org/networking/tproxy.html)).
 
-1. **The proxy dials the board from the client's address.**
-   - Its upstream socket sets `IP_TRANSPARENT` and binds to the client's
-     address, with port 0, before connecting. Port 0 lets the kernel pick the
-     source port, which avoids `EADDRINUSE` on quick reconnects.
-   - sshpiper has no such option. It dials upstream with a bare
-     `net.Dial(network, addr)` (`cmd/sshpiperd/internal/plugin/grpc.go:418` at
-     the time of writing), and it never sends PROXY headers upstream, which sshd
-     could not use anyway. The package therefore carries a small patch there,
-     offered upstream: a `net.Dialer` with `LocalAddr` set to the downstream
-     peer's address and a `Control` hook (which runs before `bind`) that sets
-     `IP_TRANSPARENT`.
-   - The service gains `CAP_NET_RAW` through `AmbientCapabilities=` and nothing
-     else. `CAP_NET_ADMIN` also satisfies the kernel check, but it would let a
-     compromised proxy rewrite the gateway's firewall and routes.
-2. **The board's replies come back to the proxy instead of going out to the
-   internet.**
-   - The gateway is every board's default route, so the replies pass through
-     it, but by default they would be forwarded, because the forward chain
-     accepts `v*` to uplink. They must be delivered locally.
-   - Only packets that belong to a transparent socket are diverted. The legacy
-     DNAT replies, which also have source port 22, have no local socket bound
-     to their destination, so they are untouched.
-   - The table goes into `nftables.conf.j2` itself, because the template
-     starts with `flush ruleset`:
+1. **The proxy dials the board from the client's address.** Its board-side
+   socket sets `IP_TRANSPARENT` and binds to the client's address with port
+   0 before connecting. sshpiper dials with a bare `net.Dial(network, addr)`
+   (`cmd/sshpiperd/internal/plugin/grpc.go:418` at commit `2038d993`). Our
+   package carries a small patch there, behind an opt-in flag: a
+   `net.Dialer` with `LocalAddr` set and a `Control` hook that sets
+   `IP_TRANSPARENT`. The patch lives in our packaging branch only. The
+   service gains `CAP_NET_RAW` and nothing else.
+2. **The board's replies come back to the proxy.** In `nftables.conf.j2`:
 
-     ```
-     table inet tproxy {
-       chain prerouting {
-         type filter hook prerouting priority mangle;
-         iifname "v*" tcp sport 22 socket transparent 1 meta mark set 0x1 accept
-       }
+   ```
+   table inet tproxy {
+     chain prerouting {
+       type filter hook prerouting priority mangle;
+       iifname "v*" tcp sport 22 socket transparent 1 meta mark set 0x1 accept
      }
-     ```
+   }
+   ```
 
-   - A policy route, owned by systemd-networkd so it survives restarts: a
-     `.network` for `lo` with `[RoutingPolicyRule] FirewallMark=1 Table=100
-     Family=ipv4` and `[Route] Type=local Destination=0.0.0.0/0 Table=100`.
-   - The diverted replies then pass the input chain through
-     `internal_networks` (source `10.21.0.0/16`), and the masquerade rule cannot
-     match them.
-3. **Nothing else changes.** No masquerade applies, because these packets never
-   leave through the uplink, and the board needs no change.
+   and a policy route owned by systemd-networkd: a `.network` for `lo` with
+   `[RoutingPolicyRule] FirewallMark=1 Table=100 Family=ipv4` and
+   `[Route] Type=local Destination=0.0.0.0/0 Table=100`. Only packets that
+   belong to a transparent socket are diverted.
+3. Nothing changes on the boards.
 
-**Failure modes.**
+What it covers:
 
-- **Missing policy route.** Replies are forwarded to the internet and every
-  proxied login times out. The verify play checks the rule, the route and an end
-  to end login whose `$SSH_CONNECTION` on the board shows a non-gateway
-  address.
-- **4-tuple clash.** In theory a legacy DNAT connection and a transparent
-  upstream connection could share a 4-tuple: the same client address and port
-  to the same board on port 22. What conntrack does then has not been tested;
-  at worst one login fails. It needs the client to reuse the same source port
-  on both paths at once, and it disappears when the DNAT is retired.
+- Connections that reach the gateway's proxy with the client's own IPv4
+  address: public port 2224, and port 22 at a site on a public address.
+- Not public IPv4 port 22 behind an upstream gateway: there the gateway's
+  proxy sees the upstream proxy's address. The client's address would have
+  to arrive in a PROXY header, which sshpiper accepts
+  (`--allowed-proxy-addresses`) and never sends. This is open for phase 2
+  and is the upstream gateway's matter.
+- Not IPv6: the onward hop is IPv4.
 
-The IPv6 path needs no phase 2: it is already direct.
+Failure mode to test: without the policy route the replies are forwarded
+out of the uplink and every proxied login times out. The verify play checks
+the rule, the route and a login whose `$SSH_CONNECTION` on the board shows
+a non-gateway address.
 
-## Decisions needed
+## Future work
 
-These are Tim's calls. Each lists the recommendation.
+Neither of these is built in phase 1. Each needs a patch in our package
+first, with a test that shows the onward login is made only after the
+client has proved it holds the key.
 
-| # | Decision | Recommendation |
+- **Key logins to boards through the proxy.** A pipe per board with the
+  keys the boards trust for `pi`, and a mapping key whose public half fixpi
+  adds to `pi`'s `authorized_keys`. Whoever controls the proxy then has
+  root on every board, which every visitor has anyway.
+- **Admins to the gateway through the proxy** (O1). A pipe per gateway
+  account with that account's authorised keys, and a mapping key the
+  gateway's sshd accepts for those accounts from the loopback address
+  only. This makes the proxy a holder of gateway credentials: whoever
+  controls the proxy service controls the gateway, and the sshd's log shows
+  the mapping key, not the admin's. It needs the owner's decision as well
+  as the patch.
+
+## Rejected alternatives
+
+**The key-types trick** (chosen by Tim on 2026-10-04 on condition that it be
+proved with real clients, then disproved). One proxy offers only an ECDSA
+host key and the other only Ed25519, each its own, with host-key
+announcements off, in the hope that OpenSSH keeps both under one name.
+It does not. In the lab (PR #214,
+[README](../../../tests/lab/ssh_key_types/README.md),
+[results](../../../tests/lab/ssh_key_types/results-2026-10-04.md)), with
+two real sshpiper proxies under one name, OpenSSH 8.2, 8.9, 9.2, 9.6, 10.0
+and 10.5 all accept the first proxy's key and refuse the second with
+"REMOTE HOST IDENTIFICATION HAS CHANGED", in either order, with
+`StrictHostKeyChecking` at `ask` and at `accept-new` (scenarios 1a to 1d).
+`ssh-keygen -R` only moves the refusal to the other proxy (1g). Only
+dropbear's client and PuTTY's plink keep one key per type (5a, 5d).
+
+**No ssh proxy on the upstream gateway.** The upstream gateway forwards
+public tcp 22 straight to the gateway's proxy. One key, held only on the
+gateway, and the client's address survives. Rejected because it changes D1:
+the upstream gateway's own sshd leaves public port 22 for good, and every
+non-board name on IPv4 reaches the fpgas.online gateway. What it would
+change:
+
+| Where | Change |
+|---|---|
+| Gateway role | None in code. `ssh_proxy_failtoban_ignore` becomes empty |
+| Upstream gateway | Item 1 of the list becomes "public tcp 22 forwarded to the gateway's transit address, port 22, keeping the client's source address". It holds no key |
+| DNS | None |
+| Board page | None |
+
+**Two different keys, both published.** Each proxy keeps a key of its own,
+and the board page prints both as `known_hosts` lines for visitors to paste
+before their first visit. Rejected because an OpenSSH visitor who does not
+paste them gets the changed-key refusal on the other address family (lab
+scenario 6l; with both pasted, 6a and 6b are silent), and visitors are meant
+to need no setup. What it would change:
+
+| Where | Change |
+|---|---|
+| Gateway role | `ssh_proxy_host_key` holds a key used only on the gateway. Nothing else |
+| Upstream gateway | Its proxy presents a key of its own, of the other type, and pins the gateway's |
+| DNS | Two SSHFP records on `<site>`, one per key |
+| Board page | Two `known_hosts` lines and the instruction to paste them |
+
+**The fleet key on the proxy.** Rejected by D2.
+
+**A catch-all pipe: every non-board name relayed to the gateway's own
+sshd.** This was in the previous revision of this document. Rejected for
+phase 1 on measurement: sshpiperd leaves each failed onward connection open,
+so 18 wrong passwords for `root` through the proxy took the gateway's sshd
+to its `MaxStartups` limit and it dropped 5 of 20 operator key logins on
+port 2223 (reviewer's lab, 2026-10-05). The sshd is key-only, so nothing
+relayed by password could ever log in anyway.
+
+**`ssh.<site>` for IPv4 and `proxy.<site>` for IPv6**, each with its own
+key. Overruled by D14: one command on both address families.
+
+**Login aliases on the boards** (`<board-name>` as an account). Not needed
+once the direct path logs in as `pi` (E7); they made every change to
+`switches` reboot the fleet.
+
+**A host certificate on both proxies**, signed by one authority. Needs a
+`@cert-authority` line in every visitor's `known_hosts`. Not tested.
+
+## Open points for the owner
+
+Three. For each, phase 1 builds the stated default, so none blocks building.
+O3 (how the DNS records get into the public zone) was decided on 2026-10-05
+and is D18; its number is not reused.
+
+| # | Open point | Built in phase 1 while he is asked |
 |---|---|---|
-| D1 | Does the site router forward public IPv4 port 22 to the proxy, moving its own sshd off public port 22? Without this, the IPv4 path needs `-p` again and the board names cannot carry the public A record. It changes the documented outside-IPv4 route for operators (access.md uses `-J <you>@<site router>`), and anyone who has used the router's public name or address on port 22 gets a hard "REMOTE HOST IDENTIFICATION HAS CHANGED" failure there, because the fleet key now answers. | Yes. Operators reach the router's sshd on another port or over IPv6, and are told about the key change beforehand. |
-| D2 | Which host key does the proxy present: the fleet's Ed25519 key, or its own ECDSA key with an algorithm-split SSHFP set? | The fleet key. The algorithm split makes `UpdateHostKeys` delete one path's key on every login with the other path, so default clients would be re-prompted forever. It also puts the proxy behind the same trust limits as the boards. |
-| D3 | How do clients inside the site reach a board over IPv4? The internal A record needs either a forward rule from the site's networks (`ssh_direct_ipv4_sources`) to `v*` on tcp/22, or no internal A record (IPv6 only inside the site), or router hairpin NAT for port 22. | Forward rule from listed site networks: it is what the split-horizon design assumes. |
-| D4 | Which public zone is `<site-domain>`, who serves it, and is it DNSSEC-signed with a DS in a signed `fpgas.online`? | A signed `welland.fpgas.online`, generated from the inventory and the NFS root's host key. |
-| D5 | How is sshpiper packaged: the mirror-repo model (`fpgas-online/sshpiper` with an orphan `packaging` branch), or a pinned upstream release binary in the role? Phase 2 needs a patch. | The mirror repo, which can carry the patch. |
-| D6 | Keep any "unknown username goes to the local sshd" fallback? | No. Refuse unknown names, and keep the gateway's sshd on port 22 on its own addresses. |
-| D7 | Is the login name the board hostname (`pi-sw1-p7`), or also the board slug (`tt07`)? Hostnames are placements, not identities. | Hostname now. Slug aliases can come later from the same inventory. |
+| O1 | **Administrators on port 22.** His words assume the proxy carries them to the gateway (D13). Re-asked on 2026-10-05 with three options: (a) the proxy checks the administrator's key and logs in to the gateway with a key it holds; (b) no proxy on the gateway's port 22, with board names as locked accounts on the real sshd; (c) administrators stay on port 2223. Facts behind the question: relaying non-board names to a key-only sshd by password can never log anyone in and lets anyone hold that sshd's login slots; a key login needs the proxy to hold a key for the gateway's accounts, through a key pipe that is itself defective ([Future work](#future-work)); and for a non-board name, public IPv4 port 22 leads to the upstream gateway's sshd (E15), where the same facts apply if that sshd is key-only, while IPv6 port 22 leads to a refusal, under one host key | Non-board names are refused by the gateway's proxy (E1). Operators use `ssh -p 2223 <account>@gw.<site>`. **Phase 1 as written is right under all three options**: (c) is what it builds; (a) adds key pipes later, on top of it, once the package is patched; (b) changes only what answers port 22 on the gateway's uplink, which is one variable (`ssh_proxy_takes_port_22`), and leaves the proxy on 2224, the sshd on 2223, the boards, the DNS records and the upstream forwards as they are |
+| O2 | **The board names in DNS.** From a sentence he wrote as a question ("Maybe … ?") and has not confirmed; his answer of 2026-10-05 (D17) covers the `ipv6.` path only. Still unconfirmed: no `ipv4.` names; no plain `<board-name>.<site>` names; and with that the removal of the private A records those names carry today | No `ipv4.` or plain names are created. The fragment lists the private A records in a section of their own, "to remove, pending the owner", and nothing removes them until he answers. The reason to remove them is under [Names and DNS records](#names-and-dns-records) |
+| O4 | **Removing the old `ssh -p <port> pi@<site>` line and the per-board ssh DNAT ports.** D14 says visitors are never told `-p`; it does not say when the old path goes | The line leaves the page with this rollout, the DNAT rules in the next converge, and there is no `legacy_port` (E13) |
+
+Not open, but to be done because of D16: the docs page for the upstream
+network says the upstream is never asked to hold an fpgas.online
+credential. It must now say that a site's upstream proxy holds the site's
+proxy key (fpgas-online/fpgas.online-docs#16).
 
 ## Verification
 
-Before phase 1 merges, on one board and in the CI VM:
+`ssh-keyscan` is always run as `ssh-keyscan -t ed25519`: the default probes
+several key types and counts 5 against failtoban's limit. The test client
+either stays under the limit or is listed in `--ignore-ip` for the tests
+that are not about the limit.
 
-1. **One key.**
-   - `ssh-keyscan` of a board and of the proxy each return exactly one key,
-     and both match the NFS root's `ssh_host_ed25519_key.pub`.
-   - With a default `ssh_config`, IPv4 → IPv6 → IPv6 → IPv4 logins prompt only
-     on the first connection, and known_hosts holds one line for the name after
-     each step. This is the `UpdateHostKeys` case.
-2. **SSHFP.** Against a signed test zone with `VerifyHostKeyDNS yes`, both paths
-   report "matching host key fingerprint found in DNS".
-3. **Aliases.**
-   - `pi-sw1-p7@` logs in on the board with the password and with a key, and
-     lands in `/home/pi`.
-   - `id` shows the same groups as for `pi`, and `sudo -n true` works.
-   - After an image pull and converge the aliases are back.
-4. **Proxy.**
-   - Password and public-key logins through the proxy reach the right board as
-     `pi`.
-   - An unknown username and `pi@` are refused after the password prompt.
-   - scp, sftp, port forwarding and agent forwarding work through it.
-   - A board cannot connect to the proxy port.
-   - After several failed proxied logins to one board, the web terminal, the
-     jump route and a correct proxied login to that board still work
-     (`PerSourcePenalties` exemption), and the proxy's `failtoban` blocks the
-     failing client.
-5. **Nothing else moved.**
-   - The gateway's sshd, the jump account, Ansible's route and the web terminal
-     (which logs in to `pi@10.21.S.P` with the password) are unchanged.
-   - The `verify-server.yml` and `verify-pi.yml` access checks pass.
-   - The web terminal's host-key policy is checked in fpgas.online-site
-     before boards go Ed25519-only.
+**Where the checks live.** `verify-server.yml` runs before any Pi exists,
+so it holds only what needs no board: the service is active, the listeners,
+the keys, the firewall rules, the fragment. Every check that logs in to a
+board is in `verify-pi.yml`, which runs against a live Pi and already
+checks that the gateway's jump account reaches the board. The real
+client for the proxied login runs on the test host and reaches the proxy
+through the harness's forward to guest port 2224, so it arrives on the
+gateway's uplink like an outside client.
 
-Before phase 2 merges:
+### Required now, in the VM test (phase 1 cannot merge without these)
 
-- On the board, `$SSH_CONNECTION` for a proxied login shows the client's
-  address.
-- The legacy DNAT path, NFS and the boards' outbound traffic still work.
-- Removing the policy route makes the verify play fail.
+The harness needs only what it has, plus two more host forwards (guest 2223
+and 2224) and a password-capable ssh client on the test host.
+
+**Limits in the VM.** Every client of the VM arrives from one address, the
+gateway side of QEMU's user-mode network. A wrong password counts 2 against
+failtoban's 20, so the leak assertion alone would get the test client
+limited before its correct login. The VM inventory therefore lists that
+address in `ssh_proxy_failtoban_ignore`, which also exempts it from the
+firewall's per-source limit. The limit itself is asserted apart from that:
+from a different source address if the harness has one (a client run on
+the server VM against its own uplink address is a candidate, to be tried),
+and otherwise by checking the rendered unit and ruleset: `--max-failures`,
+`--ban-duration`, each `--ignore-ip`, and the two per-family limit rules.
+
+**Converges.** Two whole-playbook converges, no more:
+
+1. The harness's existing converge, through the forward to guest port 22,
+   with `ssh_proxy_enabled: true` and `ssh_proxy_takes_port_22: false` in
+   the test inventory. Then `verify-server.yml`, the Pi boots, and
+   `verify-pi.yml`, with items 1 to 7 and 9 to 11 below.
+2. A second converge through the forward to guest port 2223, with
+   `-e ssh_proxy_takes_port_22=true`. It is the same playbook, whole, and
+   mostly idempotent, so it is short. Then item 8.
+
+The guards (item 7) are not tested by failing whole-playbook runs. Each
+guard is an assert in a tasks file of its role, and a small test playbook
+under `tests/` includes just those tasks against the VM with a bad value
+and expects the failure: no site proxy key; a key equal to the fleet key;
+`ssh_proxy_takes_port_22` without `ssh_proxy_enabled`; and the backup-port
+assert, run through the guest-22 forward with `ssh_proxy_takes_port_22`
+true. These plays change nothing on the server and take seconds. They are
+tests of asserts, not deploys, so the whole-playbook rule for deploys is
+not touched.
+
+1. **A real ssh client logs in as `<board-name>@<site>` through the proxy
+   port and lands on that board**: the password is accepted, `hostname`
+   prints `<board-name>`, and `$SSH_CONNECTION` on the far side shows the
+   board's own address. (`<site>` is given to the client as a host alias
+   for the forwarded port.)
+2. **A non-board name is refused by the proxy**: `root`, `pi` and an
+   operator's account get `Permission denied` after the password prompt,
+   and the gateway's own sshd logs no connection from the proxy.
+3. **The gateway's sshd answers on 2223**: Ansible's own connection uses
+   that forward, and `ssh-keyscan -t ed25519` there returns the gateway's
+   sshd key.
+4. **`ssh-keyscan -t ed25519` on the proxy port returns only the site proxy
+   key**, and it differs from the fleet key and from the gateway's sshd
+   keys. A proxied login leaves the client's `known_hosts` byte for byte
+   unchanged.
+5. **The leak assertion** (B1 patch): after N failed proxied logins to the
+   board (N above the sshd's `MaxStartups` start value), the board's sshd
+   shows no lingering unauthenticated sessions, and a correct proxied login
+   and the existing web-terminal login to that board succeed at once. The
+   test client's address is in `ssh_proxy_failtoban_ignore` (above), or it
+   would be limited before the correct login.
+6. **The proxy offers `password` only**: a client restricted to public-key
+   authentication is refused, and the board logs no connection for it.
+7. **The role's guards**: it refuses to converge without the site proxy
+   key, with one equal to the fleet key or a gateway sshd key, with
+   `ssh_proxy_takes_port_22` but not `ssh_proxy_enabled`, and with
+   `ssh_proxy_takes_port_22` when the Ansible connection did not arrive on
+   the backup port. Tested by the assert-only plays described under
+   "Converges".
+8. **Port 22 as the proxy**: after the second converge, the old forward to guest port 22 presents
+   the site proxy key and logs a board name in.
+9. **Nothing else opened**: from the virtual Pi, ports 2223 and 2224 do not
+   answer on any gateway address, and port 22 on the gateway is still its
+   sshd.
+10. **The board's sshd started** with the generated drop-ins (the existing
+    ssh login check), on whichever OpenSSH the root has.
+11. **The fragment** exists, is well formed, has the SSHFP record for
+    `<site>`, an AAAA and an SSHFP record for every access port's
+    `ipv6.` name, no A record for any board name among the records to
+    set, and no SSHFP on `gw.<site>`. A second converge leaves the file
+    byte-identical. The unit test of the rendering function (D18) runs
+    in `pytest`, not in the VM.
+
+### Later: needs something the VM harness does not have today
+
+Each is checked on the real site during rollout until the harness can do
+it. What is missing is named.
+
+| Check | Needs |
+|---|---|
+| The proxy and the sshd on 2223 answer over IPv6; the redirect of port 22 works in the `ip6 nat` chain | An IPv6 uplink (the harness's user-mode network runs with `ipv6=off`) |
+| The direct path: `ssh pi@<board's global address>` from the uplink side presents the fleet key; with `ssh_direct_ipv6` off it is dropped | An IPv6 uplink and a host routed to the board prefix |
+| The 2223 and 2224 listeners are back after a reboot of the gateway | A reboot of the server VM in the harness |
+| With `VerifyHostKeyDNS yes`, a first login shows no prompt; a wrong record gives the changed-key banner | A signed test zone and a validating resolver |
+| A board cannot open the site's public address on 22, 2222, 2223, 2224 | An address beyond the uplink that stands for the public address |
+| failtoban's limit and the firewall's per-source limit hold for a second client and not for an ignored address | A second client address |
+| scp and sftp through the proxy | Nothing missing; lower priority, added after the required set |
+
+Not kept as checks: "`ssh -J` works through the proxy" (a jump through a
+board name to somewhere else is not something the design offers) and "a
+client with ten keys in its agent" (the proxy offers only `password`;
+measured by the reviewer: such a client reaches the prompt and logs in).
+
+"The jump route" in this document always means the operators' route in
+`docs/access.md`: `ssh -J pi@gw.<site>:2223 pi@<board address>`, through
+the gateway's own sshd on port 2223, never through the proxy. The VM
+check for it is the existing one in `verify-pi.yml` (the gateway's jump
+account reaches the board), which does not cross the uplink.
+
+### From outside the site, once the upstream gateway has done its part
+
+- `ssh <board-name>@<site>` reaches the board over IPv4 and over IPv6, and
+  a default client that has accepted the key on one family is silent on the
+  other.
+- A wrong password through public IPv4 port 22, repeated, leaves no
+  lingering sessions on the gateway's proxy or the board.
+- `-p 2223` and `-p 2224` on `gw.<site>` present the gateway's sshd keys
+  and the site proxy key, on both families.
+- The same commands from inside the site present the same keys.
+- Where `ssh_direct_ipv6` is on, `ssh pi@ipv6.<board-name>.<site>` reaches
+  the board.
+- With `ssh_dns_verify` on, public DNS matches the fragment.
+
+### Before phase 2 is switched on
+
+`$SSH_CONNECTION` on the board for a login through port 2224 shows the
+client's address; NFS and the boards' outbound traffic still work; removing
+the policy route makes the verify play fail.
 
 ## Work items
 
-Tracking: #191.
+Tracking: #191. The issue texts predate this revision; this document is
+what to build from.
 
-| Phase | Issue | What |
-|---|---|---|
-| 1 | fpgas-online/apt#21 | Package sshpiper (D5) |
-| 1 | #186 | Boards: Ed25519-only host key, penalty exemption, login aliases, mapping key |
-| 1 | #187 | Gateway `ssh_proxy` role (sshpiper) |
-| 1 | #188 | Firewall: direct IPv6, and internal IPv4 (D3), to boards on port 22 |
-| 1 | #189 | DNS names and SSHFP records (D4) |
-| 1 | fpgas-online/fpgas.online-gw#2 | `/api/boards` `ssh` object gains `host` and `user` |
-| 1 | fpgas-online/fpgas.online-site#44 | Board pages show the new command |
-| 1 | fpgas-online/fpgas.online-docs#16 | User documentation |
-| 1 | — | Site router forwards public IPv4 port 22 to the proxy (D1; outside these repos) |
-| 2 | #190 | Transparent IPv4 source |
+| Phase | Issue | What | What its text gets wrong now |
+|---|---|---|---|
+| 1 | fpgas-online/apt#21 | Package `sshpiper` from fpgas-online/sshpiper: `sshpiperd`, `yaml`, `failtoban`, built with the tag `full` | It omits `failtoban` and the required phase 1 patch (a failed onward authentication closes the upstream connection), and says to offer the phase 2 patch to the sshpiper project. Both patches stay in our packaging branch |
+| 1 | #187 | Gateway role `ssh_proxy` (password pipes only); `roles/sshd` port 2223; the input and NAT rules, the per-source limit, the backup-port assert | It copies the fleet key to the proxy and binds the uplink address only. Its "unknown usernames are not forwarded anywhere" stands (E1) |
+| 1 | #186 | Boards: Ed25519-only host key; the penalty exemption on a root with OpenSSH 9.8 or later | Login aliases (E7) and the proxy's mapping key (E5) are dropped. "The same key the proxy presents" is wrong. The exemption line as written there breaks sshd on today's root |
+| 1 | #188 | Firewall: direct IPv6 to boards (D17), behind `ssh_direct_ipv6`, on by default at a site with a board prefix; boards cannot reach the public ssh ports | The internal IPv4 rule is dropped (D3) |
+| 1 | #189 | DNS (D18): the function that renders the deterministic fragment, its unit test, and the comparing verify step behind `ssh_dns_verify`. Loading is done by the operator of the zone's name server | Its record set (per-board A records, `ipv4.`, `private-ipv4.`, an internal view) is replaced by [Names and DNS records](#names-and-dns-records) |
+| 1 | fpgas-online/fpgas.online-gw#2 | `/api/boards` `ssh` object | Fields as in [What the board pages print](#what-the-board-pages-print-fpgas-onlinefpgasonline-site44) |
+| 1 | fpgas-online/fpgas.online-site#44 | Board pages: the proxy command always; the direct IPv6 command only to a visitor who arrived over IPv6, known from the client address the gateway's nginx forwards | Its command, `ssh <board-name>@<board-name>.<site>`, is replaced. The page needs the visitor's address family, which the issue does not mention |
+| 1 | fpgas-online/fpgas.online-docs#16 | User documentation (password only, never forward an agent, what `Permission denied` can mean), and the upstream-network page | The upstream page must say the upstream proxy holds the site's proxy key (D16), and that logging and rate limiting there are required |
+| 1 | — | `docs/access.md`: port 2223 as the operators', the jump route's and Ansible's port | New |
+| 1 | — | VM harness: host forwards to guest 2223 and 2224; a real ssh client for the proxied login | New |
+| 1 | — | The upstream gateway: the list above. Outside these repositories | New |
+| 2 | #190 | Transparent IPv4 source | Covers port 2224 and public-address sites; port 22 behind an upstream gateway is open |
