@@ -217,6 +217,18 @@
       - "--exclude=cmdline-pi5.txt"
       - "--exclude=config.txt"
   delegate_to: "{{ inventory_hostname }}"
+  register: fixpi_payload_sync
+
+# synchronize reports changed for any line rsync itemizes, a directory whose
+# only change is its time included. On 2026-10-08 the task said changed on a
+# converge after which `rsync -ani` of the same pair found nothing to do, so
+# the change was something that converge itself undid or reset. Its itemized
+# lines (rsync -i: what changed and why) say what, every time it reports a
+# change, instead of a changed_when that could hide a real payload change.
+- name: Show what the payload sync changed
+  ansible.builtin.debug:
+    msg: "{{ fixpi_payload_sync.stdout_lines | default([]) }}"
+  when: fixpi_payload_sync is changed  # noqa: no-handler  # a report, not an action: see above
 
 # Enable ssh.service directly in the NFS root. RPi OS ships with ssh.service
 # disabled by default, to be enabled on first boot by sshswitch.service which
