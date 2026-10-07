@@ -25,4 +25,12 @@ On a running board, `vcgencmd bootloader_config` and `sudo rpi-eeprom-update` sh
 
 The build is checked in CI too: `verify-server.yml` asserts that the built NFS-root `config.txt` contains `eeprom_write_protect=1` (from the earlier docs page, not re-checked against `verify-server.yml`).
 
+## Upgrading a locked Pi 4
+
+No upgrade of a locked Pi 4 has been run by fpgas.online. By Raspberry Pi's description the same recovery-card
+route as for a Pi 5 applies, with `TP5` released if it was grounded (from the earlier docs page, not
+re-checked). The bootloader EEPROM pages cover the Pi 5 and the Compute Module only.
+
+## When a change takes effect
+
 A change to the setting takes effect when a board next netboots the rebuilt image. Confirm on one board before relying on it fleet-wide.
