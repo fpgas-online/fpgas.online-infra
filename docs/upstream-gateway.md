@@ -4,13 +4,13 @@
 gateway must provide.**
 
 A site is one gateway host, `gw.<site>.fpgas.online`, with the fleet behind
-it. The gateway is the fleet's only path to anything else. This page lists
+it. The gateway is the fleet's only path to anything else. These pages list
 what the network **above** the gateway must provide, so that a site can be
 set up without knowing how any other site's upstream is built.
 
 fpgas.online does not manage the upstream network, and nothing in the
 fpgas.online repositories may depend on a particular upstream device or name
-one. The upstream is only required to meet this page.
+one. The upstream is only required to meet these pages.
 
 A gateway can sit in either of two places:
 
@@ -67,11 +67,13 @@ be on the upstream network to deploy.
 At welland the inventory reaches the gateway by its public name over IPv6 (`ansible_host:
 gw.welland.fpgas.online` in `host_vars/fpgas.online.yml`, main, read 2026-10-07).
 
-## Checking a site against this page
+<a id="checking-a-site-against-this-page"></a>
+## Checking a site against these pages
 
 From a host outside the site, for each public name: `http` and `https`
 answer with the gateway's own certificate; a board's ssh port answers with
-the fleet's host key; a camera page plays over an IPv4-only connection (the
-media port) and over an IPv6-only one. From the gateway: package updates,
-the root file system pull and certificate renewal succeed. From inside the
-site: the site name resolves and loads.
+the fleet's host key ([Inbound IPv4](upstream-gateway/ipv4.md#inbound-ipv4)); a camera page plays over an IPv4-only
+connection (the media port) and, where the site's gateway has a global IPv6 address, over an IPv6-only one
+([IPv6](upstream-gateway/ipv6-dns.md#ipv6); ps1's had none on 6 October 2026). From the gateway: package updates,
+the root file system pull and certificate renewal succeed ([Outbound](upstream-gateway/outbound.md)). From inside the
+site: the site name resolves and loads ([Clients inside the site](upstream-gateway/ipv4.md#clients-inside-the-site)).

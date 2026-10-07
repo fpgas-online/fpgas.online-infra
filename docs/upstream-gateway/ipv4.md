@@ -66,6 +66,6 @@ Notes on the table:
 
 A client on the upstream's own LAN usually cannot reach the public address
 and be forwarded back in ("hairpin"). Such clients need a route to the
-gateway's uplink address, and the site's names must resolve to it for them.
+gateway's uplink address, and the site's names must resolve to it for them ([DNS](ipv6-dns.md#dns)).
 At Welland the gateway offers its uplink address as a WebRTC candidate for
 the same reason (`webrtc_additional_hosts`).
