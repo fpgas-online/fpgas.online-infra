@@ -25,7 +25,14 @@ switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html) has what was
 <a id="when-a-pi-does-not-boot"></a>
 - [When a Pi does not boot](netboot/not-booting.md): where its boot stops.
 
-- [EEPROM write protect](#eeprom-write-protect), below: the lock the served `config.txt` sets.
+- [What is in the NFS root](netboot/root.md): the pinned image, what `fixpi` does to the tree, the CI build.
+
+- [EEPROM write protect](#eeprom-write-protect), below: the lock the served `config.txt` sets. [Raspberry Pi's
+  wording and the checks](netboot/eeprom.md).
+
+- [Historical tooling](netboot/history.md): the repositories that came before the roles.
+
+- [Sources](netboot/sources.md): the files and records these pages come from.
 
 
 ## The boot chain
@@ -58,7 +65,9 @@ its port and it boots.
 
 On a MAC-table gateway, `/srv/tftp` holds one link per Pi serial number pointing at the root's `boot/`
 (`roles/fixpi/tasks/netboot.yml`); adding a Pi means adding its entry to `switch.nos` in the gateway's
-`host_vars` and converging, so its link is made.
+`host_vars` and converging, so its link is made. `/srv/tftp` also holds a `bootcode.bin` link at the top, to the
+root's `boot/bootcode.bin`, because (the task's comment in `netboot.yml`) "pi netboot not too smart".
+Each entry in `switch.nos` is `{port, mac, sn, model, loc, cable_color}` (the shape in `host_vars/ps1.fpgas.online.yml`, main, read 2026-10-07).
 
 ## The kernel command line
 
@@ -79,6 +88,8 @@ systemd.log_level=debug systemd.log_target=kmsg log_buf_len=1M printk.devkmsg=on
   entry C1-3c) found its NFS server (Debian 13) serving version 3 over TCP only, while the initramfs's mount
   tool defaults to UDP, so the command line asks for TCP. The root mount still failed after that; the cause
   the record names (C1-4) was an empty export table on the gateway, since fixed in the `nfs` role (fpgas.online-infra commit 7c353ec).
+  The bookworm VM that CI uses does not reproduce the UDP hang, so it was found only on real hardware (rebuild
+  record, 2026-08-25). The flag is in the shared template for every site, because there is one template.
 
 - **`overlayroot=tmpfs`**: the writable layer ([below](#the-nfs-root-is-shared-and-read-only)).
 
@@ -101,22 +112,45 @@ console. The same file adds `dtoverlay=disable-wifi`, `dtoverlay=disable-bt`, `e
 ([When a Pi does not boot](netboot/not-booting.md)). `config.txt` is served read-only, so these apply at every
 boot.
 
+The PS1 Compute Blades boot a separate trixie root and have `console=tty1` with `serial-getty@ttyAMA0` inactive:
+[Compute blades](https://docs.fpgas.online/en/latest/sites/ps1-boards.html) (from the earlier docs page, not re-checked).
+
 ## The NFS root is shared and read-only
 
 There is one root per site, at `/srv/nfs/rpi/<dist>/{boot,root}` (`nfs_root`; `dist: bookworm`). Both halves
 are exported read-only to the Pi network, and the Pi's own `/etc/fstab` mounts `/` and `/boot/firmware`
 read-only and `noauto`. Every Pi mounts the same root.
 
+<a id="the-export-is-read-only"></a>
+The export (`roles/nfs/templates/exports.j2`):
+
+```text
+{{ nfs_root }}/boot {{ eth_local_address }}/{{ eth_local_netmask }}(ro,sync,no_subtree_check,no_root_squash)
+{{ nfs_root }}/root {{ eth_local_address }}/{{ eth_local_netmask }}(ro,sync,no_subtree_check,no_root_squash)
+```
+
+The `noauto` on `/boot/firmware` has consequences all over the build: [What is in the NFS root](netboot/root.md).
+
 > [!WARNING]
 > The writable layer is a tmpfs. Everything written on a Pi is gone at the next reboot or power cycle,
 > including anything copied to `/home/pi`. A bitstream that loaded a minute ago fails to open after a reboot
 > because the file is not there any more: openFPGALoader prints `Open file … FAIL`. Copy it again.
+
+Automation has to account for this. The hardware verification script in `fpgas.online-test-designs` power-cycles a
+Pi to recover a Fomu whose DFU bootloader has timed out, and after the Pi comes back (roughly two minutes) it
+re-uploads every file, because the tmpfs is empty again, and re-runs its pre-test, because the `serial-getty` mask
+is lost too (from the earlier docs page, not re-checked).
 
 A Pi that booted before the root was replaced keeps file handles into the old files: every replaced file
 answers `Stale file handle` (`ESTALE`). That broke `dpkg-query`, and, since `authorized_keys` was among the
 replaced files, key-based SSH, on every board at once (measured on `pi-sw2-p33` at welland on 2026-09-24;
 `roles/nfsroot_generation/README.md`). A Pi has to reboot to use a new root: [Updating the NFS
 root](netboot/update-root.md) is how that happens.
+
+An earlier case: on 2026-08-30 an upgrade of `fpgas-online-cam` took the cameras off air on eleven boards with
+`ESTALE` on the replaced files, and days later the Tiny Tapeout hosts still had `dpkg-query` reporting a stale file
+handle. Only a reboot clears it. See [Known
+faults](https://docs.fpgas.online/en/latest/sites/welland.html) on the Welland page (from the earlier docs page, not re-checked).
 
 ## EEPROM write protect
 
@@ -127,6 +161,7 @@ for good. (A board's own flash, an Acorn's for example, is a separate matter, on
 served `config.txt` carries `eeprom_write_protect=1` (`roles/fixpi/tasks/tweeks.yml`), which tells the
 bootloader to set the flash's Write Status Register to protect the whole chip, at every boot.
 
+<a id="per-model-effectiveness"></a>
 How much that protects depends on the model (the role's own comment, and Raspberry Pi's `config.txt`
 documentation, section `eeprom_write_protect`):
 
@@ -138,6 +173,14 @@ documentation, section `eeprom_write_protect`):
   tied to depends on the carrier board. For a Compute Module 5 no source is recorded here: [Compute
   Module](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom-compute-module.html) has what was measured.
 
+The setting takes effect from the `config.txt` a board boots with: the fleet's served one for a netbooted Pi,
+`/boot/firmware/config.txt` on a board that boots its own storage.
+
 Values: `1` protects the whole flash, `0` clears the protection, `-1` (the default) does nothing. How to check
 a board and how to upgrade a locked one: [a Raspberry Pi 5](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom-pi5.html), [a Compute
 Module](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom-compute-module.html), and [what was measured](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html).
+
+<a id="verify"></a>
+<a id="legitimately-updating-an-eeprom-later"></a>
+A change to the setting takes effect when a board next netboots the rebuilt image. Confirm on one board before
+relying on it fleet-wide. Raspberry Pi's wording and the CI check: [The EEPROM lock](netboot/eeprom.md).
