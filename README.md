@@ -116,8 +116,10 @@ Two verification playbooks check the deployment:
 uv run ansible-playbook ansible/verify-server.yml
 
 # Verify running Pi (NFS mount, overlayfs, services, packages, camera, FPGA)
-# Run after Pis have booted. The inventory lists no Pis: name them by address.
-uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -e verify_pi_hosts=all
+# Run after Pis have booted, from the repo root. The inventory lists no Pis:
+# name them by address, and name the gateway they boot from, through which
+# they are reached (docs/gateway/deploy.md, "Check").
+uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory -i 10.21.2.33, -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online
 ```
 
 A `verify-pi.yml` run that selects no Pi fails: it does not pass by checking

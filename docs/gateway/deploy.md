@@ -105,10 +105,30 @@ $ uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online
 defined, the web tier's, and the NFS root's contents. It fails while an NFS root update lock is held. Compare
 it with step 1: a check that failed before will fail again.
 
-`verify-pi.yml` checks the running Pis, named by address (`-i 10.21.2.33, -e verify_pi_hosts=all`; the
-inventory lists none, and a run that selects no Pi, `--limit fpgas.online` for example, fails). It needs a
-route to the Pi network, `10.21.0.0/16`, which only the gateway has: `ansible/ssh.cfg` sets no jump, so run it
-where that network is routed, or add a `ProxyJump` through the gateway to your own SSH configuration.
+`verify-pi.yml` checks the running Pis, named by address. The site inventory lists none, so give the
+addresses as a second inventory, select them, and name the gateway they boot from:
+
+```console
+$ uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory -i 10.21.2.33,10.21.1.17, \
+    -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online
+```
+
+- Run it from the repository's root: ansible's ssh settings are `-F ansible/ssh.cfg`, a relative path.
+- `-i ansible/inventory` loads the gateways. The fleet registration, the pi password, the Orange Pi rows and
+  the jump account's hop are checked against the gateway's own settings.
+- `-e verify_pi_via=fpgas.online` names that gateway (ps1's is `ps1.fpgas.online`). It also reaches each Pi
+  through it, as the `ansible` account with the automation key: the Pi network, `10.21.0.0/16`, is routed only
+  on the gateway. The hop to the gateway uses the gateway's own inventory settings: welland's log in as
+  `ansible`; ps1's inventory sets no `ansible_user`, so that hop logs in as your own user name.
+- The run fails before connecting:
+  - with no gateway in the inventory;
+  - with two gateways and none named;
+  - when `ansible_ssh_common_args` ends in an option with no value. A `-e 'ansible_ssh_common_args=-o ProxyJump=…'`
+    without inner quotes is parsed as key=value pairs and leaves a bare `-o`, which kills ansible's worker
+    ("A worker was found in a dead state"); `verify_pi_via` replaces it.
+- A run that selects no Pi, `--limit fpgas.online` for example, fails too.
+
+The VM test runs `verify-pi.yml` this way as well, through its virtual gateway (`tests/vm/run_tests.py`).
 
 `verify-server.yml` has three plays, one per group. The `nbp` play runs each server role's own `verify/` tasks
 (`apt_client`, `automation_user`, `operators`, `jump`, `sshd`, `lldp`, `firewall`, `nfs`, `img`, `fixpi`, `nspawn_pi`,

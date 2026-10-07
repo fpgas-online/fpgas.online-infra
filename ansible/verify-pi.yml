@@ -5,8 +5,12 @@
 #
 # Usage:
 #   uv run ansible-playbook ansible/verify-pi.yml -i tests/inventory/test-hosts --limit pi_live
-#   # a live Pi by address (the static inventory has no per-Pi hosts):
-#   uv run ansible-playbook ansible/verify-pi.yml -i 10.21.2.33, -u root -e verify_pi_hosts=all
+#   # live Pis by address (the site inventory has no per-Pi hosts), reached
+#   # as the automation account through the gateway they boot from:
+#   uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory -i 10.21.2.33,10.21.1.17, \
+#       -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online
+#   # (ps1: -e verify_pi_via=ps1.fpgas.online). The run refuses to start with
+#   # no gateway in the inventory, or two and none named.
 #
 # The static inventory has no Pis in it, so a plain run, or one with only
 # --limit <server>, selects nothing. Ansible calls that "skipping: no hosts
@@ -39,8 +43,8 @@
           verify-pi.yml selects no hosts: the pattern
           '{{ verify_pi_pattern }}'{{ (" under --limit '" ~ ansible_limit ~ "'") if ansible_limit is defined else '' }}
           matches {{ verify_pi_matched | length }} host(s) in the inventory and none is left to check.
-          Nothing was verified. Name the Pis, for example
-          `-i 10.21.2.33, -e verify_pi_hosts=all`.
+          Nothing was verified. Name the Pis and their gateway, for example
+          `-i ansible/inventory -i 10.21.2.33, -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online`.
         success_msg: "verify-pi.yml will check: {{ verify_pi_selected | join(', ') }}"
       vars:
         verify_pi_pattern: "{{ verify_pi_hosts | default('pi_live') }}"
@@ -56,6 +60,15 @@
 - name: Verify running Pi
   hosts: "{{ verify_pi_hosts | default('pi_live') }}"
   vars:
+    # The gateway these Pis boot from: the one the fleet registration, the
+    # pi password, the sunxi boards and the jump-account hop are checked
+    # against. -e verify_pi_via=<inventory host> names it, and also reaches
+    # the Pis through it; an inventory with exactly one gateway (the VM
+    # test's) needs neither. Never "the first host in nbp": the production
+    # inventory has two sites.
+    verify_pi_server: >-
+      {{ verify_pi_via if (verify_pi_via | default('') | length) > 0
+         else ((groups['nbp'] | default([]))[0] if (groups['nbp'] | default([]) | length) == 1 else '') }}
     # The camera fpgas-cam would use, found the way it finds one
     # (find_camera() in fpgas.online-cam's gst-libcam.sh): a CSI sensor the
     # kernel bound (a v4l-subdev named "<driver> <i2c bus>-<addr>", e.g.
@@ -168,6 +181,64 @@
   # (16 s on the TCG-emulated Pi).
   gather_facts: false
   tasks:
+    # Before any connection, once: refuse a run that would skip checks or
+    # die. Without a gateway in the inventory (-i <addresses>, alone) the
+    # fleet, password, sunxi and jump checks below have nothing to check
+    # against. A malformed -e ansible_ssh_common_args (key=value parsing
+    # splits "-o ProxyJump=..." at the space, leaving a bare -o) kills
+    # ansible's worker with "A worker was found in a dead state".
+    - name: Assert the run names the Pis' gateway and sane ssh arguments
+      ansible.builtin.assert:
+        that:
+          - groups['nbp'] | default([]) | length > 0
+          - verify_pi_server | length > 0
+          - verify_pi_server in groups['nbp']
+          - not (ansible_ssh_common_args | default('') is search('(^|\\s)-[BbcDEeFIiJLlmOoPpQRSWw]\\s*$'))
+        fail_msg: >-
+          verify-pi.yml needs the gateway of the Pis it checks.
+          {% if groups['nbp'] | default([]) | length == 0 %}No gateway (group nbp) is in the inventory:
+          load it too, `-i ansible/inventory -i <addresses>,`.
+          {% elif verify_pi_server | length == 0 %}The inventory has {{ groups['nbp'] | length }} gateways
+          ({{ groups['nbp'] | join(', ') }}): name these Pis' gateway with -e verify_pi_via=<one of them>.
+          {% elif verify_pi_server not in groups['nbp'] %}verify_pi_via={{ verify_pi_via | default('') }} is not one of
+          the gateways ({{ groups['nbp'] | join(', ') }}).
+          {% else %}ansible_ssh_common_args ends in an option with no value: '{{ ansible_ssh_common_args | default('') }}'.
+          Pass it as JSON, -e '{"ansible_ssh_common_args": "-o ..."}', or not at all
+          (-e verify_pi_via=<gateway> sets the connection).{% endif %}
+        quiet: true
+      run_once: true  # noqa: run-once[task]
+      delegate_to: localhost
+      connection: local
+
+    # -e verify_pi_via=<gateway>: reach each Pi as the automation account
+    # through the gateway, as the Pis trust the automation key for `ansible`
+    # (fixpi's home/ansible authorized_keys). ProxyCommand, not ProxyJump, so
+    # the hop uses the gateway's own connection settings (its port, user,
+    # key and ssh args from the inventory) and ansible's ssh config. Set as
+    # facts of each Pi, so tasks delegated to the gateway keep the gateway's
+    # own settings.
+    - name: Reach the Pis through their gateway
+      ansible.builtin.set_fact:
+        ansible_user: "{{ fixpi_ansible_user | default('ansible') }}"
+        ansible_ssh_common_args: >-
+          -o ProxyCommand="ssh -F ansible/ssh.cfg
+          {{- (' -i ' ~ gw.ansible_ssh_private_key_file) if gw.ansible_ssh_private_key_file is defined else '' }}
+          {{- (' ' ~ gw.ansible_ssh_common_args) if gw.ansible_ssh_common_args is defined else '' }}
+          -p {{ gw.ansible_port | default(22) }}
+          -W %h:%p {{ (gw.ansible_user ~ '@') if gw.ansible_user is defined else '' }}{{ gw.ansible_host | default(verify_pi_server) }}"
+      vars:
+        gw: "{{ hostvars[verify_pi_server] }}"
+      when: verify_pi_via | default('') | length > 0
+
+    # The automation key, as the gateway resolves it: an address given with
+    # -i <addresses>, has no inventory_dir to resolve a relative path from.
+    - name: Use the gateway's automation key for the Pis
+      ansible.builtin.set_fact:
+        ansible_ssh_private_key_file: "{{ hostvars[verify_pi_server].ansible_ssh_private_key_file }}"
+      when:
+        - verify_pi_via | default('') | length > 0
+        - hostvars[verify_pi_server].ansible_ssh_private_key_file is defined
+
     # One remote call gathers everything the checks below read (each task on
     # the TCG-emulated Pi costs seconds of module start-up; on a real board it
     # is still a round trip per check). The results keep the shapes the
@@ -372,11 +443,10 @@
         verify_pi_expected_ip6: >-
           {{ verify_pi_ip6_base ~ ('%02d' | format(verify_pi_sw_port[0] | int)) ~ '::' ~ (verify_pi_sw_port[1] | int) }}
       vars:
-        verify_pi_ip6_base: "{{ hostvars[groups['nbp'][0]].pib_network6_base | default('') if groups['nbp'] is defined else '' }}"
+        verify_pi_ip6_base: "{{ hostvars[verify_pi_server].pib_network6_base }}"
         verify_pi_sw_port: "{{ ansible_hostname | regex_search('^pi-sw(\\d+)-p(\\d+)$', '\\1', '\\2') }}"
       when:
-        - groups['nbp'] is defined
-        - hostvars[groups['nbp'][0]].pib_network6_base is defined
+        - hostvars[verify_pi_server].pib_network6_base is defined
         - verify_pi_eth0.stat.exists
         - ansible_hostname is match('^pi-sw[0-9]+-p[0-9]+$')
 
@@ -429,10 +499,9 @@
           - verify_pi_banner_password_line in verify_pi_ssh_banner.stderr.splitlines()
         fail_msg: >-
           The password in {{ ansible_hostname }}'s ssh banner is not
-          {{ groups['nbp'][0] }}'s pi_pw
+          {{ verify_pi_server }}'s pi_pw
       vars:
-        verify_pi_banner_password_line: "password: {{ hostvars[groups['nbp'][0]].pi_pw }}"
-      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+        verify_pi_banner_password_line: "password: {{ hostvars[verify_pi_server].pi_pw }}"
 
     # The board pages' web terminal (webssh on the server) logs in as the pi
     # user with the shared password; it has no key. useradd creates the
@@ -981,7 +1050,7 @@
 
     - name: Sunxi boards declared for this site
       ansible.builtin.set_fact:
-        verify_pi_sunxi: "{{ hostvars[groups['nbp'][0]].sunxi_boards | default([]) if groups['nbp'] is defined else [] }}"
+        verify_pi_sunxi: "{{ hostvars[verify_pi_server].sunxi_boards | default([]) }}"
 
     # fpgas-felboot.sh leaves /run/fpgas-felboot/<usb-device> on success; the
     # journal is volatile and rotates within minutes under systemd debug
@@ -1160,9 +1229,7 @@
     # file, an inactive agent or a board the server never heard of all fail.
     - name: Fleet settings of this Pi's server
       ansible.builtin.set_fact:
-        verify_pi_server: "{{ groups['nbp'][0] }}"
-        verify_pi_fleet: "{{ hostvars[groups['nbp'][0]].fleet_broker | default(false) }}"
-      when: groups['nbp'] is defined and groups['nbp'] | length > 0
+        verify_pi_fleet: "{{ hostvars[verify_pi_server].fleet_broker | default(false) }}"
 
     - name: Assert the fleet agent unit and config are present
       ansible.builtin.assert:
@@ -1223,21 +1290,20 @@
           - >-
             ssh -o BatchMode=yes -o ConnectTimeout=60
             {{ user | default('pi') }}@{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} id -un
-      delegate_to: "{{ groups['nbp'][0] }}"
+      delegate_to: "{{ verify_pi_server }}"
       become: true
       changed_when: false
       register: verify_pi_jump_hop
       until: verify_pi_jump_hop.rc == 0
       retries: 3
       delay: 10
-      when: groups['nbp'] is defined and groups['nbp'] | length > 0
 
     - name: Assert the jump hop logged in as the Pi user
       ansible.builtin.assert:
         that:
           - verify_pi_jump_hop.stdout == (user | default('pi'))
         fail_msg: >-
-          ssh from {{ groups['nbp'][0] }}'s jump account to
+          ssh from {{ verify_pi_server }}'s jump account to
           {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }} said
           {{ verify_pi_jump_hop.stdout }} / {{ verify_pi_jump_hop.stderr }}
       when: verify_pi_jump_hop is not skipped

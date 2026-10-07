@@ -70,8 +70,10 @@ def test_selecting_no_pi_is_an_error(args):
 @pytest.mark.parametrize(
     "args",
     [
-        ["-i", f"{PI_A},", "-e", "verify_pi_hosts=all"],
-        ["-i", f"{PI_A},{PI_B},", "-e", "verify_pi_hosts=all", "--limit", PI_B],
+        # with the VM test's inventory for its one gateway (the Pi play
+        # refuses to run without one: tests/test_verify_pi_operator.py)
+        ["-i", "tests/inventory", "-i", f"{PI_A},", "-e", f"verify_pi_hosts={PI_A}"],
+        ["-i", "tests/inventory", "-i", f"{PI_A},{PI_B},", "-e", "verify_pi_hosts=192.0.2.*", "--limit", PI_B],
     ],
     ids=["one-pi", "limit-keeps-a-pi"],
 )
