@@ -33,8 +33,8 @@ Why the Pi 5 differs: `dtoverlay=disable-bt` frees the header UART on a Pi 0 to 
 `disable-bt.dtbo` is `compatible="brcm,bcm2835"` and one of its fragments turns `uart0` on. On a Pi 5 the
 firmware resolves the same line to `disable-bt-pi5.dtbo` (`compatible="brcm,bcm2712"`), whose only fragment
 targets `bluetooth`, and the Pi 5 device tree ships the RP1 header UART disabled; so it stays off until
-`uart0-pi5` turns it on (the comment in `roles/fixpi/tasks/tweeks.yml`, read 2026-10-07; added by
-fpgas.online-infra PR #32, "enable the 40-pin header UART on Pi 5 (Acorn serial link)", merged 2026-08-31). Turning it on would put a `console=serial0` console onto
+`uart0-pi5` turns it on. Source: the comment in `ansible/roles/fixpi/tasks/tweeks.yml` (read 2026-10-07),
+added with `uart0-pi5` by fpgas.online-infra PR #32, merged 2026-08-31. Turning it on would put a `console=serial0` console onto
 the FPGA's UART; the Pi 5's command line therefore names `ttyAMA10`. These console rows are what the templates
 serve; a `/proc/cmdline` read on each model at welland is still to do.
 

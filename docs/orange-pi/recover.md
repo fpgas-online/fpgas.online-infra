@@ -26,8 +26,8 @@ $ ls /run/fpgas-felboot/                  # one marker per board U-Boot was load
 $ journalctl -u 'fpgas-felboot@*'         # the FEL-boot attempts
 ```
 
-(fpgas-online-setup-pi `README.md`; the marker is what `verify-pi.yml` checks for each board.) The marker is
-there because the journal is no record to rely on: it is volatile, it rotates within minutes under the
+(fpgas-online-setup-pi `README.md`; the marker is what `verify-pi.yml` checks for each board.) The journal shows
+recent attempts only; the marker is there because the journal is no record to rely on: it is volatile, it rotates within minutes under the
 systemd debug logging, and a finished oneshot instance is unloaded from `systemctl` (`verify-pi.yml`, the
 comment above the marker check, read 2026-10-07).
 
@@ -78,7 +78,7 @@ captures from enumeration rather than reading on demand.
 ## Check a board
 
 `verify-pi.yml` checks an Orange Pi as it checks a Raspberry Pi, and adds: that it runs the armmp kernel from
-the shared root, on `armv7l`; that the audio codec modules are not loaded; and that the board on the port carries the HAT
+the shared root and is an `armv7l` system; that the audio codec modules are not loaded; and that the board on the port carries the HAT
 UUID of its row in `sunxi_boards` (`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address
 ([Deploying to a gateway](../gateway/deploy.md#4-check) for where to run it from).
 

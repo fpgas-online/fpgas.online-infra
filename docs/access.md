@@ -54,7 +54,7 @@ Which path reaches tweed's sshd (checked 2026-09-29, after infra `main`
 | the upstream router | `10.99.21.2` | the transit link |
 | Ansible, from anywhere with IPv6 | `gw.welland.fpgas.online`, IPv6 only | the inventory's `ansible_host`; the name's AAAA record is tweed, its A record is not |
 | outside, IPv6 | `2404:e80:a137:2100::1` | reaches tweed. `2404:e80:a137:9921::2` port 22 times out from outside, so use the address rather than the name, which also lists `9921::2` |
-| outside, IPv4 only | through the upstream router (`-J`), then `10.99.21.2`, if you have an account on it | the public A record is the upstream router, not tweed |
+| outside, IPv4 only | through the upstream router: `-J` to the site's public IPv4 address, `87.121.95.37`, then `10.99.21.2`, if you have an account on the router | the public A record is the upstream router, not tweed ([What a site needs from its upstream network](upstream-gateway.md)) |
 
 tweed's own firewall accepts SSH on every interface
 ([`roles/firewall`](../ansible/roles/firewall/templates/nftables.conf.j2)).
@@ -264,8 +264,8 @@ down or returns nothing:
 
 Re-run once GitHub answers again.
 
-Converge from a controller that reaches the inventory's `ansible_host`, `gw.welland.fpgas.online`, over IPv6
-([tweed](#tweed)). tweed's host_vars hold vaulted values, so give Ansible
+Converge from any controller that reaches `gw.welland.fpgas.online` over IPv6: it is the inventory's
+`ansible_host` ([tweed](#tweed)). tweed's host_vars hold vaulted values, so give Ansible
 the vault password as the README's Deploy section does
 (`ANSIBLE_VAULT_PASSWORD_FILE`, or `--vault-password-file`). Always the
 whole playbook, never a `--tags` subset (issue #157):

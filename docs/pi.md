@@ -91,14 +91,16 @@ of 6 October 2026 is on [The welland gateway](https://docs.fpgas.online/en/lates
 | `ssh-import-id`, `software-properties-common` | Installed by `apt.yml`; the Pis' keys are written by the gateway instead ([Accounts and logins](https://docs.fpgas.online/en/latest/setup/access.html)). |
 | `python3-full`, `python3-venv`, `python3-pip`, `python3-dev`, `pipx`, `python3-serial`, `python3-rpi.gpio`, `python3-numpy`, `python3-tqdm` | Python and the libraries the test scripts use. |
 | `build-essential`, `dkms`, `libfreetype6-dev`, `libjpeg-dev` | So a `pip install` with a C extension builds on the Pi. |
-| `jq`, `lm-sensors`, `gstreamer1.0-tools`, the GStreamer plugin sets `base`, `good`, `bad`, `ugly` and `base-apps`, `gstreamer1.0-libcamera`, `rpicam-apps-lite` | The camera pipeline (`cam_pi`). `jq` is there because the publisher script reads the Pi's default route with `ip -json route` ([the camera page](https://github.com/fpgas-online/fpgas.online-cam/blob/main/docs/camera.md)). |
+| `jq`, `lm-sensors`, `gstreamer1.0-tools`, the GStreamer plugin sets `base`, `good`, `bad`, `ugly` and `base-apps`, `gstreamer1.0-libcamera`, `rpicam-apps-lite` | The camera pipeline (`cam_pi`). `jq` is there because the publisher script reads the Pi's default route with `ip -json route` ([`gst-libcam.sh`](https://github.com/fpgas-online/fpgas.online-cam/blob/main/gst-libcam.sh) line 72, read 2026-10-07). |
 
-`vim-tiny` is removed first: `dpkg-divert` refuses to rename its help file,
-`/usr/share/vim/vim82/doc/help.txt.vim-tiny`, over the full `vim`'s (`roles/onpi/tasks/apt.yml`, comment).
+`vim-tiny` is removed first: `dpkg-divert` refuses to rename its help file over the full `vim`'s. The
+role's comment quotes the error from an earlier root, naming `/usr/share/vim/vim82/doc/help.txt.vim-tiny`
+(`ansible/roles/onpi/tasks/apt.yml`); the bookworm root's vim is a later version, and the path there was not
+re-checked.
 `mpremote` and `uv` are installed with `pipx` into `/opt/pipx`, with their commands in `/usr/local/bin`: the
 tasks pin `PIPX_HOME` and `PIPX_BIN_DIR`, because a bare `pipx install` puts the environments wherever the
 calling environment points and the commands on no user's `PATH`, and an earlier root built on the gateway and
-the CI-built one disagreed (the same file's comment, read 2026-10-07).
+the CI-built one disagreed (the same file's comment, read 2026-10-07; fpgas.online-infra issue #34).
 
 ## Sources
 
