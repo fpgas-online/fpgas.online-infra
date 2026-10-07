@@ -58,6 +58,12 @@ cable: the kernel log on the Pi's `ttyGS0` and a login on `ttyGS1` (`verify-pi.y
 fpgas.online has not yet read a fleet Pi this way. The fleet Pis take their power over PoE, so the port is
 free. Not on a Pi 3 or a Zero: there the gadget controller is the only USB controller.
 
+Nothing waits for a host: the gadget enumerates only when a host is plugged in, and boot proceeds identically
+either way. udev loads `g_serial` when a USB device controller appears, so a board without one (a Pi 3, the CI
+VM) never loads the gadget stack (`usb-console/70-fpgas-usb-console.rules` in fpgas.online-setup-pi main, read
+2026-10-07). The units behind the two ports are in [Units shipped by
+fpgas-online-setup-pi](../pi/services.md#units-shipped-by-fpgas-online-setup-pi).
+
 ## 5. Stale files after an update
 
 A Pi that is up but fails new logins or commands with `Stale file handle` booted the root before it was
