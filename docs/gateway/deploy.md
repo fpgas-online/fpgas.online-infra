@@ -15,7 +15,7 @@ the playbooks and roles named).
   half is vaulted in `host_vars/fpgas.online.yml` (`ansible/ssh.cfg`'s comment says how).
 - The vault password, in a file you point `ANSIBLE_VAULT_PASSWORD_FILE` at (the README's example path is
   `~/.config/fpgas-online/vault-pass`).
-- An operator login on the gateway ([Accounts and logins](https://docs.fpgas.online/en/latest/setup/access.html)), for the reads below.
+- An operator login on the gateway ([Accounts and logins](../access.md)), for the reads below.
 - IPv6: Ansible reaches the gateway as `gw.welland.fpgas.online`. The first run learns the gateway's host key
   into `~/.config/fpgas-online/ansible_known_hosts`; compare its fingerprint with the gateway's own, read
   through your login: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
@@ -35,12 +35,16 @@ $ ssh <you>@gw.welland.fpgas.online cat /srv/nfs/rpi/bookworm/.image-digest
 Pin that same digest in step 3 to keep the image the Pis run. The Pis still reboot if any file in the root
 changes: the end of the run bumps the generation when a file changed (`roles/nfsroot_generation`), and the
 `fixpi` role writes the site layer into the root on every run, so a change on `main` to that layer reboots
-every Pi. The run's last task, "Show what changed in the Pi NFS root", says whether it did and why. Any other
+every Pi. You cannot see this beforehand: under `--check` the task that decides it is skipped. After the run, its last
+task, "Show what changed in the Pi NFS root", says whether the generation was bumped and why. If the Pis must
+not reboot (someone is using a board), set `-e nfsroot_generation_bump=never` and power-cycle later
+(`roles/nfsroot_generation/README.md`). Any other
 digest is a root update ([Updating the NFS root](../netboot/update-root.md)).
 
 ## 2. If the change touches the firewall: preview first
 
-> **Warning:** **A bad firewall file leaves the gateway with no firewall.** The `firewall` role restarts `nftables.service`
+> [!WARNING]
+> **A bad firewall file leaves the gateway with no firewall.** The `firewall` role restarts `nftables.service`
 > on every run (`state: restarted` in `roles/firewall/tasks/main.yml`), and Debian's unit stops with
 > `nft flush ruleset` (`ExecStop` of `nftables.service` in Debian 13's nftables 1.1.3-1, read 2026-10-07): if the new `/etc/nftables.conf` does not load, the old rules are already gone and the Pi
 > network is open. Your SSH session would not tell you, because an empty ruleset blocks nothing.

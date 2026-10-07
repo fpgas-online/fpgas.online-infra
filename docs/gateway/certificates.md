@@ -19,7 +19,8 @@ ask the upstream gateway's owner first. tweed also answers on IPv6 directly (its
 
 ## The rules
 
-> **Warning:** - Get certificates with `certbot certonly --webroot` only. Never `certbot --nginx`.
+> [!WARNING]
+> - Get certificates with `certbot certonly --webroot` only. Never `certbot --nginx`.
 > - Never install `python3-certbot-nginx`: it is the plugin that rewrites nginx configuration.
 > - A certificate lineage first made by `certbot --nginx` must be switched to the webroot authenticator, or the
 >   next renewal runs the nginx installer again and undoes the vhost Ansible owns.

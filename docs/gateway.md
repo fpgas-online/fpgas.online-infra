@@ -54,7 +54,7 @@ In the order `site.yml` applies the roles.
   files (one reboot if a NIC still has its installer name).
 - `automation_user` (where enabled), `operators`, `jump`, `sshd`: the `ansible` account, the operators'
   accounts keyed from their GitHub keys, the restricted `pi` jump account, and key-only SSH
-  ([Accounts and logins](https://docs.fpgas.online/en/latest/setup/access.html)).
+  ([Accounts and logins](access.md)).
 - `lldp`: `lldpd`, so the cabling to the switches can be read rather than assumed.
 - `firewall`: `nftables.service`, the whole Pi isolation policy, and IPv4 and IPv6 forwarding.
 - `vlan_ports` and `switch_vlans`, only where `switches:` is defined (welland): one VLAN interface per switch

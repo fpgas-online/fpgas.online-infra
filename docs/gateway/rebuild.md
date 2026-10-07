@@ -31,7 +31,7 @@ fpgas.online's side needs, in the order you meet it.
   automation's `known_hosts` make it unreachable ([Deploying to a gateway](deploy.md#4-check)).
 - **The vault password file that decrypts the inventory** (B1-2). A converge was lost to three candidate
   password files; on 2026-08-25 the one that decrypted was not the README's documented path. CI has no vaulted
-  variables, so only a production run finds this. The record asks for a decrypt test first; this one prints
+  variables, so only a production run finds this. The record suggests a decrypt test first; this one (run on 2026-10-07, it printed a length) prints
   only the length of one vaulted value:
 
   ```console
