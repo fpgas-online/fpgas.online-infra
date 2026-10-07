@@ -51,7 +51,7 @@ host-record={{ apt_cache_host }},{{ eth_local_address }}
 
 {% if dnsmasq_auth_zone is defined %}
 # ── Authoritative service for a zone delegated to us ────────────────────
-# The site resolver (ten64) delegates {{ dnsmasq_auth_zone }} here and
+# The site resolver (the upstream router) delegates {{ dnsmasq_auth_zone }} here and
 # queries us across the transit link, so those queries arrive on
 # {{ dnsmasq_auth_interface }}, not on the internal interface.
 #
@@ -66,7 +66,7 @@ host-record={{ apt_cache_host }},{{ eth_local_address }}
 # It is authoritative-only on that interface -- it does NOT expose recursion
 # to the transit link, which is what we want for an off-net caller.
 #
-# The auth-server <domain> is the glue name: ten64's zone carries
+# The auth-server <domain> is the glue name: the upstream router's zone carries
 # `{{ dnsmasq_auth_zone }}. NS {{ dnsmasq_auth_glue }}.` plus an A record for
 # {{ dnsmasq_auth_glue }} pointing at this host, so the two must agree.
 #

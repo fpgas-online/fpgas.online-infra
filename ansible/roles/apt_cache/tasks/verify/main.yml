@@ -33,7 +33,7 @@
         fail_msg: "apt-cacher-ng is not active (got: {{ apt_cache_v_active.stdout }})"
 
     # Listening on the Pi-facing address, not merely running: acng binds once
-    # at start-up, and ten64's copy runs happily on 127.0.0.1 alone.
+    # at start-up, and the upstream router's copy runs happily on 127.0.0.1 alone.
     - name: Check the cache answers on eth-local
       ansible.builtin.uri:
         url: "http://{{ eth_local_address }}:{{ apt_cache_port }}{{ apt_cache_remaps[0].path }}/{{ apt_cache_remaps[0].probe }}"

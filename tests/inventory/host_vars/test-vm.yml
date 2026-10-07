@@ -137,7 +137,7 @@ sunxi_boards:
   - {hat_uuid: "00000000-0000-0000-0000-000000000000", mac: "02:81:00:00:00:01", model: orangepi-pc, switch: 1, port: 2, usb: "1-1.2.2", host: pi-sw1-p9}
 
 # Authoritative DNS for a delegated zone, and the off-net resolver allowed to
-# query it (tweed: fpgas.welland.mithis.com on eth-uplink for ten64 at
+# query it (tweed: fpgas.welland.mithis.com on eth-uplink for the upstream router at
 # 10.99.21.1). The same dnsmasq auth-zone/auth-server and nftables rules
 # render and load here, on the VM's uplink with QEMU's user-net gateway as
 # the delegating resolver.

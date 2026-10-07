@@ -1,5 +1,5 @@
 # {{ ansible_managed }} -- {{ ttsite_domain }}
-# Published via ten64's reverse proxy (http) / SNI passthrough (https); TLS
+# Published via the upstream router's reverse proxy (http) / SNI passthrough (https); TLS
 # terminates here with a webroot-issued Let's Encrypt cert (see roles/ttsite).
 {% macro app_locations() %}
     root {{ static_dir }};
