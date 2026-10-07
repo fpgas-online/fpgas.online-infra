@@ -1,6 +1,6 @@
 # dnsmasq netns lab results
 
-> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+> The upstream router's host name, and the name of the site's network-config tool, were replaced by their roles on 7 October 2026, under Tim's rule that fpgas.online names neither; the record is otherwise unchanged.
 
 Lab script: `tests/lab/dnsmasq_lab.py`. Run as root: `python3 tests/lab/dnsmasq_lab.py`
 (no third-party imports; works without `uv`). Ran on `tweed.welland.mithis.com`
@@ -252,8 +252,8 @@ the ~146 the daisy-chained switch-1 trunk needs (its own 48 + two downstream
 48-blocks). **Risk #1 (S3300 max concurrent VLANs) is retired.**
 
 SNMP read works with the `public` community on both switches. The per-switch
-SNMP **write** communities are resolved on the upstream router via
-`gdoc2netcfg password --type snmp <switch>` and are stored, per switch, as the
+SNMP **write** communities are resolved on the upstream router with
+the site's network-config tool's SNMP password lookup and are stored, per switch, as the
 Ansible-vault vars `vault_switch1_snmp_rw_community` (s3300) and
 `vault_switch2_snmp_rw_community` (gsm7252ps) — see the switch_vlans role. They
 are deliberately not written in plaintext here (this repo is public).

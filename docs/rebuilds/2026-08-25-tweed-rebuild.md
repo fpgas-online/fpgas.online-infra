@@ -1,6 +1,6 @@
 # tweed fresh-rebuild log
 
-> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+> The upstream router's host name, and the name of the site's network-config tool, were replaced by their roles on 7 October 2026, under Tim's rule that fpgas.online names neither; the record is otherwise unchanged.
 
 Goal: confirm CI is a faithful proxy for real hardware. Every issue hit during a
 rebuild attempt is recorded here; each then gets a why-CI-missed-it analysis and
@@ -33,7 +33,7 @@ Ground rules (Tim, 2026-08-25):
 
 | # | Issue | Workaround | CI/infra follow-up |
 |---|-------|------------|--------------------|
-| P1 | gdoc2netcfg has no `password` credential for bmc.tweed | BMC answers Supermicro default ADMIN/ADMIN | add credential to store; consider changing default pw |
+| P1 | the site's network-config tool has no `password` credential for bmc.tweed | BMC answers Supermicro default ADMIN/ADMIN | add credential to store; consider changing default pw |
 | P2 | /srv/tftp had no chain.c32 (needed to PXE-chainload a chosen disk) | copied from syslinux-common 6.04 (matches deployed pxelinux) | commit note in /srv/pxe docs |
 | P3 | README/ansible.cfg document vault pass at ~/.config/fpgas-online/vault-pass but the real file is ~/.config/welland-ansible/vault-pass | symlinked fpgas-online/vault-pass -> welland-ansible/vault-pass | fix README or move file |
 | P4 | Direct `ipmitool sol activate` conflicts with the conserver console server (console `tweed` -> 10.1.5.131, auto-logs /var/log/conserver/tweed.log) | use conserver; SOL capture comes free | document in PXE-BOOT.md |
@@ -54,7 +54,7 @@ IPMI `chassis bootdev pxe` + `power cycle`. Console: /var/log/conserver/tweed.lo
 
 | A1-4 | With the kernel unwedged (1e), d-i reached netcfg and showed "[!!] Network autoconfiguration failed": `interface=auto` picks the first carrier-up NIC = eth-local (`…4A`, no DHCP server while tweed is down) and netcfg does NOT fall back to other NICs. Same class as A1-1 but at the d-i layer. | 1e serial UI 16:59; dialog screenshot in conserver log | 1f: `interface=0c:c4:7a:16:3b:4b` (pin by MAC) in both installer APPENDs, both configs | permanent config now carries the pin; document in PXE-BOOT.md. A1-3 root cause CONFIRMED = extra `console=ttyS0/S1` + `earlycon` args (dead UARTs wedge kernel console writes); minimal `console=ttyS2,115200n8` boots fine. |
 
-| A1-5 | Per-host preseed never applied: early_command.sh uses `$(hostname)`, which in d-i is netcfg's reverse-DNS first label of the DHCP address — gdoc2netcfg PTRs start with `ipv4.` → fetched `hosts/ipv4.preseed` (404) → tweed.preseed (disk pin!) skipped → interactive partman instead of auto. The legacy `eth0-*.preseed` filenames are fossils of the same PTR-derived behavior. | nginx 17:04:09 `GET /pxe/hosts/ipv4.preseed 404`; partman dialog on serial | early_command.sh now parses `hostname=` from /proc/cmdline first (committed in /srv/pxe) | preseed pipeline gap: nothing verified the per-host preseed actually applies; add an early_command echo of applied files to the d-i syslog + runbook check |
+| A1-5 | Per-host preseed never applied: early_command.sh uses `$(hostname)`, which in d-i is netcfg's reverse-DNS first label of the DHCP address — the PTR records the site's network-config tool generates start with `ipv4.` → fetched `hosts/ipv4.preseed` (404) → tweed.preseed (disk pin!) skipped → interactive partman instead of auto. The legacy `eth0-*.preseed` filenames are fossils of the same PTR-derived behavior. | nginx 17:04:09 `GET /pxe/hosts/ipv4.preseed 404`; partman dialog on serial | early_command.sh now parses `hostname=` from /proc/cmdline first (committed in /srv/pxe) | preseed pipeline gap: nothing verified the per-host preseed actually applies; add an early_command echo of applied files to the d-i syslog + runbook check |
 
 **Attempt 1g: INSTALL SUCCEEDED.** 17:08:49 cycle → 17:10:53 preseed → 17:10:54
 hosts/tweed.preseed applied (200) → auto partman/base/kernel/GRUB → 17:14:53
@@ -77,7 +77,7 @@ consider dropping for consistency.
 | A1-9 | Install picked LVM (base preseed default) and the VG is named `ipv4-vg` — the A1-6 hostname leak frozen into LVM metadata. Harmless functionally; fixed properly by reinstall after the netcfg/hostname preseed fix (committed: /srv/pxe). | lvs: ipv4-vg/root 224G, swap 8G | none for now (site.yml doesn't care) | next fresh install validates tweed-vg naming |
 | A1-8 | No interactive console fallback: preseed locks the ansible password (`!`) and disables root login — when SSH is down the serial console cannot log in; recovery requires GRUB-edit `init=/bin/bash`. Fine for security but operationally one-way. | preseed user-setup section | GRUB serial edit if needed | consider a vaulted console password for the ansible user or a documented rescue flow |
 
-| A1-10 | Reinstall changes host keys, but the `/etc/ssh/ssh_known_hosts` that gdoc2netcfg generates on the upstream router (as it was on 2026-08-25) still pins the old system's key (line 202) — StrictHostKeyChecking=accept-new cannot override a *changed* key, so SSH (and ansible) fail until the pinned entry is refreshed. | ssh HOST IDENTIFICATION CHANGED, offending /etc/ssh/ssh_known_hosts:202 | per-invocation GlobalKnownHostsFile override; local ~/.ssh entry re-learned | after a reinstall, re-run `gdoc2netcfg known-hosts --force`; both scan attempts (17:47, 18:10) aborted on `sqlite3 database is locked` — the `gdoc2netcfg reachability publish --daemon` process holds discovery.db permanently, so `known-hosts --force` can never run while it's up (gdoc2netcfg concurrency bug, Tim's backlog). Mitigated systematically: ansible now uses its own known_hosts via ansible/ssh.cfg (repo change staged) |
+| A1-10 | Reinstall changes host keys, but the `/etc/ssh/ssh_known_hosts` that the site's network-config tool generates on the upstream router (as it was on 2026-08-25) still pins the old system's key (line 202) — StrictHostKeyChecking=accept-new cannot override a *changed* key, so SSH (and ansible) fail until the pinned entry is refreshed. | ssh HOST IDENTIFICATION CHANGED, offending /etc/ssh/ssh_known_hosts:202 | per-invocation GlobalKnownHostsFile override; local ~/.ssh entry re-learned | after a reinstall, re-run that tool's known-hosts scan, forced; both scan attempts (17:47, 18:10) aborted on `sqlite3 database is locked` — the tool's reachability daemon holds its discovery database permanently, so the forced scan can never run while it's up (a concurrency bug in that tool, Tim's backlog). Mitigated systematically: ansible now uses its own known_hosts via ansible/ssh.cfg (repo change staged) |
 
 ### site.yml-phase issues
 
@@ -147,7 +147,7 @@ report unit, tweed listener/capture files); final production-true cycle next.
 - Fleet: 13/15 documented Pis leased+pinging after staggered migration; p43/p44
   re-cycled (recheck pending). Undocumented powered s3300 ports left untouched
   for Tim: 29, 37-39, 41.
-- Backlog for Tim: gdoc2netcfg known-hosts scan blocked by its reachability
+- Backlog for Tim: the site's network-config tool's known-hosts scan blocked by its reachability
   daemon's DB lock; ngsw MCP inventory lacks write communities (session TOML
   used); **p43/p44 stayed dark after two PoE cycles each — physical check
   needed (dead SD-less units, unplugged, or not Pis at all)**; Pi NTP unsynced

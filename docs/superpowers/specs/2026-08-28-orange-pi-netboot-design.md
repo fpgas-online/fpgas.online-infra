@@ -1,6 +1,6 @@
 # Orange Pi H3 netboot on the fpgas.online Welland rack — spike results and design
 
-> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+> The upstream router's host name, and the name of the site's network-config tool, were replaced by their roles on 7 October 2026, under Tim's rule that fpgas.online names neither; the record is otherwise unchanged.
 
 > **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
 
@@ -86,7 +86,7 @@ All new renders are guarded `when: sunxi_boards is defined` — the multi-host g
 
 Out of scope here: s3300-1 port descriptions (still stale for many ports), the two unexplained
 1.2 W loads on p16/p22, wiring the PL2303 to a UART0 header (recommended — it is the only early
-console), and the gdoc2netcfg sheet (already updated: `welland-ansible-rpi` branch
+console), and the site's network sheet (already updated: `welland-ansible-rpi` branch
 `worktree-opi-fel-boards`, published 2026-08-28 14:57 ACST).
 
 ## 4. How the spike was run (reproducible)
