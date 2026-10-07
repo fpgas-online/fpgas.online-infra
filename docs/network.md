@@ -78,18 +78,14 @@ touches.
 
 What a fault looks like (from the design spec):
 
-Unconfigured port
-: the device gets an address from the quarantine pool, 10.21.0.128 to 10.21.0.150, with no host name, and
+- **Unconfigured port**: the device gets an address from the quarantine pool, 10.21.0.128 to 10.21.0.150, with no host name, and
   reaches only the gateway.
 
-Trunk misconfiguration
-: no DHCP at all for that switch.
+- **Trunk misconfiguration**: no DHCP at all for that switch.
 
-Converge stopped half-way
-: running it again finishes the job; the house VLANs were never in what it writes.
+- **Converge stopped half-way**: running it again finishes the job; the house VLANs were never in what it writes.
 
-Pi moved between ports
-: it becomes the new port's host; its old lease expires.
+- **Pi moved between ports**: it becomes the new port's host; its old lease expires.
 
 "Isolated networks", as the public site puts it, is about the network only: a person with a shell on one Pi
 cannot reach another Pi. It does not give a person a board to themselves; nothing in the network decides who
