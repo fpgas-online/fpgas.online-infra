@@ -11,7 +11,7 @@
 apt_client_proxy: ""
 
 # The same proxy's https front end, e.g. https://apt-proxy.welland.mithis.com
-# (ten64's apt-cacher-ng, mithro/welland-ansible-rpi roles/apt_proxy). It
+# (the upstream router's apt-cacher-ng, mithro/welland-ansible-rpi roles/apt_proxy). It
 # caches an https repository only through a remap: the repository is at
 # <this>/<remap path>/, and the remap has to exist there first. apt connects
 # to this host directly (it cannot tunnel to the proxy through itself), and

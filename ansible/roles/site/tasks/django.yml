@@ -86,7 +86,7 @@
     - Restart django services
 
 # Every name the site answers on: the uplink address, the primary web name,
-# its aliases (e.g. tweed.welland.mithis.com behind ten64's proxy) and the
+# its aliases (e.g. tweed.welland.mithis.com behind the upstream router's proxy) and the
 # tinytapeout.fpgas.online host when this server carries TT boards.
 - name: Site_web_hosts
   ansible.builtin.set_fact:

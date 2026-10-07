@@ -57,7 +57,7 @@
   when: apt_cache_vhost is changed  # noqa: no-handler
 
 # The certificate cannot issue until apt_cache_host has a public DNS record
-# (the fpgas.online zone on ns1; ten64 already forwards *.welland.fpgas.online
+# (the fpgas.online zone on ns1; the upstream router already forwards *.welland.fpgas.online
 # http and https to tweed). Without one, skip issuance and say so -- clients
 # stay on the plain-http cache address. A name that DOES resolve but fails
 # http-01 is a real fault and fails the run.
