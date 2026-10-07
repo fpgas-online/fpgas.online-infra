@@ -23,10 +23,10 @@ automation_user_manage: true
 # any of them has none. The Pis keep their password login (web terminal).
 sshd_pubkey_only: true
 
-# Uplink = point-to-point transit to ten64 (10.99.21.1), static, owned by
+# Uplink = point-to-point transit to the upstream router (10.99.21.1), static, owned by
 # systemd-networkd via the netif role (MAC-matched .link -> eth-uplink).
 # eth_uplink_static_address doubles as the firewall's DNAT target and
-# Django's ALLOWED_HOSTS entry: ten64 NATs the public side to this address.
+# Django's ALLOWED_HOSTS entry: the upstream router NATs the public side to this address.
 eth_uplink_mac_address: 0c:c4:7a:16:3b:4b
 eth_uplink_static: true
 eth_uplink_static_address: 10.99.21.2
@@ -36,7 +36,7 @@ eth_uplink_static_address6: 2404:e80:a137:9921::2/126
 eth_uplink_static_gateway6: 2404:e80:a137:9921::1
 eth_uplink_dns_server: 10.99.21.1
 
-# tweed's own apt goes through ten64's apt-cacher-ng (mithro/welland-ansible-rpi
+# tweed's own apt goes through the upstream router's apt-cacher-ng (mithro/welland-ansible-rpi
 # roles/apt_proxy): http sources through its proxy port, https ones through
 # a remap on its https front end (roles/apt_client).
 apt_client_proxy: http://10.99.21.1:3142/
@@ -137,9 +137,9 @@ server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_i
 
 conference_name: pib
 
-# Public names of this server's web interface.  Both are served by ten64's
+# Public names of this server's web interface.  Both are served by the upstream router's
 # reverse proxy (HTTP) / SNI passthrough (HTTPS, so tweed terminates TLS with
-# its own Let's Encrypt certs; http-01 challenges flow through ten64's
+# its own Let's Encrypt certs; http-01 challenges flow through the upstream router's
 # /.well-known/acme-challenge/ passthrough).  fpgas.online itself points at
 # the PS1 site, not here.
 streaming_frontend_aliases:
@@ -324,9 +324,9 @@ tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546
 tt_commander_legacy_embed_version: "0.1.0"
 tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
 # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online; TLS is
-# terminated on tweed (ten64's SNI router lists the name since 2026-08-23 via
-# the gdoc2netcfg alias on tweed's row), so certbot runs here (webroot http-01
-# through ten64's /.well-known/ passthrough).
+# terminated on tweed (the upstream router's SNI router lists the name since 2026-08-23 via
+# the network sheet's alias on tweed's row), so certbot runs here (webroot http-01
+# through the upstream router's /.well-known/ passthrough).
 ttsite_certbot: true
 
 # The fpgas.online-ansible automation private key: the ONLY key the
@@ -397,7 +397,7 @@ sunxi_boards:
   - {hat_uuid: "2577845e-7668-460a-a9d1-2c97373b1da9", mac: "02:81:f5:c0:a6:10", model: orangepi-pc, switch: 2, port: 24, usb: "1-1.2.4", host: pi-sw2-p30}
 
 # ── Off-net DNS clients (firewall) ──────────────────────────────────────
-# ten64 (the welland site router) delegates the fpgas.welland.mithis.com
+# The upstream router (the welland site router) delegates the fpgas.welland.mithis.com
 # zone to this host's dnsmasq and queries it across the VLAN-121 transit
 # link, so its queries arrive from 10.99.21.1 -- outside the pib /16 that
 # `internal_networks` accepts wholesale.  Without this the queries hit the
@@ -412,11 +412,11 @@ sunxi_boards:
 firewall_dns_query_sources:
   - 10.99.21.1
 
-# ── Authoritative DNS for the zone ten64 delegates to us ────────────────
-# ten64 (the welland site router) delegates fpgas.welland.mithis.com here:
+# ── Authoritative DNS for the zone the upstream router delegates to us ────────────────
+# The upstream router (the welland site router) delegates fpgas.welland.mithis.com here:
 # its zone carries `fpgas.welland.mithis.com. NS gw.fpgas.welland.mithis.com.`
 # with glue `gw.fpgas.welland.mithis.com. A 10.21.0.1`, and the target is
-# hardcoded in gdoc2netcfg's generators/pdns_zones.py as
+# hardcoded in the site's network-config tool (its PowerDNS zone generator) as
 # DELEGATED_NET_SERVERS = {"fpgas": "10.21.0.1"}.  Keep dnsmasq_auth_glue in
 # step with that NS name.
 #
@@ -436,7 +436,7 @@ dnsmasq_auth_interface: eth-uplink
 # host (web.yml). These are the ICE candidates mediamtx advertises:
 webrtc_media_port: 8189
 webrtc_additional_hosts:
-  - "87.121.95.37"            # the one public IPv4 (ten64 DNATs the media port)
+  - "87.121.95.37"            # the one public IPv4 (the upstream router DNATs the media port)
   - "2404:e80:a137:2100::1"   # this host's global IPv6, reached directly
-  - "10.99.21.2"              # ten64<->tweed transit IP: LAN viewers cannot
+  - "10.99.21.2"              # upstream-router<->tweed transit IP: LAN viewers cannot
                               # hairpin the WAN DNAT, this gives them a route

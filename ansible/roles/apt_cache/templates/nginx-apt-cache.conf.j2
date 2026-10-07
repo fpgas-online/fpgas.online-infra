@@ -9,7 +9,7 @@
     access_log /var/log/nginx/apt-cache-access.log;
     error_log /var/log/nginx/apt-cache-error.log;
 
-    # This name is reachable from the internet (ten64 forwards
+    # This name is reachable from the internet (the upstream router forwards
     # *.welland.fpgas.online), so proxy ONLY the repository prefixes. Anything
     # else -- notably acng's maintenance page, acng-report.html, which can
     # start expiry/deletion jobs -- stays on the Pi-facing port 3142.

@@ -14,14 +14,14 @@ apt_cache_port: 3142
 
 # acng BindAddress. Empty = listen on every address, which is deliberate: an
 # explicit list is bound once at start-up, so an address that is not up yet
-# (eth-local under networkd at boot) is silently never listened on -- ten64's
+# (eth-local under networkd at boot) is silently never listened on -- the upstream router's
 # acng carries five BindAddress entries and listens on 127.0.0.1 only. The
 # firewall's input chain is what keeps 3142 off the uplink.
 apt_cache_bind_addresses: ""
 
-# Chain upstream through another cache, e.g. ten64's: http://10.99.21.1:3142.
+# Chain upstream through another cache, e.g. the upstream router's: http://10.99.21.1:3142.
 # Empty = fetch directly. LIMITATION: acng reaches https:// backends through
-# a proxy with CONNECT, and ten64's acng refuses CONNECT (403), so while this
+# a proxy with CONNECT, and the upstream router's acng refuses CONNECT (403), so while this
 # is set the https remaps below (fpgasonline, fpgatools, nfsrootwatchdog, rpihwid)
 # fail; the http ones (raspbian, raspberrypi, debian) work.
 apt_cache_upstream_proxy: ""
@@ -45,7 +45,7 @@ apt_cache_certbot: "{{ site_certbot | default(true) }}"
 #            that answers index files itself but 302s every pool file to a
 #            per-region mirror, and through it the PR #78 VM run got 54
 #            "503 Connection closed" -- every one a package whose name has an
-#            escaped + or ~. ten64's acng has always used archive.raspbian.org.
+#            escaped + or ~. The upstream router's acng has always used archive.raspbian.org.
 #   probe:   a Release file under path; verify fetches it through the cache.
 #            (A Release fetch never exercises a pool-file redirect.)
 apt_cache_remaps:

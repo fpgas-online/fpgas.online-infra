@@ -52,7 +52,7 @@ start with `apt_cache_url`.
 
 - **Public DNS**: an `apt.welland.fpgas.online` record in the fpgas.online zone
   on ns1, pointing at welland's public address (as `welland.fpgas.online`
-  does). ten64 already forwards `*.welland.fpgas.online`, both http and SNI
+  does). The upstream router already forwards `*.welland.fpgas.online`, both http and SNI
   https, to tweed, so nothing else is needed for http-01 or for clients.
   Until the record exists the converge prints a warning and clients use the
   plain-http address. The first converge after it exists issues the
@@ -71,12 +71,12 @@ tries to resume, gets a `200`, and serves clients
 `verify-server.yml` fetches a Release file through every remap, so this shows
 up there.
 
-### Chaining to ten64 (`apt_cache_upstream_proxy`)
+### Chaining to the upstream router's cache (`apt_cache_upstream_proxy`)
 
 Setting `apt_cache_upstream_proxy: http://10.99.21.1:3142` sends every fetch
-through ten64's apt-cacher-ng. The http upstreams (raspbian, raspberrypi,
+through the upstream router's apt-cacher-ng. The http upstreams (raspbian, raspberrypi,
 debian) work. The https ones (fpgasonline, fpgatools, nfsrootwatchdog, rpihwid) **fail**: acng reaches an
-https backend through a proxy with CONNECT, and ten64's acng refuses it
+https backend through a proxy with CONNECT, and the upstream router's acng refuses it
 (`503 CONNECT denied (ask the admin to allow HTTPS tunnels)`, tested
 2026-09-13). The default is empty, i.e. direct.
 

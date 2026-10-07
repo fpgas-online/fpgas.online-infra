@@ -23,7 +23,7 @@ table inet filter {
           # WebRTC (WHEP) media: the single muxed ICE port, UDP with TCP
           # fallback (roles/webrtc). IPv6 viewers arrive directly; IPv4
           # arrives via the upstream router's DNAT (see
-          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-upstream-router.md).
           udp dport {{ webrtc_media_port }} counter accept;
           tcp dport {{ webrtc_media_port }} counter accept;
 {% endif %}
@@ -112,7 +112,7 @@ table inet filter {
           # WebRTC (WHEP) media: the single muxed ICE port, UDP with TCP
           # fallback (roles/webrtc). IPv6 viewers arrive directly; IPv4
           # arrives via the upstream router's DNAT (see
-          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-ten64.md).
+          # docs/superpowers/runbooks/2026-09-02-webrtc-media-port-upstream-router.md).
           udp dport {{ webrtc_media_port }} counter accept;
           tcp dport {{ webrtc_media_port }} counter accept;
 {% endif %}
