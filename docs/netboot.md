@@ -107,7 +107,8 @@ There is one root per site, at `/srv/nfs/rpi/<dist>/{boot,root}` (`nfs_root`; `d
 are exported read-only to the Pi network, and the Pi's own `/etc/fstab` mounts `/` and `/boot/firmware`
 read-only and `noauto`. Every Pi mounts the same root.
 
-> **Warning:** The writable layer is a tmpfs. Everything written on a Pi is gone at the next reboot or power cycle,
+> [!WARNING]
+> The writable layer is a tmpfs. Everything written on a Pi is gone at the next reboot or power cycle,
 > including anything copied to `/home/pi`. A bitstream that loaded a minute ago fails to open after a reboot
 > because the file is not there any more: openFPGALoader prints `Open file … FAIL`. Copy it again.
 
