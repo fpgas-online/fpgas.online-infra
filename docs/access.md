@@ -42,7 +42,7 @@ split-horizon DNS (looked up 2026-09-29):
 
 | Resolver | A | AAAA |
 |---|---|---|
-| public (ns1/ns2.rollernet.us) | `87.121.95.37`, which is **ten64** (PTR `ten64.welland.mithis.com`) | `2404:e80:a137:2100::1`, `2404:e80:a137:9921::2` (tweed) |
+| public (ns1/ns2.rollernet.us) | `87.121.95.37`, which is [the upstream router](upstream-gateway.md), not tweed | `2404:e80:a137:2100::1`, `2404:e80:a137:9921::2` (tweed) |
 | inside the site | `10.99.21.2` (uplink), `10.21.0.1` (eth-local) | the same two |
 
 Which path reaches tweed's sshd (checked 2026-09-29, after infra `main`
@@ -54,7 +54,7 @@ Which path reaches tweed's sshd (checked 2026-09-29, after infra `main`
 | the upstream router | `10.99.21.2` | the transit link |
 | Ansible, from anywhere with IPv6 | `gw.welland.fpgas.online`, IPv6 only | the inventory's `ansible_host`; the name's AAAA record is tweed, its A record is not |
 | outside, IPv6 | `2404:e80:a137:2100::1` | reaches tweed. `2404:e80:a137:9921::2` port 22 times out from outside, so use the address rather than the name, which also lists `9921::2` |
-| outside, IPv4 only | `-J <you>@ten64.welland.mithis.com`, then `10.99.21.2`, if you have an account on ten64 | the public A record is ten64, not tweed |
+| outside, IPv4 only | through the upstream router: `-J` to the site's public IPv4 address, `87.121.95.37`, then `10.99.21.2`, if you have an account on the router | the public A record is the upstream router, not tweed ([What a site needs from its upstream network](upstream-gateway.md)) |
 
 tweed's own firewall accepts SSH on every interface
 ([`roles/firewall`](../ansible/roles/firewall/templates/nftables.conf.j2)).
@@ -193,16 +193,16 @@ rewritten `/etc/shadow` makes every booted board refuse SSH until it reboots.
 
 | To | Command | Authenticates with |
 |---|---|---|
-| tweed, as yourself | inside the site, over wg or over IPv6: `ssh <you>@tweed.welland.mithis.com`; from ten64: `ssh <you>@10.99.21.2` | your GitHub key |
+| tweed, as yourself | inside the site, over wg or over IPv6: `ssh <you>@tweed.welland.mithis.com`; from the upstream router: `ssh <you>@10.99.21.2` | your GitHub key |
 | tweed, as the automation account | `ssh -6 -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes ansible@gw.welland.fpgas.online` | the automation key |
 | a board, through the jump account | `ssh -J pi@tweed.welland.mithis.com pi@10.21.2.29` | your key at both hops (see the note below) |
 | a board, hopping from the jump shell | `ssh pi@tweed.welland.mithis.com`, then `ssh pi@10.21.2.29` | the jump account's own key at the board |
-| a board, as the automation account (from ten64) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes -J <you>@10.99.21.2 ansible@10.21.S.P` | your own key at tweed, the automation key at the board |
+| a board, as the automation account (from the upstream router) | `ssh -i ~/.ssh/fpgas.online-ansible -o IdentitiesOnly=yes -J <you>@10.99.21.2 ansible@10.21.S.P` | your own key at tweed, the automation key at the board |
 | a board, as root | `ssh -J <you>@tweed.welland.mithis.com root@10.21.S.P` | your GitHub key at both hops |
 | a board, with the password | the board page's terminal on welland.fpgas.online, or `ssh pi@10.21.S.P` from tweed | `pi_pw` |
 
 Every `tweed.welland.mithis.com` in this table assumes you are inside the site
-or on the wg route. From ten64 use `10.99.21.2`, and from outside use
+or on the wg route. From the upstream router use `10.99.21.2`, and from outside use
 `2404:e80:a137:2100::1` (see [tweed](#tweed)).
 
 With `-J`, your own key must be trusted at both ends. The jump account trusts
@@ -264,7 +264,8 @@ down or returns nothing:
 
 Re-run once GitHub answers again.
 
-Converge from ten64. tweed's host_vars hold vaulted values, so give Ansible
+Converge from any controller that reaches `gw.welland.fpgas.online` over IPv6: it is the inventory's
+`ansible_host` ([tweed](#tweed)). tweed's host_vars hold vaulted values, so give Ansible
 the vault password as the README's Deploy section does
 (`ANSIBLE_VAULT_PASSWORD_FILE`, or `--vault-password-file`). Always the
 whole playbook, never a `--tags` subset (issue #157):
