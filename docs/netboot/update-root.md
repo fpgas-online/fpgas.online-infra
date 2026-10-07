@@ -84,8 +84,13 @@ next reboots or `nfsroot-watchdog release`. `nfsroot-watchdog status` on a board
 
 ```console
 $ uv run ansible-playbook ansible/verify-server.yml --limit fpgas.online
-$ # the Pis by address, as found in step 1 (the inventory lists none; the trailing comma matters),
-$ # reached through their gateway ([Deploying to a gateway](../gateway/deploy.md#4-check))
+```
+
+For `verify-pi.yml`, name the Pis by address, as found in step 1: the inventory lists none, and the trailing
+comma matters. They are reached through their gateway ([Deploying to a gateway](../gateway/deploy.md#4-check)
+says how):
+
+```console
 $ uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory -i 10.21.2.33,10.21.2.46, \
     -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online
 ```
