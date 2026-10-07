@@ -57,6 +57,16 @@ $ uv run ansible-playbook ansible/site.yml --limit fpgas.online --check --diff \
     -e img_nfsroot_image=ghcr.io/fpgas-online/nfsroot@sha256:<digest>
 ```
 
+The role's notify handler reloads (`state: reloaded`, `ExecReload=nft -f /etc/nftables.conf`), and that load is
+atomic: a parse error fails and the running ruleset stays up. It is the converge task `Enable nftables service` that
+restarts the unit (`roles/firewall/tasks/main.yml`, main, read 2026-10-07). SSH surviving tells you nothing: both
+templates accept it unconditionally on the input chain, and an empty ruleset accepts everything.
+
+> [!NOTE]
+> Open, in fpgas.online-infra: nothing yet stops a converge with a bad ruleset from flushing the old rules and
+> loading nothing (`state: started`, a validation step before the restart, or both). The cause is the `firewall`
+> role's `state: restarted` on `Enable nftables service` (still present on main, read 2026-10-07).
+
 ## 3. Deploy: the whole playbook
 
 A deploy runs the whole playbook, scoped only with `--limit` (which host) and `-e` (a pinned value); never
@@ -81,6 +91,12 @@ $ uv run ansible-playbook ansible/web.yml --limit fpgas.online
 gunicorn, daphne and uvicorn, so the new code is served. The host's `local_settings.py`, which holds the
 production settings, is created once and never overwritten.
 
+A new wheel means new code and templates that the running `gunicorn`, `daphne` and `uvicorn` keep serving the old
+versions of until they are restarted, so the install task notifies a `restart django services` handler that
+restarts all three. The way back is to pip an older `fpgas-online-site` reference into the Django venv by hand and
+restart the three; `local_settings.py` survives both directions (from the earlier docs page, not re-checked; its
+`--tags django` route is gone with the tags).
+
 ## 4. Check
 
 ```console
@@ -96,10 +112,26 @@ inventory lists none, and a run that selects no Pi, `--limit fpgas.online` for e
 route to the Pi network, `10.21.0.0/16`, which only the gateway has: `ansible/ssh.cfg` sets no jump, so run it
 where that network is routed, or add a `ProxyJump` through the gateway to your own SSH configuration.
 
+`verify-server.yml` has three plays, one per group. The `nbp` play runs each server role's own `verify/` tasks
+(`automation_user`, `operators`, `jump`, `sshd`, `lldp`, `firewall`, `nfs`, `img`, `fixpi`, `pxe`), then asserts the
+per-port state on hosts with `switches:` (a `v*` interface in `networkctl list`, `dnsmasq --test` clean, the
+`forward` chain at `policy drop`, `ports.conf` present) and finally that the NFS root really contains what the Pis
+need. The `uhubctl` play runs that role's verify tasks. The `pig` play verifies the web tier: `site`, then `ttsite`
+where `tt_boards` is defined, then `wssh` and `cam/stream-server` (from the earlier docs page, not re-checked).
+
+Three roles have no verify tasks at all: `netif`, `vlan_ports` and `switch_vlans` ship no `tasks/verify/` directory
+(checked on main, 2026-10-07). The per-port network is covered only by the inline assertions in the `nbp` play, and
+nothing checks the NIC naming or the switch converge directly.
+
 **A reinstalled host.** `ansible/ssh.cfg` gives the automation its own `known_hosts` with
 `StrictHostKeyChecking accept-new` (a new host is learned, a changed key is refused) and `IdentityAgent none`
 (a hung forwarded agent would otherwise stall every connection). After a deliberate reinstall, run
-`refresh-known-hosts.yml` before the next `site.yml`: it removes the old key, scans the new one and pins it.
+`refresh-known-hosts.yml` before the next `site.yml`: it removes the old key, scans the new one and pins it. The file is separate from the host-wide one the site's network tooling generates. The
+playbook re-scans with retries while the host finishes booting (plain `ssh-keyscan`, never `-H`, because hashed names
+break the `known_hosts` module). It runs with `become: false` on purpose: it manages the control node's own files,
+and a root-owned `known_hosts` stops the user's ssh appending anything later (rebuild record, P2-2 and P2-9). It
+keyscans from the control node, so hosts on the Pi network, reachable only by jumping through the gateway, cannot be
+rekeyed by it (from the earlier docs page, not re-checked).
 
 ## Testing without hardware
 
@@ -107,3 +139,16 @@ The whole gateway can be tested with no site at all. `tests/vm/` boots a Debian 
 `site.yml`, PXE-boots a virtual Raspberry Pi from it with the patched QEMU of
 [fpgas-online/rpi-qemu](https://github.com/fpgas-online/rpi-qemu), and runs both verify playbooks. CI runs it
 on every pull request and every push to `main` (`.github/workflows/vm-test.yml`).
+
+The patched QEMU adds BCM2838 GENET ethernet emulation to the `raspi4b` machine; only the inventory differs from
+production. A full run takes roughly two hours under TCG, less when `/dev/kvm` is available, and CI uploads the
+serial logs as an artifact whether it passed or failed (from the earlier docs page, not re-checked).
+
+> [!NOTE]
+> The 2026-04-04 QEMU testing design and plan
+> ([design](https://github.com/fpgas-online/fpgas.online-infra/blob/main/docs/superpowers/specs/2026-04-04-qemu-vm-testing-design.md),
+> [plan](https://github.com/fpgas-online/fpgas.online-infra/blob/main/docs/superpowers/plans/2026-04-04-qemu-vm-testing.md))
+> describe a different arrangement: a generic `qemu-system-aarch64 -machine virt` guest booting through EDK2 UEFI
+> firmware to `grubaa64.efi` and a TFTP `grub.cfg`, with the `pxe` role serving an architecture-tagged `dhcp-boot`
+> beside the real Pi path. That is not what runs. The harness emulates a real Pi and drives the real `bootcode.bin`
+> chain, so the test exercises the production boot path rather than a parallel one (from the earlier docs page, not re-checked).

@@ -32,6 +32,10 @@ switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html)).
 <a id="testing-without-hardware"></a>
 - [Testing without hardware](gateway/deploy.md#testing-without-hardware): the VM test.
 
+- [Services, one by one](gateway/services.md): what each role installs and which setting matters.
+
+- [Sources](gateway/sources.md): the files and records these pages come from.
+
 
 ## Hosts
 
@@ -43,6 +47,16 @@ Ansible names the gateways after their public names: inventory host `fpgas.onlin
 | `nbp` | `fpgas.online`, `ps1.fpgas.online` | the server plays and the NFS root update, `site.yml` |
 | `pig` | `fpgas.online`, `ps1.fpgas.online` | the web tier, `web.yml` (imported by `site.yml`) |
 | `uhubctl` | none | USB hub power control; its only member stopped resolving in 2026-08 and was retired on 2026-09-04 |
+
+The group membership is what Ansible acts on. The infra README's roles table still describes `uhubctl` as a server
+role (`README.md`, main, read 2026-10-07), and `CLAUDE.md` describes `site.yml` as running `nbp`/`uhubctl`/`pig`
+against "the server"; with the group empty, the `uhubctl` role never runs on any gateway.
+
+> [!NOTE]
+> Open, in fpgas.online-infra: the README's roles table calls `uhubctl` a server role though its inventory group is
+> empty, and the README still describes the NFS root as provisioned by `systemd-nspawn` and `qemu-user-static`
+> (README lines 14-32 and 144, read 2026-10-07) although CI builds it now. (The earlier docs page also named a `pi`
+> group in the README's host-groups table; it was not found there on 2026-10-07.)
 
 ## What runs on the gateway
 
