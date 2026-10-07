@@ -1,12 +1,14 @@
 # Design: apt caching proxy on the gateway (`apt-cache` role)
 
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+
 Date: 2026-09-08
 Status: implemented 2026-09-13 (`roles/apt-cache`). Plan:
 `docs/superpowers/plans/2026-09-13-tweed-apt-cache.md`. Its "Findings that
 refine the spec" table records where the implementation departs from this
 document, and why: role placement after `img`, an empty `BindAddress`, the
 `apt.fpgas.online` backend, the added `rp1jtag` and Debian coverage, the
-plain-http fallback, and the https limitation of chaining to ten64.
+plain-http fallback, and the https limitation of chaining to the upstream router.
 
 ## Problem
 
@@ -23,17 +25,17 @@ Two consequences:
 2. **No local resilience.** The fleet cannot install or upgrade anything when
    the uplink is down or slow.
 
-The estate does have a proven apt-cacher-ng role, but it lives on **ten64**
+The estate does have a proven apt-cacher-ng role, but it lives on **the upstream router**
 (`welland-ansible-rpi/roles/apt_proxy`), which is a different repo and a
-different host. Depending on it would couple fpgas.online to ten64.
+different host. Depending on it would couple fpgas.online to the upstream router.
 
 **Requirement (Tim, 2026-09-08):** tweed runs its own cache; it must *support*
-forwarding upstream to ten64's proxy but must **not need it by default**. **All
+forwarding upstream to the upstream router's proxy but must **not need it by default**. **All
 apt repos are cached, no exceptions.** The cache is set up properly, with TLS.
 
 ## Non-goals
 
-- Changing ten64's `apt_proxy` role or its SNI front-end.
+- Changing the upstream router's `apt_proxy` role or its SNI front-end.
 - Caching anything that is not an apt repository.
 - Replacing the fpgas.online apt *publishing* pipeline (`fpgas-online/apt`);
   this caches that repo, it does not publish it.
@@ -60,19 +62,19 @@ one needs an explicit remap and clients must be pointed at the proxy **by URL**:
 https://apt.welland.fpgas.online/<remap>/ <suite> <components>
 ```
 
-This is the same conclusion ten64's role reached, so the two stay consistent.
+This is the same conclusion the upstream router's role reached, so the two stay consistent.
 
 ## Repos and remaps
 
 | Client | Upstream | Remap | Source |
 |---|---|---|---|
-| Pi NFS root | `http://raspbian.raspberrypi.com/raspbian/` | `Remap-raspbian` | ported from ten64 |
-| Pi NFS root | `http://archive.raspberrypi.com/debian/` | `Remap-raspberrypi` | ported from ten64 |
+| Pi NFS root | `http://raspbian.raspberrypi.com/raspbian/` | `Remap-raspbian` | ported from the upstream router |
+| Pi NFS root | `http://archive.raspberrypi.com/debian/` | `Remap-raspberrypi` | ported from the upstream router |
 | Pi NFS root | `https://fpgas.online/apt` | `Remap-fpgasonline` | **new** |
 | Gateway | `http://deb.debian.org/debian` | stock `Remap-debrep` | acng.conf |
 | Gateway | `http://security.debian.org/debian-security` | stock security remap | acng.conf |
 
-The raspbian remap keeps ten64's multi-host backend list
+The raspbian remap keeps the upstream router's multi-host backend list
 (`archive.raspbian.org`, `raspbian.raspberrypi.com`, `mirrordirector.raspbian.org`)
 so a client pointed at any of those mirrors hits one cache directory.
 
@@ -90,7 +92,7 @@ resume, gets a `200`, and serves clients:
 
 for that path until the stale file **and its `.head`** are removed from
 `/var/cache/apt-cacher-ng/fpgasonline/`. This is a known, documented failure at
-ten64. Mitigation here: document it in the role README, and have verify perform a
+the upstream router. Mitigation here: document it in the role README, and have verify perform a
 real fetch through the remap so the condition is caught by
 `verify-server.yml` rather than by a broken converge.
 
@@ -118,9 +120,9 @@ the cache exists before the chroot's apt runs.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `apt_cache_host` | `apt.{{ domain_name }}` | Public name; own LE lineage. `domain_name` is `welland.fpgas.online` on tweed (`host_vars/fpgas.online.yml:133`), so this yields `apt.welland.fpgas.online`. This repo has no `site` variable — that is ten64's convention. |
+| `apt_cache_host` | `apt.{{ domain_name }}` | Public name; own LE lineage. `domain_name` is `welland.fpgas.online` on tweed (`host_vars/fpgas.online.yml:133`), so this yields `apt.welland.fpgas.online`. This repo has no `site` variable — that is the upstream router's convention. |
 | `apt_cache_bind_addresses` | `{{ pib_network }}.0.1 127.0.0.1` | acng `BindAddress`. |
-| `apt_cache_upstream_proxy` | `""` | Empty ⇒ direct. Set to `http://10.99.21.1:3142` to chain to ten64. Rendered as acng's `Proxy:` line **only when non-empty**. |
+| `apt_cache_upstream_proxy` | `""` | Empty ⇒ direct. Set to `http://10.99.21.1:3142` to chain to the upstream router. Rendered as acng's `Proxy:` line **only when non-empty**. |
 | `apt_cache_dir` | `/var/cache/apt-cacher-ng` | tweed has 198 GB free. |
 | `apt_cache_enabled` | `true` | Escape hatch to disable per host. |
 
@@ -155,7 +157,7 @@ Follows `roles/site/tasks/certbot.yml` exactly:
   tweed's port 80 for the ACME challenge.
 - **Pool** — a dnsmasq `host-record` resolving the same name to
   `{{ pib_network }}.0.1`, so Pis reach the cache directly on the gateway
-  instead of hairpinning out through ten64 and back.
+  instead of hairpinning out through the upstream router and back.
 
 ## Testing
 
@@ -199,7 +201,7 @@ Follows `roles/site/tasks/certbot.yml` exactly:
 
 ## References
 
-- ten64's role: `tweed-split-design/data/welland-ansible-rpi/roles/apt_proxy/`
+- the upstream router's role: `tweed-split-design/data/welland-ansible-rpi/roles/apt_proxy/`
   (README documents the remap requirement and the Range hazard).
 - `roles/site/tasks/certbot.yml` — the certbot pattern and its history.
 - `roles/cam/pi/tasks/main.yml:2-8` — the `apt upgrade` this caches.
