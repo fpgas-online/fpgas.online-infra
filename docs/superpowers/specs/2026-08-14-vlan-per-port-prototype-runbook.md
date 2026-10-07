@@ -1,5 +1,7 @@
 # VLAN-per-port network: hardware prototype runbook
 
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+
 > **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
 
 Site: welland (tweed.welland.mithis.com + s3300 + s2/GSM7252PS).
@@ -41,7 +43,7 @@ from this file:
 | s3300 (switch 1) | `<switch-1-write-community>` → `vault_switch1_snmp_rw_community` |
 | s2 / GSM7252PS (switch 2) | `<switch-2-write-community>` → `vault_switch2_snmp_rw_community` |
 
-Look up the real values out-of-band on ten64 (never paste them into this
+Look up the real values out-of-band on the upstream router (never paste them into this
 repo, a commit message, or a shell history file that gets committed):
 
 ```bash
@@ -122,7 +124,7 @@ uv run scripts/vlan_capacity_probe.py --host 10.1.5.23 --model gsm7252ps \
 ```
 
 (Same out-of-band lookup as Stage 0 — `gdoc2netcfg password --type snmp
-sw-netgear-s3300-1` / `sw-netgear-gsm7252ps-s2` on ten64. Type the real
+sw-netgear-s3300-1` / `sw-netgear-gsm7252ps-s2` on the upstream router. Type the real
 value directly into the command when you run it; don't paste it anywhere
 that gets saved to this repo.)
 
@@ -156,7 +158,7 @@ want to preview before Stage 4 touches the real host):
 Set these interactively in your shell (never write the real values into a
 file in this repo, a commit, or a script) — look them up the same way as
 Stage 0, `gdoc2netcfg password --type snmp sw-netgear-s3300-1` /
-`sw-netgear-gsm7252ps-s2` on ten64:
+`sw-netgear-gsm7252ps-s2` on the upstream router:
 
 ```bash
 export FPGAS_SWITCH_COMMUNITY_1='<switch-1-write-community>'  # s3300, do not commit

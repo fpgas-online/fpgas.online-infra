@@ -1,5 +1,7 @@
 # Orange Pi H3 netboot on the fpgas.online Welland rack — spike results and design
 
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+
 > **Note (2026-09-30):** the Ansible tag commands and tag names in this dated record predate issue #157 and no longer apply: the tags are gone, and deploys and verification run whole playbooks, scoped only with `--limit` and `-e`.
 
 Status: **spike complete, design awaiting Tim's approval** (2026-08-28).
@@ -89,7 +91,7 @@ console), and the gdoc2netcfg sheet (already updated: `welland-ansible-rpi` bran
 
 ## 4. How the spike was run (reproducible)
 
-Scripts kept in `~/github/fpgas-online/tmp/opi-investigation/` on ten64: `poe_map.py`
+Scripts kept in `~/github/fpgas-online/tmp/opi-investigation/` on the upstream router: `poe_map.py`
 (PoE off/on vs. USB tree), `opi.py` (`fel <usb-path>` FEL-boots a board through tweed →
 pi-sw2-p30), `tweed_spike_setup.py` / `tweed_spike_teardown.py` (nfsroot copy + armmp kernel,
 TFTP files, export line — all removed again), `boot_test.py`. Everything on tweed was restored;
