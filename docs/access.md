@@ -1,10 +1,10 @@
-# Accounts and logins (Welland)
+# Accounts and logins at welland
 
 <a id="accounts-and-logins"></a>
 
 **You look after access to the welland gateway and fleet: who can log in, how, and how to change it.** Each task has its own page, listed under [The tasks](#the-tasks).
 
-Who can log in to the Welland gateway (tweed, inventory host `fpgas.online`)
+Who can log in to the welland gateway (tweed, inventory host `fpgas.online`)
 and to the netbooted Pi fleet, with what, and which role and variable decide
 it. Everything on these pages is what `main` configures. It was deployed to tweed
 (`main` 4de0b24) and checked live on 2026-09-29:
@@ -41,7 +41,7 @@ through tweed.
 <a id="the-gateway-tweed"></a>
 <a id="tweed"></a>
 <a id="sshd"></a>
-- [tweed](access/tweed.md): its accounts, keys, the jump account and sshd.
+- [The gateway, tweed](access/tweed.md): its accounts, keys, the jump account and sshd.
 
 <a id="the-pis"></a>
 <a id="the-pi-nfs-root"></a>

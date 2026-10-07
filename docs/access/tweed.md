@@ -1,4 +1,4 @@
-# tweed
+# The gateway, tweed
 
 **You operate the welland gateway and want to know who can log in to tweed, as which account, with which key, and how its sshd is set.** Logging in: [Logging in](logging-in.md).
 
@@ -73,8 +73,9 @@ PermitRootLogin prohibit-password
 It sorts first, so it wins over `50-jump.conf` and the main file. Before it
 writes the file, a **lockout guard** checks that the account Ansible is
 connected as, every operator and the jump account (`sshd_pubkey_only_key_users`)
-each have at least one key that `ssh-keygen -l` can parse. If any does not,
-the converge fails. The connecting account is found with `id -un` with become
+each have at least one key that `ssh-keygen -l` can parse. It does not check
+`admin` or `root`. If any account it checks has no such key, the converge
+fails. The connecting account is found with `id -un` with become
 switched off through the `ansible_become` variable, because tweed's host_vars
 set `ansible_become: true`. It is then asserted to equal `ansible_user` (#162;
 before that fix the probe ran as root and the guard checked root's keys). After
