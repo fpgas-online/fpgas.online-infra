@@ -69,7 +69,7 @@ Notes on the table:
   PS1 defines neither, so PS1 does not run WebRTC.
 - The gateway forwards the per-board ports to the boards (built, in its firewall). Whether a site's
   upstream forwards them on to the gateway is the upstream's part; at Welland it did not when last
-  checked, on 2026-09-06 (the earlier version of this page; not re-checked), so per-board ssh from outside
+  checked, on 2026-09-06 (an earlier note in fpgas.online-docs; not re-checked since), so per-board ssh from outside
   over IPv4 may not work there. Note that the
   per-board port scheme differs between sites: Welland uses `<s><pp>22`
   and `<s><pp>44` with the forward policy set to drop, and PS1's legacy
