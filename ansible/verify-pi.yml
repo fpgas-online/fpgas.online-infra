@@ -302,7 +302,6 @@
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
-              "eth0": exists("/sys/class/net/eth0"),
               # Every I2C bus the kernel has, and the /dev/i2c-N nodes i2c-dev made for them.
               "i2c_buses": sorted(os.listdir("/sys/class/i2c-adapter")) if os.path.isdir("/sys/class/i2c-adapter") else [],
               "i2c_dev_nodes": sorted(n for n in os.listdir("/dev") if n.startswith("i2c-")),
@@ -395,7 +394,6 @@
         verify_pi_usb_console: "{{ verify_pi_state.usb_console }}"
         verify_pi_fleet_files: "{{ verify_pi_state.fleet_files }}"
         verify_pi_identity: "{{ verify_pi_state.identity }}"
-        verify_pi_eth0: "{{ verify_pi_state.eth0 }}"
         verify_pi_i2c_buses: "{{ verify_pi_state.i2c_buses }}"
         verify_pi_i2c_dev_nodes: "{{ verify_pi_state.i2c_dev_nodes }}"
         verify_pi_ip6_default: "{{ verify_pi_state.ip6_default }}"
@@ -437,12 +435,14 @@
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
 
-    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service gives eth0
-    # the port's address, <pib_network6_base><switch, two digits>::<port>, and a
+    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service gives the
+    # board's interface (whatever its name) the port's address, <pib_network6_base><switch, two digits>::<port>, and a
     # default route via the gateway's <...>::ffff, from the host name. The
     # address is computed here from the inventory, independently of the Pi's
-    # copy of the formula. Where the site defines no IPv6 prefix, or the board
-    # has no eth0, there is nothing to check.
+    # copy of the formula. Where the site defines no IPv6 prefix there is
+    # nothing to check; every per-port Pi is checked, whatever its interface is
+    # called (7 of 20 live welland Pis had no eth0 on 2026-10-08, and were
+    # skipped while this was gated on it).
     - name: Derive the expected per-port IPv6 address from hostname
       ansible.builtin.set_fact:
         verify_pi_expected_ip6: >-
@@ -452,7 +452,6 @@
         verify_pi_sw_port: "{{ ansible_hostname | regex_search('^pi-sw(\\d+)-p(\\d+)$', '\\1', '\\2') }}"
       when:
         - hostvars[verify_pi_server].pib_network6_base is defined
-        - verify_pi_eth0.stat.exists
         - ansible_hostname is match('^pi-sw[0-9]+-p[0-9]+$')
 
     - name: Assert the per-port IPv6 address and an IPv6 default route

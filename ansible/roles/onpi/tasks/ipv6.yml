@@ -1,5 +1,5 @@
 ---
-# IPv6 on the Pi's eth0: the port's address and a default route via the
+# IPv6 on the Pi's network interface: the port's address and a default route via the
 # gateway, set statically from the host name (Tim's answer welland-1,
 # 2026-10-07). The script says why it is static. The site's base prefix is
 # written by fixpi (fixpi/tasks/ipv6-site.yml); without it the unit does not run.
