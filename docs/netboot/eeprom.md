@@ -1,6 +1,6 @@
 # The EEPROM lock: what Raspberry Pi says, and how to check it
 
-**You operate the fleet and want the wording of Raspberry Pi's `eeprom_write_protect` documentation, and how the lock is checked in CI and on a board.** What the lock is and why the fleet sets it is on [Netboot and the NFS root](../netboot.md#eeprom-write-protect); upgrading a locked board is on the [bootloader EEPROM pages](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html).
+**You operate the fleet and want the wording of Raspberry Pi's `eeprom_write_protect` documentation, and how the lock is checked in CI and on a board.** What the lock is and why the fleet sets it is on [Netboot and the NFS root](../netboot.md#eeprom-write-protect); upgrading a locked board is on the [bootloader EEPROM pages](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html), except a Pi 4, which is [below](#upgrading-a-locked-pi-4).
 
 ## What Raspberry Pi says
 

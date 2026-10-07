@@ -51,7 +51,8 @@ Ansible names the gateways after their public names: inventory host `fpgas.onlin
 
 <a id="the-old-onpi-group"></a>
 The inventory used to have an `onpi` group: a host `pi`, reached as the `piroot` account on the gateway, whose
-login shell `chroot`ed into the NFS root to provision it. It is gone (`ansible/inventory/hosts`, comment). The
+login shell `chroot`ed into the NFS root to provision it (`ansible/inventory/hosts` before commit 7765f67). It
+was removed on 2026-09-03 by that commit (`ansible/inventory/hosts`, comment, read 2026-10-07). The
 `operators` role deletes what was left on a gateway: the account's sudoers file (a passwordless `sudo chroot`,
 that is, root), its login shell `/usr/local/bin/chroot-shell` and the account itself
 (`roles/operators/defaults/main.yml`, `operators_retired_accounts` and `operators_retired_files`; read
