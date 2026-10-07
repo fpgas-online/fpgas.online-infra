@@ -67,23 +67,22 @@ Notes on the table:
   only on a host that defines `webrtc_media_port`, and the web tier runs
   the WebRTC role only on a host that defines `webrtc_additional_hosts`.
   PS1 defines neither, so PS1 does not run WebRTC.
-- The gateway forwards the per-board ports to the boards. At Welland the
-  upstream did not forward them when last checked (2026-09-06), so
-  per-board ssh from outside over IPv4 does not work there. Note that the
+- The gateway forwards the per-board ports to the boards (built, in its firewall). Whether a site's
+  upstream forwards them on to the gateway is the upstream's part; at Welland it did not when last
+  checked, on 2026-09-06 (the earlier version of this page; not re-checked), so per-board ssh from outside
+  over IPv4 may not work there. Note that the
   per-board port scheme differs between sites: Welland uses `<s><pp>22`
   and `<s><pp>44` with the forward policy set to drop, and PS1's legacy
   scheme uses `<100+N>22` and `<100+N>44`.
-- The tcp 22 and 2222 to 2224 rows are decision D1 of the ssh proxy
-  design, decided 2026-10-04 for Welland, which is behind an upstream
+- The tcp 22 and 2222 to 2224 rows are from the ssh proxy design
+  ([`docs/superpowers/specs/2026-10-03-ssh-username-proxy-design.md`](superpowers/specs/2026-10-03-ssh-username-proxy-design.md),
+  which recommends them; the design is on hold) for Welland, which is behind an upstream
   router. The tcp 22 and 2222 rows end on the upstream gateway and do not
   reach the site gateway directly. A site whose gateway is directly on a
   public address has no upstream proxy; how its port 22 is shared between
   sshd and the ssh proxy is not decided.
-- Today's state, as of 2026-10-04: at Welland none of this is built. Public
-  IPv4 port 22 is answered by the upstream router's own sshd, so a client
-  there sees that router's host key. Operators reach the site gateway's
-  sshd over IPv6, and deploys will too once the open inventory change in
-  fpgas.online-infra merges.
+- At Welland none of those four rows is built (the design is on hold). Operators and deploys reach the
+  site gateway's sshd over IPv6 (`ansible_host: gw.welland.fpgas.online` in `host_vars/fpgas.online.yml`).
 - If the upstream is an HTTP reverse proxy for port 80 rather than a plain
   port forward, it must pass the `Host` header on: the gateway's virtual
   hosts are selected by it.
@@ -106,11 +105,11 @@ the same reason (`webrtc_additional_hosts`).
 
 | Requirement | State | Notes |
 |---|---|---|
-| A global IPv6 address for the gateway's uplink | built | IPv6 clients reach the web site and the WebRTC media port on it directly, with no forwarding. |
-| The upstream lets tcp 80, 443 and 22, and tcp and udp `webrtc_media_port`, reach the gateway's own global IPv6 address | built | Relied on today: the web site, the camera media, and ssh for operators and deploys. The draft IPv6 design recorded Welland's upstream admitting only tcp 22 to the gateway over IPv6 on 2026-09-06. That has to be re-checked. |
+| A global IPv6 address for the gateway's uplink | built at Welland | IPv6 clients reach the web site and the WebRTC media port on it directly, with no forwarding. ps1's gateway had no global IPv6 address on 6 October 2026 (its read), so none of the IPv6 rows holds there. |
+| The upstream lets tcp 80, 443 and 22, and tcp and udp `webrtc_media_port`, reach the gateway's own global IPv6 address | built | Relied on today: the web site, the camera media, and ssh for operators and deploys. Which of these Welland's upstream admits has not been re-checked since 2026-09-06, when only tcp 22 was recorded (an unmerged IPv6 design draft). |
 | A prefix routed to the gateway's uplink address, large enough for one /64 per fleet switch (a /56 at Welland) | built | Each board gets one address inside its switch's /64. The gateway is the router for the prefix; the upstream only needs a route to it. The prefix is routed by a static route to the gateway's static IPv6 uplink address, and must not change. The inventory runs no prefix-delegation client. |
-| The upstream does not filter the board prefix, or filters it to the same ports the gateway allows | designed (draft) | The gateway's forward chain decides what reaches a board. An upstream filter in front of it must allow at least ICMPv6, and tcp 22, 80 and 443 to the prefix, or direct IPv6 access to boards cannot work. Both filters have to agree, and both have to be checked. |
-| Reverse DNS for the prefix routed to the gateway | designed (draft) | Needed for per-board names to have matching reverse records. |
+| The upstream does not filter the board prefix, or filters it to the same ports the gateway allows | designed (an unmerged draft) | The gateway's forward chain decides what reaches a board. An upstream filter in front of it must allow at least ICMPv6, and tcp 22, 80 and 443 to the prefix, or direct IPv6 access to boards cannot work. Both filters have to agree, and both have to be checked. |
+| Reverse DNS for the prefix routed to the gateway | designed (an unmerged draft) | Needed for per-board names to have matching reverse records. |
 
 ## DNS
 
@@ -135,7 +134,7 @@ The hosts below are examples of what it fetches, and why.
 | `raw.githubusercontent.com` | One service unit file fetched while preparing the fleet root |
 | A Python package index | The site's `pip` installs |
 | Let's Encrypt | Certificates |
-| NTP servers, outbound udp 123 (the gateway runs chrony with Debian's default pool; no site setting names a time server) | Its clock, which the fleet takes from it |
+| NTP servers, outbound udp 123 (the gateway runs chrony; `roles/pxe` adds only the Pi network's access to it) | Its clock, which the fleet takes from it |
 
 An upstream package cache is **not** required. A site may point the gateway
 at one (`apt_client_proxy`), as an optimisation only.
