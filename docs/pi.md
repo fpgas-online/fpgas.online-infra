@@ -95,8 +95,7 @@ of 6 October 2026 is on [The welland gateway](https://docs.fpgas.online/en/lates
 
 `vim-tiny` is removed first: `dpkg-divert` refuses to rename its help file over the full `vim`'s. The
 role's comment quotes the error from an earlier root, naming `/usr/share/vim/vim82/doc/help.txt.vim-tiny`
-(`ansible/roles/onpi/tasks/apt.yml`); the bookworm root's vim is a later version, and the path there was not
-re-checked.
+(`ansible/roles/onpi/tasks/apt.yml`); the path on the current root was not re-checked.
 `mpremote` and `uv` are installed with `pipx` into `/opt/pipx`, with their commands in `/usr/local/bin`: the
 tasks pin `PIPX_HOME` and `PIPX_BIN_DIR`, because a bare `pipx install` puts the environments wherever the
 calling environment points and the commands on no user's `PATH`, and an earlier root built on the gateway and
