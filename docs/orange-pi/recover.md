@@ -52,7 +52,6 @@ the first byte. The capture-from-enumeration design exists because the cmdline
 carries `systemd.log_level=debug`, under which the 1 MB ring buffer wraps within
 minutes and a late reader cannot recover the early boot.
 
-<a id="no-usb-host-attached-does-not-block-or-delay-the-boot"></a>
 ### No USB host attached does not block or delay the boot
 
 Tested 2026-08-29 on pi-sw2-p20 by disabling its hub port in sysfs

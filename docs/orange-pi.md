@@ -16,6 +16,7 @@ Orange Pis carry no FPGA.
 - [Recovering a board](orange-pi/recover.md#recover-a-board).
 
 <a id="known-issues"></a>
+<a id="no-usb-host-attached-does-not-block-or-delay-the-boot"></a>
 - [Known issues](orange-pi/recover.md#known-issues).
 
 <a id="adding-a-board"></a>
@@ -24,8 +25,10 @@ Orange Pis carry no FPGA.
 <a id="deploying-and-reconverging"></a>
 - [Deploying](orange-pi/add.md#deploying).
 
+<a id="udev-symlinks-on-the-hub-host"></a>
 - [The hub host](orange-pi/hub-host.md): how it boots, what was configured on it by hand, its device links.
 
+<a id="design"></a>
 - [How they boot](#how-it-works), below, and [why they boot that way](orange-pi/design.md): the shared root,
   the FEL mechanism, the vendored U-Boot.
 

@@ -30,8 +30,10 @@ switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html) has what was
 - [EEPROM write protect](#eeprom-write-protect), below: the lock the served `config.txt` sets. [Raspberry Pi's
   wording and the checks](netboot/eeprom.md).
 
+<a id="historical-tooling"></a>
 - [Historical tooling](netboot/history.md): the repositories that came before the roles.
 
+<a id="sources"></a>
 - [Sources](netboot/sources.md): the files and records these pages come from.
 
 

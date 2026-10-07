@@ -7,7 +7,6 @@ hosts](../orange-pi.md#how-it-works). From the spec of 2026-08-28
 and the earlier docs page; the numbers are the spike's. The FEL and U-Boot sections were checked against
 fpgas.online-setup-pi main on 2026-10-07.
 
-<a id="design"></a>
 ## A shared root plus a second kernel
 
 The 2026-08-28 spike chose a **shared NFS root plus a second kernel** over a

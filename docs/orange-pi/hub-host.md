@@ -40,7 +40,6 @@ Check the host's packages with a plain `dpkg -l fpgas-online-setup-pi sunxi-tool
 the `chroot` check in [Deploying](add.md#deploying) looks at the shared NFS root, which the boards run, not at
 this host.
 
-<a id="udev-symlinks-on-the-hub-host"></a>
 ## udev symlinks on the hub host
 
 Recorded 2026-08-28. `/etc/udev/rules.d/70-fpgas-opi-ports.rules` on the hub
