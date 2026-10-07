@@ -19,6 +19,7 @@
 - {name: Enable the fleet agent units, ansible.builtin.include_tasks: fleet.yml}
 - {name: Configure the Pi tftpd, ansible.builtin.include_tasks: tftpd.yml}
 - {name: Give the board's interface its IPv6 address and route, ansible.builtin.include_tasks: ipv6.yml}
+- {name: Give every I2C bus its /dev node, ansible.builtin.include_tasks: i2c.yml}
 # No ssh keys here: the site owns the root's authorized_keys (fixpi
 # authorized_keys.yml), and the image ships none.
 - {name: "Create the pi user's upload and download directories", ansible.builtin.include_tasks: tweeks.yml}
