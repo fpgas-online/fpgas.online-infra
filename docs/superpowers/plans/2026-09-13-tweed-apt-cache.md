@@ -1,5 +1,7 @@
 # Gateway apt cache (`apt-cache` role) Implementation Plan
 
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** tweed runs its own apt-cacher-ng, served as `https://apt.welland.fpgas.online`, and every apt source of the Pi NFS root goes through it.
@@ -26,12 +28,12 @@
 | Spec said | Reality | Plan |
 |---|---|---|
 | Role in `nbp` play | nginx is installed by `site` in the later `pig` play; fixpi runs chroot `apt` in the `nbp` play | Role goes after `img`, before `fixpi`, and installs nginx itself |
-| `BindAddress: {{ pib_network }}.0.1 127.0.0.1` | ps1's `pib_network` is `10.21.0` (tweed's `10.21`); ten64's acng with an explicit BindAddress listens on 127.0.0.1 only | `apt_cache_bind_addresses: ""` (acng listens on all addresses); the nftables input chain already drops new connections to 3142 from the uplink |
+| `BindAddress: {{ pib_network }}.0.1 127.0.0.1` | ps1's `pib_network` is `10.21.0` (tweed's `10.21`); the upstream router's acng with an explicit BindAddress listens on 127.0.0.1 only | `apt_cache_bind_addresses: ""` (acng listens on all addresses); the nftables input chain already drops new connections to 3142 from the uplink |
 | `templates/acng.conf.j2` | Stock acng.conf already carries `Remap-debrep`/`Remap-secdeb`; `zzz_override.conf` is read last | Leave acng.conf stock; template `zzz_override.conf` only |
 | `Remap-fpgasonline` → `https://fpgas.online/apt` | That URL 301s to `https://apt.fpgas.online/` | Backend is `https://apt.fpgas.online/` |
 | Repos: raspbian, raspberrypi, fpgas | Live NFS root also has `debian-armmp.sources` (deb.debian.org) and a hand-applied `rp1-jtag.list` (draft PR #48) | Debian goes via stock `/debian`; add `Remap-rp1jtag` |
 | Key fetch through the cache | acng 403s `raspbian.public.key` but passes `*.gpg` (404 upstream, not 403) | `pubkey.gpg` fetch goes through the cache |
-| Chain to ten64 | ten64 acng answers CONNECT with 403 | Chaining works for http upstreams only; documented in README |
+| Chain to the upstream router | the upstream router's acng answers CONNECT with 403 | Chaining works for http upstreams only; documented in README |
 | `sources.list` rewritten "by the role" | `img` re-extracts the stock image on a fresh install | Rendered by the role, which runs after `img` |
 
 Client URL rule (`apt_cache_url`):
