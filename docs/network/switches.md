@@ -2,7 +2,9 @@
 
 **You want welland's two switches to carry the VLANs the inventory says (after adding a switch, changing a
 port range, or replacing a switch), and to know the converge did what it should.** ps1 has no per-port
-VLANs and nothing on this page applies to it.
+VLANs and nothing on this page applies to it: its switch, a Netgear FS728TPv2, is a Plus-series unit
+that the per-port design put out of scope ([`docs/superpowers/specs/2026-08-14-vlan-per-port-network-design.md`](../superpowers/specs/2026-08-14-vlan-per-port-network-design.md),
+lines 6 and 25).
 
 ## What the converge does
 
