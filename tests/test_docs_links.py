@@ -93,6 +93,15 @@ OLD_IDS = {
         "the-gateway-tweed",
         "the-pis",
         "where-the-keys-come-from-and-when-github-is-down",
+        # This page's own sections before its split into docs/access/ (2026-10-07).
+        "adding-or-removing-a-person",
+        "at-a-glance",
+        "sshd",
+        "the-pi-nfs-root",
+        "tweed",
+        "verifying",
+        "where-the-keys-come-from",
+        "who-owns-authorized_keys-and-why-a-key-change-reboots-the-fleet",
     ],
     "upstream-gateway.md": [
         "checking-a-site-against-this-page",
