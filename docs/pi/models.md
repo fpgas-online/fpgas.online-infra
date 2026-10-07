@@ -55,7 +55,8 @@ The mask lives in the tmpfs layer, so it is gone at the next reboot. A kernel co
 moved without a reboot; on ps1's blades that is the change [Acorns at
 ps1](https://docs.fpgas.online/en/latest/boards/acorn/installations/ps1.html) asks for.
 
-> **Warning:** A design that transmits on the UART while the kernel console is on it does more than print noise: on a
+> [!WARNING]
+> A design that transmits on the UART while the kernel console is on it does more than print noise: on a
 > Compute Blade at ps1 it produced bytes the kernel read as SysRq commands, ending in a reboot ([the kernel
 > console on the FPGA UART](https://docs.fpgas.online/en/latest/boards/acorn/wiring/rpi-5-host.html#kernel-console-on-the-fpga-uart)). welland's
 > root sets `kernel.sysrq = 0` as well as keeping the console off that UART.
