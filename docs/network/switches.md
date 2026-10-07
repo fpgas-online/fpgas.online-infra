@@ -25,6 +25,15 @@ port's VLAN, and takes the access ports out of VLAN 1. Two rules bound what it c
 (`ansible/inventory/host_vars/fpgas.online.yml` in fpgas.online-infra, main, read 2026-10-07; cabling
 confirmed from the switches' own LLDP on 2026-08-22.)
 
+Both are 52-port units. Both are managed over the house network's VLAN 5, a separate path from the fpgas trunk:
+nothing management-related rides the trunk, and the provisioning tool never touches the house-facing port. Which
+board is on which port is on the [Welland page](https://docs.fpgas.online/en/latest/sites/welland.html).
+
+The trunk ports differ from the design spec of 2026-08-14, which reserves ports 49-52 for trunks and sketches
+`gateway_trunk_port: 49`. The real cabling, confirmed from the switches' own LLDP on 2026-08-22, is tweed's `eth-local`
+into GSM 1/0/47 and GSM 1/0/50 into S3300 1/xg51. The spec's `access_ports: 48` on both switches is also not what
+shipped: switch 1 carries 40 access ports, switch 2 carries 48 (`host_vars/fpgas.online.yml`, main, read 2026-10-07).
+
 ## The normal way: the whole playbook
 
 The `switch_vlans` role of fpgas.online-infra installs the tool into `/opt/fpgas-switch/venv`, renders
