@@ -1,0 +1,21 @@
+---
+# IPv6 on the Pi's eth0: the port's address and a default route via the
+# gateway, set statically from the host name (Tim's answer welland-1,
+# 2026-10-07). The script says why it is static. The site's base prefix is
+# written by fixpi (fixpi/tasks/ipv6-site.yml); without it the unit does not run.
+- name: Install the IPv6 script
+  ansible.builtin.copy:
+    src: usr/local/sbin/fpgas-ipv6
+    dest: /usr/local/sbin/fpgas-ipv6
+    mode: "0755"
+
+- name: Install the IPv6 unit
+  ansible.builtin.copy:
+    src: etc/systemd/system/fpgas-ipv6.service
+    dest: /etc/systemd/system/fpgas-ipv6.service
+    mode: "0644"
+
+- name: Enable the IPv6 unit
+  ansible.builtin.systemd:
+    name: fpgas-ipv6.service
+    enabled: true

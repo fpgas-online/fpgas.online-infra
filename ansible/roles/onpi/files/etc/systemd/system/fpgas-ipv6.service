@@ -1,0 +1,16 @@
+# IPv6 for the netbooted Pi's eth0, from the host name: see
+# /usr/local/sbin/fpgas-ipv6 for the formula and why it is static.
+[Unit]
+Description=IPv6 address and default route for eth0, from the host name
+ConditionPathExists=/sys/class/net/eth0
+ConditionPathExists=/etc/fpgas-online/ipv6-base
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/fpgas-ipv6
+
+[Install]
+WantedBy=multi-user.target

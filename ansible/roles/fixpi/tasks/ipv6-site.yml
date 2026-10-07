@@ -1,0 +1,23 @@
+---
+# The site's IPv6 base prefix for the Pis' fpgas-ipv6.service (onpi/tasks/ipv6.yml):
+# the one source is pib_network6_base. Without it (a site with no per-port
+# IPv6) the file is absent and the unit does not run.
+- name: Create /etc/fpgas-online in the NFS root
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/etc/fpgas-online"
+    state: directory
+    mode: "0755"
+  when: pib_network6_base is defined
+
+- name: Write the site's IPv6 base prefix into the NFS root
+  ansible.builtin.copy:
+    content: "{{ pib_network6_base }}\n"
+    dest: "{{ nfs_root }}/root/etc/fpgas-online/ipv6-base"
+    mode: "0644"
+  when: pib_network6_base is defined
+
+- name: Remove the IPv6 base prefix where the site has none
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/etc/fpgas-online/ipv6-base"
+    state: absent
+  when: pib_network6_base is not defined
