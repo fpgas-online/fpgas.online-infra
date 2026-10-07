@@ -4,7 +4,13 @@
 
 ## Boot and storage
 
-- **dnsmasq** (`pxe`, `dnsmasq.service`) provides DHCP, TFTP and DNS on the Pi network. It runs `no-resolv` with an explicit upstream, so it is the network's resolver (from the earlier docs page, not re-checked). It binds with `bind-dynamic` rather than `bind-interfaces`, so it survives the per-port VLAN interfaces that mostly have no carrier (welland's gateway had 88 on 6 October 2026, [Netboot and the NFS root](../netboot.md#the-boot-chain)), and its lease database is pinned to an absolute path.
+- **dnsmasq** (`pxe`, `dnsmasq.service`) provides DHCP, TFTP and DNS on the Pi network. It runs `no-resolv` with an explicit upstream, so it is the network's resolver (from the earlier docs page, not re-checked). It binds with `bind-dynamic` rather than `bind-interfaces`, so it survives the per-port VLAN interfaces that mostly have no carrier (welland's gateway had 88 on 6 October 2026, [Netboot and the NFS root](../netboot.md#the-boot-chain)), and its lease database is pinned to an absolute path. The `pxe` role writes its files in `/etc/dnsmasq.d/`:
+  `rpi.conf` (the Raspberry Pi boot options) on every gateway; `ports.conf` on a per-port gateway (one with a
+  `switches:` list); `pibs.conf` and `switch.conf` on a legacy MAC-table one. On a per-port gateway it removes
+  `pibs.conf`, `switch.conf` and `local.conf`, the hand-written config of the flat scheme before the VLANs:
+  `local.conf` carries `bind-interfaces`, and dnsmasq refuses to start with both that and `bind-dynamic`. If
+  dnsmasq will not start, look in the directory for a file the role did not write
+  (`roles/pxe/tasks/main.yml`, read 2026-10-07).
 - **nfs-kernel-server and rpcbind** (`nfs`) export the read-only NFS roots, with `host=` in `/etc/default/nfs-kernel-server` set to the local NIC address (`eth_local_address`, `roles/nfs/tasks/main.yml`) so the export is not offered on the uplink.
 - **chrony** (`pxe`, `chrony.service`) serves NTP to the Pi LAN: `/etc/chrony/conf.d/fpgas-lan.conf` allows `<pib_network>.0.0/16` (welland: `10.21.0.0/16`). dnsmasq advertises the gateway as the time source with `dhcp-option ntp-server`. The Pis have no route to the internet, so without a LAN time source their clocks never leave the `fake-hwclock` date (rebuild record, entry C2-2).
 - **The image pipeline.** `img` pulls the CI-built root image into the NFS root, and `fixpi` writes the site layer into it: [What is in the NFS root](../netboot/root.md).
