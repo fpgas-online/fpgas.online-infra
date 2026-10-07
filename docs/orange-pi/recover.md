@@ -85,7 +85,7 @@ path of every board in `sunxi_boards` whose `host` is that host), but it runs on
 equals that `host` field, `pi-sw2-p30` (`ansible/verify-pi.yml`, infra main, read 2026-10-07). The hub host's
 own hostname is `rpi5-new-13f59c` (the gateway's DHCPv6 leases, read 4 and 5 October 2026), so the check runs
 nowhere today: on 6 October 2026 `verify-pi.yml` ran on ports 19, 21, 22 and 24 and skipped it on all four (the
-deploy record of that day). To check the markers, read them on the hub host as above
+deploy record of that day; [infra issue #240](https://github.com/fpgas-online/fpgas.online-infra/issues/240)). To check the markers, read them on the hub host as above
 ([The hub host](hub-host.md#the-hub-host)).
 
 On 6 October 2026 the four boards that came back all failed one check: the HAT's ID EEPROM could not be read,

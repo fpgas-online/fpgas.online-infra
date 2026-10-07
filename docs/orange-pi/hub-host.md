@@ -33,7 +33,7 @@ there (from the earlier docs page, not re-checked on the host):
   because eth0 (the gateway's VLAN) has no internet and `wlan0` carries the default route.
 - **Verification.** `verify-pi.yml` is written for hosts that boot the NFS root and does not apply to this
   host as it is: its FEL-boot marker check runs only on a host named `pi-sw2-p30`, and this host's own hostname
-  is `rpi5-new-13f59c` ([Check a board](recover.md#check-a-board)). Moving that check to the fleet repository is
+  is `rpi5-new-13f59c` ([Check a board](recover.md#check-a-board); [infra issue #240](https://github.com/fpgas-online/fpgas.online-infra/issues/240)). Moving that check to the fleet repository is
   open.
 
 Check the host's packages with a plain `dpkg -l fpgas-online-setup-pi sunxi-tools` over ssh on the host itself:
