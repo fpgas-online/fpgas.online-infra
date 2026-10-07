@@ -29,6 +29,15 @@ Why: on 2026-08-23 a `certbot --nginx` vhost without an IPv6 `listen` line left 
 only, and so the default, server on `[::]:443`, and every IPv6 visitor to `welland.fpgas.online` was handed
 the wrong certificate (the role's comment; fixed 2026-08-30).
 
+The mechanism: `certbot --nginx` does not merely fetch a certificate, it rewrites the nginx server blocks, copying the
+`listen` directives it finds in the port-80 block into the HTTPS block it generates. The port-80 template had its IPv6
+line commented out, so certbot emitted an IPv4-only `listen 443 ssl` for `welland.fpgas.online`. That was invisible
+while nothing else listened on `[::]:443`: IPv6 clients were refused and fell back to IPv4. When the `ttsite` role
+added the first `listen [::]:443 ssl` on the box on 2026-08-23, its vhost became the only, and therefore default,
+server on that socket, so every IPv6 client asking for `welland.fpgas.online` was handed the
+`tinytapeout.fpgas.online` certificate and dropped the connection. The fix, on 2026-08-30, was the webroot method with
+the vhost rendered and owned by Ansible (from the earlier docs page, not re-checked).
+
 ## Check
 
 ```console

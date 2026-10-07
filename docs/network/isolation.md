@@ -12,7 +12,8 @@ the S3300, which is switch 2 here. The addresses below use the inventory's numbe
 
 ## 1. A Pi reaches the gateway and not another Pi
 
-Log in to a Pi on switch 1 (here `pi-sw1-p1`) and run, for both address families:
+Log in to a Pi on switch 1 (here `pi-sw1-p1`) and run, for both address families. Every reachability claim has to be
+checked on both, because they take different paths to the same nftables policy (from the earlier docs page, not re-checked):
 
 ```console
 $ # these two must FAIL: Pi to Pi is dropped by the gateway's forward chain
@@ -63,6 +64,5 @@ Plug a laptop into that port and watch the leases on the gateway:
 $ tail -f /var/lib/misc/dnsmasq.leases
 ```
 
-A pass is a lease from the quarantine pool, `10.21.0.128` to `10.21.0.150`, with no host name, for one hour
-(`ansible/roles/pxe/templates/ports.conf.j2`, fpgas.online-infra main, read 2026-10-07). The laptop reaches the
+A pass is a lease from the quarantine pool, `10.21.0.128` to `10.21.0.150`, with no host name (the pool has no `host-record`, so the entry is visibly unnamed and visibly not a `pi-sw<s>-p<p>`), for one hour, against the twelve hours a provisioned port gets, so it clears fast (`ansible/roles/pxe/templates/ports.conf.j2`, fpgas.online-infra main, read 2026-10-07). The laptop reaches the
 gateway and no Pi.

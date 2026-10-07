@@ -54,3 +54,8 @@ fpgas.online's side needs, in the order you meet it.
 
 Run `verify-server.yml`, and `verify-pi.yml` on the Pis that come up ([Deploying to a
 gateway](deploy.md#4-check)). The third rebuild, on 2026-08-26, passed both with no step done by hand.
+
+Rebuild #3, on the evening of 2026-08-26 and run from merged `main`, was a full pass with **zero manual
+interventions**: 7m41s from power cycle to login, a cold converge of 2h57m with no failures on either the server or
+the NFS root play, `verify-server.yml` at `ok=104 failed=0`, `verify-pi.yml` at `ok=21 failed=0` including the camera
+and FPGA assertions (rebuild record, 2026-08-26). That is the bar a rebuild is expected to clear.

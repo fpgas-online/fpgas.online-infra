@@ -3,12 +3,17 @@
 **A fleet Pi does not come back after a power cycle or an update, and you want to find where its boot
 stops.** You need a login on the site's gateway. A netbooted Pi has no disk to look at; these are the ways to
 watch one boot, in the order to try them. The Orange Pis boot the same root by another route: [Orange Pi H3
-hosts](https://docs.fpgas.online/en/latest/setup/orange-pi.html).
+hosts](https://docs.fpgas.online/en/latest/setup/orange-pi.html). They take the same DHCP, TFTP root and NFS
+root, so the lease check (1) applies to them unchanged; the netconsole and gateway-serial methods (3, 7) do not,
+because their command line carries no `netconsole=` and no UART of theirs is wired to the gateway. Their console is
+the USB gadget log captured on their hub host (from the earlier docs page, not re-checked).
 
 ## 1. Did it get an address?
 
 dnsmasq logs every DHCP exchange (`log-dhcp`) to the gateway's journal, and its lease file is
-`/var/lib/misc/dnsmasq.leases` (`roles/pxe/templates/dnsmasq-base.conf.j2`, fpgas.online-infra main). On the
+`/var/lib/misc/dnsmasq.leases` (`roles/pxe/templates/dnsmasq-base.conf.j2`, fpgas.online-infra main). The absolute
+path is deliberate: dnsmasq daemonises and `chdir()`s to `/` before opening a relative lease, pid or log path, and
+silently fails if one is given relative (from the earlier docs page, not re-checked). On the
 gateway, for the Pi on welland's switch 2, port 46:
 
 ```console
@@ -47,7 +52,9 @@ $ nc -u -l 6666
 ```
 
 The gateway's rebuild log of 2026-08-25 records this both failing and working within one night: try it, do
-not rely on it.
+not rely on it. That log's entry C1-3 calls netconsole's dynamic cmdline form "a dead cmdline feature" that never
+transmits, and C1-3b then reports netconsole working on the next boot; the log's fallback was to plant a unit in the
+NFS root that streams the journal early.
 
 ## 4. A console on the Pi's USB-C port (Pi 4 and Pi 5)
 
@@ -69,3 +76,12 @@ watchdog reboots it on its own; power-cycle it to have it back sooner.
 Then the kernel or the root fails after TFTP. The kernel's own log (3) or the USB console (4) shows where it
 stops. A Pi that fetches its files again every couple of minutes is in a boot loop. Leaving its port switched off
 needs the site owner's word; report it with what the journal shows.
+
+## 7. Serial from the gateway
+
+`roles/fixpi/tasks/tweeks.yml` sets the gateway up as the watching station: it installs `tio`, adds the operator
+account to the `dialout` group so `tio` can open the tty, masks `serial-getty@ttyAMA0` so a getty does not eat the
+boot messages, and removes `brltty`, which grabs serial ports greedily and makes `ftdi_sio` lose the connection
+([Debian #667616](https://bugs.debian.org/667616)). When the gateway is itself a Pi, it also adds
+`dtoverlay=disable-bt` to the gateway's own `/boot/firmware/config.txt` to free `/dev/serial0`. This needs a UART
+of the Pi wired to the gateway; the Orange Pis have none (from the earlier docs page; the `tweeks.yml` tasks read on main, 2026-10-07).
