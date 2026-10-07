@@ -98,6 +98,23 @@ table ip nat {
 {% endfor %}
     }
 }
+{% if pib_network6_base is defined %}
+
+# The same per-board ports over IPv6: on the gateway's own global address,
+# {{ pib_network6_base }}00::1 (eth-local's, which the site name's AAAA
+# record carries), to the board's address in its switch's /64. Uplink only,
+# for the same reason as above (#204).
+table ip6 nat {
+
+      chain prerouting {
+            type nat hook prerouting priority -100; policy accept;
+{% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
+            iifname "{{ eth_uplink }}" ip6 daddr {{ pib_network6_base }}00::1 tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}22 } dnat to [{{ e.ip6 }}]:22
+            iifname "{{ eth_uplink }}" ip6 daddr {{ pib_network6_base }}00::1 tcp dport { {{ e.switch }}{{ '%02d' | format(e.port) }}44 } dnat to [{{ e.ip6 }}]:4444
+{% endfor %}
+    }
+}
+{% endif %}
 
 {% else %}
 table inet filter {
