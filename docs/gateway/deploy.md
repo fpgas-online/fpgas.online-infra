@@ -38,7 +38,8 @@ changes: the end of the run bumps the generation when a file changed (`roles/nfs
 every Pi. You cannot see this beforehand: under `--check` the task that decides it is skipped. After the run, its last
 task, "Show what changed in the Pi NFS root", says whether the generation was bumped and why. If the Pis must
 not reboot (someone is using a board), set `-e nfsroot_generation_bump=never` and power-cycle later
-(`roles/nfsroot_generation/README.md`). Any other
+(`roles/nfsroot_generation/README.md`): until then the running boards keep stale file handles on the changed
+files, so they may fail on them until they are power-cycled. Any other
 digest is a root update ([Updating the NFS root](../netboot/update-root.md)).
 
 ## 2. If the change touches the firewall: preview first
