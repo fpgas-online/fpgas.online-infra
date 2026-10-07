@@ -7,6 +7,15 @@
 # only, solicits a router, takes the DHCPv6 address, renews it, and solicits
 # again when the route runs out. It never touches IPv4, so the NFS root's
 # address stays as the kernel set it.
+#
+# --duid=ll: the DHCPv6 identity from the MAC, the same at every boot (with
+# "=": the argument is optional, so a separate "ll" would be read as an
+# interface). The overlay root keeps no /var/lib/dhcpcd/duid and a Pi has no
+# system UUID, so
+# the default would be a new DUID-LLT each boot, and the port's one DHCPv6
+# address (a single-address range, 12 h leases) could still be leased to the
+# previous boot's identity. The hooks that could write resolv.conf, the
+# hostname or a time server's config are off: the Pi takes those elsewhere.
 [Unit]
 Description=IPv6 address and default route for eth0 (dhcpcd, IPv6 only)
 ConditionPathExists=/sys/class/net/eth0
@@ -14,7 +23,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-ExecStart=/usr/sbin/dhcpcd --ipv6only --nobackground --nohook resolv.conf --nohook hostname eth0
+ExecStart=/usr/sbin/dhcpcd --ipv6only --nobackground --duid=ll --nohook resolv.conf --nohook hostname --nohook ntp-common.conf --nohook chrony.conf --nohook timesyncd.conf --nohook openntpd.conf eth0
 Restart=on-failure
 RestartSec=10
 

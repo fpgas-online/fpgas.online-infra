@@ -386,7 +386,8 @@
         fail_msg: >-
           {{ ansible_hostname }}: expected fpgas-ipv6.service active (it is {{ verify_pi_ipv6_unit.stdout }}),
           {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route
-          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }})
+          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). Right after a boot, DHCPv6 may
+          still be under way: check again before treating this as a fault.
       when: verify_pi_expected_ip6 is defined
 
     - name: Assert the Pi can reach the server

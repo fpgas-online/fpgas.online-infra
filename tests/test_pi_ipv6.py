@@ -22,7 +22,10 @@ def test_the_unit_runs_dhcpcd_for_ipv6_only_on_eth0():
     assert "--ipv6only" in args
     assert "--nobackground" in args
     assert args[-1] == "eth0"
-    for hook in ("resolv.conf", "hostname"):
+    # the same DHCPv6 identity at every boot (see the unit): the port has one address
+    # "=" is required: --duid takes an optional argument, so "--duid ll" would make "ll" an interface
+    assert "--duid=ll" in args
+    for hook in ("resolv.conf", "hostname", "ntp-common.conf", "chrony.conf", "timesyncd.conf", "openntpd.conf"):
         assert f"--nohook {hook}" in exec_start
 
 
