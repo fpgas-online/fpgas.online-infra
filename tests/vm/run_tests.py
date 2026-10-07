@@ -652,6 +652,18 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
     # Run verify-pi.yml against the running Pi (test-pi in the inventory).
     inventory = TEST_INVENTORY
     rc = run_ansible("verify-pi.yml", inventory, "test-pi")
+    # Again the way an operator runs it on a live site (ansible/verify-pi.yml's
+    # usage): the Pi named only by its address, reached as the automation
+    # account through the gateway (-e verify_pi_via), with the site inventory
+    # loaded for the gateway. test-pi's host_vars do not apply to a bare
+    # address, so its one setting is passed along.
+    if rc == 0:
+        rc = run_ansible("verify-pi.yml", inventory, PI_ADDRESS, extra_args=[
+            "-i", f"{PI_ADDRESS},",
+            "-e", f"verify_pi_hosts={PI_ADDRESS}",
+            "-e", "verify_pi_via=test-vm",
+            "-e", "verify_pi_header_uart_console=true",
+        ])
     if not password_ok.result():
         print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
         rc = rc or 1

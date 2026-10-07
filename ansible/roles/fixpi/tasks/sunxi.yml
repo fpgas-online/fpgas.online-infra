@@ -40,37 +40,41 @@
     - {src: initrd.img, dest: initrd.img}
   when: fixpi_sunxi_vmlinuz.matched > 0
 
-- name: Publish sunxi DTBs to tftp sunxi/dtbs/
-  ansible.builtin.copy:
-    remote_src: true
-    src: "{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}"
-    dest: "{{ tftp_root }}/sunxi/dtbs/{{ item }}"
-    mode: "0644"
-  loop: "{{ fixpi_sunxi_dtbs }}"
-  when: fixpi_sunxi_vmlinuz.matched > 0
-
-# fdtget/fdtput for the I2C fixup below.
+# fdtget/fdtput for the DTBs below.
 - name: Install device-tree-compiler on the server
   ansible.builtin.apt:
     name: device-tree-compiler
 
-# The copy above refreshes the DTBs from the kernel package on every kernel
-# change, so this fixup re-applies right after it. Done at publish time (not
-# a U-Boot fdtoverlays line) so nothing depends on the U-Boot build having
-# overlay support.
-- name: Enable the header I2C controllers in the published sunxi DTBs
+# Each published DTB is the kernel package's with the header I2C controllers
+# forced to status=okay (mainline ships every H3 TWI disabled). Done at
+# publish time, not as a U-Boot fdtoverlays line, so nothing depends on the
+# U-Boot build having overlay support. The patch is made on a staged copy
+# beside the published file, which is replaced (an atomic rename) only when
+# the result differs: a board booting during a converge never fetches an
+# unpatched DTB, and an unchanged kernel reports ok. (Copying the package DTB
+# over the published one and patching it in place reported two changes on
+# every run and served the unpatched file in between.)
+- name: Publish the sunxi DTBs with the header I2C controllers enabled
   ansible.builtin.shell: |
-    set -e
-    changed=0
+    set -eu
+    src='{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}'
+    dst='{{ tftp_root }}/sunxi/dtbs/{{ item }}'
+    staged="$dst.staged"
+    trap 'rm -f "$staged"' EXIT
+    cp "$src" "$staged"
     for node in {{ fixpi_sunxi_i2c_nodes | join(' ') }}; do
-      if [ "$(fdtget '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status)" != okay ]; then
-        fdtput -t s '{{ tftp_root }}/sunxi/dtbs/{{ item }}' "$node" status okay
-        changed=1
-      fi
+      fdtput -t s "$staged" "$node" status okay
+      [ "$(fdtget "$staged" "$node" status)" = okay ]
     done
-    echo "changed=$changed"
-  register: fixpi_sunxi_i2c
-  changed_when: "'changed=1' in fixpi_sunxi_i2c.stdout"
+    if cmp -s "$staged" "$dst"; then
+      echo "changed=0"
+    else
+      chmod 0644 "$staged"
+      mv -f "$staged" "$dst"
+      echo "changed=1"
+    fi
+  register: fixpi_sunxi_dtb
+  changed_when: "'changed=1' in fixpi_sunxi_dtb.stdout"
   loop: "{{ fixpi_sunxi_dtbs }}"
   when: fixpi_sunxi_vmlinuz.matched > 0
 
