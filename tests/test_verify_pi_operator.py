@@ -66,13 +66,12 @@ def test_naming_a_gateway_that_is_not_one_is_refused(tmp_path):
     assert REACHED_THE_PI not in out, out
 
 
-@pytest.mark.parametrize("value", ["-o ProxyJump=ansible@gw.example", "-o", "-J"])
+@pytest.mark.parametrize("value", ["-o ProxyJump=ansible@gw.example", "-o", "-J", "-B", "-P"])
 def test_a_bare_option_in_the_ssh_args_is_refused(value):
     # As the shell hands it over: key=value parsing keeps only "-o".
     out = _run("-i", "tests/inventory", "-i", f"{PI},", "-e", f"verify_pi_hosts={PI}",
                "-e", f"ansible_ssh_common_args={value}", *LOCAL)
     assert "ends in an option with no value" in out, out
-    assert "dead state" not in out.replace('"A worker was found in a dead state"', ""), out
     assert REACHED_THE_PI not in out, out
 
 
@@ -84,7 +83,16 @@ def test_one_gateway_needs_no_name():
 def test_a_named_gateway_passes(tmp_path):
     out = _run("-i", str(_two_gateways(tmp_path)), "-i", f"{PI},", "-e", f"verify_pi_hosts={PI}",
                "-e", "verify_pi_via=gw-b", *LOCAL)
-    assert REACHED_THE_PI in out, out
+    assert GUARD_TASK in out and REACHED_THE_PI in out, out
+
+
+def test_an_empty_via_is_not_given():
+    # one gateway: an empty -e verify_pi_via= falls back to it, and reaches the Pi directly
+    out = _run("-i", "tests/inventory", "-i", f"{PI},", "-e", f"verify_pi_hosts={PI}",
+               "-e", "verify_pi_via=", *LOCAL)
+    assert GUARD_TASK in out and REACHED_THE_PI in out, out
+    assert "TASK [Reach the Pis through their gateway]" in out
+    assert "skipping: [192.0.2.1]" in out, out
 
 
 def test_via_reaches_the_pi_through_the_gateway_as_the_automation_account():

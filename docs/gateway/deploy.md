@@ -116,11 +116,13 @@ $ uv run ansible-playbook ansible/verify-pi.yml -i ansible/inventory -i 10.21.2.
     -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online
 ```
 
+- Run it from the repository's root: ansible's ssh settings are `-F ansible/ssh.cfg`, a relative path.
 - `-i ansible/inventory` loads the gateways. The fleet registration, the pi password, the Orange Pi rows and
   the jump account's hop are checked against the gateway's own settings.
 - `-e verify_pi_via=fpgas.online` names that gateway (ps1's is `ps1.fpgas.online`). It also reaches each Pi
   through it, as the `ansible` account with the automation key: the Pi network, `10.21.0.0/16`, is routed only
-  on the gateway.
+  on the gateway. The hop to the gateway uses the gateway's own inventory settings: welland's log in as
+  `ansible`; ps1's inventory sets no `ansible_user`, so that hop logs in as your own user name.
 - The run fails before connecting:
   - with no gateway in the inventory;
   - with two gateways and none named;

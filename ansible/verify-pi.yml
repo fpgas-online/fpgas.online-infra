@@ -43,8 +43,8 @@
           verify-pi.yml selects no hosts: the pattern
           '{{ verify_pi_pattern }}'{{ (" under --limit '" ~ ansible_limit ~ "'") if ansible_limit is defined else '' }}
           matches {{ verify_pi_matched | length }} host(s) in the inventory and none is left to check.
-          Nothing was verified. Name the Pis, for example
-          `-i 10.21.2.33, -e verify_pi_hosts=all`.
+          Nothing was verified. Name the Pis and their gateway, for example
+          `-i ansible/inventory -i 10.21.2.33, -e verify_pi_hosts='10.21.*' -e verify_pi_via=fpgas.online`.
         success_msg: "verify-pi.yml will check: {{ verify_pi_selected | join(', ') }}"
       vars:
         verify_pi_pattern: "{{ verify_pi_hosts | default('pi_live') }}"
@@ -67,8 +67,8 @@
     # test's) needs neither. Never "the first host in nbp": the production
     # inventory has two sites.
     verify_pi_server: >-
-      {{ verify_pi_via | default((groups['nbp'] | default([]))[0]
-         if (groups['nbp'] | default([]) | length) == 1 else '') }}
+      {{ verify_pi_via if (verify_pi_via | default('') | length) > 0
+         else ((groups['nbp'] | default([]))[0] if (groups['nbp'] | default([]) | length) == 1 else '') }}
     # The camera fpgas-cam would use, found the way it finds one
     # (find_camera() in fpgas.online-cam's gst-libcam.sh): a CSI sensor the
     # kernel bound (a v4l-subdev named "<driver> <i2c bus>-<addr>", e.g.
@@ -193,14 +193,14 @@
           - groups['nbp'] | default([]) | length > 0
           - verify_pi_server | length > 0
           - verify_pi_server in groups['nbp']
-          - not (ansible_ssh_common_args | default('') is search('(^|\\s)-[bcDEeFIiJLlmOopQRSWw]\\s*$'))
+          - not (ansible_ssh_common_args | default('') is search('(^|\\s)-[BbcDEeFIiJLlmOoPpQRSWw]\\s*$'))
         fail_msg: >-
           verify-pi.yml needs the gateway of the Pis it checks.
           {% if groups['nbp'] | default([]) | length == 0 %}No gateway (group nbp) is in the inventory:
           load it too, `-i ansible/inventory -i <addresses>,`.
           {% elif verify_pi_server | length == 0 %}The inventory has {{ groups['nbp'] | length }} gateways
           ({{ groups['nbp'] | join(', ') }}): name these Pis' gateway with -e verify_pi_via=<one of them>.
-          {% elif verify_pi_server not in groups['nbp'] %}verify_pi_via={{ verify_pi_via }} is not one of
+          {% elif verify_pi_server not in groups['nbp'] %}verify_pi_via={{ verify_pi_via | default('') }} is not one of
           the gateways ({{ groups['nbp'] | join(', ') }}).
           {% else %}ansible_ssh_common_args ends in an option with no value: '{{ ansible_ssh_common_args | default('') }}'.
           Pass it as JSON, -e '{"ansible_ssh_common_args": "-o ..."}', or not at all
@@ -219,7 +219,7 @@
     # own settings.
     - name: Reach the Pis through their gateway
       ansible.builtin.set_fact:
-        ansible_user: "{{ verify_pi_via_user | default('ansible') }}"
+        ansible_user: "{{ fixpi_ansible_user | default('ansible') }}"
         ansible_ssh_common_args: >-
           -o ProxyCommand="ssh -F ansible/ssh.cfg
           {{- (' -i ' ~ gw.ansible_ssh_private_key_file) if gw.ansible_ssh_private_key_file is defined else '' }}
@@ -228,7 +228,7 @@
           -W %h:%p {{ (gw.ansible_user ~ '@') if gw.ansible_user is defined else '' }}{{ gw.ansible_host | default(verify_pi_server) }}"
       vars:
         gw: "{{ hostvars[verify_pi_server] }}"
-      when: verify_pi_via is defined
+      when: verify_pi_via | default('') | length > 0
 
     # The automation key, as the gateway resolves it: an address given with
     # -i <addresses>, has no inventory_dir to resolve a relative path from.
@@ -236,7 +236,7 @@
       ansible.builtin.set_fact:
         ansible_ssh_private_key_file: "{{ hostvars[verify_pi_server].ansible_ssh_private_key_file }}"
       when:
-        - verify_pi_via is defined
+        - verify_pi_via | default('') | length > 0
         - hostvars[verify_pi_server].ansible_ssh_private_key_file is defined
 
     # One remote call gathers everything the checks below read (each task on
