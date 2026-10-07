@@ -42,6 +42,12 @@ file, a commit or a page.
 | 1, Netgear GSM7252PS | 10.1.5.23 | NeTV2 hosts on ports 10, 12, 14, 16, 18; the Fomu host on 17; an Acorn host on 38 |
 | 2, Netgear S3300-52X-PoE+ | 10.1.5.11 | Orange Pis on 19, 21, 22, 24; their hub host on 30; Tiny Tapeout FPGA hosts on 33, 35, 36; Acorn hosts on 46, 47 |
 
+A remedy written for an Acorn host covers switch 2 only, because every Acorn at welland is on switch 2, the S3300.
+Switch 1, the GSM7252PS, carries Pis of its own (the NeTV2 hosts and the Fomu), and fleet Pis are PoE-powered, so it
+supplies PoE too and has its own separate write community: a board on switch 1 needs that one, not the S3300's (from
+the earlier docs page, not re-checked). Run the commands below from the gateway, which reaches the switch management
+network (10.1.5.0/24) over its default route, the same reachability `fpgas-switch-setup` needs.
+
 Run the cycle as one line, so that a dropped connection cannot leave the port off, and read the port before
 and after:
 
@@ -63,7 +69,11 @@ through fpgas.online-poe's `netgear_switch` library instead. If the line stopped
 switch port (`p` in the Pi's name), not a VLAN or an address. The Pi is back when its SSH port answers: from
 the gateway, `nc -z -w 3 10.21.<switch>.<port> 22` (`10.21.1.14` for switch 1, port 14).
 
-`poe.sh` and `allpoe.sh` from fpgas.online-poe do not work at welland: the `snmp.yml` task that writes their
+This is the same standard PoE MIB that the `poe_reset` of the [test-designs `verify_hardware.py`
+harness](https://github.com/fpgas-online/fpgas.online-test-designs) uses; it differs from the ps1 switch, which answers
+only a Netgear-private OID ([The ps1 gateway and switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html#power-control); from the earlier docs page, not re-checked).
+
+`poe.sh` and `allpoe.sh` from fpgas.online-poe do not work at welland ([The PoE scripts](poe-scripts.md)): the `snmp.yml` task that writes their
 settings is skipped on a per-port gateway, by design (its comment in fpgas.online-infra, main).
 
 ## At ps1
@@ -78,7 +88,8 @@ The Pi netboots again: a kernel and a root over the network, not a resume from d
 allows about two minutes from power-on to SSH (`docs/verify-hardware.md` in fpgas.online-test-designs). [Acorns at
 welland](https://docs.fpgas.online/en/latest/boards/acorn/installations/welland.html#reads-of-september-2026) records, from its reads of September
 2026, that a Pi 5 there takes more than 90 seconds, and that a hung one draws about 0.4 W on its port instead of
-about 8 W; not measured again since.
+about 8 W; not measured again since. Earlier, on 2026-09-06, cycling all five NeTV2 ports on switch 1 and watching
+them netboot back took about 48 s; a Pi 3B+ is gone roughly a minute (from the earlier docs page, not re-checked).
 
 ## After an NFS root update
 
