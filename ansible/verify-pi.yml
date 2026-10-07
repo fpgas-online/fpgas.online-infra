@@ -234,6 +234,7 @@
               "eth0": exists("/sys/class/net/eth0"),
               "ip6_default": run("ip", "-6", "route", "show", "default"),
               "ipv6_unit": run("systemctl", "is-active", "fpgas-ipv6.service"),
+              "ipv6_journal": run("journalctl", "-b", "-u", "fpgas-ipv6.service", "--no-pager", "-n", "40"),
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
               # What sshd shows before authentication: ask for no method at
@@ -323,6 +324,7 @@
         verify_pi_eth0: "{{ verify_pi_state.eth0 }}"
         verify_pi_ip6_default: "{{ verify_pi_state.ip6_default }}"
         verify_pi_ipv6_unit: "{{ verify_pi_state.ipv6_unit }}"
+        verify_pi_ipv6_journal: "{{ verify_pi_state.ipv6_journal }}"
         ansible_hostname: "{{ verify_pi_state.facts.hostname }}"
         ansible_kernel: "{{ verify_pi_state.facts.kernel }}"
         ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
@@ -387,7 +389,8 @@
           {{ ansible_hostname }}: expected fpgas-ipv6.service active (it is {{ verify_pi_ipv6_unit.stdout }}),
           {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route
           (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). Right after a boot, DHCPv6 may
-          still be under way: check again before treating this as a fault.
+          still be under way: check again before treating this as a fault. The unit's journal:
+          {{ verify_pi_ipv6_journal.stdout_lines | default([]) }}
       when: verify_pi_expected_ip6 is defined
 
     - name: Assert the Pi can reach the server
