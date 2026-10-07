@@ -7,24 +7,88 @@ Which board is on which port, with its HAT UUID and MAC: [Orange Pi H3 hosts](..
 ## Read its console
 
 There is no early console you can reach: the H3's debug UART is not wired, and the kernel's netconsole cannot
-bind on these boards. Once Linux is up, the board's OTG cable carries a USB serial console to the hub host,
-which records it from the first byte. On `pi-sw2-p30`, by the board's USB path (port 21 is `1-1.3.1`):
+bind on these boards. Once Linux is up, each board's OTG cable presents a `0525:a4a7 Linux-USB Serial Gadget`
+(`fpgas.online usb-console`) to the hub host with two CDC-ACM ports.
+`/dev/serial/by-path/platform-xhci-hcd.0-usb-0:<hub port>:2.0` is the kernel log (`fpgas-usb-console.service` on
+the board, running `dmesg --follow`) and `...:2.2` is a login getty. The hub host's
+`fpgas-usb-console-log@ttyACM*.service` appends the log port to `/var/log/fpgas-usb-console/<hub port>.log`
+from the moment the gadget enumerates, so these are the only console the boards have (units:
+[Units shipped by fpgas-online-setup-pi](../pi/services.md#units-shipped-by-fpgas-online-setup-pi)). Every path
+is keyed by the board's USB path, not its hostname or its switch port: port 21 is `1-1.3.1`
+([the table](../orange-pi.md#which-board-is-where)).
 
 ```console
-$ less /var/log/fpgas-usb-console/1-1.3.1.log
+$ ssh <you>@10.21.2.30                    # the hub host
+$ ls -l /dev/serial/by-path/ | grep ':2.0'   # :2.0 is the kernel log, :2.2 the getty
+$ tail -f /var/log/fpgas-usb-console/1-1.3.1.log   # captured from the first byte
+$ picocom /dev/serial/by-path/platform-xhci-hcd.0-usb-0:1.3.1:2.2   # the login getty
 $ ls /run/fpgas-felboot/                  # one marker per board U-Boot was loaded into this boot
 $ journalctl -u 'fpgas-felboot@*'         # the FEL-boot attempts
 ```
 
 (fpgas-online-setup-pi `README.md`; the marker is what `verify-pi.yml` checks for each board.)
 
+- **A healthy boot, on the clock.** A board reaches `multi-user` about
+  35–52 s after power-on and its gadget enumerates on the hub host at about 55 s,
+  so the log file starts appearing then (2026-08-28 and 2026-08-29); sshd answers
+  at about 96 s (2026-08-29). A board PoE-cycled while the SD-booted hub host was
+  already up was back in 72 s (2026-08-28 evening). Anything much past that is the
+  flake under [Known issues](#known-issues), not a slow boot.
+- The board replays its whole ring buffer to every *USB attach*. A second reader
+  on an already-attached port sees only new lines; to replay again, restart
+  `fpgas-usb-console` on the board.
+- Open the port once, in raw mode — `picocom`, `tio` or the logger. An `stty -F`
+  before a `cat` opens and closes the port in cooked mode and drops the start of
+  the stream.
+- A board that crawls on its first boot now leaves its kernel log in
+  `/var/log/fpgas-usb-console/<hub port>.log` on the hub host, which is how the
+  audio-codec Oops below was finally found.
+
+Verified 2026-08-29 on pi-sw2-p21: `ttyACM0`/`ttyACM1` at `1.3.1`, 1.1 MB of log
+replayed in 4 s, and `pi-sw2-p21 login:` on the second port. A cold PoE cycle of
+pi-sw2-p20 the same day was captured from `[    0.000000] Booting Linux` — the
+gadget enumerated 55 s after power-on and the logger wrote `1-1.2.2.log` from
+the first byte. The capture-from-enumeration design exists because the cmdline
+carries `systemd.log_level=debug`, under which the 1 MB ring buffer wraps within
+minutes and a late reader cannot recover the early boot.
+
+<a id="no-usb-host-attached-does-not-block-or-delay-the-boot"></a>
+### No USB host attached does not block or delay the boot
+
+Tested 2026-08-29 on pi-sw2-p20 by disabling its hub port in sysfs
+(`/sys/bus/usb/devices/1-1.2:1.0/1-1.2-port2/disable`) one second after
+`fpgas-felboot` loaded U-Boot, so the OTG link was dead for the whole boot:
+
+| Check | Result |
+| --- | --- |
+| `systemd-analyze` | `15.693s (kernel) + 48.248s (userspace) = 1min 3.941s`, `graphical.target` after 40.8 s |
+| `systemctl is-system-running` | `running`, `systemctl --failed` empty |
+| gadget | `/sys/class/udc/musb-hdrc.2.auto`, `/dev/ttyGS0`, `/dev/ttyGS1` present |
+| units | `fpgas-usb-console.service` and `serial-getty@ttyGS1.service` both `active` |
+| sshd | reachable 96 s after power-on |
+
+Re-enabling the port made the gadget enumerate immediately (`0525:a4a7`,
+`ttyACM2`/`ttyACM3` at `1-1.2.2`) and the log resumed streaming. Note that the
+board had by then been up for two minutes with `systemd.log_level=debug` and the
+ring buffer had already wrapped past `Booting Linux` — exactly why the hub host
+captures from enumeration rather than reading on demand.
+
 ## Check a board
 
 `verify-pi.yml` checks an Orange Pi as it checks a Raspberry Pi, and adds: that it runs the armmp kernel from
-the shared root; that the hub host has a FEL-boot marker for every board it serves; that the audio codec
+the shared root; that that the audio codec
 modules are not loaded; and that the board on the port carries the HAT UUID of its row in `sunxi_boards`
 (`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address ([Deploying to a
 gateway](../gateway/deploy.md#4-check) for where to run it from).
+
+`verify-pi.yml` also checks the hub host's FEL-boot markers (that `/run/fpgas-felboot/` holds a marker for the
+USB path of every board in `sunxi_boards` that names that host), but only when the hub host is itself in the
+run: the check is skipped on every other host (`ansible/verify-pi.yml`, infra main, read 2026-10-07). On 6 October
+2026 it did not run, because the hub host was not in the run: it boots its own SD image and refused the `pi`
+key, so it was left out of the wave (the coordinator's deploy record,
+`scratch/data/welland/deploy-a-STATE.md`, 12:23 entry: "Hub Pi 10.21.2.30 is SD-booted (key refused), not part
+of the wave"). To check the markers, read them on the hub host as above, or run `verify-pi.yml` against it with
+an account it accepts ([The hub host](hub-host.md#the-hub-host)).
 
 On 6 October 2026 the four boards that came back all failed one check: the HAT's ID EEPROM could not be read,
 because there is no `/dev/i2c-1` (fpgas.online-infra issue #200, open). `verify-pi.yml` stops at a board's first
@@ -47,7 +111,21 @@ board's identity is not checked, and you must check its MAC yourself (below).
    stop.
 3. **Power-cycle its port** on switch 2 ([Power-cycling a board](../network/power-cycle.md#at-welland)). Visitors
    may be using it; a cycle ends their session. The board comes back in FEL mode on the hub host, which loads
-   U-Boot into it; `journalctl -u 'fpgas-felboot@*'` on the hub host shows it.
+   U-Boot into it, within about 3 s; `journalctl -u 'fpgas-felboot@*'` on the hub host shows the attempts (three
+   tries, two seconds apart: `fpgas-felboot.sh`). The H3's UART0 3-pin header at 115200 8N1 is the only way to
+   see U-Boot or early kernel output; the PL2303 USB serial adapter on the hub host (`1-1.1.4`) is not wired to
+   any board's header, so the earliest thing anyone can see is the gadget console, which starts once Linux is
+   up (from the earlier docs page, not re-checked).
+
+   Or, with the `ngsw` CLI from `python3-netgear-switch-library` and an inventory file that holds the switch's
+   write community (never paste the community into a command or a page; from the earlier docs page, not
+   re-checked, and not what the welland power cycles of 5 and 6 October 2026 used):
+
+   ```console
+   $ # off, then on -- the board is back in FEL about 3 s later
+   $ ngsw --config ~/.config/ngsw/inventory.toml --switch s3300-1 poe 20 off -y --force
+   $ ngsw --config ~/.config/ngsw/inventory.toml --switch s3300-1 poe 20 on -y --force
+   ```
 4. **Not back after 5 minutes**: read its console log (above). On 2026-08-28 about one cold FEL boot in four
    crawled and never reached `sshd`, and a second cycle brought each of those back in about 90 s (the record
    on the published page of September 2026); cycle once more before calling it a fault.

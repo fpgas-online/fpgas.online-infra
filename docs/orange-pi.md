@@ -24,10 +24,10 @@ Orange Pis carry no FPGA.
 <a id="deploying-and-reconverging"></a>
 - [Deploying](orange-pi/add.md#deploying).
 
-- [The hub host](#the-hub-host), below.
+- [The hub host](orange-pi/hub-host.md): how it boots, what was configured on it by hand, its device links.
 
-<a id="design"></a>
-- [How they boot](#how-it-works), below.
+- [How they boot](#how-it-works), below, and [why they boot that way](orange-pi/design.md): the shared root,
+  the FEL mechanism, the vendored U-Boot.
 
 
 ## How it works
@@ -39,15 +39,45 @@ fpgas-online-setup-pi) sees it appear and loads U-Boot into it over USB, leaving
 by TFTP, which loads Debian's armmp kernel, its initrd and the board's device tree from `sunxi/`, and mounts
 the same NFS root as the Raspberry Pis, read-only with a tmpfs over it.
 
-- The armmp kernel is installed into the shared root by the CI image build (`sunxi-image.yml`, which also
-  blacklists the H3's audio codec modules); the gateway's `sunxi.yml` publishes the kernel, initrd and device
-  trees to TFTP `sunxi/`, enables the header's I²C controllers in those device trees, and writes the U-Boot
-  PXE configuration.
+- The root side is two files in the `fixpi` role. `tasks/sunxi-image.yml`, run by the CI image build only,
+  adds a Debian bookworm armhf apt source to the root (with Debian's own keyring), pinned so that only
+  `linux-image-*-armmp` and `linux-base` may come from it, installs `linux-image-armmp` into the root, and
+  blacklists the H3's audio codec modules. `tasks/sunxi.yml`, run on the gateway only where `sunxi_boards` is
+  defined, copies `vmlinuz-*-armmp` and `initrd.img-*-armmp` into `<tftp_root>/sunxi/`, the three
+  `sun8i-h3-orangepi-{pc,pc-plus,one}.dtb` files into `<tftp_root>/sunxi/dtbs/` (where the `fdt` line below
+  looks), enables the header's I²C controllers in those copies, and writes the PXE file. The install is safe for
+  the Pi fleet: Raspbian's `z50-raspi-firmware` kernel hook prints "Unsupported kernel version
+  (6.1.0-50-armmp) - skipping setup" and leaves `/boot/firmware` untouched (verified 2026-08-28 in the spike;
+  `sunxi-image.yml`, `sunxi.yml`, infra main, read 2026-10-07).
 - A board's name and address follow its switch port, as for every welland Pi: `pi-sw2-p19` at `10.21.2.19`.
 - After boot, the same OTG cable carries a USB serial console back to the hub host (below).
 
-The command line has no `netconsole=` (the network driver is a module in the initrd, so the kernel's
-netconsole cannot bind), and its `console=ttyS0` is the H3's debug UART header, which is not wired.
+The ROM waits in FEL mode with the USB id `1f3a:efe8`. The hub host's `fpgas-felboot@<usb-device>.service` loads
+U-Boot (the `orangepi_pc_plus` build, vendored in fpgas-online-setup-pi) with `sunxi-fel`, and U-Boot's
+distro-boot takes over: it asks DHCP, which hands it `pi-sw2-p<port>` and `10.21.2.<port>` by the per-port
+scheme exactly as for a Pi, then fetches the PXE file and `sunxi/{vmlinuz,initrd.img,dtbs/...}` from the
+gateway's TFTP root. U-Boot looks for `pxelinux.cfg/01-<mac>` first, then the IP-hex names, then
+`default-arm-sunxi`, `default-arm` and `default`, so a different sunxi board model can be given its own file
+without disturbing these boards. The one `fixpi` templates (`templates/boot/default-arm-sunxi.j2`, checked
+against infra main, 2026-10-07) is short:
+
+```jinja
+default sunxi
+timeout 10
+
+label sunxi
+  kernel sunxi/vmlinuz
+  initrd sunxi/initrd.img
+  fdt sunxi/dtbs/{{ sunxi_default_dtb }}
+  append root=/dev/nfs nfsroot={{ eth_local_address }}:{{ nfs_root }}/root,nfsvers=3,tcp ro ip=dhcp rootwait consoleblank=0 overlayroot=tmpfs console=ttyS0,115200 systemd.log_level=debug systemd.log_target=kmsg log_buf_len=1M printk.devkmsg=on
+```
+
+`sunxi_default_dtb` is `sun8i-h3-orangepi-pc.dtb`. There is no `netconsole=` on that line, unlike the Pi [kernel
+command line](netboot.md#the-kernel-command-line): `dwmac-sun8i` is an initramfs module, so the kernel's netconsole
+has no interface to bind to. `console=ttyS0` is the H3's UART0 3-pin debug header, which is not wired on the
+rack, and `console=ttyGS0` would be inert because `CONFIG_U_SERIAL_CONSOLE` is unset in the kernels used (the
+template's header comment and `fpgas-usb-console.service`), which is why the usable console is fed from
+userspace.
 
 <a id="board-mapping"></a>
 ## Which board is where
@@ -72,13 +102,38 @@ did not.
 
 ## The hub host
 
-`pi-sw2-p30` is a Raspberry Pi with the seven OTG cables on its USB hub. fpgas-online-setup-pi gives it two
+`pi-sw2-p30` is a Raspberry Pi with the seven OTG cables on its USB hub; it boots its own SD card, not the NFS
+root ([The hub host](orange-pi/hub-host.md)). fpgas-online-setup-pi gives it two
 jobs: FEL-booting any Allwinner board that appears (`fpgas-felboot@.service`), and capturing each board's
 kernel log from the USB serial console into `/var/log/fpgas-usb-console/<usb path>.log` from the first byte
 (`fpgas-usb-console-log@.service`). If it is down, no Orange Pi can boot.
 
 ## Sources
 
-fpgas.online-infra main, read 2026-10-07: `sunxi_boards` in `host_vars/fpgas.online.yml`, the `fixpi` tasks
-`sunxi.yml` and `sunxi-image.yml`, `templates/boot/default-arm-sunxi.j2`, `verify-pi.yml`. fpgas.online-setup-pi
-main: `README.md`.
+fpgas.online-infra main, read 2026-10-07: `sunxi_boards` and `sunxi_default_dtb` in `host_vars/fpgas.online.yml`
+(seven `sunxi_boards` entries), the `fixpi` tasks `sunxi.yml` and `sunxi-image.yml`,
+`templates/boot/default-arm-sunxi.j2`, `verify-pi.yml`. Three infra documents hold the 2026-08-28 detail:
+
+- [`docs/superpowers/runbooks/2026-08-28-orange-pi-netboot.md`](superpowers/runbooks/2026-08-28-orange-pi-netboot.md):
+  how the boot works, the converge, reading a console, the verify line, PoE recovery, adding a board, the
+  cold-boot flake and the evening hub-host addendum. Written for five boards, before p18 and p19; its verify
+  line is stale.
+- [`docs/hardware/2026-08-28-orange-pi-h3-boards.md`](hardware/2026-08-28-orange-pi-h3-boards.md): the port, USB,
+  MAC and SID mapping and how it was established, the hub host's USB tree, the PL2303, the udev symlinks, the
+  gadget console and the no-host measurements, the slow-first-boot flake, the deployment result of 2026-08-28,
+  the audio-codec Oops and the mid-uptime deaths of 2026-09-02. It still says the hub host netboots; it
+  does not (see [The hub host](orange-pi/hub-host.md)).
+- [`docs/superpowers/specs/2026-08-28-orange-pi-netboot-design.md`](superpowers/specs/2026-08-28-orange-pi-netboot-design.md):
+  the shared-root decision and what it was weighed against, the FEL answer, the inert `netconsole=` and
+  `console=ttyGS0`, the `ifupdown-pre` wait, the open variant question.
+
+fpgas.online-setup-pi main:
+[`README.md`](https://github.com/fpgas-online/fpgas.online-setup-pi/blob/main/README.md);
+[`felboot/60-fpgas-felboot.rules`](https://github.com/fpgas-online/fpgas.online-setup-pi/blob/main/felboot/60-fpgas-felboot.rules)
+(the `1f3a:efe8` match and the `SYSTEMD_WANTS` name),
+[`felboot/fpgas-felboot@.service`](https://github.com/fpgas-online/fpgas.online-setup-pi/blob/main/felboot/fpgas-felboot@.service)
+(`StopWhenUnneeded`, `%i` not `%I`),
+[`felboot/fpgas-felboot.sh`](https://github.com/fpgas-online/fpgas.online-setup-pi/blob/main/felboot/fpgas-felboot.sh)
+(the sysfs `busnum`/`devnum` lookup, three retries, the `/run/fpgas-felboot` markers) and
+[`felboot/u-boot/README.md`](https://github.com/fpgas-online/fpgas.online-setup-pi/blob/main/felboot/u-boot/README.md)
+(provenance, both SHA256 pins, the refresh procedure).
