@@ -1,5 +1,7 @@
 # Accounts and logins (Welland)
 
+<a id="accounts-and-logins"></a>
+
 Who can log in to the Welland gateway (tweed, inventory host `fpgas.online`)
 and to the netbooted Pi fleet, with what, and which role and variable decide
 it. Everything here is what `main` configures. It was deployed to tweed
@@ -32,6 +34,7 @@ per port.
 The Pis are not routable from outside tweed, so every login to a board goes
 through tweed.
 
+<a id="the-gateway-tweed"></a>
 ## tweed
 
 tweed is not publicly addressable over IPv4. `tweed.welland.mithis.com` is
@@ -118,6 +121,7 @@ not run `automation_user` (`automation_user_manage` is false). Its
 `sshd_pubkey_only` is false, so `sshd` only makes sure the drop-in is absent,
 and its `user_name` is still `videoteam`.
 
+<a id="the-pis"></a>
 ## The Pi NFS root
 
 Every netbooted board shares one root, so every board has the same accounts,
@@ -214,6 +218,7 @@ from the private one and refuses to converge if they differ.
 (`IdentityFile`, and `IdentityAgent none` so no agent keys are offered) and
 gives it its own known_hosts file (`~/.config/fpgas-online/ansible_known_hosts`).
 
+<a id="changing-who-has-access"></a>
 ## Adding or removing a person
 
 All the lists are in
@@ -234,6 +239,7 @@ old `ssh-import-id` runs used), and that comment is how `ssh_imports_revoked`
 finds an id's lines to delete. `fixpi` uses only `gh:` ids, so give operators
 `gh:` ids.
 
+<a id="where-the-keys-come-from-and-when-github-is-down"></a>
 ### Where the keys come from
 
 [`roles/ssh_key_fetch`](../ansible/roles/ssh_key_fetch) is the one place the

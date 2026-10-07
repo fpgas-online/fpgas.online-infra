@@ -19,6 +19,16 @@ four ps1 blades on 2026-10-07 ([Acorns at ps1: what was read on each
 blade](https://docs.fpgas.online/en/latest/boards/acorn/installations/ps1-reads.html)). The ps1 blades boot ps1's own root, with the kernel
 console on `ttyAMA0` and a login on it; that is why JTAG and the FPGA's UART cannot be used there as they are.
 
+**Compute Module 4.** `GPIO14 = TXD0` and `GPIO15 = RXD0` at alt0, on the BCM2711 serial blocks, and only
+`/dev/ttyAMA0` exists. There is no mux option that makes GPIO15 a transmitter, so an FPGA's TX must land on
+GPIO15: one correct wiring, no software escape (from the earlier docs page, not re-checked). The `pinctrl set
+14,15 a0` step for a CM4 is on [Compute Blade JTAG](https://docs.fpgas.online/en/latest/boards/acorn/wiring/compute-blade-jtag.html).
+
+**Compute Module 5.** `GPIO14/15` at alt4 on the RP1 (read on the four ps1 blades on 2026-10-07, above). Like the
+Pi 5, the RP1 offers several UART instances plus PIO, so pins can be reassigned in software. Measured on CM5
+Lite modules, but this is the RP1's behaviour, not something specific to the Lite (from the earlier docs page,
+not re-checked; it also named `/dev/ttyAMA10` on the CM5).
+
 Why the Pi 5 differs: `dtoverlay=disable-bt` frees the header UART on a Pi 0 to 4 as a side effect, but on a
 Pi 5 the firmware maps it to an overlay that only touches Bluetooth, so the header UART stays off until
 `uart0-pi5` turns it on (the comment in `tweeks.yml`). Turning it on would put a `console=serial0` console onto
@@ -63,7 +73,12 @@ ps1](https://docs.fpgas.online/en/latest/boards/acorn/installations/ps1.html) as
 
 ## Other serial ports on a Pi
 
-- **A Tiny Tapeout board's own USB serial** is `/dev/ttboard`, and the `fpgas-tt` daemon holds it open while
-  it runs ([The Tiny Tapeout stack](https://docs.fpgas.online/en/latest/setup/tinytapeout.html)).
+- **A Tiny Tapeout board's own USB serial** is `/dev/ttboard`: a udev rule in `fpgas-online-tt`
+  (`debian/60-fpgas-tt.rules`, main, read 2026-10-07) gives the demo board's RP2040/RP2350 CDC port that
+  symlink, matching `2e8a:0005` and `2e8a:000f`, `GROUP="dialout"`, mode 0660. The `fpgas-tt` daemon holds the
+  port open permanently and fans it out over WebSocket, so `mpremote` and the programming scripts cannot open
+  it while the daemon runs ([The Tiny Tapeout stack](https://docs.fpgas.online/en/latest/setup/tinytapeout.html);
+  the consequences are under [Serial port
+  ownership](https://docs.fpgas.online/en/latest/boards/tt-fpga.html#serial-port-ownership)).
 - **The USB-C console** on a Pi 4 or Pi 5, and **the kernel log over the network** (`netconsole` to the
   gateway, 10.21.0.1): [When a Pi does not boot](../netboot/not-booting.md).

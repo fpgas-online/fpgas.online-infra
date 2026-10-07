@@ -2,7 +2,6 @@
 
 **You want to check a statement on the netboot pages against the file or record it came from.** The list is from the earlier docs page; every entry was checked to exist on fpgas.online-infra main on 2026-10-07, but what each file is said to show was not re-checked.
 
-<a id="sources"></a>
 ## In fpgas.online-infra (main)
 
 - [`README.md`](https://github.com/fpgas-online/fpgas.online-infra/blob/main/README.md): architecture overview, PXE boot chain, package table.
