@@ -11,8 +11,8 @@
 # --duid=ll: the DHCPv6 identity from the MAC, the same at every boot (with
 # "=": the argument is optional, so a separate "ll" would be read as an
 # interface). The overlay root keeps no /var/lib/dhcpcd/duid and a Pi has no
-# system UUID, so
-# the default would be a new DUID-LLT each boot, and the port's one DHCPv6
+# system UUID, so the default would be a new DUID-LLT each boot, and the
+# port's one DHCPv6
 # address (a single-address range, 12 h leases) could still be leased to the
 # previous boot's identity. The hooks that could write resolv.conf, the
 # hostname or a time server's config are off: the Pi takes those elsewhere.
