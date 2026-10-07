@@ -32,4 +32,8 @@ The root is built from a pinned Raspberry Pi OS image, `2024-07-04-raspios-bookw
 <a id="the-ci-inventory"></a>
 ## The CI build
 
-CI builds the root on an arm64 runner (`ansible/ci-nfsroot.yml`, with `ci-nfsroot-base.yml`, `-runner.yml` and `-upgrade.yml`, against the inventory `ansible/inventory-ci-nfsroot`), over Ansible's `community.general.chroot` connection, and publishes it as an OCI image. It runs `fixpi` on the build host, then `fpgas_apt`, `cam_pi` and `onpi` inside the root (`ansible/ci-nfsroot.yml`, main, read 2026-10-07). The gateway no longer runs those roles: it pulls the image, and the pull leaves the site's `authorized_keys` files and SSH host keys alone (the rsync excludes in `roles/img/tasks/pull.yml`). `fixpi` then applies the per-site layer.
+CI builds the root on an arm64 runner (`ansible/ci-nfsroot.yml`, with `ci-nfsroot-base.yml`, `-runner.yml` and `-upgrade.yml`, against the inventory `ansible/inventory-ci-nfsroot`), over Ansible's `community.general.chroot` connection, and publishes it as an OCI image. Its first stage
+(`ansible/ci-nfsroot-base.yml`) runs the `img` role's `tasks/build.yml`: it installs `xz-utils` (a minimal
+Debian install has none: rebuild record B1-5), downloads the pinned Raspberry Pi OS image, and extracts it
+with `files/img2files.sh` (`xz -dk`, `losetup --partscan`, mount both partitions, rsync them into the root).
+Then it runs `fixpi` on the build host, then `fpgas_apt`, `cam_pi` and `onpi` inside the root (`ansible/ci-nfsroot.yml`, main, read 2026-10-07). The gateway no longer runs those roles: it pulls the image, and the pull leaves the site's `authorized_keys` files and SSH host keys alone (the rsync excludes in `roles/img/tasks/pull.yml`). `fixpi` then applies the per-site layer.

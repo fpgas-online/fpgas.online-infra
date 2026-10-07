@@ -182,5 +182,4 @@ Module](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom-compute-modu
 
 <a id="verify"></a>
 <a id="legitimately-updating-an-eeprom-later"></a>
-A change to the setting takes effect when a board next netboots the rebuilt image. Confirm on one board before
-relying on it fleet-wide. Raspberry Pi's wording and the CI check: [The EEPROM lock](netboot/eeprom.md).
+Raspberry Pi's wording, the CI check, and when a change takes effect: [The EEPROM lock](netboot/eeprom.md).

@@ -84,6 +84,12 @@ control](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html#power-contro
 
 ## How long the board is gone
 
+**Cycle a port before believing a small load.** On 2026-08-28 switch 2's port 16 had nothing connected, yet the
+switch reported it `delivering` 1.1 to 1.4 W for days. A PoE off then on cleared the reading to `searching` and
+0 mW, so it was a stale PoE-controller reading (`docs/hardware/2026-08-28-orange-pi-h3-boards.md`, "Ports still
+unexplained").
+
+
 The Pi netboots again: a kernel and a root over the network, not a resume from disk. The test automation
 allows about two minutes from power-on to SSH (`docs/verify-hardware.md` in fpgas.online-test-designs). [Acorns at
 welland](https://docs.fpgas.online/en/latest/boards/acorn/installations/welland.html#reads-of-september-2026) records, from its reads of September

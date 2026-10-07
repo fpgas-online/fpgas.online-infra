@@ -57,7 +57,8 @@ $ uv run ansible-playbook ansible/site.yml --limit fpgas.online --check --diff \
     -e img_nfsroot_image=ghcr.io/fpgas-online/nfsroot@sha256:<digest>
 ```
 
-The role's notify handler reloads (`state: reloaded`, `ExecReload=nft -f /etc/nftables.conf`), and that load is
+The role's notify handler reloads (`state: reloaded`; Debian's unit has `ExecReload=/usr/sbin/nft -f /etc/nftables.conf`,
+nftables 1.1.3-1, read 2026-10-07), and that load is
 atomic: a parse error fails and the running ruleset stays up. It is the converge task `Enable nftables service` that
 restarts the unit (`roles/firewall/tasks/main.yml`, main, read 2026-10-07). SSH surviving tells you nothing: both
 templates accept it unconditionally on the input chain, and an empty ruleset accepts everything.
@@ -113,7 +114,8 @@ route to the Pi network, `10.21.0.0/16`, which only the gateway has: `ansible/ss
 where that network is routed, or add a `ProxyJump` through the gateway to your own SSH configuration.
 
 `verify-server.yml` has three plays, one per group. The `nbp` play runs each server role's own `verify/` tasks
-(`automation_user`, `operators`, `jump`, `sshd`, `lldp`, `firewall`, `nfs`, `img`, `fixpi`, `pxe`), then asserts the
+(`apt_client`, `automation_user`, `operators`, `jump`, `sshd`, `lldp`, `firewall`, `nfs`, `img`, `fixpi`, `nspawn_pi`,
+`apt_cache`, `pxe`; `verify-server.yml` on main), then asserts the
 per-port state on hosts with `switches:` (a `v*` interface in `networkctl list`, `dnsmasq --test` clean, the
 `forward` chain at `policy drop`, `ports.conf` present) and finally that the NFS root really contains what the Pis
 need. The `uhubctl` play runs that role's verify tasks. The `pig` play verifies the web tier: `site`, then `ttsite`
@@ -126,7 +128,8 @@ nothing checks the NIC naming or the switch converge directly.
 **A reinstalled host.** `ansible/ssh.cfg` gives the automation its own `known_hosts` with
 `StrictHostKeyChecking accept-new` (a new host is learned, a changed key is refused) and `IdentityAgent none`
 (a hung forwarded agent would otherwise stall every connection). After a deliberate reinstall, run
-`refresh-known-hosts.yml` before the next `site.yml`: it removes the old key, scans the new one and pins it. The file is separate from the host-wide one the site's network tooling generates. The
+`refresh-known-hosts.yml` before the next `site.yml`: it removes the old key, scans the new one and pins it.
+The file is separate from the host-wide one the site's network tooling generates. The
 playbook re-scans with retries while the host finishes booting (plain `ssh-keyscan`, never `-H`, because hashed names
 break the `known_hosts` module). It runs with `become: false` on purpose: it manages the control node's own files,
 and a root-owned `known_hosts` stops the user's ssh appending anything later (rebuild record, P2-2 and P2-9). It
@@ -134,6 +137,8 @@ keyscans from the control node, so hosts on the Pi network, reachable only by ju
 rekeyed by it (from the earlier docs page, not re-checked).
 
 ## Testing without hardware
+
+How CI builds the Pi root itself is on [How the root is built](../netboot/root.md#the-ci-inventory).
 
 The whole gateway can be tested with no site at all. `tests/vm/` boots a Debian VM, applies the same
 `site.yml`, PXE-boots a virtual Raspberry Pi from it with the patched QEMU of
