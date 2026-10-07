@@ -68,11 +68,15 @@
     - "{{ nfs_root }}/boot/userconf.txt"
     - "{{ nfs_root }}/root/etc/ssh/password.txt"
 
+# Creates the marker if it is missing; an existing one keeps its times, so
+# the task reports ok (`state: touch` alone updates them on every run).
 - name: Enable sshd
   ansible.builtin.file:
     path: "{{ nfs_root }}/boot/ssh"
     state: touch
     mode: "0644"
+    access_time: preserve
+    modification_time: preserve
 
 - name: Get fixed sshswitch
   ansible.builtin.get_url:
