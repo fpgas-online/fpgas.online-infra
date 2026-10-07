@@ -24,7 +24,6 @@ Orange Pis carry no FPGA.
 <a id="deploying-and-reconverging"></a>
 - [Deploying](orange-pi/add.md#deploying).
 
-<a id="the-hub-host"></a>
 - [The hub host](#the-hub-host), below.
 
 <a id="design"></a>
