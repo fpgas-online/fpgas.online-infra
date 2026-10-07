@@ -32,13 +32,14 @@ has what was read on the welland Pi 5s.
 ## Freeing the header UART for a board
 
 When an FPGA board will drive the header UART, nothing else may hold it. In welland's root no console or
-login is on it, so check that the Pi has the port and that nothing has it open (`fuser` is in the `psmisc`
-package):
+login is on it, so check that the Pi has the port and that nothing has it open. `fuser` is in the `psmisc`
+package; if the root lacks it, `sudo apt install psmisc` puts it in this boot's tmpfs.
 
 ```console
-$ [ -e /dev/serial0 ] || echo "no header UART on this Pi: stop here"
-$ sudo fuser -v "$(readlink -f /dev/serial0)"
+$ if [ -e /dev/serial0 ]; then sudo fuser -v "$(readlink -f /dev/serial0)"; else echo "no header UART on this Pi"; fi
 ```
+
+If it printed "no header UART on this Pi", stop here: there is nothing to free.
 
 If a login is on it (a Pi booted from another root, such as a ps1 blade), stop it for this boot. `stop` alone
 is not enough, because systemd starts it again; mask it, then stop it:
