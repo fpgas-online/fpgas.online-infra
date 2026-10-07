@@ -1,0 +1,20 @@
+---
+# IPv6 on the Pi's eth0: the address the gateway's DHCPv6 holds for the switch
+# port, and a default route from its router advertisements. See the unit's
+# comment for why NetworkManager does not do it (Tim's answer welland-1,
+# 2026-10-07; design note in the coordinator's scratch data).
+- name: Install dhcpcd (the client only; it ships no service of its own)
+  ansible.builtin.apt:
+    name: dhcpcd-base
+    state: present
+
+- name: Install the IPv6 unit
+  ansible.builtin.copy:
+    src: etc/systemd/system/fpgas-ipv6.service
+    dest: /etc/systemd/system/fpgas-ipv6.service
+    mode: "0644"
+
+- name: Enable the IPv6 unit
+  ansible.builtin.systemd:
+    name: fpgas-ipv6.service
+    enabled: true

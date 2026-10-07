@@ -231,6 +231,9 @@
           print(json.dumps({
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
+              "eth0": exists("/sys/class/net/eth0"),
+              "ip6_default": run("ip", "-6", "route", "show", "default"),
+              "ipv6_unit": run("systemctl", "is-active", "fpgas-ipv6.service"),
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
               # What sshd shows before authentication: ask for no method at
@@ -317,6 +320,9 @@
         verify_pi_usb_console: "{{ verify_pi_state.usb_console }}"
         verify_pi_fleet_files: "{{ verify_pi_state.fleet_files }}"
         verify_pi_identity: "{{ verify_pi_state.identity }}"
+        verify_pi_eth0: "{{ verify_pi_state.eth0 }}"
+        verify_pi_ip6_default: "{{ verify_pi_state.ip6_default }}"
+        verify_pi_ipv6_unit: "{{ verify_pi_state.ipv6_unit }}"
         ansible_hostname: "{{ verify_pi_state.facts.hostname }}"
         ansible_kernel: "{{ verify_pi_state.facts.kernel }}"
         ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
@@ -352,6 +358,36 @@
         fail_msg: >-
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
+
+    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service runs dhcpcd
+    # on eth0, which takes the address the gateway's DHCPv6 holds for this
+    # switch port, <pib_network6_base><switch, two digits>::<port>, and a
+    # default route from its router advertisements. Where the site defines no
+    # IPv6 prefix, or the board has no eth0, there is nothing to check.
+    - name: Derive the expected per-port IPv6 address from hostname
+      ansible.builtin.set_fact:
+        verify_pi_expected_ip6: >-
+          {{ verify_pi_ip6_base ~ ('%02d' | format(verify_pi_sw_port[0] | int)) ~ '::' ~ (verify_pi_sw_port[1] | int) }}
+      vars:
+        verify_pi_ip6_base: "{{ hostvars[groups['nbp'][0]].pib_network6_base | default('') if groups['nbp'] is defined else '' }}"
+        verify_pi_sw_port: "{{ ansible_hostname | regex_search('^pi-sw(\\d+)-p(\\d+)$', '\\1', '\\2') }}"
+      when:
+        - groups['nbp'] is defined
+        - hostvars[groups['nbp'][0]].pib_network6_base is defined
+        - verify_pi_eth0.stat.exists
+        - ansible_hostname is match('^pi-sw[0-9]+-p[0-9]+$')
+
+    - name: Assert the per-port IPv6 address and an IPv6 default route
+      ansible.builtin.assert:
+        that:
+          - verify_pi_ipv6_unit.stdout == 'active'
+          - ('inet6 ' ~ verify_pi_expected_ip6 ~ '/') in verify_pi_addrs.stdout
+          - verify_pi_ip6_default.stdout | length > 0
+        fail_msg: >-
+          {{ ansible_hostname }}: expected fpgas-ipv6.service active (it is {{ verify_pi_ipv6_unit.stdout }}),
+          {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route
+          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }})
+      when: verify_pi_expected_ip6 is defined
 
     - name: Assert the Pi can reach the server
       ansible.builtin.assert:
