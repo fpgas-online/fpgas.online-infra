@@ -63,8 +63,9 @@ against "the server"; with the group empty, the `uhubctl` role never runs on any
 > [!NOTE]
 > Open, in fpgas.online-infra: the README's roles table calls `uhubctl` a server role though its inventory group is
 > empty, and the README still describes the NFS root as provisioned by `systemd-nspawn` and `qemu-user-static`
-> (README lines 14-32 and 144, read 2026-10-07) although CI builds it now. (The earlier docs page also named a `pi`
-> group in the README's host-groups table; it was not found there on 2026-10-07.)
+> (README lines 14-32 and 144, read 2026-10-07) although CI builds it now. The README's host-groups table also
+> lists a `pi` group, "nspawn chroot" (line 192), and `CLAUDE.md` names `pi` among `site.yml`'s host groups
+> (line 84); the inventory has no `pi` group.
 
 ## What runs on the gateway
 
