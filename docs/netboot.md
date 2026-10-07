@@ -154,9 +154,10 @@ faults](https://docs.fpgas.online/en/latest/sites/welland.html) on the Welland p
 
 ## EEPROM write protect
 
-Everything a user changes on a fleet Pi's root is gone at the next reboot, but not the bootloader EEPROM: the
-flash holding the Pi's second-stage bootloader and its settings (`BOOT_ORDER` and the rest). A user with root
-could rewrite it with `rpi-eeprom-update`, `rpi-eeprom-config` or `flashrom` and change how the board boots
+Users have root on the fleet Pis, on purpose. Everything a user changes on a fleet Pi's root is gone at the
+next reboot, but not the bootloader EEPROM, the one piece of the Pi's own state that is not in the NFS root:
+the flash holding the Pi's second-stage bootloader and its settings (`BOOT_ORDER`, `NET_INSTALL_*` and the
+rest). A user with root could rewrite it with `rpi-eeprom-update`, `rpi-eeprom-config` or `flashrom` and change how the board boots
 for good. (A board's own flash, an Acorn's for example, is a separate matter, on its board's pages.) So the
 served `config.txt` carries `eeprom_write_protect=1` (`roles/fixpi/tasks/tweeks.yml`), which tells the
 bootloader to set the flash's Write Status Register to protect the whole chip, at every boot.
