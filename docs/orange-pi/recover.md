@@ -76,19 +76,17 @@ captures from enumeration rather than reading on demand.
 ## Check a board
 
 `verify-pi.yml` checks an Orange Pi as it checks a Raspberry Pi, and adds: that it runs the armmp kernel from
-the shared root; that that the audio codec
-modules are not loaded; and that the board on the port carries the HAT UUID of its row in `sunxi_boards`
-(`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address ([Deploying to a
-gateway](../gateway/deploy.md#4-check) for where to run it from).
+the shared root; that the audio codec modules are not loaded; and that the board on the port carries the HAT
+UUID of its row in `sunxi_boards` (`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address
+([Deploying to a gateway](../gateway/deploy.md#4-check) for where to run it from).
 
-`verify-pi.yml` also checks the hub host's FEL-boot markers (that `/run/fpgas-felboot/` holds a marker for the
-USB path of every board in `sunxi_boards` that names that host), but only when the hub host is itself in the
-run: the check is skipped on every other host (`ansible/verify-pi.yml`, infra main, read 2026-10-07). On 6 October
-2026 it did not run, because the hub host was not in the run: it boots its own SD image and refused the `pi`
-key, so it was left out of the wave (the coordinator's deploy record,
-`scratch/data/welland/deploy-a-STATE.md`, 12:23 entry: "Hub Pi 10.21.2.30 is SD-booted (key refused), not part
-of the wave"). To check the markers, read them on the hub host as above, or run `verify-pi.yml` against it with
-an account it accepts ([The hub host](hub-host.md#the-hub-host)).
+`verify-pi.yml` also has a check of the FEL-boot markers (that `/run/fpgas-felboot/` holds a marker for the USB
+path of every board in `sunxi_boards` whose `host` is that host), but it runs only on a host whose own hostname
+equals that `host` field, `pi-sw2-p30` (`ansible/verify-pi.yml`, infra main, read 2026-10-07). The hub host's
+own hostname is `rpi5-new-13f59c` (the gateway's DHCPv6 leases, read 4 and 5 October 2026), so the check runs
+nowhere today: on 6 October 2026 `verify-pi.yml` ran on ports 19, 21, 22 and 24 and skipped it on all four (the
+deploy record of that day). To check the markers, read them on the hub host as above
+([The hub host](hub-host.md#the-hub-host)).
 
 On 6 October 2026 the four boards that came back all failed one check: the HAT's ID EEPROM could not be read,
 because there is no `/dev/i2c-1` (fpgas.online-infra issue #200, open). `verify-pi.yml` stops at a board's first

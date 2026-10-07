@@ -19,9 +19,9 @@ to `1-1.4`, giving 16 downstream ports; the USB-3 twin at `2-1` (0bda:0411) has 
   gateway still hands it `10.21.2.30` and `pi-sw2-p30` on the per-port VLAN, so the boards' addressing is
   unchanged.
 - **Corrections to the 2026-08-28 text.** The card then was 8 GB. On 2026-09-05 that card was made into the
-  EEPROM recovery card for two Pi 5s, and the host runs from a 32 GB microSD (project note
-  `welland-p30-hub-host`, not re-checked). On 6 October 2026 the deploy found it SD-booted with the `pi` key
-  refused, and left it out of the wave (`scratch/data/welland/deploy-a-STATE.md`, 12:23 entry).
+  EEPROM recovery card for two Pi 5s, and the host runs from a 32 GB microSD (an operator's note of
+  that day, not re-checked). On 5 October 2026 a deploy found it SD-booted with the `pi` key refused, and left it
+  out of the power-cycle wave (the deploy record of that day).
 
 Three things were hand-configured on that OS, to be captured by `welland-ansible-rpi` when the host is enrolled
 there (from the earlier docs page, not re-checked on the host):
@@ -31,9 +31,10 @@ there (from the earlier docs page, not re-checked on the host):
   on this OS: a PoE-cycled board was back in 72 s.
 - **The NetworkManager profile** `netplan-eth0` with `ipv4.never-default yes` and `ipv6.never-default yes`,
   because eth0 (the gateway's VLAN) has no internet and `wlan0` carries the default route.
-- **Verification.** `verify-pi.yml` logs in as `pi` against the NFS root, so it does not apply to this host
-  unless you give it an account the host accepts. Its Orange Pi marker check runs only when the hub host is in
-  the run ([Check a board](recover.md#check-a-board)); moving that check to the fleet repository is open.
+- **Verification.** `verify-pi.yml` is written for hosts that boot the NFS root and does not apply to this
+  host as it is: its FEL-boot marker check runs only on a host named `pi-sw2-p30`, and this host's own hostname
+  is `rpi5-new-13f59c` ([Check a board](recover.md#check-a-board)). Moving that check to the fleet repository is
+  open.
 
 Check the host's packages with a plain `dpkg -l fpgas-online-setup-pi sunxi-tools` over ssh on the host itself:
 the `chroot` check in [Deploying](add.md#deploying) looks at the shared NFS root, which the boards run, not at
