@@ -1,0 +1,38 @@
+#!/bin/bash
+# Give eth0 the board's IPv6 address and a default route, from the host name
+# (fpgas.online-infra, Tim's answer welland-1, 2026-10-07).
+#
+# The address follows the switch port: the gateway's DHCPv4 names the Pi
+# pi-sw<S>-p<P>, and the port's IPv6 address is <base><S, two digits>::<P>,
+# the formula of the port_vlan_map filter (ansible/filter_plugins/port_vlans.py,
+# "ip6"). The gateway answers for <base><S, two digits>::ffff on every port
+# interface of switch S and routes <address>/128 back to this port. The base is
+# the site's pib_network6_base, which fixpi writes to /etc/fpgas-online/ipv6-base.
+#
+# Static, not DHCPv6 or router advertisements: dhcpcd 9.4.1 dies at start on
+# the 32-bit Pis (its privilege separation), and the gateway's dnsmasq refreshes
+# advertisements only on one interface per switch prefix, so an advertised route
+# lapses (PR #251's description has the evidence).
+#
+# Idempotent (replace, not add); does nothing where the site has no IPv6 base or
+# the host name is not a per-port name.
+set -eu
+
+base_file=${FPGAS_IPV6_BASE_FILE:-/etc/fpgas-online/ipv6-base}
+[ -r "$base_file" ] || { echo "no $base_file: nothing to do"; exit 0; }
+base=$(tr -d '[:space:]' < "$base_file")
+host=$(hostname)
+if [[ ! $host =~ ^pi-sw([0-9]+)-p([0-9]+)$ ]]; then
+    echo "host name $host is not pi-sw<S>-p<P>: nothing to do"
+    exit 0
+fi
+switch=$((10#${BASH_REMATCH[1]}))
+port=$((10#${BASH_REMATCH[2]}))
+prefix=$(printf '%s%02d' "$base" "$switch")
+address="${prefix}::${port}"
+gateway="${prefix}::ffff"
+
+ip -6 addr replace "${address}/128" dev eth0
+ip -6 route replace "${gateway}/128" dev eth0
+ip -6 route replace default via "$gateway" dev eth0 metric 512
+echo "eth0: ${address}/128, default via ${gateway}"

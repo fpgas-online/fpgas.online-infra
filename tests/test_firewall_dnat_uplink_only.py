@@ -44,3 +44,19 @@ def test_verify_server_checks_the_loaded_dnat_rules():
     text = VERIFY_SERVER.read_text()
     assert "nft list chain ip nat prerouting" in text
     assert "Assert every per-board DNAT rule is limited to the uplink interface" in text
+
+
+def test_the_per_board_ports_are_forwarded_over_ipv6_too():
+    # Board ssh over IPv6 (Tim's answer welland-1, 2026-10-07): the same ports on
+    # the gateway's own global address, to the board's address in its switch's /64.
+    half = _per_port_half()
+    assert "table ip6 nat {" in half
+    assert "ip6 daddr {{ pib_network6_base }}00::1" in half
+    assert "dnat to [{{ e.ip6 }}]:22" in half
+    assert "dnat to [{{ e.ip6 }}]:4444" in half
+
+
+def test_verify_server_checks_the_loaded_ipv6_dnat_rules():
+    text = VERIFY_SERVER.read_text()
+    assert "nft list chain ip6 nat prerouting" in text
+    assert "Assert the IPv6 per-board DNAT rules are there and limited to the uplink interface" in text
