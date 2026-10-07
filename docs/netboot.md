@@ -165,8 +165,12 @@ bootloader to set the flash's Write Status Register to protect the whole chip, a
 How much that protects depends on the model (the role's own comment, and Raspberry Pi's `config.txt`
 documentation, section `eeprom_write_protect`):
 
-- **Raspberry Pi 5:** the flash's `/WP` pin is pulled low by default, so the register setting is enforced by
-  the hardware; clearing it needs the `TP14` and `TP1` pads joined.
+- **Raspberry Pi 5:** by Raspberry Pi's description the flash's `/WP` pin is pulled low by default, so the
+  setting alone stops the standard tools and is a hardware lock: clearing it needs the `TP14` and `TP1` pads
+  joined. Whether root on the Pi can clear it anyway has not been tried: the flash's datasheet says `/WP` is
+  disabled when `QE=1`, as it is on these boards, so it may be possible ([Not yet
+  known](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html#not-yet-known)). Treat the lock as
+  protection against accident and the standard tools, not as proven against a determined user.
 - **Raspberry Pi 4:** `/WP` (`TP5`) is not pulled low by default, so the setting stops the standard tools,
   but a root user could clear the register; pulling `TP5` low makes it a hardware lock.
 - **Compute Module 4:** `/WP` is the module's `EEPROM_nWP` pin (Raspberry Pi's documentation), and what it is
