@@ -29,9 +29,12 @@ Pi 5, the RP1 offers several UART instances plus PIO, so pins can be reassigned 
 Lite modules, but this is the RP1's behaviour, not something specific to the Lite (from the earlier docs page,
 not re-checked; it also named `/dev/ttyAMA10` on the CM5).
 
-Why the Pi 5 differs: `dtoverlay=disable-bt` frees the header UART on a Pi 0 to 4 as a side effect, but on a
-Pi 5 the firmware maps it to an overlay that only touches Bluetooth, so the header UART stays off until
-`uart0-pi5` turns it on (the comment in `tweeks.yml`). Turning it on would put a `console=serial0` console onto
+Why the Pi 5 differs: `dtoverlay=disable-bt` frees the header UART on a Pi 0 to 4 as a side effect, because
+`disable-bt.dtbo` is `compatible="brcm,bcm2835"` and one of its fragments turns `uart0` on. On a Pi 5 the
+firmware resolves the same line to `disable-bt-pi5.dtbo` (`compatible="brcm,bcm2712"`), whose only fragment
+targets `bluetooth`, and the Pi 5 device tree ships the RP1 header UART disabled; so it stays off until
+`uart0-pi5` turns it on (the comment in `roles/fixpi/tasks/tweeks.yml`, read 2026-10-07; added by
+fpgas.online-infra PR #32, "enable the 40-pin header UART on Pi 5 (Acorn serial link)", merged 2026-08-31). Turning it on would put a `console=serial0` console onto
 the FPGA's UART; the Pi 5's command line therefore names `ttyAMA10`. These console rows are what the templates
 serve; a `/proc/cmdline` read on each model at welland is still to do.
 
