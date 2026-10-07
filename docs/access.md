@@ -6,7 +6,7 @@
 
 Who can log in to the Welland gateway (tweed, inventory host `fpgas.online`)
 and to the netbooted Pi fleet, with what, and which role and variable decide
-it. Everything here is what `main` configures. It was deployed to tweed
+it. Everything on these pages is what `main` configures. It was deployed to tweed
 (`main` 4de0b24) and checked live on 2026-09-29:
 
 - a password-only login to tweed gets `Permission denied (publickey)`;
@@ -47,7 +47,7 @@ through tweed.
 <a id="the-pi-nfs-root"></a>
 <a id="who-owns-authorized_keys-and-why-a-key-change-reboots-the-fleet"></a>
 - [The Pi NFS root](access/pi-root.md): the boards' accounts, the `pi` password, the keys and the host key, and
-  why a key change reboots the fleet.
+  [why a key change reboots the fleet](access/pi-root.md#who-owns-authorized_keys-and-why-a-key-change-reboots-the-fleet).
 
 <a id="logging-in"></a>
 - [Logging in](access/logging-in.md): the command for each account, from inside the site, over IPv6 or through

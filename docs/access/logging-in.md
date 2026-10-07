@@ -2,6 +2,8 @@
 
 **You want to log in to tweed or to a board, and need the command for where you are.** Which accounts exist: [tweed](tweed.md) and [The Pi NFS root](pi-root.md).
 
+A board's address is `10.21.S.P`, for the board on switch S, port P: `pi-sw2-p29` is `10.21.2.29` ([At a glance](../access.md#at-a-glance)).
+
 | To | Command | Authenticates with |
 |---|---|---|
 | tweed, as yourself | inside the site, over wg or over IPv6: `ssh <you>@tweed.welland.mithis.com`; from the upstream router: `ssh <you>@10.99.21.2` | your GitHub key |

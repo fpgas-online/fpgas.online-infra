@@ -39,3 +39,7 @@ the vaulted private key, `~/.ssh/fpgas.online-ansible{,.pub}` on every
 controller, and the preseed's copy, and then converging. `automation_user`
 writes the new key exclusively on tweed and fixpi writes it into the Pi root
 (fleet reboot).
+
+## After the converge
+
+A change to the Pis' keys reboots each board in its stagger slot ([how long](pi-root.md#who-owns-authorized_keys-and-why-a-key-change-reboots-the-fleet)). Then check the change with [Verifying](verifying.md), and log in as the person would with [Logging in](logging-in.md).

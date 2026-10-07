@@ -22,4 +22,4 @@ down or returns nothing:
 - for the Pi root it stops before the update lock is taken and before the image
   is extracted, so the fleet and its root are left as they were.
 
-Re-run once GitHub answers again.
+Re-run once GitHub answers again ([Converging the change](people.md#converging-the-change)).
