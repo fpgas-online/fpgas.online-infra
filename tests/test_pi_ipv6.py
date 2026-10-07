@@ -50,10 +50,13 @@ def _ipv4(*pairs: tuple[str, str]) -> str:
 
 
 LO = ("lo", "127.0.0.1")
+# fixpi's cmdline.txt.j2, as a Pi boots it
+CMDLINE = ("root=/dev/nfs nfsroot=10.21.0.1:/srv/nfs/rpi/bookworm/root,nfsvers=3,tcp ro ip=dhcp rootwait "
+           "overlayroot=tmpfs console=tty1\n")
 
 
 def _run(tmp_path: Path, hostname: str, base: str | None, ipv4: str | None = None,
-         check: bool = True) -> tuple[str, list[str]]:
+         check: bool = True, cmdline: str | None = None) -> tuple[str, list[str]]:
     stubs = tmp_path / "bin"
     stubs.mkdir()
     log = tmp_path / "ip.log"
@@ -73,7 +76,10 @@ def _run(tmp_path: Path, hostname: str, base: str | None, ipv4: str | None = Non
     base_file = tmp_path / "ipv6-base"
     if base is not None:
         base_file.write_text(base + "\n")
-    env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", FPGAS_IPV6_BASE_FILE=str(base_file))
+    cmdline_file = tmp_path / "cmdline"
+    cmdline_file.write_text(CMDLINE if cmdline is None else cmdline)
+    env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", FPGAS_IPV6_BASE_FILE=str(base_file),
+               FPGAS_IPV6_CMDLINE=str(cmdline_file))
     r = subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True, check=check)
     return r.stdout + r.stderr, log.read_text().splitlines() if log.exists() else []
 
@@ -94,7 +100,8 @@ def test_the_script_sets_the_port_vlan_map_address_and_the_gateway_route(tmp_pat
 # eth0: a Pi 5's (pi-sw2-p43). Other interfaces with addresses of their own are ignored.
 @pytest.mark.parametrize("dev", ["eth-uplink", "eth0", "enxb827eb123456"])
 def test_the_script_uses_the_interface_with_the_ports_ipv4_address(tmp_path, dev):
-    ipv4 = _ipv4(LO, ("usb0", "192.168.7.2"), (dev, "10.21.1.10"), ("wlan0", "10.21.9.10"))
+    # 192.168.1.10 ends in the port's .1.10 but is not on the board's network
+    ipv4 = _ipv4(LO, ("usb0", "192.168.1.10"), (dev, "10.21.1.10"), ("wlan0", "10.21.9.10"))
     out, calls = _run(tmp_path, "pi-sw1-p10", BASE, ipv4)
     assert len(calls) == 3 and all(f"dev {dev}" in c for c in calls), calls
     assert out.startswith(f"{dev}: ")
@@ -107,7 +114,7 @@ def test_the_script_uses_the_interface_with_the_ports_ipv4_address(tmp_path, dev
 ])
 def test_the_script_refuses_to_guess_the_interface(tmp_path, ipv4, names):
     out, calls = _run(tmp_path, "pi-sw1-p10", BASE, ipv4, check=False)
-    assert "expected one interface carrying the port's IPv4 address *.1.10, found: " in out, out
+    assert "expected one interface carrying the port's IPv4 address 10.21.1.10, found: " in out, out
     found = out.split("found: ", 1)[1].split()
     assert sorted(found) == sorted(names), out
     assert calls == []
@@ -146,3 +153,8 @@ def test_verify_pi_checks_the_address_and_the_route():
     # every per-port Pi is checked, whatever its interface is called
     assert "eth0" not in text.split("- name: Derive the expected per-port IPv6 address from hostname")[1].split("- name:")[1]
     assert "verify_pi_eth0" not in text
+
+
+def test_the_script_refuses_without_the_nfs_server_on_the_command_line(tmp_path):
+    out, calls = _run(tmp_path, "pi-sw1-p10", BASE, check=False, cmdline="console=tty1 root=/dev/mmcblk0p2\n")
+    assert "no nfsroot=<server>:<path>" in out and calls == [], out

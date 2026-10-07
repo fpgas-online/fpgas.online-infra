@@ -15,7 +15,7 @@
 # lapses (PR #251's description has the evidence).
 #
 # The interface is the one that carries the port's IPv4 address, <net>.S.P
-# (port_vlan_map's "ip", which the kernel's ip=dhcp set), found at start, not a
+# (port_vlan_map's "ip", which the kernel's ip=dhcp set; <net> from nfsroot=), found at start, not a
 # fixed name: the setup-pi .link files name a Pi 3B+'s NIC eth-uplink and a Pi
 # 5's eth0, and on 2026-10-08 7 of the 20 live welland Pis had no eth0.
 # Anything other than exactly one such interface is an error, not a guess.
@@ -38,10 +38,16 @@ prefix=$(printf '%s%02d' "$base" "$switch")
 address="${prefix}::${port}"
 gateway="${prefix}::ffff"
 
-devs=$(ip -4 -o addr show | awk -v sp="${switch}.${port}" \
-    '{split($4, a, "/"); n = split(a[1], o, "."); if (n == 4 && o[3] "." o[4] == sp) print $2}' | sort -u)
+# The network's first two octets are the NFS server's, from the kernel command
+# line (nfsroot=<server>:<path>, fixpi's cmdline templates): the port's address
+# is <those>.S.P.
+cmdline_file=${FPGAS_IPV6_CMDLINE:-/proc/cmdline}
+net=$(sed -n 's/.*nfsroot=\([0-9]*\.[0-9]*\)\.[0-9]*\.[0-9]*:.*/\1/p' "$cmdline_file")
+[ -n "$net" ] || { echo "no nfsroot=<server>:<path> in $cmdline_file: cannot tell the port's IPv4 address" >&2; exit 1; }
+want="${net}.${switch}.${port}"
+devs=$(ip -4 -o addr show | awk -v want="$want" '{split($4, a, "/"); if (a[1] == want) print $2}' | sort -u)
 if [ "$(printf '%s\n' "$devs" | grep -c .)" -ne 1 ]; then
-    echo "expected one interface carrying the port's IPv4 address *.${switch}.${port}, found: ${devs:-none}" >&2
+    echo "expected one interface carrying the port's IPv4 address ${want}, found: ${devs:-none}" >&2
     exit 1
 fi
 dev=$devs
