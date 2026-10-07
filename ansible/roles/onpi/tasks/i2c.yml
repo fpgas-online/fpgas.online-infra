@@ -1,0 +1,9 @@
+---
+# /dev/i2c-N for every I2C bus (issue #200): the kernel had the buses on the
+# Orange Pis and the Raspberry Pis, but no character devices, because nothing
+# loaded i2c-dev (read on pi-sw2-p19 and pi-sw2-p43, 2026-10-08).
+- name: Load i2c-dev at boot
+  ansible.builtin.copy:
+    src: etc/modules-load.d/fpgas-i2c-dev.conf
+    dest: /etc/modules-load.d/fpgas-i2c-dev.conf
+    mode: "0644"
