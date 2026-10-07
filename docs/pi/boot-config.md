@@ -54,6 +54,6 @@ boot) and `profile.d/wifi-check.sh` (a "Wi-Fi is blocked by rfkill" warning on e
 `/dev/null`: `ifupdown` is unused with `ip=dhcp` plus NetworkManager, and `ifupdown-pre.service` sat through its
 full two-minute `udevadm settle` on an Orange Pi H3 before anything else could start (spike of 2026-08-28:
 userspace 2 m 16 s, of which `ifupdown-pre` 2 m 02 s; the stuck udev event underneath was never identified). It
-writes `pistat_host` into `/etc/environment`, where the units shipped by `fpgas-online-setup-pi` read the server
+writes `pistat_host` into `/etc/environment`, where the [units shipped by `fpgas-online-setup-pi`](setup-pi-units.md) read the server
 name. The `fpgas-hostname-hosts.service` unit and the `timesyncd` drop-in that points the Pi's clock at the
 gateway are `fixpi`'s too, from `netboot.yml`.

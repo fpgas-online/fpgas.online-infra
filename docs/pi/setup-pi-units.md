@@ -23,7 +23,7 @@ task in `onpi`; udev starts the first four.
 
 The task files that used to enable them (`pistat.yml`, `arty_here.yml`, `arty_wire.yml`, `arty_blink.yml`) are no
 longer in fpgas.online-infra main (read 2026-10-07). The fleet agent (`fpgas-fleet-agent`,
-`fpgas-fleet-event@…`, in the table above) is what reports the Pi and its boot stages now.
+`fpgas-fleet-event@…`, in the table on [Services on a Pi host](services.md#the-units-the-root-enables)) is what reports the Pi and its boot stages now.
 
 > [!NOTE]
 > Enabling the Arty three is not a one-line fix. Their unit bodies were never updated when the package took

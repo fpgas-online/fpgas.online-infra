@@ -12,7 +12,6 @@ logins](https://docs.fpgas.online/en/latest/setup/access.html)).
 
 <a id="services"></a>
 - [Services](pi/services.md): the systemd units the root enables.
-
 - [Units shipped by fpgas-online-setup-pi](pi/setup-pi-units.md), and why the pistat and Arty units do not run.
 
 <a id="boot-time-configuration"></a>
