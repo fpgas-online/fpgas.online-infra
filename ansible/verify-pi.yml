@@ -361,11 +361,12 @@
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
 
-    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service runs dhcpcd
-    # on eth0, which takes the address the gateway's DHCPv6 holds for this
-    # switch port, <pib_network6_base><switch, two digits>::<port>, and a
-    # default route from its router advertisements. Where the site defines no
-    # IPv6 prefix, or the board has no eth0, there is nothing to check.
+    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service gives eth0
+    # the port's address, <pib_network6_base><switch, two digits>::<port>, and a
+    # default route via the gateway's <...>::ffff, from the host name. The
+    # address is computed here from the inventory, independently of the Pi's
+    # copy of the formula. Where the site defines no IPv6 prefix, or the board
+    # has no eth0, there is nothing to check.
     - name: Derive the expected per-port IPv6 address from hostname
       ansible.builtin.set_fact:
         verify_pi_expected_ip6: >-
@@ -384,12 +385,12 @@
         that:
           - verify_pi_ipv6_unit.stdout == 'active'
           - ('inet6 ' ~ verify_pi_expected_ip6 ~ '/') in verify_pi_addrs.stdout
-          - verify_pi_ip6_default.stdout | length > 0
+          - ('default via ' ~ (verify_pi_expected_ip6 | regex_replace('::[0-9]+$', '::ffff')) ~ ' ') in verify_pi_ip6_default.stdout
         fail_msg: >-
           {{ ansible_hostname }}: expected fpgas-ipv6.service active (it is {{ verify_pi_ipv6_unit.stdout }}),
-          {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route
-          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). Right after a boot, DHCPv6 may
-          still be under way: check again before treating this as a fault. The unit's journal:
+          {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route via
+          {{ verify_pi_expected_ip6 | regex_replace('::[0-9]+$', '::ffff') }}
+          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). The unit's journal:
           {{ verify_pi_ipv6_journal.stdout_lines | default([]) }}
       when: verify_pi_expected_ip6 is defined
 
