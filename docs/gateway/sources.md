@@ -2,7 +2,6 @@
 
 **You want to check a statement on the gateway pages against the file or record it came from.** The list is from the earlier docs page; the entries were not all re-read, and what each file is said to show was not re-checked. Entries about tags and the `pxe` and `onpi` inventory groups are left out: the tags are gone ([Deploying to a gateway](deploy.md)), and so are the groups.
 
-<a id="sources"></a>
 ## In fpgas.online-infra (main)
 
 - [`README.md`](https://github.com/fpgas-online/fpgas.online-infra/blob/main/README.md): the host-groups and roles tables, the deploy and verify command lines, the vault-password note, the QEMU test harness description including the rpi-qemu GENET emulation, the TCG runtime and the CI workflow.
