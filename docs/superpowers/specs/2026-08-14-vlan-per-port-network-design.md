@@ -1,5 +1,7 @@
 # VLAN-per-port network design for fpgas.online
 
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
+
 Date: 2026-08-14
 Status: draft, awaiting review
 Scope: welland site (tweed.welland.mithis.com + Netgear switches).
@@ -80,7 +82,7 @@ tweed eth-local ═══ trunk ═══ [switch 1] ═══ trunk ═══ [
 ## Switch management
 
 Management stays exactly as it is today: each switch is managed over
-the global **net VLAN 5** (`10.1.5.x`, DHCP/DNS from ten64) via its
+the global **net VLAN 5** (`10.1.5.x`, DHCP/DNS from the upstream router) via its
 existing house-network connection. Nothing management-related rides
 the fpgas trunk. Known units:
 

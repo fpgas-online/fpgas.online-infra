@@ -1,4 +1,6 @@
-# Runbook: open the WebRTC media port on ten64 (IPv4 DNAT)
+# Runbook: open the WebRTC media port on the upstream router (IPv4 DNAT)
+
+> The upstream router's host name was replaced by its role on 7 October 2026, under Tim's rule that fpgas.online does not name that host; the record is otherwise unchanged.
 
 Date: 2026-09-02. Companion to `roles/webrtc` (mediamtx WHEP streaming).
 
@@ -8,13 +10,13 @@ WebRTC media (ICE) runs on UDP (with TCP fallback) on a single muxed port,
 `webrtc_media_port` (8189), terminated by mediamtx on tweed. IPv6 viewers
 reach tweed directly (`2404:e80:a137:2100::1`; tweed's own nftables input
 accepts the port - roles/firewall). IPv4 viewers must come through the one
-public address, ten64.welland's `87.121.95.37` - and ten64 is **not managed
+public address, the upstream router's `87.121.95.37` - and the upstream router is **not managed
 by this repository**: its nginx SNI proxy handles only TCP :443
-(`/etc/nginx/HTTPS-SNI-PROXY.md` on ten64), which WebRTC's UDP media cannot
+(`/etc/nginx/HTTPS-SNI-PROXY.md` on the upstream router), which WebRTC's UDP media cannot
 ride. WHEP *signalling* needs nothing here: it is plain HTTPS, proxied like
 every other request to `/cam/<host>/whep`.
 
-## The change (on ten64, by hand)
+## The change (on the upstream router, by hand)
 
 Static port-forwards live in the `published_dnat4` map in
 `/etc/nftables.d/zones.nft` (forward traffic is auto-accepted by the
@@ -37,13 +39,13 @@ then `sudo nft -f /etc/nftables.conf` and commit /etc (etckeeper).
   `87.121.95.37:8189` (IPv4 client) or `2404:e80:a137:2100::1:8189` (IPv6).
 - On tweed: `sudo nft list chain inet filter input | grep 8189` shows the
   accepts and their packet counters moving while a WHEP session runs.
-- On ten64: `sudo nft list map inet fw published_dnat4` includes the two
+- On the upstream router: `sudo nft list map inet fw published_dnat4` includes the two
   8189 entries; `sudo nft list counters | grep dnat_fwd` moves.
 
 ## Deploy ordering (whole WebRTC series)
 
 1. infra: this branch (mediamtx role + firewall + vhost include) converges
-   tweed; then the manual ten64 DNAT above.
+   tweed; then the manual DNAT on the upstream router above.
 2. Move the publishers onto the new nginx config. mediamtx pulls each
    camera from nginx-rtmp on demand, which only works once `wait_video on`
    is gone from the worker the Pi is publishing to - and an nginx reload
