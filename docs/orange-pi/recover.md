@@ -13,7 +13,7 @@ bind on these boards. Once Linux is up, each board's OTG cable presents a `0525:
 the board, running `dmesg --follow`) and `...:2.2` is a login getty. The hub host's
 `fpgas-usb-console-log@ttyACM*.service` appends the log port to `/var/log/fpgas-usb-console/<hub port>.log`
 from the moment the gadget enumerates, so these are the only console the boards have (units:
-[Units shipped by fpgas-online-setup-pi](../pi/services.md#units-shipped-by-fpgas-online-setup-pi)). Every path
+[Units shipped by fpgas-online-setup-pi](../pi/setup-pi-units.md)). Every path
 is keyed by the board's USB path, not its hostname or its switch port: port 21 is `1-1.3.1`
 ([the table](../orange-pi.md#which-board-is-where)).
 
@@ -26,7 +26,10 @@ $ ls /run/fpgas-felboot/                  # one marker per board U-Boot was load
 $ journalctl -u 'fpgas-felboot@*'         # the FEL-boot attempts
 ```
 
-(fpgas-online-setup-pi `README.md`; the marker is what `verify-pi.yml` checks for each board.)
+(fpgas-online-setup-pi `README.md`; the marker is what `verify-pi.yml` checks for each board.) The journal shows
+recent attempts only; the marker is there because the journal is no record to rely on: it is volatile, it rotates within minutes under the
+systemd debug logging, and a finished oneshot instance is unloaded from `systemctl` (`verify-pi.yml`, the
+comment above the marker check, read 2026-10-07).
 
 - **A healthy boot, on the clock.** A board reaches `multi-user` about
   35–52 s after power-on and its gadget enumerates on the hub host at about 55 s,
@@ -75,7 +78,7 @@ captures from enumeration rather than reading on demand.
 ## Check a board
 
 `verify-pi.yml` checks an Orange Pi as it checks a Raspberry Pi, and adds: that it runs the armmp kernel from
-the shared root; that the audio codec modules are not loaded; and that the board on the port carries the HAT
+the shared root and is an `armv7l` system; that the audio codec modules are not loaded; and that the board on the port carries the HAT
 UUID of its row in `sunxi_boards` (`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address
 ([Deploying to a gateway](../gateway/deploy.md#4-check) for where to run it from).
 

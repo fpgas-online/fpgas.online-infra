@@ -1,8 +1,8 @@
 # Where each fact on the Pi pages comes from
 
 **You operate the fleet and want to check a fact on the Pi pages against the file it was read from, or to know
-which file to change.** These are the files behind [What runs on a Pi host](../pi.md), [Services and boot
-settings](services.md) and [Pi models and serial consoles](models.md). The list is from the earlier docs page,
+which file to change.** These are the files behind [What runs on a Pi host](../pi.md), [Services on a Pi host](services.md), [Units shipped by
+fpgas-online-setup-pi](setup-pi-units.md), [Boot-time configuration](boot-config.md) and [Pi models and serial consoles](models.md). The list is from the earlier docs page,
 corrected against fpgas.online-infra main, fpgas.online-setup-pi main, fpgas.online-cam main and
 fpgas.online-tt main, read 2026-10-07.
 
