@@ -48,6 +48,14 @@ Ansible names the gateways after their public names: inventory host `fpgas.onlin
 | `pig` | `fpgas.online`, `ps1.fpgas.online` | the web tier, `web.yml` (imported by `site.yml`) |
 | `uhubctl` | none | USB hub power control; its only member stopped resolving in 2026-08 and was retired on 2026-09-04 |
 
+<a id="the-old-onpi-group"></a>
+The inventory used to have an `onpi` group: a host `pi`, reached as the `piroot` account on the gateway, whose
+login shell `chroot`ed into the NFS root to provision it. It is gone (`ansible/inventory/hosts`, comment). The
+`operators` role deletes what was left on a gateway: the account's sudoers file (a passwordless `sudo chroot`,
+that is, root), its login shell `/usr/local/bin/chroot-shell` and the account itself
+(`roles/operators/defaults/main.yml`, `operators_retired_accounts` and `operators_retired_files`; read
+2026-10-07).
+
 The group membership is what Ansible acts on. The infra README's roles table still describes `uhubctl` as a server
 role (`README.md`, main, read 2026-10-07), and `CLAUDE.md` describes `site.yml` as running `nbp`/`uhubctl`/`pig`
 against "the server"; with the group empty, the `uhubctl` role never runs on any gateway.
