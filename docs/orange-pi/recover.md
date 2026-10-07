@@ -80,7 +80,7 @@ captures from enumeration rather than reading on demand.
 `verify-pi.yml` checks an Orange Pi as it checks a Raspberry Pi, and adds: that it runs the armmp kernel from
 the shared root and is an `armv7l` system; that the audio codec modules are not loaded; and that the board on the port carries the HAT
 UUID of its row in `sunxi_boards` (`verify-pi.yml` on fpgas.online-infra main). Run it on the board's address
-([Deploying to a gateway](../gateway/deploy.md#4-check) for where to run it from).
+([Deploying to a gateway](../gateway/deploy.md#4-check) gives the command).
 
 `verify-pi.yml` also has a check of the FEL-boot markers (that `/run/fpgas-felboot/` holds a marker for the USB
 path of every board in `sunxi_boards` whose `host` is that host), but it runs only on a host whose own hostname
