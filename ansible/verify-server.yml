@@ -157,6 +157,24 @@
         verify_nft_dnat_rules: "{{ verify_nft_prerouting_chain.stdout_lines | select('search', ' dnat to ') | list }}"
       when: switches is defined
 
+    - name: Get nft IPv6 prerouting chain
+      ansible.builtin.command: nft list chain ip6 nat prerouting
+      changed_when: false
+      register: verify_nft6_prerouting_chain
+      when: switches is defined and pib_network6_base is defined
+
+    - name: Assert the IPv6 per-board DNAT rules are there and limited to the uplink interface
+      ansible.builtin.assert:
+        that:
+          - verify_nft6_dnat_rules | length == 2 * (switches | port_vlan_map(pib_network, pib_network6_base) | length)
+          - verify_nft6_dnat_rules | reject('search', 'iifname "' ~ eth_uplink ~ '"') | list | length == 0
+        fail_msg: >-
+          Expected one IPv6 DNAT rule per board port for ssh and aux, each limited to {{ eth_uplink }}; got:
+          {{ verify_nft6_dnat_rules }}
+      vars:
+        verify_nft6_dnat_rules: "{{ verify_nft6_prerouting_chain.stdout_lines | select('search', ' dnat ') | list }}"
+      when: switches is defined and pib_network6_base is defined
+
     - name: Check /etc/dnsmasq.d/ports.conf exists
       ansible.builtin.stat:
         path: /etc/dnsmasq.d/ports.conf
