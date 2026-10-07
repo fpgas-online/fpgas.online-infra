@@ -69,7 +69,7 @@ Nothing waits for a host: the gadget enumerates only when a host is plugged in, 
 either way. udev loads `g_serial` when a USB device controller appears, so a board without one (a Pi 3, the CI
 VM) never loads the gadget stack (`usb-console/70-fpgas-usb-console.rules` in fpgas.online-setup-pi main, read
 2026-10-07). The units behind the two ports are in [Units shipped by
-fpgas-online-setup-pi](../pi/services.md#units-shipped-by-fpgas-online-setup-pi).
+fpgas-online-setup-pi](../pi/setup-pi-units.md).
 
 ## 5. Stale files after an update
 

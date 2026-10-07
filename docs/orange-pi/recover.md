@@ -13,7 +13,7 @@ bind on these boards. Once Linux is up, each board's OTG cable presents a `0525:
 the board, running `dmesg --follow`) and `...:2.2` is a login getty. The hub host's
 `fpgas-usb-console-log@ttyACM*.service` appends the log port to `/var/log/fpgas-usb-console/<hub port>.log`
 from the moment the gadget enumerates, so these are the only console the boards have (units:
-[Units shipped by fpgas-online-setup-pi](../pi/services.md#units-shipped-by-fpgas-online-setup-pi)). Every path
+[Units shipped by fpgas-online-setup-pi](../pi/setup-pi-units.md)). Every path
 is keyed by the board's USB path, not its hostname or its switch port: port 21 is `1-1.3.1`
 ([the table](../orange-pi.md#which-board-is-where)).
 

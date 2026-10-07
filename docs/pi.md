@@ -11,10 +11,11 @@ logins](https://docs.fpgas.online/en/latest/setup/access.html)).
 ## The other pages
 
 <a id="services"></a>
-- [Services and boot settings](pi/services.md): the systemd units, and what `config.txt` and `cmdline.txt` set.
+- [Services](pi/services.md): the systemd units the root enables.
+- [Units shipped by fpgas-online-setup-pi](pi/setup-pi-units.md), and why the pistat and Arty units do not run.
 
 <a id="boot-time-configuration"></a>
-- [Boot-time configuration](pi/services.md#boot-time-configuration).
+- [Boot-time configuration](pi/boot-config.md).
 
 <a id="model-differences"></a>
 - [Model differences and serial consoles](pi/models.md): Pi 3B+, Pi 4, Pi 5, CM4 and CM5, and freeing the header UART.
