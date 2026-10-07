@@ -232,6 +232,9 @@
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
               "eth0": exists("/sys/class/net/eth0"),
+              # Every I2C bus the kernel has, and the /dev/i2c-N nodes i2c-dev made for them.
+              "i2c_buses": sorted(os.listdir("/sys/class/i2c-adapter")) if os.path.isdir("/sys/class/i2c-adapter") else [],
+              "i2c_dev_nodes": sorted(n for n in os.listdir("/dev") if n.startswith("i2c-")),
               "ip6_default": run("ip", "-6", "route", "show", "default"),
               "ipv6_unit": run("systemctl", "is-active", "fpgas-ipv6.service"),
               "ipv6_journal": run("journalctl", "-b", "-u", "fpgas-ipv6.service", "--no-pager", "-n", "40"),
@@ -322,6 +325,8 @@
         verify_pi_fleet_files: "{{ verify_pi_state.fleet_files }}"
         verify_pi_identity: "{{ verify_pi_state.identity }}"
         verify_pi_eth0: "{{ verify_pi_state.eth0 }}"
+        verify_pi_i2c_buses: "{{ verify_pi_state.i2c_buses }}"
+        verify_pi_i2c_dev_nodes: "{{ verify_pi_state.i2c_dev_nodes }}"
         verify_pi_ip6_default: "{{ verify_pi_state.ip6_default }}"
         verify_pi_ipv6_unit: "{{ verify_pi_state.ipv6_unit }}"
         verify_pi_ipv6_journal: "{{ verify_pi_state.ipv6_journal }}"
@@ -1019,6 +1024,19 @@
           /etc/modprobe.d/fpgas-sunxi-no-audio.conf missing from the root, or
           the board booted before it was added
       when: verify_pi_lsmod is not skipped
+
+    # i2c-dev (onpi/tasks/i2c.yml, issue #200): every bus the kernel has
+    # gets its character device, which every userspace I2C read needs (the
+    # Orange Pis' HAT ID EEPROM read below among them). A Pi with no I2C bus
+    # has nothing to check.
+    - name: Assert every I2C bus has its /dev/i2c-N node
+      ansible.builtin.assert:
+        that: verify_pi_i2c_buses | difference(verify_pi_i2c_dev_nodes) | length == 0
+        fail_msg: >-
+          {{ ansible_hostname }}: I2C buses {{ verify_pi_i2c_buses | difference(verify_pi_i2c_dev_nodes) | join(', ') }}
+          have no /dev node (buses {{ verify_pi_i2c_buses | join(', ') }}; /dev has
+          {{ verify_pi_i2c_dev_nodes | join(', ') if verify_pi_i2c_dev_nodes else 'none' }}):
+          i2c-dev is not loaded (/etc/modules-load.d/fpgas-i2c-dev.conf)
 
     # The published DTBs get TWI0/TWI1 forced to status=okay (fixpi/sunxi.yml)
     # so the kernel can see the Digilent Pmod HATs. TWI1 carries the HAT ID
