@@ -156,9 +156,11 @@ faults](https://docs.fpgas.online/en/latest/sites/welland.html) on the Welland p
 
 ## EEPROM write protect
 
-Everything a user changes on a fleet Pi's root is gone at the next reboot, but not the bootloader EEPROM: the
-flash holding the Pi's second-stage bootloader and its settings (`BOOT_ORDER` and the rest). A user with root
-could rewrite it with `rpi-eeprom-update`, `rpi-eeprom-config` or `flashrom` and change how the board boots
+Users have root on the fleet Pis, on purpose (from the earlier docs page, not re-checked). Everything a user
+changes on a fleet Pi's root is gone at the next reboot, but not the bootloader EEPROM: the flash holding the
+Pi's second-stage bootloader and its settings (`BOOT_ORDER`, `NET_INSTALL_*` and the rest; the earlier docs
+page called it the one piece of a Pi's state outside the NFS root, not re-checked). A user with root could
+rewrite it with `rpi-eeprom-update`, `rpi-eeprom-config` or `flashrom` and change how the board boots
 for good. (A board's own flash, an Acorn's for example, is a separate matter, on its board's pages.) So the
 served `config.txt` carries `eeprom_write_protect=1` (`roles/fixpi/tasks/tweeks.yml`), which tells the
 bootloader to set the flash's Write Status Register to protect the whole chip, at every boot.
@@ -167,8 +169,13 @@ bootloader to set the flash's Write Status Register to protect the whole chip, a
 How much that protects depends on the model (the role's own comment, and Raspberry Pi's `config.txt`
 documentation, section `eeprom_write_protect`):
 
-- **Raspberry Pi 5:** the flash's `/WP` pin is pulled low by default, so the register setting is enforced by
-  the hardware; clearing it needs the `TP14` and `TP1` pads joined.
+- **Raspberry Pi 5:** by Raspberry Pi's description the flash's `/WP` pin is pulled low by default, so the
+  setting alone stops the standard tools and is a hardware lock: clearing it needs the `TP14` and `TP1` pads
+  joined. Whether root on the Pi can clear it anyway has not been tried: the W25Q16JV datasheet says the `/WP`
+  function is disabled when `QE=1`, which these flashes have, so it may be possible. Treat the lock as
+  protection against accident and the standard tools, not as proven against a determined user (both from
+  [Not yet known](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html#not-yet-known),
+  fpgas.online-docs `docs/setup/bootloader-eeprom.md` lines 152-161 at 62ec741, read 2026-10-07).
 - **Raspberry Pi 4:** `/WP` (`TP5`) is not pulled low by default, so the setting stops the standard tools,
   but a root user could clear the register; pulling `TP5` low makes it a hardware lock.
 - **Compute Module 4:** `/WP` is the module's `EEPROM_nWP` pin (Raspberry Pi's documentation), and what it is

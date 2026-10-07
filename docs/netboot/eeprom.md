@@ -1,6 +1,6 @@
 # The EEPROM lock: what Raspberry Pi says, and how to check it
 
-**You operate the fleet and want the wording of Raspberry Pi's `eeprom_write_protect` documentation, and how the lock is checked in CI and on a board.** What the lock is and why the fleet sets it is on [Netboot and the NFS root](../netboot.md#eeprom-write-protect); upgrading a locked board is on the [bootloader EEPROM pages](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html).
+**You operate the fleet and want the wording of Raspberry Pi's `eeprom_write_protect` documentation, and how the lock is checked in CI and on a board.** What the lock is and why the fleet sets it is on [Netboot and the NFS root](../netboot.md#eeprom-write-protect); upgrading a locked board is on the [bootloader EEPROM pages](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html), except a Pi 4, which is [below](#upgrading-a-locked-pi-4).
 
 ## What Raspberry Pi says
 
@@ -24,5 +24,13 @@ On a running board, `vcgencmd bootloader_config` and `sudo rpi-eeprom-update` sh
 `sudo rpi-eeprom-update -a` is expected not to reach the flash on a protected board. fpgas.online has not run it; a netboot self-update against a protected Pi 5 wrote nothing and reported nothing (from the earlier docs page; see [what was measured](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom.html)).
 
 The build is checked in CI too: `verify-server.yml` asserts that the built NFS-root `config.txt` contains `eeprom_write_protect=1` (from the earlier docs page, not re-checked against `verify-server.yml`).
+
+## Upgrading a locked Pi 4
+
+No upgrade of a locked Pi 4 has been run by fpgas.online. By Raspberry Pi's description the same recovery-card
+route as for a Pi 5 applies, with `TP5` released if it was grounded (from the earlier docs page, not
+re-checked). The bootloader EEPROM pages cover the Pi 5 and the Compute Module only.
+
+## When a change takes effect
 
 A change to the setting takes effect when a board next netboots the rebuilt image. Confirm on one board before relying on it fleet-wide.

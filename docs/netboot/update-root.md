@@ -21,7 +21,7 @@ On the gateway the playbook's `img` role pulls the image and copies its `boot/` 
 The `fixpi` role then adds what belongs to the site and is never in the image: the `pi` password, the
 `authorized_keys` files and the SSH host keys. Then `nfsroot_generation` bumps a generation number in the
 root if any file changed. (The root used to be built on the gateway through a `piroot` account; the
-`operators` role now deletes that account.)
+`operators` role now deletes that account: [the old `onpi` group](../gateway.md#the-old-onpi-group).)
 
 ## 1. Before: record what is there
 
