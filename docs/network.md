@@ -90,9 +90,11 @@ spec of 2026-08-14 in fpgas.online-infra numbers them the other way round; the i
 
 The per-port formulas live in one place, the `port_vlan_map` filter in fpgas.online-infra; every VLAN
 interface, dnsmasq entry, port forward and host name is derived from the `switches:` list with it, and no
-MAC address appears in the per-port dnsmasq configuration. The gateway service in
+MAC address appears in the per-port dnsmasq configuration, by design (`roles/pxe/templates/ports.conf.j2`).
+There is no other per-device state. The gateway service in
 [fpgas.online-gw](https://github.com/fpgas-online/fpgas.online-gw) derives the same addresses from a board's
-name for both schemes.
+name for both schemes, on purpose: its README says the board-name to address derivation lives only there, so
+that the web tier never touches the Pi network (read 2026-10-07).
 
 ## Why per-port
 
