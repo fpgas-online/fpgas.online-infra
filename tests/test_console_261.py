@@ -33,7 +33,17 @@ def test_config_txt_carries_no_firmware_uart_logging():
     assert not [i for i in added if str(i).startswith(("enable_uart", "uart_2ndstage"))], added
     (drop,) = [t for t in tasks if t["name"] == "Config.txt drop the firmware UART logging lines"]
     assert drop["ansible.builtin.lineinfile"]["state"] == "absent"
-    assert set(drop["with_items"]) == {"enable_uart=1", "uart_2ndstage=1"}
+    assert drop["ansible.builtin.lineinfile"]["regexp"] == "^{{ item }}="
+    assert set(drop["with_items"]) == {"enable_uart", "uart_2ndstage"}
+
+
+def test_no_docs_page_says_the_lines_are_added():
+    for page in (REPO / "docs").rglob("*.md"):
+        if "superpowers" in page.parts:
+            continue
+        for line in page.read_text().splitlines():
+            if line.strip() in ("enable_uart=1", "uart_2ndstage=1"):
+                raise AssertionError(f"{page}: lists {line.strip()} as a config.txt line")
 
 
 def test_the_orange_pi_header_uart_is_enabled_and_the_console_stays_on_the_debug_header():

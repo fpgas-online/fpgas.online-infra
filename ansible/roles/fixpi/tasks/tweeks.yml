@@ -89,11 +89,11 @@
 - name: Config.txt drop the firmware UART logging lines
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
-    line: "{{ item }}"
+    regexp: "^{{ item }}="
     state: absent
   with_items:
-    - enable_uart=1
-    - uart_2ndstage=1
+    - enable_uart
+    - uart_2ndstage
 
 # Write-protect the bootloader EEPROM. The EEPROM (SPI flash) is the one piece
 # of per-board state that a netbooted Pi does NOT revert on reboot, so it is the
