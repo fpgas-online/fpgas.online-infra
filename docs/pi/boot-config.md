@@ -9,8 +9,6 @@ served `config.txt`:
 ```text
 dtoverlay=disable-wifi
 dtoverlay=disable-bt
-enable_uart=1
-uart_2ndstage=1
 eeprom_write_protect=1
 [pi5]
 dtoverlay=uart0-pi5
@@ -21,6 +19,10 @@ dtoverlay=dwc2,dr_mode=peripheral
 dtoverlay=dwc2,dr_mode=peripheral
 [all]
 ```
+
+It also removes `enable_uart=1` and `uart_2ndstage=1` if a root still has them: the firmware's UART logging
+went to the header pins (GPIO 14/15), which must carry no boot output (#261). The header UART does not need
+them: `disable-bt` keeps the Pi 3B+/4's PL011 there, and `uart0-pi5` the Pi 5's.
 
 What each line does, the two command lines (`console=tty1`; `console=ttyAMA10,115200` on a Pi 5) and the
 EEPROM lock: [Netboot and the NFS root](../netboot.md#the-kernel-command-line).

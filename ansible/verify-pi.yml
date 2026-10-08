@@ -287,16 +287,24 @@
           udc = sorted(os.listdir("/sys/class/udc")) if os.path.isdir("/sys/class/udc") else []
           fleet_agent = run("systemctl", "is-active", "fpgas-fleet-agent.service")
           uname = os.uname()
-          # The tty behind the device tree's serial0 alias: the 40-pin header UART on
-          # every Raspberry Pi. Not /dev/serial0, which udev points at the DT `console`
-          # alias where there is one (ttyAMA10, the Pi 5's debug UART).
-          def dt_serial0_tty():
-              alias = (read("/proc/device-tree/aliases/serial0") or b"").rstrip(b"\x00").decode()
-              if not alias or not os.path.isdir("/sys/class/tty"):
+          # The tty of the 40-pin header's UART (TX/RX on pins 8/10), found by its
+          # device-tree node, per SoC (#261). Raspberry Pi: the node behind the
+          # serial0 alias (with disable-bt / uart0-pi5 that is the header PL011). Not
+          # /dev/serial0, which udev points at the DT `console` alias where there is
+          # one (ttyAMA10, the Pi 5's debug UART). Allwinner H3: UART3, which has no
+          # alias; there serial0 is UART0, the console on the separate debug header.
+          def header_uart_node():
+              compatible = (read("/proc/device-tree/compatible") or b"").split(b"\x00")
+              if b"allwinner,sun8i-h3" in compatible:
+                  return "/soc/serial@1c28c00"
+              return (read("/proc/device-tree/aliases/serial0") or b"").rstrip(b"\x00").decode()
+          def header_uart_tty():
+              node = header_uart_node()
+              if not node or not os.path.isdir("/sys/class/tty"):
                   return ""
               for tty in sorted(os.listdir("/sys/class/tty")):
-                  node = "/sys/class/tty/" + tty + "/device/of_node"
-                  if os.path.realpath(node) == "/sys/firmware/devicetree/base" + alias:
+                  of_node = "/sys/class/tty/" + tty + "/device/of_node"
+                  if os.path.realpath(of_node) == "/sys/firmware/devicetree/base" + node:
                       return tty
               return ""
           print(json.dumps({
@@ -346,9 +354,10 @@
               "cmdline": {"rc": 0, "stdout": (read("/proc/cmdline") or b"").decode().rstrip("\n")},
               "ttyama0": exists("/dev/ttyAMA0"),
               # The consoles the kernel writes to now (from the cmdline, or the device
-              # tree's stdout-path), and the header UART's tty.
+              # tree's stdout-path), and the header UART: its node and its tty.
               "consoles": {"stdout": (read("/sys/class/tty/console/active") or b"").decode().strip(),
-                           "serial0": dt_serial0_tty()},
+                           "header_node": header_uart_node(),
+                           "header_uart": header_uart_tty()},
               "udc": {"matched": len(udc), "files": [{"path": "/sys/class/udc/" + u} for u in udc]},
               "usb_console": run("systemctl", "is-active", "fpgas-usb-console.service",
                                  "serial-getty@ttyGS1.service") if udc else {"skipped": True},
@@ -1209,22 +1218,37 @@
     # falls back to the device tree's stdout-path, serial0, which is how every
     # Pi 3/4 had it (#155). Pi 3/4: console=tty1 in cmdline.txt; Pi 5:
     # console=ttyAMA10, its debug UART, via `[pi5] cmdline=cmdline-pi5.txt`.
-    # The header UART is the tty behind the DT serial0 alias (the collector's
-    # consoles.serial0), plus ttyAMA0 by name for a root without the alias.
+    # The header UART is the tty of the collector's per-SoC header node
+    # (consoles.header_uart: serial0 on a Raspberry Pi, UART3 on an Orange Pi),
+    # plus ttyAMA0 by name for a Pi root without the alias. On an Orange Pi the
+    # console is ttyS0, UART0 on the separate debug header, which is right (#261).
     # verify_pi_header_uart_console is set only for the VM test's Pi, whose
     # U-Boot appends console=ttyAMA0: that is the serial port QEMU captures.
     - name: Assert no kernel console is on the header UART
       vars:
-        header_uarts: "{{ ['ttyAMA0', verify_pi_consoles.serial0] | select | unique | list }}"
+        header_uarts: "{{ ['ttyAMA0', verify_pi_consoles.header_uart] | select | unique | list }}"
         on_header: "{{ verify_pi_consoles.stdout.split() | intersect(header_uarts) }}"
       ansible.builtin.assert:
         that: on_header | length == 0
         fail_msg: >-
           The kernel console includes {{ on_header }} (active consoles:
           '{{ verify_pi_consoles.stdout }}'), the header UART that carries the
-          FPGA's serial link. Expected console=tty1 in cmdline.txt (Pi 3/4) or
-          console=ttyAMA10 via cmdline-pi5.txt (Pi 5); cmdline: {{ verify_pi_cmdline.stdout }}
+          FPGA's serial link. Expected console=tty1 in cmdline.txt (Pi 3/4),
+          console=ttyAMA10 via cmdline-pi5.txt (Pi 5) or console=ttyS0, the debug
+          header (Orange Pi); cmdline: {{ verify_pi_cmdline.stdout }}
       when: not (verify_pi_header_uart_console | default(false))
+
+    # The Orange Pi's header UART (UART3, pins 8/10) exists only because fixpi
+    # enables it in the published DTB (fixpi_sunxi_uart_nodes, #261).
+    - name: Assert the header UART is enabled on an Orange Pi
+      ansible.builtin.assert:
+        that: verify_pi_consoles.header_uart | length > 0
+        fail_msg: >-
+          {{ ansible_hostname }}: no tty for the header UART
+          {{ verify_pi_consoles.header_node }} (UART3, pins 8/10) -- the published
+          DTB does not enable it (fixpi_sunxi_uart_nodes), or the board has not
+          rebooted since
+      when: verify_pi_consoles.header_node == '/soc/serial@1c28c00'
 
     # --- USB gadget console (boards with a UDC only) ---
     # fpgas-online-setup-pi's udev rule loads g_serial when a USB device

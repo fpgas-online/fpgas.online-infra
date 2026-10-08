@@ -27,6 +27,12 @@ fixpi_sunxi_dtbs:
 fixpi_sunxi_i2c_nodes:
   - /soc/i2c@1c2ac00   # TWI0 -> header pins 3/5  (PA12/PA11, Pmod I2C port)
   - /soc/i2c@1c2b000   # TWI1 -> header pins 27/28 (PA19/PA18, HAT ID EEPROM)
+# The 40-pin header's UART, on the Raspberry Pi TX/RX positions (#261): UART3,
+# PA13/PA14 = pins 8/10 (Orange Pi PC schematic; mainline ships it disabled, with
+# its pinctrl already set). The console stays on UART0 (ttyS0), the separate
+# 3-pin debug header. verify-pi finds this UART by the same node.
+fixpi_sunxi_uart_nodes:
+  - /soc/serial@1c28c00  # UART3 -> header pins 8/10 (PA13/PA14)
 
 # The gateway's restricted jump account's own public key (roles/jump makes
 # the keypair at jump_ssh_key; keep this path in step with it). Authorized

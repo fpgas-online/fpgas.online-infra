@@ -54,7 +54,7 @@
 # unpatched DTB, and an unchanged kernel reports ok. (Copying the package DTB
 # over the published one and patching it in place reported two changes on
 # every run and served the unpatched file in between.)
-- name: Publish the sunxi DTBs with the header I2C controllers enabled
+- name: Publish the sunxi DTBs with the header I2C controllers and UART enabled
   ansible.builtin.shell: |
     set -eu
     src='{{ nfs_root }}/root/usr/lib/linux-image-{{ fixpi_sunxi_kver }}/{{ item }}'
@@ -62,7 +62,7 @@
     staged="$dst.staged"
     trap 'rm -f "$staged"' EXIT
     cp "$src" "$staged"
-    for node in {{ fixpi_sunxi_i2c_nodes | join(' ') }}; do
+    for node in {{ (fixpi_sunxi_i2c_nodes + fixpi_sunxi_uart_nodes) | join(' ') }}; do
       fdtput -t s "$staged" "$node" status okay
       [ "$(fdtget "$staged" "$node" status)" = okay ]
     done

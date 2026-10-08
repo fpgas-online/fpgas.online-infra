@@ -109,8 +109,9 @@ cmdline=cmdline-pi5.txt
 ```
 
 so the 40-pin header UART (`/dev/ttyAMA0`, wired to the FPGA on an Acorn host) is enabled and free of the
-console. The same file adds `dtoverlay=disable-wifi`, `dtoverlay=disable-bt`, `enable_uart=1`,
-`uart_2ndstage=1` and `eeprom_write_protect=1`, and puts the Pi 4's and Pi 5's USB-C port in gadget mode
+console. The same file adds `dtoverlay=disable-wifi`, `dtoverlay=disable-bt` and `eeprom_write_protect=1`,
+and removes `enable_uart=1` and `uart_2ndstage=1`, so the firmware sends nothing to the header pins (#261).
+It also puts the Pi 4's and Pi 5's USB-C port in gadget mode
 ([When a Pi does not boot](netboot/not-booting.md)). `config.txt` is served read-only, so these apply at every
 boot.
 
