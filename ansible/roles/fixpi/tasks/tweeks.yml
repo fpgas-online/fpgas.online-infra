@@ -69,13 +69,29 @@
 # overlay_map.dtb, so the same two lines disable both radios on Pi 4 and Pi 5.
 #   disable-wifi:  Pi 4 disables &mmc/&mmcnr, Pi 5 disables &sdio2 (WLAN never enumerates)
 #   disable-bt:    Pi 4 disables &bt, Pi 5 disables &bluetooth
-- name: Config.txt disable onboard Wi-Fi and Bluetooth, enable uart
+# No enable_uart and no uart_2ndstage (#261, Tim 2026-10-08: no console
+# login, kernel or boot messages on the header GPIO pins). uart_2ndstage=1
+# made the firmware log to the primary UART, GPIO 14/15 on a Pi 3B+/4; on a
+# Pi 5, enable_uart=1 with no cable on the debug connector routes kernel debug
+# output to GPIO 14/15. The header UART does not need either: with disable-bt
+# the Pi 3B+/4 PL011 is the primary UART and enable_uart already defaults to 1
+# there, and the Pi 5's comes from dtoverlay=uart0-pi5 below. (Raspberry Pi
+# docs, config_txt_boot.adoc and configuration_interfaces.adoc; the
+# coordinator's scratch data/welland/console-design/FACTS.md.)
+- name: Config.txt disable onboard Wi-Fi and Bluetooth
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/boot/config.txt"
     line: "{{ item }}"
   with_items:
     - dtoverlay=disable-wifi
     - dtoverlay=disable-bt
+
+- name: Config.txt drop the firmware UART logging lines
+  ansible.builtin.lineinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    line: "{{ item }}"
+    state: absent
+  with_items:
     - enable_uart=1
     - uart_2ndstage=1
 

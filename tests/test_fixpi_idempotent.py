@@ -28,7 +28,7 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 TASKS = REPO / "ansible/roles/fixpi/tasks"
 DEFAULTS = yaml.safe_load((REPO / "ansible/roles/fixpi/defaults/main.yml").read_text())
-PUBLISH = "Publish the sunxi DTBs with the header I2C controllers enabled"
+PUBLISH = "Publish the sunxi DTBs with the header I2C controllers and UART enabled"
 KVER = "6.1.0-50-armmp"
 DTB = "sun8i-h3-orangepi-pc.dtb"
 
@@ -41,6 +41,8 @@ DTS = """/dts-v1/;
         i2c@1c2ac00 { reg = <0x1c2ac00 0x400>; status = "disabled"; };
         i2c@1c2b000 { reg = <0x1c2b000 0x400>; status = "disabled"; };
         i2c@1c2b400 { reg = <0x1c2b400 0x400>; status = "disabled"; };
+        serial@1c28400 { reg = <0x1c28400 0x400>; status = "disabled"; };
+        serial@1c28c00 { reg = <0x1c28c00 0x400>; status = "disabled"; };
     };
 };
 """
@@ -63,6 +65,7 @@ def _script(tmp_path: Path) -> tuple[str, Path, Path]:
     script = jinja2.Template(template).render(
         nfs_root=nfs_root, tftp_root=tftp_root, fixpi_sunxi_kver=KVER, item=DTB,
         fixpi_sunxi_i2c_nodes=DEFAULTS["fixpi_sunxi_i2c_nodes"],
+        fixpi_sunxi_uart_nodes=DEFAULTS["fixpi_sunxi_uart_nodes"],
     )
     return script, pkg / DTB, tftp_root / "sunxi/dtbs" / DTB
 
@@ -77,9 +80,11 @@ def test_the_publish_patches_once_then_reports_ok_and_replaces_by_rename(tmp_pat
     first = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     assert first.returncode == 0, first.stderr
     assert "changed=1" in first.stdout
-    for node in DEFAULTS["fixpi_sunxi_i2c_nodes"]:
-        node = node.split("#")[0].strip()
+    for node in DEFAULTS["fixpi_sunxi_i2c_nodes"] + DEFAULTS["fixpi_sunxi_uart_nodes"]:
         assert _status(published, node) == "okay", node
+    # the header UART (UART3) is enabled; UART1 is left as the package has it
+    assert _status(published, "/soc/serial@1c28c00") == "okay"
+    assert _status(published, "/soc/serial@1c28400") == "disabled"
     # a controller not on the list is left as the package has it
     assert _status(published, "/soc/i2c@1c2b400") == "disabled"
     # the package's file is untouched
