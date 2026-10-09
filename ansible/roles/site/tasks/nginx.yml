@@ -49,6 +49,7 @@
     - pistat
     - pibup
     - snmp_switch
+    - management
   notify: Reload nginx
 
 - name: Nginx location include for the fleet pages
