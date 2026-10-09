@@ -1,0 +1,7 @@
+# {{ ansible_managed }} -- management dashboards (fpgas.online-site#66): public,
+# read-only pages (/management/, /management/fpgas/, /management/switches/)
+# plus /management/switches.json
+  location /management/ {
+    include proxy_params;
+    proxy_pass http://unix:/run/gunicorn.sock;
+  }

@@ -215,3 +215,40 @@
     that: site_v_fleet_page.status == 200
     fail_msg: "GET /fleet/ returned {{ site_v_fleet_page.status }}, expected 200"
   when: fleet_broker | default(false)
+
+# --- the pages through nginx ------------------------------------------------
+# The probes above go straight to gunicorn's socket, so they cannot see a
+# location include that nginx lost or never had: /management/ gave 403/404 on
+# the live site hosts for a day with every one of them green. These requests go
+# through nginx over TLS, as a visitor's do. --resolve pins the vhost's name to
+# this host, so the SNI and Host are the vhost's own and the request cannot land
+# on another vhost; -k because the cert chain is asserted elsewhere (and is a
+# self-signed stub on the CI VM).
+# (noqa: command-instead-of-module: uri has no --resolve, and without it the
+# request carries no SNI, which is exactly how another vhost gets to answer.)
+- name: GET the pages through nginx  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    curl -sS -k -o - -w '\n%{http_code}'
+    --resolve {{ domain_name }}:443:127.0.0.1
+    https://{{ domain_name }}{{ item }}
+  changed_when: false
+  failed_when: false
+  register: site_v_nginx_pages
+  loop: "{{ ['/management/', '/fpgas/', '/static/management/management.css'] + (['/fleet/'] if fleet_broker | default(false) else []) }}"
+
+- name: Assert every page is served by Django through nginx
+  ansible.builtin.assert:
+    that: item.stdout_lines | last == "200"
+    fail_msg: >-
+      GET https://{{ domain_name }}{{ item.item }} through nginx returned
+      '{{ item.stdout_lines | default([]) | last | default('no response') }}', expected 200.
+      Is there a location for it in /etc/nginx/includes/{{ conference_name }}-*.conf?
+      {{ item.stderr }}
+  loop: "{{ site_v_nginx_pages.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Assert the management index renders its heading
+  ansible.builtin.assert:
+    that: "'<h1>Management</h1>' in (site_v_nginx_pages.results[0].stdout)"
+    fail_msg: "GET /management/ through nginx returned 200 but not the management index (no <h1>Management</h1>)"
