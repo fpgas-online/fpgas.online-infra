@@ -58,6 +58,14 @@ server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_i
 
 conference_name: test
 
+# The zone this site's clocks read: the site's pages give times in it (the
+# management dashboards' MANAGEMENT_TIME_ZONE, roles/site), never UTC (Tim's
+# rule: clock times are local). The gateway itself keeps UTC. The same name as
+# the per-site variable infra PR #56 introduces.
+# Not UTC on purpose: UTC is also what the site falls back to with no
+# setting at all, so only another zone shows the setting reached the page.
+site_timezone: Australia/Adelaide
+
 streaming_frontend_aliases: []
 streaming_frontend_hostname: test.fpgas.online
 domain_name: "{{ streaming_frontend_hostname }}"

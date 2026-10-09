@@ -98,6 +98,29 @@
       {{ 'present' if 'Under construction!' in site_v_banner.content else 'absent' }}
       on GET /fpgas/. Check UNDER_CONSTRUCTION in {{ django_dir }}/pib/local_settings.py.
 
+# --- the site's time zone ----------------------------------------------------
+# MANAGEMENT_TIME_ZONE is a line in local_settings.py; the dashboard names the
+# zone it used in its footer. A page that says anything else (the gateway's own
+# UTC, say) means the setting did not reach it.
+
+- name: Fetch /management/fpgas/ to check the zone its times are in
+  ansible.builtin.uri:
+    url: http://localhost/management/fpgas/?reload=off
+    unix_socket: /run/gunicorn.sock
+    headers:
+      Host: "{{ domain_name }}"
+    follow_redirects: none
+    return_content: true
+  register: site_v_tz
+  failed_when: site_v_tz.status != 200
+
+- name: Assert the dashboard's times are in site_timezone
+  ansible.builtin.assert:
+    that: ('Times are ' ~ site_timezone ~ '.') in site_v_tz.content
+    fail_msg: >-
+      GET /management/fpgas/ does not say "Times are {{ site_timezone }}." Check
+      MANAGEMENT_TIME_ZONE in {{ django_dir }}/pib/local_settings.py.
+
 # --- TLS reachability on BOTH address families ------------------------------
 # welland.fpgas.online spent a week serving the tinytapeout certificate to every
 # IPv6 client because its vhost had `listen 443 ssl` but no `listen [::]:443

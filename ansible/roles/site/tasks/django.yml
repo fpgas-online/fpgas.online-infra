@@ -139,6 +139,34 @@
   notify:
     - Restart fleet-consumer
 
+# The zone the site's pages give clock times in (site PR #74's management
+# dashboards). Without it they fall back to the gateway's own zone, UTC, which
+# breaks the rule that clock times are local; so a host with no site_timezone,
+# or one that names no zone this host knows, fails here rather than serving UTC.
+- name: Check site_timezone names a zone this host knows
+  ansible.builtin.stat:
+    path: "/usr/share/zoneinfo/{{ site_timezone }}"
+  register: site_tz_file
+  when: site_timezone is defined and site_timezone is string and site_timezone | length > 0
+
+- name: Assert site_timezone is set to a known zone
+  ansible.builtin.assert:
+    that:
+      - site_timezone is defined and site_timezone is string and site_timezone | length > 0
+      - site_tz_file.stat.exists and site_tz_file.stat.isreg
+    fail_msg: >-
+      site_timezone must name this site's time zone (e.g. Australia/Adelaide) and
+      /usr/share/zoneinfo must have it; got {{ site_timezone | default('nothing') }}.
+
+- name: MANAGEMENT_TIME_ZONE
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: '^MANAGEMENT_TIME_ZONE = '
+    line: "MANAGEMENT_TIME_ZONE = {{ site_timezone | to_json }}"
+  notify:
+    - Restart django services
+
 # Welland runs ahead of the stable ps1 site, so its pages carry a banner
 # pointing visitors there. Written on EVERY host rather than only the ones that
 # want it, so a host that is switched back gets an explicit False rather than

@@ -154,6 +154,13 @@ domain_name: "{{ streaming_frontend_hostname }}"
 # flag is per deployment rather than per hostname.
 site_under_construction: true
 
+# The zone this site's clocks read: the site's pages give times in it (the
+# management dashboards' MANAGEMENT_TIME_ZONE, roles/site), never UTC (Tim's
+# rule: clock times are local). The gateway itself keeps UTC. The same name as
+# the per-site variable infra PR #56 introduces.
+# Welland, South Australia.
+site_timezone: Australia/Adelaide
+
 # Fleet self-registration (fpgas.online-infra#47): per-site mosquitto
 # broker on eth-local + the Django fleet consumer + the Pi agent config
 # baked into the nfsroot. The topic scheme is fpgas/<fleet_site>/pi/...
