@@ -21,6 +21,13 @@
     access_log /var/log/nginx/{{ conference_name }}-access.log;
     error_log /var/log/nginx/{{ conference_name }}-error.log;
 
+    # collectstatic output (STATIC_ROOT = static_dir, STATIC_URL = /static/).
+    # Without this /static/... is looked up under root as static_dir/static/...
+    # and 404s, so no page's stylesheet loaded (management.css, admin).
+    location /static/ {
+        alias {{ static_dir }}/;
+    }
+
     # The Django app location blocks (gunicorn socket + the daphne websocket),
     # plus stream_server's live-hls include.  That include also carries the
     # Strict-Transport-Security header, so do NOT add another one here or it is
