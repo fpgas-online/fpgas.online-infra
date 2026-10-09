@@ -19,6 +19,13 @@ user_name: videoteam
 
 conference_name: pib
 
+# The zone this site's clocks read: the site's pages give times in it (the
+# management dashboards' MANAGEMENT_TIME_ZONE, roles/site), never UTC (Tim's
+# rule: clock times are local). The gateway itself keeps UTC. The same name as
+# the per-site variable infra PR #56 introduces.
+# Pumping Station: One, Chicago (CLAUDE.md; the deleted time_zone said the same).
+site_timezone: America/Chicago
+
 domain_name: ps1.fpgas.online
 letsencrypt_account_email: carl@NextDayVideo.com
 
