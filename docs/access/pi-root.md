@@ -7,7 +7,7 @@ keys and host key.
 
 | Account | uid:gid | sudo | Password | `authorized_keys` |
 |---|---|---|---|---|
-| `pi` | 1000:1000 | NOPASSWD (`/etc/sudoers.d/010_pi-nopasswd`) | from `pi_pw` (see below) | server-user key, controller key, operators' GitHub keys, jump account key |
+| `pi` | 1000:1000 | NOPASSWD (`/etc/sudoers.d/010_pi-nopasswd`) | from `pi_pw` (see below) | server-user key, controller key, operators' GitHub keys, jump account key, static keys |
 | `root` | 0:0 | | | server-user key, controller key, operators' GitHub keys |
 | `ansible` | 1001:1001 | NOPASSWD (`/etc/sudoers.d/010_ansible-nopasswd`) | locked | the controller key only (`key_sources: [controller]`) |
 
@@ -40,6 +40,7 @@ keys and host key.
   | controller | the `fpgas.online-ansible` public key | `ansible_ssh_private_key_file` + `.pub` ([`group_vars/all/controller.yml`](../../ansible/inventory/group_vars/all/controller.yml)) |
   | github | `https://github.com/<user>.keys` for the `gh:` ids in `operators_accounts` (mithro, CarlFK), each line tagged `gh:<user>` | `fixpi_github_key_users`, `fixpi_github_keys_base_url` |
   | jump | tweed's `/home/pi/.ssh/id_ed25519.pub`, `pi` only | `fixpi_jump_ssh_pubkey` |
+  | static | full public key lines kept in the inventory (the label station's), `pi` only unless a file's `key_sources` lists `static` | `fixpi_static_public_keys` |
 
   The root gets exactly the keys GitHub lists at the time of the converge.
   The download runs first in site.yml's "Update the Pi NFS root" play, before

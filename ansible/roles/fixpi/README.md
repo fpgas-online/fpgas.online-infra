@@ -23,7 +23,8 @@ create .ssh dirs
 Generate ssh keys for pi users pi and root
 Write the NFS root's authorized_keys (authorized_keys.yml): the complete
 key list for root and pi (server user, controller, operators' GitHub keys,
-and for pi the gateway jump account), and for the ansible automation
+for pi the gateway jump account, and for pi the static keys of
+`fixpi_static_public_keys`), and for the ansible automation
 account the controller key alone, written once and only when it changed
 (ansible-home.yml, before userconf.yml, checks the account is in the image
 and makes its .ssh dir). The GitHub keys come from
@@ -31,6 +32,20 @@ https://github.com/<user>.keys via roles/ssh_key_fetch: a download that
 fails or holds no key, after a few retries, fails the run there, before
 any file is written (no keep-on-outage, no drop-on-404)
 set perms
+
+Static keys (`fixpi_static_public_keys`, default `[]`, set in the inventory's
+group_vars/all/ssh_keys.yml): a list of full public key lines, source name
+`static` in authorized_keys.yml. Like the jump key they go to home/pi only,
+unless a file's `key_sources` in `fixpi_authorized_keys_files` lists `static`
+(then that file gets them too); root and the ansible account (`[controller]`)
+do not. Each line must be "<type> <base64 key> [comment]" or the play fails
+before any file is written. verify checks each key is in home/pi and in no
+file that does not list `static`. The first use: the label station's key, so
+`ssh -J pi@<gateway jump account> pi@10.21.S.P` works with the caller's own key.
+
+A change to any authorized_keys file is a root change, so the booted fleet
+reboots at the converge that lands it (nfsroot_generation; see the comment at
+the top of tasks/authorized_keys.yml).
 
 
 ### tweeks.yml
