@@ -76,7 +76,7 @@ generic fleet content, and a Pi with no `/dev/ttboard` waits for one. Enabling `
 `tt_boards` alone, because a service enabled everywhere would change behaviour on a site without the Tiny
 Tapeout site. The daemon reads no site catalogue: the root carries no `/etc/fpgas-online/tt-boards.yaml`
 (`tt.yml` removes it, and stops if the root's `fpgas-online-tt` is older than 0.0.post64; `onpi/tasks/tt.yml`,
-read 2026-10-07). Which versions a given root holds is read in the root itself, on the gateway.
+read 2026-10-07). Which versions a given root holds is read in the root itself, on a gateway fpgas.online-infra deploys.
 `cat /srv/nfs/rpi/bookworm/.image-digest` names the image the served root was extracted from.
 `dpkg-query --admindir=/srv/nfs/rpi/bookworm/root/var/lib/dpkg -W <package>` gives a package's version in that root.
 
