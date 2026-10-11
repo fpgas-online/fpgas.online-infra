@@ -60,12 +60,19 @@ fixpi_github_key_users: >-
      | map(attribute='ssh_import_ids') | flatten
      | select('match', '^gh:') | map('regex_replace', '^gh:', '') | list }}
 
+# Full public key lines the `pi` account in the NFS root also trusts (source
+# `static` in tasks/authorized_keys.yml); empty unless the inventory sets it
+# (group_vars/all/ssh_keys.yml). A file whose key_sources below lists
+# `static` gets them too.
+fixpi_static_public_keys: []
+
 # The authorized_keys files fixpi owns in the NFS root (tasks/authorized_keys.yml),
 # relative to its root/, and their numeric owner (pi is UID/GID 1000 on RPi OS).
 # `key_sources` (optional) picks the key sources for that file from server,
-# controller, github and jump; without it a file gets the full set (server,
-# controller, github, plus jump for home/pi). The ansible automation
-# account trusts the controller's automation key and nothing else.
+# controller, github, jump and static; without it a file gets the full set
+# (server, controller, github, plus jump and static for home/pi only). The
+# ansible automation account trusts the controller's automation key and
+# nothing else.
 fixpi_authorized_keys_files:
   - {path: root, id: "0"}
   - {path: home/pi, id: "1000"}
