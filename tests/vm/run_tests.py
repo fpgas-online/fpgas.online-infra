@@ -453,6 +453,8 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
 # passwordless sudo (server_user_sudo), its authorized_keys lost the
 # unmanaged stale key, and its subuid/subgid ranges were renamed.
 SERVER_USER_OLD = "testuser"
+# fixpi_static_public_keys in tests/inventory/host_vars/test-vm.yml.
+STATIC_TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMDhvQ0f6gGDiw1f0Dvj6Kk0CoVS9YGwCKsdPSXi8OD label-station-ci-test"
 SERVER_USER_NEW = "admin"
 SERVER_USER_RENAME_CHECK = f"""set -ex
 if getent passwd {SERVER_USER_OLD}; then echo "{SERVER_USER_OLD} still exists"; exit 1; fi
@@ -460,6 +462,11 @@ getent passwd {SERVER_USER_NEW} | grep -q ':/home/{SERVER_USER_NEW}:'
 pub=$(sudo cat /home/{SERVER_USER_NEW}/.ssh/id_rsa.pub)
 case "$pub" in *" pre-rename") ;; *) echo "keypair was regenerated: $pub"; exit 1;; esac
 sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
+static={STATIC_TEST_KEY!r}
+sudo grep -qxF "$static" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
+for other in root home/ansible; do
+  if sudo grep -qF "{STATIC_TEST_KEY.split()[1]}" /srv/nfs/rpi/bookworm/root/$other/.ssh/authorized_keys; then echo "static key in $other"; exit 1; fi
+done
 systemctl is-active server-user-probe.service
 test "$(ps -o user= -p "$(systemctl show -p MainPID --value server-user-probe.service)")" = {SERVER_USER_NEW}
 test "$(sudo -u {SERVER_USER_NEW} sudo -n id -un)" = root
