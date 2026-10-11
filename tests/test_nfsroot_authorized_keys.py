@@ -33,6 +33,7 @@ JUMP = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJumpJumpJumpJumpJumpJumpJumpJumpJum
 GH_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGitHubGitHubGitHubGitHubGitHubGitHubGit"
 GH_KEY_2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINewNewNewNewNewNewNewNewNewNewNewNewNewN"
 KEPT = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKeptKeptKeptKeptKeptKeptKeptKeptKeptKeptKe gh:alice"
+STATIC = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIStaticStaticStaticStaticStaticStaticStat label-station@example"
 ROLES = REPO / "ansible/roles"
 REVOKED = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQRevokedRevokedRevoked # ssh-import-id gh:asinghani"
 
@@ -69,6 +70,8 @@ def make_root(tmp_path: Path) -> dict:
         "fixpi_jump_ssh_pubkey": str(keys / "jump.pub"),
         "ansible_ssh_private_key_file": str(keys / "controller"),
         "fixpi_github_key_users": [],
+        # The role's default (the task file is run without the role's defaults).
+        "fixpi_static_public_keys": [],
         # Owned by the test user: the test does not run as root.
         "fixpi_authorized_keys_files": [
             {"path": "root", "id": me},
@@ -144,6 +147,38 @@ def test_first_converge_writes_the_complete_lists(tmp_path):
     assert keys_of(v, "root") == [SERVER, CONTROLLER]
     assert keys_of(v, "home/pi") == [SERVER, CONTROLLER, JUMP]
     assert keys_of(v, "home/ansible") == [CONTROLLER]
+
+
+def test_static_keys_go_to_pi_only(tmp_path):
+    """The `static` source: home/pi by default, not root, not the ansible account."""
+    v = {**make_root(tmp_path), "fixpi_static_public_keys": [STATIC]}
+    converge(tmp_path, v)
+    assert keys_of(v, "root") == [SERVER, CONTROLLER]
+    assert keys_of(v, "home/pi") == [SERVER, CONTROLLER, JUMP, STATIC]
+    assert keys_of(v, "home/ansible") == [CONTROLLER]
+    assert converge(tmp_path, v) == 0
+    # Dropped from the configuration, dropped from the root.
+    converge(tmp_path, {**v, "fixpi_static_public_keys": []})
+    assert keys_of(v, "home/pi") == [SERVER, CONTROLLER, JUMP]
+
+
+def test_a_file_listing_static_in_key_sources_gets_the_static_keys(tmp_path):
+    v = make_root(tmp_path)
+    v["fixpi_authorized_keys_files"][2]["key_sources"] = ["controller", "static"]
+    converge(tmp_path, {**v, "fixpi_static_public_keys": [STATIC]})
+    assert keys_of(v, "home/ansible") == [CONTROLLER, STATIC]
+    assert keys_of(v, "root") == [SERVER, CONTROLLER]
+
+
+@pytest.mark.parametrize("line", ["not-a-key", "ssh-ed25519", "ssh-ed25519 !!!notbase64 label-station@bad"])
+def test_a_bad_static_key_fails_before_any_write(tmp_path, line):
+    v = {**make_root(tmp_path), "fixpi_static_public_keys": [line]}
+    seed(v, [])
+    before = snapshot(v)
+    output = converge(tmp_path, v, fail=True)
+    assert "fixpi_static_public_keys holds a line" in output, output
+    assert "Build the NFS root's authorized_keys" not in output
+    assert snapshot(v) == before
 
 
 def test_the_ansible_account_gets_only_the_controller_key(tmp_path, github):

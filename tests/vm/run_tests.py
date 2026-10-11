@@ -11,6 +11,7 @@ a diskless aarch64 Pi VM from the server, and verifies everything works.
 import argparse
 import concurrent.futures
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -433,7 +434,9 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
             server.cleanup()
         return None
 
-    if args.inventory != "production" and not check_server_user_rename(server, key_path):
+    if args.inventory != "production" and not (
+        check_server_user_rename(server, key_path) and check_jump_key_options(server, key_path)
+    ):
         if not args.keep_vm:
             server.shutdown()
             server.cleanup()
@@ -453,6 +456,14 @@ def phase_server(args, workdir: Path, switch: AccessPortSwitch) -> VMManager | N
 # passwordless sudo (server_user_sudo), its authorized_keys lost the
 # unmanaged stale key, and its subuid/subgid ranges were renamed.
 SERVER_USER_OLD = "testuser"
+# fixpi_static_public_keys in tests/inventory/host_vars/test-vm.yml.
+STATIC_TEST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMDhvQ0f6gGDiw1f0Dvj6Kk0CoVS9YGwCKsdPSXi8OD label-station-ci-test"
+# jump_test_key_line in tests/inventory/host_vars/test-vm.yml: the jump
+# account (roles/jump) must hold this exact line, options included.
+JUMP_TEST_LINE = (
+    'restrict,port-forwarding,permitopen="10.21.2.48:22" '
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMDhvQ0f6gGDiw1f0Dvj6Kk0CoVS9YGwCKsdPSXi8OD label-station-ci-test"
+)
 SERVER_USER_NEW = "admin"
 SERVER_USER_RENAME_CHECK = f"""set -ex
 if getent passwd {SERVER_USER_OLD}; then echo "{SERVER_USER_OLD} still exists"; exit 1; fi
@@ -460,6 +471,11 @@ getent passwd {SERVER_USER_NEW} | grep -q ':/home/{SERVER_USER_NEW}:'
 pub=$(sudo cat /home/{SERVER_USER_NEW}/.ssh/id_rsa.pub)
 case "$pub" in *" pre-rename") ;; *) echo "keypair was regenerated: $pub"; exit 1;; esac
 sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
+static={STATIC_TEST_KEY!r}
+sudo grep -qxF "$static" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys || {{ echo "static key missing from home/pi"; exit 1; }}
+for other in root home/ansible; do
+  if sudo grep -qF "{STATIC_TEST_KEY.split()[1]}" /srv/nfs/rpi/bookworm/root/$other/.ssh/authorized_keys; then echo "static key in $other"; exit 1; fi
+done
 systemctl is-active server-user-probe.service
 test "$(ps -o user= -p "$(systemctl show -p MainPID --value server-user-probe.service)")" = {SERVER_USER_NEW}
 test "$(sudo -u {SERVER_USER_NEW} sudo -n id -un)" = root
@@ -491,7 +507,20 @@ def check_server_user_rename(server: VMManager, key_path: Path) -> bool:
     out = server_run(server, key_path, SERVER_USER_RENAME_CHECK)
     print(f"[server] server account rename check:\n{out}")
     if not out.startswith("rc=0\n"):
-        print("ERROR: the server account was not renamed in place")
+        print("ERROR: the server account rename or the root's static key check failed (see the output above)")
+        return False
+    return True
+
+
+def check_jump_key_options(server: VMManager, key_path: Path) -> bool:
+    """Check the jump account's authorized_keys holds the options-prefixed test line verbatim."""
+    out = server_run(
+        server, key_path,
+        f"set -e\nsudo grep -cxF {shlex.quote(JUMP_TEST_LINE)} /home/pi/.ssh/authorized_keys\n",
+    )
+    print(f"[server] jump account options line check:\n{out}")
+    if not out.startswith("rc=0\n") or out.splitlines()[1:2] != ["1"]:
+        print("ERROR: the jump account's authorized_keys does not hold the test line with its options exactly once")
         return False
     return True
 

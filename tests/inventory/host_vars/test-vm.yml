@@ -56,6 +56,22 @@ server_user_rename_from: testuser
 server_user_sudo: true
 server_user_ssh_import_ids: "{{ operators_accounts | map(attribute='ssh_import_ids') | flatten }}"
 
+# A throwaway ed25519 public key (the private half was never kept) for the
+# static key source: the Pi NFS root's pi account trusts it, root and the
+# ansible account do not (tests/vm/run_tests.py checks all three).
+fixpi_static_public_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMDhvQ0f6gGDiw1f0Dvj6Kk0CoVS9YGwCKsdPSXi8OD label-station-ci-test
+
+# The same throwaway key as a jump-account line WITH the options prefix the
+# label station's line carries (tests/vm/run_tests.py checks the jump
+# account's authorized_keys holds this exact line). Host variables outrank the
+# group's ssh_public_keys, so the production keys are kept by name.
+jump_public_keys: >-
+  {{ (ssh_public_keys | map(attribute='keys') | flatten) + [jump_test_key_line] }}
+jump_test_key_line: >-
+  restrict,port-forwarding,permitopen="10.21.2.48:22"
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMDhvQ0f6gGDiw1f0Dvj6Kk0CoVS9YGwCKsdPSXi8OD label-station-ci-test
+
 conference_name: test
 
 # The zone this site's clocks read: the site's pages give times in it (the

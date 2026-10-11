@@ -22,10 +22,16 @@
 #     fails the play there, before the root is touched: an outage stops
 #     the converge rather than dropping or silently keeping a user's keys,
 #   - pi only: the gateway jump account's key (roles/jump), so someone
-#     logged in to it can `ssh pi@10.21.S.P` onward.
+#     logged in to it can `ssh pi@10.21.S.P` onward,
+#   - pi only: the static keys (fixpi_static_public_keys, full public key
+#     lines kept in inventory group_vars/all/ssh_keys.yml), e.g. the label
+#     station's, so `ssh -J` through the jump account reaches a Pi with the
+#     caller's own key. Each line is checked (a key type and a base64 field)
+#     and a bad one fails the play before any file is written.
 # A file whose fixpi_authorized_keys_files entry names `key_sources` gets only those
 # sources: the ansible automation account's (home/ansible) is `[controller]`,
-# the automation key alone.
+# the automation key alone. Like jump, `static` goes to home/pi unless a
+# file's key_sources lists it, which gives that file the static keys too.
 
 - name: Read the server user's public key
   ansible.builtin.slurp:
@@ -48,13 +54,25 @@
     file: github_keys.yml
   when: fixpi_github_keys is not defined
 
+# A static key is a full public key line: type, base64 key, optional comment.
+- name: Check the static public keys are key lines
+  ansible.builtin.assert:
+    that: item is match('^[a-z0-9@.-]+ [A-Za-z0-9+/]+=*( .*)?$')
+    fail_msg: >-
+      fixpi_static_public_keys holds a line that is not "<type> <base64 key> [comment]":
+      comment {{ item.split()[2:] | join(' ') | default('(none)', true) }}
+    quiet: true
+  loop: "{{ fixpi_static_public_keys }}"
+  loop_control:
+    label: "{{ item.split()[2:] | join(' ') }}"
+
 - name: Build the NFS root's authorized_keys
   ansible.builtin.set_fact:
     fixpi_authorized_keys: >-
       {%- set files = {} -%}
       {%- for entry in fixpi_authorized_keys_files -%}
         {%- set path = entry.path -%}
-        {%- set sources = entry.key_sources | default(['server', 'controller', 'github', 'jump']) -%}
+        {%- set sources = entry.key_sources | default(['server', 'controller', 'github', 'jump', 'static']) -%}
         {%- set keys = [] -%}
         {%- if 'server' in sources -%}
           {%- set _ = keys.append((fixpi_server_user_key.content | b64decode).strip()) -%}
@@ -69,6 +87,11 @@
         {%- endfor -%}
         {%- if 'jump' in sources and path == 'home/pi' and fixpi_jump_key.content is defined -%}
           {%- set _ = keys.append((fixpi_jump_key.content | b64decode).strip()) -%}
+        {%- endif -%}
+        {%- if 'static' in sources and (path == 'home/pi' or entry.key_sources is defined) -%}
+          {%- for key in fixpi_static_public_keys -%}
+            {%- set _ = keys.append(key.strip()) -%}
+          {%- endfor -%}
         {%- endif -%}
         {%- set _ = files.update({path: keys | unique | join('\n') ~ '\n'}) -%}
       {%- endfor -%}

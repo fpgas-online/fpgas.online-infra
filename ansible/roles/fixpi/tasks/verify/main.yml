@@ -159,6 +159,31 @@
       {{ nfs_root }}/root/home/{{ fixpi_ansible_user }}/.ssh/authorized_keys does not hold
       exactly the automation key or is not {{ fixpi_ansible_uid }}-owned 0600
 
+# --- The static keys (fixpi_static_public_keys, authorized_keys.yml): in the
+# pi user's file, and in root's or the ansible account's only when that file's
+# fixpi_authorized_keys_files entry lists `static` in key_sources.
+- name: Read the root, pi and ansible users' authorized_keys in the NFS root
+  ansible.builtin.slurp:
+    src: "{{ nfs_root }}/root/{{ item.path }}/.ssh/authorized_keys"
+  loop: "{{ fixpi_authorized_keys_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: fixpi_verify_keys_files
+
+- name: Assert each static key is in the files that take it and in no other
+  ansible.builtin.assert:
+    that: >-
+      (item.0.item.path == 'home/pi' or 'static' in item.0.item.key_sources | default([]))
+      == (item.1.split()[1] in (item.0.content | b64decode))
+    fail_msg: >-
+      {{ nfs_root }}/root/{{ item.0.item.path }}/.ssh/authorized_keys
+      {{ 'lacks' if item.0.item.path == 'home/pi' or 'static' in item.0.item.key_sources | default([]) else 'holds' }}
+      the static key {{ item.1.split()[2:] | join(' ') }}
+    quiet: true
+  loop: "{{ fixpi_verify_keys_files.results | product(fixpi_static_public_keys) | list }}"
+  loop_control:
+    label: "{{ item.0.item.path }}: {{ item.1.split()[2:] | join(' ') }}"
+
 # --- The ssh login banner (userconf.yml, #215): the board pages say
 # "password is in login banner". verify-pi.yml checks a booted board's sshd
 # really shows it; this checks the root the boards will boot.

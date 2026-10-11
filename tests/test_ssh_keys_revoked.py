@@ -6,6 +6,7 @@ These checks keep the list itself sound: every line is a key ssh-keygen
 parses, and no revoked key is still granted through ssh_public_keys.
 """
 
+import importlib.util
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 SSH_KEYS = REPO / "ansible/inventory/group_vars/all/ssh_keys.yml"
+
+# A granted line may carry an options prefix: find its key the way the roles do.
+_spec = importlib.util.spec_from_file_location("ssh_keys_filter", REPO / "ansible/filter_plugins/ssh_keys.py")
+ssh_keys = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ssh_keys)
 
 
 def load() -> dict:
@@ -29,6 +35,6 @@ def test_revoked_keys_parse() -> None:
 
 def test_revoked_keys_not_granted() -> None:
     data = load()
-    granted = {line.split()[1] for entry in data["ssh_public_keys"] for line in entry["keys"]}
-    revoked = {line.split()[1] for line in data["ssh_public_keys_revoked"]}
+    granted = {ssh_keys.ssh_key_blob(line) for entry in data["ssh_public_keys"] for line in entry["keys"]}
+    revoked = {ssh_keys.ssh_key_blob(line) for line in data["ssh_public_keys_revoked"]}
     assert not granted & revoked
