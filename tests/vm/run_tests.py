@@ -463,7 +463,7 @@ pub=$(sudo cat /home/{SERVER_USER_NEW}/.ssh/id_rsa.pub)
 case "$pub" in *" pre-rename") ;; *) echo "keypair was regenerated: $pub"; exit 1;; esac
 sudo grep -qxF "$pub" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
 static={STATIC_TEST_KEY!r}
-sudo grep -qxF "$static" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys
+sudo grep -qxF "$static" /srv/nfs/rpi/bookworm/root/home/pi/.ssh/authorized_keys || {{ echo "static key missing from home/pi"; exit 1; }}
 for other in root home/ansible; do
   if sudo grep -qF "{STATIC_TEST_KEY.split()[1]}" /srv/nfs/rpi/bookworm/root/$other/.ssh/authorized_keys; then echo "static key in $other"; exit 1; fi
 done
@@ -498,7 +498,7 @@ def check_server_user_rename(server: VMManager, key_path: Path) -> bool:
     out = server_run(server, key_path, SERVER_USER_RENAME_CHECK)
     print(f"[server] server account rename check:\n{out}")
     if not out.startswith("rc=0\n"):
-        print("ERROR: the server account was not renamed in place")
+        print("ERROR: the server account rename or the root's static key check failed (see the output above)")
         return False
     return True
 
