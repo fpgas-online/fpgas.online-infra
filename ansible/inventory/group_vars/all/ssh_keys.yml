@@ -35,10 +35,16 @@ ssh_public_keys:
           - ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAqtgmp7GiXFgKW2+Yib+uyWZuD/cQsus8eqgavCSR+WGZlMrUldTLKYhzj71Ym6jupo0R/nr0mHlJ9mPVFr9KOJkUXb9n5/J4sYEpMKunv8i8Peu0ld7nmZRFUVSUlbMfPF4DKZ6marjuNloKbVlKF8nZGgjUuqBzRcKH90XubYJ5tpjbdyBlwoSEXLEqWrcpwBYgfg8z7P2qA/uoywki0tzrMz15M9iSD8pJ0MeKZg1xJznnkEY9ebMcTbxACCcAqH9qLIPoGoeNkUJnikkulBla4KsTB7uEO5rcrHkM65avVUocm0W6b2xOJn2GVIxBNGNC8sSbyDLAm9avJrfRUw== CarlFK
           - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDq2iw8EFJnLt4GB/cWXdTpPKAf3YpjCbfBJFk51Wcc3JSm4O640L1+13WHM6ASwOL890SNJSe7J7VLJWJky5tn5Axg8nsyuOB48Vere7l+Zv+ivfo0BVdiyY0IKL06wLxnD6xuiA3pDHLZ982zgluhXd4nqSaSm/MPikydKGcwkRzkgDmVYSyd+BWy91X4GBLs+GWiHxDsad3B1zd+4+Nc3WbVI4aYNRvO/fXqZ1GtXoiMuoAzKtmF0UasA63CJM3eQJiiMl1P3Gd9FNyMiKF+BtB3wkSY+KmSmvGZvFBVmLjLhIoyDRsx3VsSuhy+foV8Bfml9YjwROdWMXtAJ5u5ngKTRXExnFvljIin+4EsHgOq+BzUb0K+PYfEkAMnE3z7bepxav46tOOiisD48PI19ZbmZiWB7ELydOCoFdxmc9UZEb6zFX9kr5yJz5QIR2kCAAePiiTamMSxBs2QDNZOIReGLoA0zWtCXfB6daMe5jL94qIgqb9jHYup9AvkSUKhUz8w/HbR7H64XeKh7pUSKW5piNGrgqNEG+O3AXXfOT86ZEr3v1ODUNHN5C3p9XfGOhGFHip6QUKq5UkKNf2PovOY3s2CSGSdsSBXIQIiACWGorKluArkYew+5wE4YKUwZbvIOsvSHyH2SI9ulBzlpdYtME+bX2xXcng3eDxxEw== mithro@github/18976089 # gh:mithro
           # yamllint enable rule:line-length
-          # PLACEHOLDER: the label station on the tim-yoga laptop (guest;
-          # Tim 2026-10-11): its ed25519 key goes here (comment
-          # label-station@tim-yoga), so `ssh -J pi@<this account>` is accepted.
-          # The same key also goes in fixpi_static_public_keys below.
+          # PLACEHOLDER, TEMPORARY (Tim 2026-10-11: "Just deploy the guest
+          # keys temporarilly."): the label station on the tim-yoga laptop
+          # (guest). The line goes here as
+          #   restrict,port-forwarding,permitopen="10.21.2.48:22" ssh-ed25519 <key> label-station@tim-yoga
+          # so `ssh -J pi@<this account>` can open only that one forward
+          # (no pty, no agent, no X11; it can still run ssh onward through
+          # jump-shell: fpgas.online-infra#283). roles/jump writes it
+          # verbatim. The same key (no options) also goes in
+          # fixpi_static_public_keys below. To remove it: delete both
+          # lines, add the key to ssh_public_keys_revoked, converge.
 
 # Public keys (full lines) that the Pi NFS root's `pi` account trusts, beside
 # the server, controller, GitHub and jump keys (roles/fixpi,
