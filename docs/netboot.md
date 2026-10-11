@@ -7,8 +7,8 @@ find out why a Pi does not boot, go to the pages listed under [The tasks](#the-t
 A fleet Pi boots from the network, not from an SD card. (The Orange Pis boot the same root by another route, through a hub host: [Orange Pi H3 hosts](https://docs.fpgas.online/en/latest/setup/orange-pi.html).) Its boot ROM asks for DHCP,
 fetches its firmware and kernel over TFTP, and mounts one shared, read-only NFS root from the site's gateway,
 with a tmpfs on top that is thrown away at every reboot. This page describes what fpgas.online-infra builds
-(main, read 2026-10-07). ps1's gateway was not built by it as it stands: [The ps1 gateway and
-switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html) has what was read there.
+(main, read 2026-10-07). ps1's gateway was not built by it as it stands. The [ps1 site
+page](https://docs.fpgas.online/en/latest/sites/ps1.html) describes what ps1 provides.
 
 ## The tasks
 
