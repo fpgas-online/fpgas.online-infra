@@ -78,8 +78,8 @@ settings is skipped on a per-port gateway, by design (its comment in fpgas.onlin
 
 ## At ps1
 
-At ps1 the gateway, its switch and its power-cycling tool are Carl Karsten's own, not fpgas.online's; the
-procedure, with the checks to make first, is on [The ps1 gateway and switch: power
+At ps1 the gateway, its switch and its power-cycling tool belong to the ps1 site operator, not to fpgas.online.
+The procedure, with the checks to make first, is on [The ps1 gateway and switch: power
 control](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html#power-control).
 
 ## How long the board is gone
