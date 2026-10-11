@@ -80,7 +80,7 @@
     key: "{{ item }}"
   loop: "{{ jump_public_keys }}"
   loop_control:
-    label: "{{ item.split(' ')[-1] }}"
+    label: "{{ (item | ssh_key_comment) or (item | ssh_key_blob)[-12:] }}"
 
 # The shared ids' keys (https://github.com/<user>.keys, or Launchpad's for
 # an lp: or bare id): an id that yields no key fails the play HERE, naming
@@ -116,12 +116,12 @@
     jump_imported_lines: >-
       {%- set static = [] -%}
       {%- for key in jump_public_keys -%}
-        {%- set _ = static.append(key.split()[1]) -%}
+        {%- set _ = static.append(key | ssh_key_blob) -%}
       {%- endfor -%}
       {%- set lines = [] -%}
       {%- for id in jump_ssh_import_ids -%}
-        {%- for key in ssh_key_fetch_keys[id] if key.split()[1] not in static -%}
-          {%- set _ = static.append(key.split()[1]) -%}
+        {%- for key in ssh_key_fetch_keys[id] if (key | ssh_key_blob) not in static -%}
+          {%- set _ = static.append(key | ssh_key_blob) -%}
           {%- set _ = lines.append(key ~ ' # ssh-import-id ' ~ (id if ':' in id else 'lp:' ~ id)) -%}
         {%- endfor -%}
       {%- endfor -%}
@@ -151,7 +151,7 @@
     key: "{{ item }}"
   loop: "{{ jump_revoked_public_keys }}"
   loop_control:
-    label: "{{ item.split(' ')[2:] | join(' ') }}"
+    label: "{{ (item | ssh_key_comment) or (item | ssh_key_blob)[-12:] }}"
 
 - name: Check the jump account has authorized_keys
   ansible.builtin.stat:
