@@ -20,7 +20,7 @@ page](https://docs.fpgas.online/en/latest/sites/ps1.html) describes what ps1 pro
 
 <a id="the-provisioning-container"></a>
 - [The provisioning container](netboot/update-root.md#how-the-root-is-built): gone. The root used to be built
-  on the gateway through a `piroot` account; it is now built in CI, and that account is deleted.
+  on the gateway through a `piroot` account. The `nfsroot-build.yml` CI workflow builds it instead, and that account is deleted.
 
 <a id="when-a-pi-does-not-boot"></a>
 - [When a Pi does not boot](netboot/not-booting.md): where its boot stops.
