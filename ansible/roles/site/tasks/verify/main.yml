@@ -99,13 +99,14 @@
       on GET /fpgas/. Check UNDER_CONSTRUCTION in {{ django_dir }}/pib/local_settings.py.
 
 # --- the site's time zone ----------------------------------------------------
-# MANAGEMENT_TIME_ZONE is a line in local_settings.py; the dashboard names the
-# zone it used in its footer. A page that says anything else (the gateway's own
-# UTC, say) means the setting did not reach it.
+# MANAGEMENT_TIME_ZONE is a line in local_settings.py; the Pi dashboard names
+# the zone it used in its key. A page that says anything else (the gateway's own
+# UTC, say) means the setting did not reach it. The Pi dashboard is /fleet/
+# (fpgas.online-site#101); /management/fpgas/ answers a redirect to it.
 
-- name: Fetch /management/fpgas/ to check the zone its times are in
+- name: Fetch the Pi dashboard (/fleet/) to check the zone its times are in
   ansible.builtin.uri:
-    url: http://localhost/management/fpgas/?reload=off
+    url: http://localhost/fleet/?reload=off
     unix_socket: /run/gunicorn.sock
     headers:
       Host: "{{ domain_name }}"
@@ -118,7 +119,7 @@
   ansible.builtin.assert:
     that: ('Times are ' ~ site_timezone ~ '.') in site_v_tz.content
     fail_msg: >-
-      GET /management/fpgas/ does not say "Times are {{ site_timezone }}." Check
+      GET /fleet/ does not say "Times are {{ site_timezone }}." Check
       MANAGEMENT_TIME_ZONE in {{ django_dir }}/pib/local_settings.py.
 
 # --- TLS reachability on BOTH address families ------------------------------

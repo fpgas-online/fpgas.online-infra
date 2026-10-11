@@ -1,5 +1,6 @@
 # {{ ansible_managed }} -- management dashboards (fpgas.online-site#66): public,
-# read-only pages (/management/, /management/fpgas/, /management/switches/)
+# read-only pages (/management/, /management/switches/; /management/fpgas/
+# redirects to the Pi dashboard at /fleet/, fleet.conf.j2)
 # plus /management/switches.json
   location /management/ {
     include proxy_params;
