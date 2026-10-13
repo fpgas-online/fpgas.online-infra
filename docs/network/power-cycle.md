@@ -18,7 +18,7 @@ $ grep ' 10.21.2.46 ' /var/lib/misc/dnsmasq.leases
 $ ip -4 neigh show 10.21.2.46
 ```
 
-A netbooted Pi never renews its DHCP lease, so 12 hours after it boots its lease is gone while it runs on
+A netbooted Pi never renews its DHCP lease, so 5 minutes after it boots its lease is gone while it runs on
 (fpgas.online-infra issue #230). The neighbour entry names the MAC that last answered; it can stay after the
 Pi has gone (it did while ports were off on 6 October 2026), so it identifies the board but does not prove it
 is up. If another MAC answers, stop: something was moved.

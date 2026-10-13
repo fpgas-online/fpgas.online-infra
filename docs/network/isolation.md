@@ -64,5 +64,5 @@ Plug a laptop into that port and watch the leases on the gateway:
 $ tail -f /var/lib/misc/dnsmasq.leases
 ```
 
-A pass is a lease from the quarantine pool, `10.21.0.128` to `10.21.0.150`, with no host name (the pool has no `host-record`, so the entry is visibly unnamed and visibly not a `pi-sw<s>-p<p>`), for one hour, against the twelve hours a provisioned port gets, so it clears fast (`ansible/roles/pxe/templates/ports.conf.j2`, fpgas.online-infra main, read 2026-10-07). The laptop reaches the
+A pass is a lease from the quarantine pool, `10.21.0.128` to `10.21.0.150`, with no host name (the pool has no `host-record`, so the entry is visibly unnamed and visibly not a `pi-sw<s>-p<p>`), for one hour; a provisioned port's lease is 5 minutes (`ansible/roles/pxe/templates/ports.conf.j2`, fpgas.online-infra main). The laptop reaches the
 gateway and no Pi.
