@@ -1,0 +1,60 @@
+---
+# systemd-networkd manages the Pi's network (fpgas.online-infra #230, Tim's
+# answer coord-57, 14 Oct 2026). The kernel's ip=dhcp still configures the
+# NFS root's interface before userspace. networkd then takes it over with
+# KeepConfiguration=yes and renews the lease, so the gateway's per-port lease
+# shows that the board is alive. fpgas-uplink-network.service writes the
+# .network file at boot for whichever interface routes to the NFS server; the
+# script says why the name is not fixed. The same file carries the port's IPv6
+# address and default route, which fpgas-ipv6.service (PR #251) set until
+# 14 Oct 2026.
+#
+# NetworkManager only "assumed" the kernel's configuration ("connected
+# (externally)") and ran no DHCP client, so no board ever renewed. ifupdown
+# has been masked since August 2026 and nothing started dhclient. All three
+# go. raspberrypi-net-mods (Wi-Fi tweaks for NetworkManager, its only reverse
+# dependency in the image) goes with network-manager.
+- name: Remove NetworkManager, ifupdown and dhclient
+  ansible.builtin.apt:
+    name:
+      - network-manager
+      - ifupdown
+      - isc-dhcp-client
+    state: absent
+    purge: true
+
+- name: Install the uplink script
+  ansible.builtin.copy:
+    src: usr/local/sbin/fpgas-uplink-network
+    dest: /usr/local/sbin/fpgas-uplink-network
+    mode: "0755"
+
+- name: Install the uplink unit
+  ansible.builtin.copy:
+    src: etc/systemd/system/fpgas-uplink-network.service
+    dest: /etc/systemd/system/fpgas-uplink-network.service
+    mode: "0644"
+
+- name: Enable the uplink unit
+  ansible.builtin.systemd:
+    name: fpgas-uplink-network.service
+    enabled: true
+
+# Enabling networkd also enables systemd-networkd-wait-online.service (its
+# Also=), which network-online.target then waits on: the fleet agent's
+# network-online event starts after it.
+- name: Enable systemd-networkd
+  ansible.builtin.systemd:
+    name: systemd-networkd.service
+    enabled: true
+
+# fpgas-ipv6.service is retired: networkd sets the IPv6 address and route.
+# An image converged from an older one still carries it.
+- name: Remove the retired fpgas-ipv6 unit and script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/multi-user.target.wants/fpgas-ipv6.service
+    - /etc/systemd/system/fpgas-ipv6.service
+    - /usr/local/sbin/fpgas-ipv6
