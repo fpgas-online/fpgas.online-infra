@@ -6,8 +6,9 @@
 #
 # Lease time 5m on both per-port ranges (fpgas.online-infra issues #284, #230).
 # A port has one address and one device, and dnsmasq never hands a leased
-# address to a different MAC (dnsmasq 2.91 src/dhcp.c address_allocate skips
-# any address lease_find_by_addr() returns), so a board swapped into a port gets no
+# address to another client (a different MAC and client identifier:
+# dnsmasq 2.91 src/dhcp.c address_allocate skips any address
+# lease_find_by_addr() returns), so a board swapped into a port gets no
 # address until the old board's lease runs out: the lease time is the
 # longest a swapped-in board is stranded.
 {% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
