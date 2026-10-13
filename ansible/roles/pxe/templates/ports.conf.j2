@@ -3,18 +3,26 @@
 # (dnsmasq implicitly tags a request with the name of the interface it
 # arrived on -- see tests/lab/RESULTS.md, "Summary for Tasks 8/9 templates").
 # No MAC addresses appear anywhere in this file by design.
+#
+# Lease time 5m on both per-port ranges (fpgas.online-infra issues #284, #230).
+# A port has one address and one device, and dnsmasq never hands a leased
+# address to another client (a different MAC and client identifier:
+# dnsmasq 2.91 src/dhcp.c address_allocate skips any address
+# lease_find_by_addr() returns), so a board swapped into a port gets no
+# address until the old board's lease runs out: the lease time is the
+# longest a swapped-in board is stranded.
 {% for e in switches | port_vlan_map(pib_network, pib_network6_base) %}
 interface={{ e.iface }}
 # v4: the range's netmask must be broader than /32 so its implied network
 # contains the gw's own {{ pib_network }}.0.1/32 address on this interface
 # (RESULTS.md, v4-single-range-by-tag -- a literal /32 here makes dnsmasq
 # refuse the request with "no address range available").
-dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,12h
+dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,5m
 # v6: off-link MUST precede the prefix-length field (64), and 64 must match
 # the gw's own /64 address on this interface, not /128 (RESULTS.md,
 # v6-single-range-by-tag). off-link clears the RA on-link (L) bit so Pi
 # traffic routes via the gateway instead of assuming direct reachability.
-dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,12h
+dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,5m
 host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.ip6 }}
 {% endfor %}
 

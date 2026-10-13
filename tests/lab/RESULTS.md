@@ -223,10 +223,10 @@ design, does) overlap across VLANs.
   VLAN, matching whatever prefix that VLAN is delegated).
 - dnsmasq, one process, one `interface=` + one v4 `dhcp-range` + one v6
   `dhcp-range` per VLAN:
-  - v4: `dhcp-range=tag:<iface>,<v4addr>,<v4addr>,255.255.0.0,12h` — netmask
+  - v4: `dhcp-range=tag:<iface>,<v4addr>,<v4addr>,255.255.0.0,5m` — netmask
     must be broader than /32 (any netmask containing both 10.21.0.1 and the
     assigned address works; /16 confirmed).
-  - v6: `dhcp-range=tag:<iface>,<v6addr>,<v6addr>,off-link,64,12h` — prefix
+  - v6: `dhcp-range=tag:<iface>,<v6addr>,<v6addr>,off-link,64,5m` — prefix
     length must equal the interface's actual v6 prefix (64), and `off-link`
     must precede the prefix-length field.
   - `enable-ra` once, globally.

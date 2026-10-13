@@ -122,6 +122,10 @@ What a fault looks like (from the design spec):
 
 - **Pi moved between ports**: it becomes the new port's host; its old lease expires.
 
+Not in the design spec: a board swapped into a port gets no address until the old board's lease runs out, at most 5
+minutes, because dnsmasq never hands a leased address to another client, one with a different MAC and client
+identifier (fpgas.online-infra issue #284).
+
 "Isolated networks", as the public site puts it, is about the network only: a person with a shell on one Pi
 cannot reach another Pi. It does not give a person a board to themselves; nothing in the network decides who
 is using which board.

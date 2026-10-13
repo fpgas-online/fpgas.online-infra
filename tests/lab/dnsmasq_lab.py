@@ -114,9 +114,9 @@ def setup(workdir: Path) -> Path:
         ns("gw", f"ip addr add {GW_V4}/32 dev {gw_iface}")
         ns("gw", f"ip addr add {gw_v6}/64 dev {gw_iface}")
         conf_lines.append(f"interface={gw_iface}")
-        conf_lines.append(f"dhcp-range=tag:{gw_iface},{v4},{v4},255.255.0.0,12h")
+        conf_lines.append(f"dhcp-range=tag:{gw_iface},{v4},{v4},255.255.0.0,5m")
         conf_lines.append(
-            f"dhcp-range=tag:{gw_iface},{v6},{v6},off-link,64,12h")
+            f"dhcp-range=tag:{gw_iface},{v6},{v6},off-link,64,5m")
     conf_lines.append("enable-ra")
 
     conf = workdir / "lab.conf"
