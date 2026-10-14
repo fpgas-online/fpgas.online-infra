@@ -97,6 +97,12 @@
     state: link
   loop: "{{ onpi_networkd_states }}"
 
+- name: Create the networkd-dispatcher drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/networkd-dispatcher.service.d
+    state: directory
+    mode: "0755"
+
 - name: Start networkd-dispatcher after the fleet agent
   ansible.builtin.copy:
     src: etc/systemd/system/networkd-dispatcher.service.d/fpgas-after-fleet-agent.conf
