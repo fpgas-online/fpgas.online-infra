@@ -253,7 +253,7 @@
       register: verify_pi_collected
       vars:
         verify_pi_collector: |
-          import base64, configparser, json, os, subprocess
+          import base64, configparser, json, os, subprocess, time
           {{ verify_pi_camera_probe }}
           def run(*argv, timeout=60):
               try:
@@ -307,15 +307,43 @@
                   if os.path.realpath(of_node) == "/sys/firmware/devicetree/base" + node:
                       return tty
               return ""
+          # The network under systemd-networkd (#230): the interface fpgas-uplink-network handed to networkd (the
+          # [Match] Name= of the .network it wrote at boot), the lease networkd last saved for it and how old that
+          # file is (networkd rewrites it at every DHCPACK, renewals included), and where timesyncd got its server.
+          def network_state():
+              text = (read("/run/systemd/network/10-fpgas-uplink.network") or b"").decode()
+              match = text.split("[Match]", 1)[1].split("[", 1)[0] if "[Match]" in text else ""
+              uplink = next((l.split("=", 1)[1].strip() for l in match.splitlines() if l.startswith("Name=")), "")
+              ifindex = (read("/sys/class/net/" + uplink + "/ifindex") or b"").decode().strip() if uplink else ""
+              lease_path = "/run/systemd/netif/leases/" + ifindex
+              lease = {}
+              if ifindex and os.path.exists(lease_path):
+                  values = dict(l.split("=", 1) for l in (read(lease_path) or b"").decode().splitlines()
+                                if "=" in l and not l.startswith("#"))
+                  lease = {"address": values.get("ADDRESS", ""), "server": values.get("SERVER_ADDRESS", ""),
+                           "lifetime_s": int(values.get("LIFETIME", "0")),
+                           "age_s": int(time.time() - os.stat(lease_path).st_mtime)}
+              return {
+                  "uplink": uplink,
+                  "mac": (read("/sys/class/net/" + uplink + "/address") or b"").decode().strip() if uplink else "",
+                  "units": run("systemctl", "is-active", "systemd-networkd.service", "fpgas-uplink-network.service",
+                               "networkd-dispatcher.service"),
+                  "packages": run("dpkg-query", "-W", "-f=${Package} ${db:Status-Abbrev}\n",
+                                  "network-manager", "ifupdown", "isc-dhcp-client"),
+                  "networkctl": run("networkctl", "list", "--no-legend", "--no-pager"),
+                  "status": run("networkctl", "status", "--no-pager", uplink) if uplink else {"stdout": ""},
+                  "lease": lease,
+                  "timesync": run("timedatectl", "show-timesync", "-p", "LinkNTPServers", "-p", "SystemNTPServers",
+                                  "-p", "ServerAddress"),
+              }
           print(json.dumps({
+              "network": network_state(),
               "mounts": run("mount"),
               "addrs": run("ip", "addr", "show"),
               # Every I2C bus the kernel has, and the /dev/i2c-N nodes i2c-dev made for them.
               "i2c_buses": sorted(os.listdir("/sys/class/i2c-adapter")) if os.path.isdir("/sys/class/i2c-adapter") else [],
               "i2c_dev_nodes": sorted(n for n in os.listdir("/dev") if n.startswith("i2c-")),
               "ip6_default": run("ip", "-6", "route", "show", "default"),
-              "ipv6_unit": run("systemctl", "is-active", "fpgas-ipv6.service"),
-              "ipv6_journal": run("journalctl", "-b", "-u", "fpgas-ipv6.service", "--no-pager", "-n", "40"),
               "ping": run("ping", "-c", "1", "-W", "5", "10.21.0.1"),
               "ssh": run("systemctl", "is-active", "ssh"),
               # What sshd shows before authentication: ask for no method at
@@ -406,8 +434,7 @@
         verify_pi_i2c_buses: "{{ verify_pi_state.i2c_buses }}"
         verify_pi_i2c_dev_nodes: "{{ verify_pi_state.i2c_dev_nodes }}"
         verify_pi_ip6_default: "{{ verify_pi_state.ip6_default }}"
-        verify_pi_ipv6_unit: "{{ verify_pi_state.ipv6_unit }}"
-        verify_pi_ipv6_journal: "{{ verify_pi_state.ipv6_journal }}"
+        verify_pi_network: "{{ verify_pi_state.network }}"
         ansible_hostname: "{{ verify_pi_state.facts.hostname }}"
         ansible_kernel: "{{ verify_pi_state.facts.kernel }}"
         ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
@@ -444,9 +471,71 @@
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
 
-    # IPv6 (Tim's answer welland-1, 2026-10-07): fpgas-ipv6.service gives the
+    # systemd-networkd manages the network (#230, Tim's answer coord-57):
+    # fpgas-uplink-network handed it the interface carrying the NFS root, it
+    # holds the port's address and renews its lease, and networkd-dispatcher
+    # runs the state publisher. networkd rewrites the lease file at every
+    # DHCPACK, so a file older than the lease time means the renewals stopped.
+    - name: Assert systemd-networkd manages the uplink and renews its lease
+      ansible.builtin.assert:
+        that:
+          - verify_pi_network.units.stdout_lines == ['active', 'active', 'active']
+          - verify_pi_network.uplink | length > 0
+          - verify_pi_network.networkctl.stdout is search('(?m)^\\s*\\d+\\s+' ~ verify_pi_network.uplink ~ '\\s+\\S+\\s+routable\\s+configured\\s*$')
+          - verify_pi_network.lease.address | default('') == verify_pi_expected_ip
+          - verify_pi_network.lease.server | default('') == verify_pi_gateway
+          - verify_pi_network.lease.age_s | default(-1) | int >= 0
+          - verify_pi_network.lease.age_s | default(-1) | int < verify_pi_network.lease.lifetime_s | default(0) | int
+        fail_msg: >-
+          {{ ansible_hostname }}: systemd-networkd, fpgas-uplink-network, networkd-dispatcher are
+          {{ verify_pi_network.units.stdout_lines }} (want all active); uplink '{{ verify_pi_network.uplink }}';
+          networkctl list: {{ verify_pi_network.networkctl.stdout_lines }}; lease {{ verify_pi_network.lease }}
+          (want {{ verify_pi_expected_ip }} from {{ verify_pi_gateway }}, saved less than its lifetime ago).
+          networkctl status: {{ verify_pi_network.status.stdout_lines | default([]) }}
+      vars:
+        verify_pi_gateway: "{{ hostvars[verify_pi_server].eth_local_address | default('10.21.0.1') }}"
+
+    # timesyncd's one source is the DHCP ntp-server option, which networkd
+    # passes on (fixpi/tasks/netboot.yml: no NTP=, the gateway only as
+    # FallbackNTP=).
+    - name: Assert timesyncd takes its server from DHCP
+      ansible.builtin.assert:
+        that:
+          - ('LinkNTPServers=' ~ verify_pi_gateway) in verify_pi_network.timesync.stdout_lines
+          - "'SystemNTPServers=' in verify_pi_network.timesync.stdout_lines"
+          - ('ServerAddress=' ~ verify_pi_gateway) in verify_pi_network.timesync.stdout_lines
+        fail_msg: "timedatectl show-timesync: {{ verify_pi_network.timesync.stdout_lines }} (want the link server {{ verify_pi_gateway }} in use)"
+      vars:
+        verify_pi_gateway: "{{ hostvars[verify_pi_server].eth_local_address | default('10.21.0.1') }}"
+
+    # The gateway's half of the heartbeat: dnsmasq logs (log-dhcp) a DHCPACK
+    # for this board's address and MAC at every renewal, so one must be in its
+    # journal within the last lease time (plus a minute for the renewal at T1
+    # to land).
+    - name: Read the gateway's recent DHCPACKs for this Pi
+      ansible.builtin.command:
+        argv: [journalctl, -u, dnsmasq, --no-pager, -o, cat,
+               "--since=-{{ (verify_pi_network.lease.lifetime_s | default(0) | int) + 60 }}s"]
+      delegate_to: "{{ verify_pi_server }}"
+      become: true
+      changed_when: false
+      register: verify_pi_dhcpacks
+
+    - name: Assert the gateway acknowledged this Pi within the lease time
+      ansible.builtin.assert:
+        that: >-
+          verify_pi_dhcpacks.stdout_lines
+          | select('search', 'DHCPACK\\(\\S+\\) ' ~ (verify_pi_expected_ip | regex_escape) ~ ' ' ~ verify_pi_network.mac ~ '( |$)')
+          | list | length > 0
+        fail_msg: >-
+          No DHCPACK for {{ verify_pi_expected_ip }} {{ verify_pi_network.mac }} in {{ verify_pi_server }}'s dnsmasq
+          journal for the last {{ (verify_pi_network.lease.lifetime_s | default(0) | int) + 60 }} s: the Pi is not
+          renewing. Its DHCP lines: {{ verify_pi_dhcpacks.stdout_lines | select('search', verify_pi_network.mac) | list }}
+
+    # IPv6 (Tim's answer welland-1, 2026-10-07): systemd-networkd gives the
     # board's interface (whatever its name) the port's address, <pib_network6_base><switch, two digits>::<port>, and a
-    # default route via the gateway's <...>::ffff, from the host name. The
+    # default route via the gateway's <...>::ffff, from the .network file
+    # fpgas-uplink-network writes at boot (onpi/tasks/networkd.yml). The
     # address is computed here from the inventory, independently of the Pi's
     # copy of the formula. Where the site defines no IPv6 prefix there is
     # nothing to check; every per-port Pi is checked, whatever its interface is
@@ -466,15 +555,13 @@
     - name: Assert the per-port IPv6 address and an IPv6 default route
       ansible.builtin.assert:
         that:
-          - verify_pi_ipv6_unit.stdout == 'active'
           - ('inet6 ' ~ verify_pi_expected_ip6 ~ '/') in verify_pi_addrs.stdout
           - ('default via ' ~ (verify_pi_expected_ip6 | regex_replace('::[0-9]+$', '::ffff')) ~ ' ') in verify_pi_ip6_default.stdout
         fail_msg: >-
-          {{ ansible_hostname }}: expected fpgas-ipv6.service active (it is {{ verify_pi_ipv6_unit.stdout }}),
-          {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route via
+          {{ ansible_hostname }}: expected {{ verify_pi_expected_ip6 }} on an interface, and an IPv6 default route via
           {{ verify_pi_expected_ip6 | regex_replace('::[0-9]+$', '::ffff') }}
-          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). The unit's journal:
-          {{ verify_pi_ipv6_journal.stdout_lines | default([]) }}
+          (got: {{ verify_pi_ip6_default.stdout | default('none', true) }}). networkctl status:
+          {{ verify_pi_network.status.stdout_lines | default([]) }}
       when: verify_pi_expected_ip6 is defined
 
     - name: Assert the Pi can reach the server
@@ -1043,14 +1130,14 @@
           fpgas-verify` on the Pi has the rest.{% endif %}
           fpgas-verify: {{ verify_pi_fpga_board_journal.stdout_lines | default([]) }}
 
-    # ifupdown is masked in the NFS root (fixpi/tweeks.yml): its units must
-    # neither fail nor stall the boot.
-    - name: Assert ifupdown is masked and not failed
+    # NetworkManager, ifupdown and dhclient are purged from the root
+    # (onpi/tasks/networkd.yml): systemd-networkd is the one network manager.
+    # dpkg-query names a package it knows ("ii" installed, "rc" removed with
+    # its config left); a purged one it does not list at all.
+    - name: Assert no other network manager is installed
       ansible.builtin.assert:
-        that:
-          - "'networking.service' not in verify_pi_failed.stdout"
-          - "'ifupdown-pre.service' not in verify_pi_failed.stdout"
-        fail_msg: "ifupdown units still failing on the Pi: {{ verify_pi_failed.stdout }}"
+        that: verify_pi_network.packages.stdout_lines | select('search', ' i') | list | length == 0
+        fail_msg: "still installed on the Pi: {{ verify_pi_network.packages.stdout_lines }}"
 
     # --- Orange Pi H3 boards + their FEL-boot host (hardware only) ---
     - name: Assert a sunxi board runs the armmp kernel from the shared root
@@ -1313,6 +1400,53 @@
         and verify_pi_identity.stdout_lines[1] in (verify_pi_fleet_page.content | default('', true))
       retries: 24
       delay: 5
+      when: verify_pi_fleet | default(false)
+
+    # Every networkd state change of the uplink reaches the site
+    # (fpgas-network-state, run by networkd-dispatcher, on the fleet event
+    # topic): the newest network-state record the site holds for this board
+    # must come from the boot running now. Read from the site's own database
+    # through manage.py, as the service user (roles/site/tasks/django.yml).
+    - name: Read the newest network-state record the site holds for this Pi
+      ansible.builtin.command:
+        argv:
+          - "{{ hostvars[verify_pi_server].django_dir }}/venv/bin/python"
+          - manage.py
+          - shell
+          - -c
+          - |
+            import json
+            from fleet.models import BootEvent
+            e = BootEvent.objects.filter(machine__serial="{{ verify_pi_identity.stdout_lines[0] }}",
+                                         stage="network-state").order_by("-ts", "-id").first()
+            print(json.dumps(None if e is None else {"boot_id": e.boot_id, "ts": e.ts.isoformat(),
+                                                     "state": e.detail.get("operational_state"),
+                                                     "interface": e.detail.get("interface")}))
+        chdir: "{{ hostvars[verify_pi_server].django_dir }}"
+      delegate_to: "{{ verify_pi_server }}"
+      become: true
+      become_user: "{{ hostvars[verify_pi_server].user_name }}"
+      changed_when: false
+      register: verify_pi_network_record
+      until: >-
+        verify_pi_network_record.rc == 0
+        and (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
+      retries: 24
+      delay: 5
+      failed_when: false
+      when: verify_pi_fleet | default(false)
+
+    - name: Assert the site holds a network-state record from this boot
+      ansible.builtin.assert:
+        that:
+          - verify_pi_network_record.rc == 0
+          - (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
+          - (verify_pi_network_record.stdout | from_json).interface == verify_pi_network.uplink
+        fail_msg: >-
+          The site's newest network-state record for {{ verify_pi_identity.stdout_lines[0] }} is
+          {{ verify_pi_network_record.stdout | default('-', true) }} {{ verify_pi_network_record.stderr | default('') }};
+          want one from boot {{ verify_pi_identity.stdout_lines[1] }} for {{ verify_pi_network.uplink }}.
+          `journalctl -b -u networkd-dispatcher` on the Pi shows the publisher's runs.
       when: verify_pi_fleet | default(false)
 
     # The gateway's jump account (roles/jump) can hop on to this board with
