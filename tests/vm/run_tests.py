@@ -21,6 +21,7 @@ import paramiko
 import yaml
 
 from tests.vm.cloud_init import create_seed_iso
+from tests.vm import pi_network
 from tests.vm.network import proxy_jump_string
 from tests.vm.ssh_auth import openssh_password_attempt, probe
 from tests.vm.vswitch import AccessPortSwitch
@@ -596,6 +597,33 @@ SERVER_NET_DIAG = (
 )
 
 
+def pi_shell(pi: VMManager, host: str, key_path: Path, proxy: str):
+    """A function running a shell command on the Pi as pi; returns rc + stdout + stderr.
+
+    One ssh connection, kept: each handshake with the emulated Pi takes tens of
+    seconds. A command whose connection broke (the cable was out) reconnects
+    and runs once more."""
+    held = {}
+
+    def run(cmd: str, timeout: int = 180) -> str:
+        for attempt in (1, 2):
+            if "ssh" not in held:
+                held["ssh"] = pi.wait_for_ssh(host=host, port=22, username="pi", key_path=key_path,
+                                              proxy_jump=proxy, timeout=300)
+            try:
+                _in, out, err = held["ssh"].exec_command(cmd, timeout=timeout)
+                rc = out.channel.recv_exit_status()
+                return (f"rc={rc}\n{out.read().decode(errors='replace')}"
+                        f"{err.read().decode(errors='replace')}")
+            except (paramiko.SSHException, OSError, EOFError):
+                held.pop("ssh").close()
+                if attempt == 2:
+                    raise
+        raise AssertionError("unreachable")
+
+    return run
+
+
 def start_pi(workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     """Power on the virtual Pi: it netboots from the server on its own.
 
@@ -697,6 +725,12 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
         print("ERROR: the pi user's password login failed -- the web terminal cannot log in.")
         rc = rc or 1
     pool.shutdown()
+    # What only a test can provoke (tests/vm/pi_network.py): renewals, a
+    # networkd restart, the gateway's DHCP down past the lease, the cable out.
+    if rc == 0 and not pi_network.run(pi_shell(pi, pi_host, key_path, proxy),
+                                      lambda cmd: server_run(server, key_path, cmd, timeout=180),
+                                      pi.set_link, PI_ADDRESS):
+        rc = 1
     if rc != 0:
         print(f"ERROR: verify-pi.yml failed with exit code {rc}")
         print("[server] network view of the Pi at failure:\n"
