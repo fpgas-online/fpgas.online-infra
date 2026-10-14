@@ -380,6 +380,10 @@
               found = []
               for sub in OVERLAY_WATCHED:
                   for top, dirs, files in os.walk(os.path.join(upper, sub), onerror=lambda e: found.append("ERROR " + str(e))):
+                      # Python's bytecode caches are rewritten from the source at every boot and nothing depends on
+                      # them surviving (seen: the fleet agent's __pycache__ under /usr/local/lib/fpgas-online/fleet).
+                      if os.path.basename(top) == "__pycache__":
+                          continue
                       found += [os.path.join(top, f)[len(upper):] for f in files]
               # A watched path that does not exist in the upper layer was never written: the walk's onerror sees
               # ENOENT for it, which is the good case.
