@@ -25,6 +25,19 @@
     mode: "0755"
   when: switches is defined
 
+- name: The per-port-VLAN switches and their communities (gunicorn and switch-poller)
+  ansible.builtin.template:
+    src: templates/poe.env.j2
+    dest: /etc/fpgas/poe.env
+    owner: root
+    group: root
+    mode: "0600"
+  when: switches is defined
+  no_log: true
+  notify:
+    - Restart django services
+    - Restart switch-poller
+
 - name: Tell gunicorn where the per-port-VLAN switches are (PoE control)
   ansible.builtin.template:
     src: templates/gunicorn-poe.conf.j2

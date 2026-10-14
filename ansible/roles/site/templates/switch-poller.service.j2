@@ -1,0 +1,23 @@
+# {{ ansible_managed }} -- switch port poller (fpgas.online-poe snmp_switch, coord-56)
+# Reads every board port's link each SWITCH_POLL_SECONDS, publishes changes to the site (MQTT, the fleet broker),
+# and releases the DHCP leases of a port that went down or is down (sudo fpgas-release-port-lease; so no
+# NoNewPrivileges here). The watchdog restarts it when a poll does not complete. 120 s: one release can take
+# fpgas.online-poe's release timeout (60 s), and the poller feeds the watchdog before each one.
+[Unit]
+Description=switch port poller (link changes to the site, DHCP leases of down ports released)
+After=network.target mosquitto.service redis-server.service dnsmasq.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=120
+User={{ user_name }}
+Group=www-data
+WorkingDirectory={{ django_dir }}
+EnvironmentFile=/etc/fpgas/poe.env
+ExecStart={{ django_dir }}/venv/bin/python manage.py switch_poller
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

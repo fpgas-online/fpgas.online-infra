@@ -139,6 +139,24 @@
   notify:
     - Restart fleet-consumer
 
+# The switch poller's topic site name, and the PoE views' and poller's lease release (the script and its sudoers
+# rule exist on per-port hosts only: roles/pxe, lease_events.yml).
+- name: Switch poller and lease release settings (per-port hosts)
+  ansible.builtin.lineinfile:
+    path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
+    state: present
+    regexp: "^{{ item.key }} = "
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - {key: SWITCH_POLLER_SITE, value: "'{{ fleet_site }}'"}
+    - {key: SNMP_SWITCH_LEASE_RELEASE, value: "True"}
+  loop_control:
+    label: "{{ item.key }}"
+  when: switches is defined and (fleet_broker | default(false))
+  notify:
+    - Restart django services
+    - Restart switch-poller
+
 # The zone the site's pages give clock times in (site PR #74's management
 # dashboards). Without it they fall back to the gateway's own zone, UTC, which
 # breaks the rule that clock times are local; so a host with no site_timezone,
