@@ -110,8 +110,12 @@ def lab(tmp_path):
             sudo("kill", pid.read_text().strip(), check=False)
     for name in ("gw", "pa", "pb"):
         sudo("ip", "netns", "del", name, check=False)
-    if (work / "log").exists():
-        print((work / "log").read_text()[-4000:])
+    print(dnsmasq_log(work)[-4000:])
+
+
+def dnsmasq_log(work):
+    """dnsmasq's log, which it (as root) writes readable by root only."""
+    return sudo("cat", str(work / "log"), check=False).stdout
 
 
 def take_leases(work, script, peer):
@@ -145,7 +149,7 @@ def test_one_ports_v4_and_v6_leases_are_released_and_the_other_ports_kept(lab):
     assert not ({"10.21.1.1", "2001:db8:a137:2101::1"} & after), after
     assert {"10.21.1.2", "2001:db8:a137:2101::2"} <= after
     assert [r["family"] for r in published] == [4, 6]
-    assert "DHCPRELEASE" in (work / "log").read_text()
+    assert "DHCPRELEASE" in dnsmasq_log(work)
 
 
 def test_the_command_line_refuses_an_interface_that_is_not_a_port(lab):
