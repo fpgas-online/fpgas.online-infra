@@ -28,11 +28,16 @@ fpgas.online-tt main, read 2026-10-07.
   the `nfsvers=4.2` safety net, and the `pi` home directories.
 - [`ansible/roles/fixpi/tasks/tweeks.yml`](../../ansible/roles/fixpi/tasks/tweeks.yml): every `config.txt` line
   on the Services page and the reasoning behind each, plus the `pistat_host` entry in `/etc/environment`, the
-  deleted `console-setup.service`, `wifi-check.sh` and `/etc/hostname`, and the masked `networking.service` and
-  `ifupdown-pre.service`.
+  deleted `console-setup.service`, `wifi-check.sh` and `/etc/hostname`, and the removal of the old `ifupdown`
+  masks and `eth1`/`eth-fpga` stanza.
 - [`ansible/roles/fixpi/tasks/netboot.yml`](../../ansible/roles/fixpi/tasks/netboot.yml):
   `fpgas-hostname-hosts.service` and its `multi-user.target.wants` symlink, the `timesyncd.conf.d/fpgas.conf`
-  drop-in pointing at the gateway, and the `userconfig.service` mask.
+  drop-in naming the gateway as `FallbackNTP=`, and the `userconfig.service` mask.
+- [`ansible/roles/onpi/tasks/networkd.yml`](../../ansible/roles/onpi/tasks/networkd.yml), with
+  [`fpgas-uplink-network`](../../ansible/roles/onpi/files/usr/local/sbin/fpgas-uplink-network) and
+  [`fpgas-network-state`](../../ansible/roles/onpi/files/usr/local/sbin/fpgas-network-state): systemd-networkd and
+  the `.network` it gets at boot, networkd-dispatcher and the state records, and the purge of NetworkManager,
+  `ifupdown` and `isc-dhcp-client`.
 - [`ansible/roles/fixpi/files/fpgas-hostname-hosts.service`](../../ansible/roles/fixpi/files/fpgas-hostname-hosts.service)
   and [`fpgas-hostname-hosts.sh`](../../ansible/roles/fixpi/files/fpgas-hostname-hosts.sh): the `sudo`/DNS stall
   this exists to prevent, and why the logic is in a script rather than in `ExecStart`.

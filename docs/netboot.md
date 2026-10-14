@@ -118,6 +118,58 @@ boot.
 The PS1 Compute Blades boot a separate trixie root and have `console=tty1` with `serial-getty@ttyAMA0` inactive:
 [Compute blades](https://docs.fpgas.online/en/latest/sites/ps1-boards.html) (from the earlier docs page, not re-checked).
 
+<a id="the-network-after-boot"></a>
+## The network after boot: systemd-networkd
+
+`ip=dhcp` makes the kernel take the port's address before userspace, because the NFS root is mounted over it. From
+then on systemd-networkd manages the network, IPv4 and IPv6 (fpgas.online-infra #230, Tim's answer coord-57, 14
+October 2026). NetworkManager, `ifupdown` and `isc-dhcp-client` are purged from the root
+(`roles/onpi/tasks/networkd.yml`). Before that change, NetworkManager only took over the kernel's configuration
+("connected (externally)") and ran no DHCP client, so no board ever renewed its lease.
+
+**Which interface.** The interface name differs by board: `eth0` on most Pis, `eth-uplink` on a Pi 3B+ (setup-pi's
+`.link` files), and `end0` is possible. So nothing names it in advance. At each boot `fpgas-uplink-network.service`
+runs before networkd and takes the interface that routes to the NFS server named in `nfsroot=`. It writes
+`/run/systemd/network/10-fpgas-uplink.network` for that interface alone. Every other interface stays
+unmanaged, for example the USB adapter that an FPGA's Ethernet test configures for itself. If there is no route to
+the server, the unit fails, networkd manages nothing, and the kernel's address still carries the root.
+
+**What the file sets** (`roles/onpi/files/usr/local/sbin/fpgas-uplink-network`; the reasons are from systemd
+252's source, the version in the root):
+
+| Setting | Why |
+|---|---|
+| `DHCP=ipv4` | networkd's DHCP client renews the lease at T1 (half the 5-minute per-port lease), so the gateway's lease shows that the board is alive |
+| `KeepConfiguration=yes` | networkd never drops the address or routes that the kernel set. It gives the DHCP address an infinite lifetime, ignores lease expiry ("DHCPv4 connection considered critical"), and keeps the address when it stops or restarts |
+| `IgnoreCarrierLoss=yes` | a lost carrier would otherwise make networkd remove the address it took over from the kernel, and `KeepConfiguration=` does not cover that case |
+| `ClientIdentifier=mac` | every board has the same machine-id, so the default client identifier, which is derived from it, would be the same on all of them |
+| `SendRelease=no` | a networkd restart does not make the gateway forget the board |
+| `UseHostname=yes`, `UseNTP=yes` | the name `pi-sw<s>-p<p>` and the time server both come from the gateway's DHCP |
+| `IPv6AcceptRA=no` plus `[Address]` `<base><s, two digits>::<p>/128` and `[Route]` `Gateway=<base><s, two digits>::ffff` | the port's IPv6 address and default route are static. They are computed from the port's IPv4 address, `<net>.<s>.<p>`, and the site's `pib_network6_base` (fixpi writes it to `/etc/fpgas-online/ipv6-base`). Advertised routes are not used: the gateway refreshes its advertisements on one port interface per switch prefix only, so an advertised route lapses (PR #251) |
+
+**Time.** systemd-timesyncd takes its server from the DHCP ntp-server option, which networkd passes on. That is
+its one source. `timesyncd.conf.d/fpgas.conf` names the gateway only as `FallbackNTP=` (`roles/fixpi/tasks/netboot.yml`).
+DNS is unchanged: `/etc/resolv.conf` is the gateway's address, which `ansible/ci-nfsroot.yml` writes, and networkd
+(without systemd-resolved) never writes the file.
+
+**State changes go to the site.** networkd-dispatcher runs `/usr/local/sbin/fpgas-network-state` at every
+administrative and operational state the uplink enters: all 16 states the dispatcher knows (`onpi_networkd_states`).
+The script sends one `network-state` record to the site on the fleet event topic,
+`fpgas/<site>/pi/<serial>/event`. The record holds:
+
+- the states;
+- every address with its lifetime;
+- the default routes;
+- the DHCP lease, including the last ACK time from networkd's lease file;
+- the hostname, the serial, the MAC, and the switch and port.
+
+The site keeps it as a boot event. A record that cannot be delivered, such as the one sent while the cable is out,
+waits under `/run/fpgas-network-state` and goes out before the next one. Each run takes at most 30 s.
+
+**What a lease line means.** A renewal changes no state, so it sends no record. The gateway's dnsmasq logs a
+`DHCPACK` for every renewal, so a board with a current lease line has renewed within the last 5 minutes. A board
+running a root from before this change never renews, and its lease line lasts only 5 minutes after it boots.
+
 ## The NFS root is shared and read-only
 
 There is one root per site, at `/srv/nfs/rpi/<dist>/{boot,root}` (`nfs_root`; `dist: bookworm`). Both halves

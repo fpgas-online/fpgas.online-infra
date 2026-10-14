@@ -52,10 +52,11 @@ therefore still open, and one of the two failure modes stays possible either way
 **Edits to the root itself.** `tweeks.yml` also edits the root, mostly to stop units failing where nobody can
 see them. It deletes `console-setup.service` from `multi-user.target.wants` (a failed console-setup on every
 boot) and `profile.d/wifi-check.sh` (a "Wi-Fi is blocked by rfkill" warning on every login), and deletes
-`/etc/hostname` so the DHCP-supplied name wins. It masks `networking.service` and `ifupdown-pre.service` to
-`/dev/null`: `ifupdown` is unused with `ip=dhcp` plus NetworkManager, and `ifupdown-pre.service` sat through its
-full two-minute `udevadm settle` on an Orange Pi H3 before anything else could start (spike of 2026-08-28:
-userspace 2 m 16 s, of which `ifupdown-pre` 2 m 02 s; the stuck udev event underneath was never identified). It
-writes `pistat_host` into `/etc/environment`, where the [units shipped by `fpgas-online-setup-pi`](setup-pi-units.md) read the server
-name. The `fpgas-hostname-hosts.service` unit and the `timesyncd` drop-in that points the Pi's clock at the
-gateway are `fixpi`'s too, from `netboot.yml`.
+`/etc/hostname` so the DHCP-supplied name wins. It removes the masks it used to put on `networking.service`
+and `ifupdown-pre.service`, and the never-applied `eth1`/`eth-fpga` stanza. `ifupdown` is no longer in the root,
+because systemd-networkd manages the network ([The network after boot](../netboot.md#the-network-after-boot)).
+The masks were there because `ifupdown-pre.service` sat through its full two-minute `udevadm settle` on an
+Orange Pi H3 before anything else could start (spike of 2026-08-28: userspace 2 m 16 s, of which
+`ifupdown-pre` 2 m 02 s). It writes `pistat_host` into `/etc/environment`, where the [units shipped by `fpgas-online-setup-pi`](setup-pi-units.md) read the server
+name. The `fpgas-hostname-hosts.service` unit and the `timesyncd` drop-in that names the gateway as the
+fallback time server are `fixpi`'s too, from `netboot.yml`.

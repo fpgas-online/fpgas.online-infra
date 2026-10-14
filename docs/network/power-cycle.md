@@ -18,8 +18,10 @@ $ ip -4 neigh show 10.21.2.46
 $ grep ' 10.21.2.46 ' /var/lib/misc/dnsmasq.leases
 ```
 
-A netbooted Pi never renews its DHCP lease, so its lease line exists only for the first 5 minutes after it
-boots (fpgas.online-infra issue #230). The neighbour entry names the MAC that last answered; it can stay after the
+A Pi on a root with systemd-networkd renews its DHCP lease about every 150 s, so a current lease line
+means that board answered within the last 5 minutes. On an older root a netbooted Pi never renews, and its lease
+line exists only for the first 5 minutes after it boots (fpgas.online-infra issue #230;
+[The network after boot](../netboot.md#the-network-after-boot)). The neighbour entry names the MAC that last answered; it can stay after the
 Pi has gone (it did while ports were off on 6 October 2026), so it identifies the board but does not prove it
 is up. If another MAC answers, stop: something was moved.
 
