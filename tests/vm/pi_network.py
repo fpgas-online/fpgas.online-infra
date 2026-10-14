@@ -40,8 +40,8 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    at ps1), drops the kernel's address (as at ps1: help-carl
    report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
    back from plain DHCP with a finite lifetime, which every check above
-   (_forever_v4) rejects, or the Pi stays lost and its console shows the NFS
-   client's "not responding". How long the gateway loses the Pi depends on
+   (_forever_v4) rejects, or the Pi stays lost: the gateway's ping gets no
+   answer for at least LOST_S and nothing answers ARP for the address. How long the gateway loses the Pi depends on
    how fast DHCP answers (here at once: no-ping), so the gap is reported,
    not judged. The second boot
    (run_tests.second_boot) resets the Pi afterwards.
@@ -61,6 +61,7 @@ OUTAGE_S = 360          # past the 300 s lease (and T2, 262 s)
 POLL_S = 30
 CABLE_OUT_S = 20
 CONTROL_WINDOW_S = 120
+LOST_S = 60  # silence at the end of the control's window that counts as lost for good
 DJANGO_DIR = "/srv/www/pib"
 SITE_USER = "admin"
 # Read from the NFS root (not the tmpfs overlay), with the page cache dropped first so the bytes come from the
@@ -273,9 +274,9 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
         # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address. The proof is the address
         # itself: plain DHCP puts it back with a finite lifetime, which _forever_v4, the check every step above
-        # makes, rejects; or the Pi stays lost and its console shows the NFS client's complaint. How long the
-        # gateway loses the Pi depends on how fast DHCP answers (here at once: no-ping), so the gap is reported,
-        # not judged. The Pi is reset afterwards (the second boot).
+        # makes, rejects; or the Pi stays lost, as at ps1: the gateway's ping gets no answer for LOST_S and
+        # nothing answers ARP for the address. A Pi whose address came back is judged by its lifetime alone; the
+        # gap is reported, not judged. The Pi is reset afterwards (the second boot).
         serial_from = len(read_serial())
         started = _ping_start(srv, address, CONTROL_WINDOW_S)
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=2 /bin/sh -c "
@@ -284,36 +285,37 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
                          " && systemctl stop systemd-networkd.socket systemd-networkd"
                          " && rm -f /run/systemd/netif/links/* /run/systemd/netif/leases/*"
                          " && systemctl start systemd-networkd"))
-        proof = ""
+        proof, lifetimes = "", []
         swapped = time.monotonic()
         while not proof and time.monotonic() < swapped + CONTROL_WINDOW_S:
             time.sleep(5)
             try:
                 line = pi(f"ip -o -4 addr show dev {uplink}", timeout=20)
-            except (Step, OSError, EOFError, paramiko.SSHException):  # the Pi may be lost: its console decides
+            except (Step, OSError, EOFError, paramiko.SSHException):  # the Pi may be lost: decided below
                 continue
             held = next((l for l in line.splitlines() if f" {address}/" in l), "")
+            lifetimes.append(held.strip() or "(no such address)")
             if held and "valid_lft forever" not in held:
                 proof = f"its address is now held by plain DHCP, with a finite lifetime: {held.strip()}"
-        # A Pi that stayed lost: the NFS client complains on the console once its RPCs time out (about a minute
-        # after the loss over TCP), so the console is watched for a while longer, timed from the swap.
-        while not proof and time.monotonic() < swapped + CONTROL_WINDOW_S + 180:
-            complaint = [l for l in read_serial()[serial_from:].splitlines() if "not responding" in l]
-            if complaint:
-                proof = "it stayed lost; its console: " + complaint[0].strip()
-            else:
-                time.sleep(10)
-        if not proof:
-            try:
-                state = pi_sh("sudo systemctl status --no-pager 'fpgas-negative-control*'; ls -l /run/systemd/network; "
-                              f"networkctl status --no-pager {uplink}; ip -o -4 addr show dev {uplink}; "
-                              "sudo journalctl -b -u systemd-networkd --no-pager -n 80", 60)
-            except (OSError, EOFError, paramiko.SSHException) as e:
-                state = f"(the Pi could not be read: {type(e).__name__}: {e})"
-            raise Step(f"the negative control proved nothing: within {CONTROL_WINDOW_S} s the address still had "
-                       f"lifetime forever, and within {CONTROL_WINDOW_S + 180} s the console showed no NFS complaint. "
-                       f"The Pi's state:\n{state}")
         gap, answers = _ping_gap(srv, started, CONTROL_WINDOW_S)
+        if not proof:
+            # The Pi stayed lost, the ps1 outcome. The gateway sees it: nothing has answered its ping for at least
+            # LOST_S at the end of the window, and nothing answers ARP for the address (neighbour FAILED or
+            # INCOMPLETE). The console's NFS complaint, when the capture shows it, is quoted too.
+            neigh = srv(f"ip neigh show {address}").strip()
+            complaint = [l for l in read_serial()[serial_from:].splitlines() if "not responding" in l]
+            if gap >= LOST_S and any(s in neigh for s in ("FAILED", "INCOMPLETE")):
+                proof = (f"it stayed lost: no answer to the gateway's ping for {gap:.0f} s, and the gateway's "
+                         f"neighbour entry is '{neigh}'" + (f"; its console: {complaint[0].strip()}" if complaint else ""))
+            else:
+                try:
+                    state = pi_sh("sudo systemctl status --no-pager 'fpgas-negative-control*'; ls -l /run/systemd/network; "
+                                  f"networkctl status --no-pager {uplink}; ip -o -4 addr show dev {uplink}; "
+                                  "sudo journalctl -b -u systemd-networkd --no-pager -n 80", 60)
+                except (OSError, EOFError, paramiko.SSHException) as e:
+                    state = f"(the Pi could not be read: {type(e).__name__}: {e})"
+                raise Step(f"the negative control proved nothing. Address reads after the swap: {lifetimes or 'none'}; "
+                           f"longest silence {gap:.1f} s; the gateway's neighbour entry: '{neigh}'. The Pi's state:\n{state}")
         print(f"[net] negative control (the generator's DHCP-only .network, as at ps1): {proof}. The gateway's "
               f"longest wait for an answer: {gap:.2f} s ({answers} answers in {CONTROL_WINDOW_S} s)")
     except Step as e:
