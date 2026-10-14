@@ -253,3 +253,19 @@
   ansible.builtin.assert:
     that: "'<h1>Management</h1>' in (site_v_nginx_pages.results[0].stdout)"
     fail_msg: "GET /management/ through nginx returned 200 but not the management index (no <h1>Management</h1>)"
+
+# The switch port poller (coord-56; roles/site/tasks/switch_poller.yml): running, under its watchdog.
+- name: Check the switch poller is active and watched  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl show -p ActiveState -p WatchdogUSec switch-poller.service
+  changed_when: false
+  register: site_v_switch_poller
+  when: switches is defined and (fleet_broker | default(false))
+
+- name: Assert the switch poller is active and watched
+  ansible.builtin.assert:
+    that:
+      - "'ActiveState=active' in site_v_switch_poller.stdout_lines"
+      - site_v_switch_poller.stdout_lines | select('match', 'WatchdogUSec=.') | list | length == 1
+      - site_v_switch_poller.stdout_lines | select('match', 'WatchdogUSec=(0|infinity)$') | list | length == 0
+    fail_msg: "switch-poller.service: {{ site_v_switch_poller.stdout_lines }} (expected active, with a watchdog)"
+  when: switches is defined and (fleet_broker | default(false))

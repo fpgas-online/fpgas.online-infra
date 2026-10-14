@@ -23,6 +23,10 @@ $ # or every DHCP line on the port's own interface (switch 2, port 46 is VLAN 22
 $ sudo journalctl -u dnsmasq --since -15min | grep -i dhcp | grep v2246
 ```
 
+A lease that disappears was released, and the journal says why: `sudo journalctl -t fpgas-lease-release`
+(`released v4 10.21.2.46 88:a2:9e:45:85:77 on v2246 (cause: link-down)`; the causes are `link-down`,
+`power-cycle`, `power-off` and `down-port`).
+
 No DHCP at all from the port: the Pi has no power or no link (read the port's PoE state, [Power-cycling a
 board](../network/power-cycle.md)), or the port is not in its VLAN ([Converging the switches](../network/switches.md)).
 

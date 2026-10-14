@@ -1,0 +1,272 @@
+#!/usr/bin/python3 -I
+"""Release the DHCP leases of one board port: fpgas-release-port-lease <v-interface> --cause <cause>
+
+Run as root (sudo; the site's account may run exactly this file, /etc/sudoers.d/fpgas-lease-release). Called by
+fpgas.online-poe when a board's port is power-cycled or switched off, when the switch poller sees the port's link
+go down, and when the poller finds a lease on a port that is down (fpgas.online-infra, coord-56).
+
+The interface is the only input that names anything, and it is checked before anything else is read: it must be
+`v` and four digits AND an `interface=` of /etc/dnsmasq.d/ports.conf. The port's addresses come from that file's
+dhcp-range lines for the interface, and the leases from dnsmasq's lease file; nothing from the caller reaches a
+command line. Each lease is released with dnsmasq's own tools (dnsmasq-utils: dhcp_release for IPv4, dhcp_release6
+for IPv6), then the lease file is read until the port's leases are gone. dhcp_release hears no answer (it exits 0
+once the packet is sent), so the lease file is the proof. Every release is logged (syslog, tag
+fpgas-lease-release) and published as a lease record on the site's MQTT broker (topic fpgas/<site>/gw/lease; site
+and broker address from /etc/fpgas/lease-events.conf).
+
+Exit: 0 released or nothing to release; 1 a lease is still there, or a tool or file failed; 2 the arguments were
+refused (nothing was read or released).
+
+All paths are constants: the functions below take them as parameters only so the tests can import this file and
+point them at test files; the command line has no way to change them.
+"""
+
+import fcntl
+import ipaddress
+import json
+import re
+import subprocess
+import sys
+import syslog
+import time
+from datetime import datetime, timezone
+
+PORTS_CONF = "/etc/dnsmasq.d/ports.conf"
+LEASE_FILE = "/var/lib/misc/dnsmasq.leases"
+EVENTS_CONF = "/etc/fpgas/lease-events.conf"
+LOCK_FILE = "/run/fpgas-lease-release.lock"
+DHCP_RELEASE = "/usr/bin/dhcp_release"
+DHCP_RELEASE6 = "/usr/bin/dhcp_release6"
+MOSQUITTO_PUB = "/usr/bin/mosquitto_pub"
+CHILD_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C"}
+
+CAUSES = ("link-down", "power-cycle", "power-off", "down-port")
+TOOL_TIMEOUT = 10
+# dhcp_release6 alone takes 1-5 s; this is how long the lease file is watched for the release to show
+CONFIRM_SECONDS = 8
+LOCK_SECONDS = 30
+READ_TRIES = 6
+READ_PAUSE = 0.2
+
+_IFACE = re.compile(r"v[0-9]{4}")
+_RANGE = re.compile(r"dhcp-range=tag:(v[0-9]{4}),([^,]+),([^,]+),.*")
+_HEX = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2})*")
+_MAC = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}")
+_NAME = re.compile(r"\*|[A-Za-z0-9][A-Za-z0-9._-]{0,252}")
+_DIGITS = re.compile(r"[0-9]+")
+
+
+class Refused(Exception):
+    """The arguments are not a port this gateway serves: nothing is read or released."""
+
+
+class Failed(Exception):
+    """A file or a tool did not do what it must."""
+
+
+def parse_args(argv):
+    """(interface, cause) from the arguments, exactly `<v-interface> --cause <cause>`; Refused otherwise."""
+    if len(argv) != 3 or argv[1] != "--cause":
+        raise Refused("usage: fpgas-release-port-lease <v-interface> --cause " + "|".join(CAUSES))
+    iface, cause = argv[0], argv[2]
+    if not _IFACE.fullmatch(iface):
+        raise Refused(f"{iface!r} is not a per-port interface name")
+    if cause not in CAUSES:
+        raise Refused(f"{cause!r} is not a cause ({', '.join(CAUSES)})")
+    return iface, cause
+
+
+def port_addresses(text, iface):
+    """The interface's own addresses (one IPv4, one IPv6) from ports.conf; Refused if it has no interface= line."""
+    if f"interface={iface}" not in (line.strip() for line in text.splitlines()):
+        raise Refused(f"{iface} is not an interface of {PORTS_CONF}")
+    addresses = []
+    for line in text.splitlines():
+        m = _RANGE.fullmatch(line.strip())
+        if m and m[1] == iface:
+            if m[2] != m[3]:
+                raise Failed(f"{iface}: the range {m[2]}-{m[3]} is not one address")
+            addresses.append(ipaddress.ip_address(m[2]))
+    if not addresses:
+        raise Failed(f"{iface} has no dhcp-range")
+    return addresses
+
+
+def parse_leases(text, addresses):
+    """(server DUID or None, [lease dict]) for the leases of `addresses` (the port's own) in dnsmasq's lease file.
+
+    The file holds every client's leases (the quarantine pool's too), and dnsmasq writes lines this script has no
+    use for (host names with "_", T<iaid> temporary IPv6 leases, non-Ethernet hardware types). Those are passed over:
+    only a line for one of `addresses` must be in the exact shape, because its fields reach dhcp_release's command
+    line; such a line that is not is Failed. The `duid` line is checked when an IPv6 lease needs it."""
+    server_duid, leases = None, []
+    for number, line in enumerate(text.splitlines(), 1):
+        f = line.split()
+        if len(f) == 2 and f[0] == "duid":
+            server_duid = f[1]
+            continue
+        if len(f) < 3:
+            continue
+        try:
+            address = ipaddress.ip_address(f[2])
+        except ValueError:
+            continue
+        if address not in addresses:
+            continue
+        if f[1].startswith("T") and _DIGITS.fullmatch(f[1][1:]):
+            # a temporary (IA_TA) IPv6 lease: dhcp_release6 releases IA_NA only, so it runs out by itself
+            continue
+        if len(f) != 5 or not _DIGITS.fullmatch(f[0]) or not _NAME.fullmatch(f[3]) \
+                or not (f[4] == "*" or _HEX.fullmatch(f[4])):
+            raise Failed(f"lease file line {number}: the lease of {address} is not in dnsmasq's shape")
+        lease = {"expires": int(f[0]), "address": address, "client_id": None if f[4] == "*" else f[4]}
+        if address.version == 4:
+            if not _MAC.fullmatch(f[1]):
+                raise Failed(f"lease file line {number}: bad MAC for {address}")
+            lease["mac"] = f[1]
+        else:
+            if not _DIGITS.fullmatch(f[1]):
+                raise Failed(f"lease file line {number}: bad IAID for {address}")
+            lease["iaid"] = f[1]
+        leases.append(lease)
+    if any(lease["address"].version == 6 for lease in leases) and not (server_duid and _HEX.fullmatch(server_duid)):
+        raise Failed("the lease file has the port's IPv6 lease but no server duid line")
+    return server_duid, leases
+
+
+def read_leases(path, addresses, sleep=time.sleep):
+    """parse_leases of the file, from a read that two consecutive reads agree on: dnsmasq truncates the file and
+    writes it again (lease.c), so a single read can be empty or cut off and look like a released lease."""
+    previous = None
+    for _ in range(READ_TRIES):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        if text == previous:
+            return parse_leases(text, addresses)
+        previous = text
+        sleep(READ_PAUSE)
+    raise Failed(f"{path} did not read the same twice in {READ_TRIES} tries")
+
+
+def release_argv(iface, lease, server_duid):
+    """The dnsmasq-utils command that releases one lease."""
+    if lease["address"].version == 4:
+        argv = [DHCP_RELEASE, iface, str(lease["address"]), lease["mac"]]
+        return argv + ([lease["client_id"]] if lease["client_id"] else [])
+    if lease["client_id"] is None:
+        raise Failed(f"IPv6 lease {lease['address']} has no client DUID")
+    return [DHCP_RELEASE6, "--iface", iface, "--ip", str(lease["address"]), "--client-id", lease["client_id"],
+            "--iaid", lease["iaid"], "--server-id", server_duid]
+
+
+def lease_record(iface, lease, cause, at):
+    """The record published for a release (field names shared with the gateway's lease events and the Pi's
+    network-state record)."""
+    switch, port = divmod(int(iface[1:]) - 2000, 100)
+    return {"schema": 1, "switch": switch, "port": port, "hostname": f"pi-sw{switch}-p{port}", "at": at,
+            "event": "released", "family": lease["address"].version, "address": str(lease["address"]),
+            "mac": lease.get("mac"), "server": None, "lifetime_s": None, "acked_at": None,
+            "expires": lease["expires"], "interface": iface, "cause": cause}
+
+
+def release_port(iface, cause, *, ports_conf, lease_file, run, publish, log, sleep=time.sleep,
+                 clock=time.monotonic):
+    """Release every lease of the port `iface`. Returns the number released; Refused or Failed otherwise."""
+    with open(ports_conf, encoding="utf-8") as f:
+        addresses = set(port_addresses(f.read(), iface))
+    server_duid, held = read_leases(lease_file, addresses, sleep)
+    if not held:
+        log(syslog.LOG_DEBUG, f"no lease on {iface} (cause: {cause})")
+        return 0
+    for lease in held:
+        argv = release_argv(iface, lease, server_duid)
+        try:
+            done = run(argv, env=CHILD_ENV, capture_output=True, text=True, timeout=TOOL_TIMEOUT, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise Failed(f"{argv[0]} for {lease['address']}: {exc}") from exc
+        if done.returncode != 0:
+            raise Failed(f"{argv[0]} for {lease['address']} exited {done.returncode}: {done.stderr.strip()[:200]}")
+    deadline = clock() + CONFIRM_SECONDS
+    while True:
+        _, left = read_leases(lease_file, addresses, sleep)
+        if not left:
+            break
+        if clock() >= deadline:
+            raise Failed(f"{iface}: still leased after release: " + ", ".join(str(x["address"]) for x in left))
+        sleep(0.5)
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for lease in held:
+        who = lease.get("mac") or f"IAID {lease['iaid']}"
+        log(syslog.LOG_NOTICE, f"released v{lease['address'].version} {lease['address']} {who} on {iface} "
+                               f"(cause: {cause})")
+        publish(lease_record(iface, lease, cause, at))
+    return len(held)
+
+
+def read_config(path):
+    """(site, broker address) from `site=<name>` and `broker=<address>` lines of the lease-events config."""
+    found = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            key, _, value = line.strip().partition("=")
+            if key in ("site", "broker"):
+                found[key] = value
+    site, broker = found.get("site", ""), found.get("broker", "")
+    if not re.fullmatch(r"[a-z0-9-]+", site):
+        raise ValueError(f"{path} names no site")
+    ipaddress.ip_address(broker)  # ValueError when it is not an address
+    return site, broker
+
+
+def publish_record(record):
+    """One record on the broker. Anything that stops it (the config, the broker) is logged, not fatal: the release
+    has happened, and the lease file and the syslog line say so."""
+    try:
+        site, broker = read_config(EVENTS_CONF)
+        done = subprocess.run([MOSQUITTO_PUB, "-h", broker, "-q", "1", "-t", f"fpgas/{site}/gw/lease",
+                               "-m", json.dumps(record)], env=CHILD_ENV, capture_output=True, text=True,
+                              timeout=TOOL_TIMEOUT, check=False)
+    except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+        log(syslog.LOG_WARNING, f"lease record not published: {exc}")
+        return
+    if done.returncode != 0:
+        log(syslog.LOG_WARNING, f"lease record not published: mosquitto_pub exited {done.returncode}")
+
+
+def log(priority, message):
+    syslog.syslog(priority, message)
+    if priority <= syslog.LOG_WARNING:
+        print(message, file=sys.stderr)
+
+
+def take_lock(lock, sleep=time.sleep):
+    """The release lock, waiting at most LOCK_SECONDS for another release to finish (a caller's own timeout,
+    fpgas.online-poe's 60 s, counts on that bound); Failed after that."""
+    for _ in range(LOCK_SECONDS * 2):
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            sleep(0.5)
+    raise Failed(f"another release held {LOCK_FILE} for {LOCK_SECONDS} s")
+
+
+def main(argv):
+    syslog.openlog("fpgas-lease-release", 0, syslog.LOG_DAEMON)
+    try:
+        iface, cause = parse_args(argv)
+        with open(LOCK_FILE, "w") as lock:
+            take_lock(lock)  # two dhcp_release6 runs would fight over UDP port 546
+            release_port(iface, cause, ports_conf=PORTS_CONF, lease_file=LEASE_FILE,
+                         run=subprocess.run, publish=publish_record, log=log)
+    except Refused as exc:
+        log(syslog.LOG_WARNING, f"refused: {exc}")
+        return 2
+    except (Failed, OSError, ValueError) as exc:
+        log(syslog.LOG_ERR, f"failed: {exc}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

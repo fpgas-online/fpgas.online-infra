@@ -1,0 +1,74 @@
+---
+# Per-port hosts only (included when switches is defined): the gateway's half of coord-56.
+#
+# - fpgas-lease-event is dnsmasq's dhcp-script: every per-port lease event, renewals included, is published to the
+#   site as a lease record (MQTT, the fleet broker). It replaces send_stat.py, which send_stat.conf named but nothing
+#   ever installed on the gateway (#194).
+# - fpgas-release-port-lease releases one port's leases with dnsmasq's own tools. The site's account may run it, and
+#   nothing else, through the sudoers rule below; fpgas.online-poe calls it on a power cycle, a power-off, a link
+#   going down, and for a lease found on a port that is down. While that account also has NOPASSWD:ALL
+#   (roles/server_user, #290) the rule is a rail against our own mistakes, not a security boundary.
+
+- name: The site name and broker for the lease records
+  ansible.builtin.assert:
+    that:
+      - fleet_site is defined
+      - fleet_broker | default(false)
+      - eth_local_address is defined
+    fail_msg: >-
+      lease events need fleet_site, fleet_broker and eth_local_address on a per-port host: the records go to the
+      fleet broker
+
+- name: The dnsmasq release tools and the MQTT publisher
+  ansible.builtin.apt:
+    name:
+      - dnsmasq-utils
+      - mosquitto-clients
+
+- name: /etc/fpgas
+  ansible.builtin.file:
+    path: /etc/fpgas
+    state: directory
+    mode: "0755"
+
+- name: Where the lease records go
+  ansible.builtin.copy:
+    dest: /etc/fpgas/lease-events.conf
+    content: |
+      # Managed by ansible (fpgas.online-infra, pxe role): read by fpgas-lease-event and fpgas-release-port-lease.
+      site={{ fleet_site }}
+      broker={{ eth_local_address }}
+    mode: "0644"
+
+- name: The lease event script and the port lease release script
+  ansible.builtin.copy:
+    src: "files/{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - fpgas-lease-event
+    - fpgas-release-port-lease
+
+- name: The site's account may release a port's leases, and nothing more through this rule
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/fpgas-lease-release
+    content: "{{ user_name }} ALL=(root) NOPASSWD: /usr/local/sbin/fpgas-release-port-lease\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Run the lease event script on every lease event and renewal
+  ansible.builtin.copy:
+    src: files/lease-events.conf
+    dest: /etc/dnsmasq.d/lease-events.conf
+    mode: "0644"
+  notify: Restart dnsmasq
+
+- name: No send_stat.conf on a per-port host (its script never existed here, issue 194)
+  ansible.builtin.file:
+    path: /etc/dnsmasq.d/send_stat.conf
+    state: absent
+  notify: Restart dnsmasq

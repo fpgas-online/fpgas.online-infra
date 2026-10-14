@@ -14,3 +14,5 @@
     dest: /etc/dnsmasq.d/send_stat.conf
     mode: preserve
   notify: Restart dnsmasq
+  # a per-port host runs fpgas-lease-event instead (roles/pxe, lease_events.yml); its send_stat.py was never there
+  when: switches is not defined
