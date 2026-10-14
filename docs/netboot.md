@@ -146,12 +146,46 @@ them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
 | Setting | Why |
 |---|---|
 | `DHCP=ipv4` | networkd's DHCP client renews the lease at T1 (half the 5-minute per-port lease), so the gateway's lease shows that the board is alive |
-| `KeepConfiguration=yes` | networkd never drops the address or routes that the kernel set. It gives the DHCP address an infinite lifetime, ignores lease expiry ("DHCPv4 connection considered critical"), and keeps the address when it stops or restarts |
+| `KeepConfiguration=yes` | networkd never drops the address or routes that the kernel set. It gives the DHCP address an infinite lifetime, ignores lease expiry ("DHCPv4 connection considered critical"), and keeps the address when it stops or restarts. It must be set here: networkd's own "yes on a network root" default checks `/` with `statfs`, and on these boards `/` is the tmpfs overlay (`overlayroot=tmpfs`), not NFS (systemd 252 `path_is_network_fs`) |
 | `IgnoreCarrierLoss=yes` | a lost carrier would otherwise make networkd remove the address it took over from the kernel, and `KeepConfiguration=` does not cover that case |
 | `ClientIdentifier=mac` | every board has the same machine-id, so the default client identifier, which is derived from it, would be the same on all of them |
 | `SendRelease=no` | a networkd restart does not make the gateway forget the board |
 | `UseHostname=yes`, `UseNTP=yes` | the name `pi-sw<s>-p<p>` and the time server both come from the gateway's DHCP |
 | `IPv6AcceptRA=no` plus `[Address]` `<base><s, two digits>::<p>/128` and `[Route]` `Gateway=<base><s, two digits>::ffff` | the port's IPv6 address and default route are static. They are computed from the port's IPv4 address, `<net>.<s>.<p>`, and the site's `pib_network6_base` (fixpi writes it to `/etc/fpgas-online/ipv6-base`). Advertised routes are not used: the gateway refreshes its advertisements on one port interface per switch prefix only, so an advertised route lapses (PR #251) |
+
+**Never taking the link down.** networkd must not take the uplink down or drop its address, at start, on a
+restart, on a carrier event, ever. That is what killed the NFS root on the ps1 blades. There, systemd 257's
+`systemd-network-generator` turned `ip=dhcp` into a DHCP-only `71-default.network`, and networkd's network-root
+default did not apply under the overlay. networkd dropped the kernel's address 0.4 s after it started, and the
+hardware watchdog reset the boards every 95 s (help-carl `report1.md` 3.2 to 3.4). The guards:
+
+- `systemd-network-generator` is masked. Enabling networkd would otherwise enable it too, through
+  `Also=` in systemd 252's unit.
+- networkd `Requires=` and starts `After=` `fpgas-uplink-network.service`, so it does not start at all if our
+  file was not written.
+- The uplink's file sets nothing that makes networkd 252 take a link down: no `[Link] MACAddress=`, no bond,
+  no `ActivationPolicy=down`, no `BindCarrier=`, no MTU.
+
+verify-pi checks four things:
+
+- `networkctl status` names `10-fpgas-uplink.network` for the uplink.
+- No other `.network` exists.
+- The generator is masked.
+- The uplink's `carrier_down_count` has not changed since before networkd started (`fpgas-uplink-network`
+  records it in `/run/fpgas-uplink-network.carrier`).
+
+The VM test does three things:
+
+- It restarts networkd, with the gateway pinging every 0.2 s. No gap of more than 1 s is allowed, and the
+  kernel log may show no link loss or NFS trouble.
+- It runs the negative control: the generator's DHCP-only file in place of ours does lose the board.
+- It boots the same root a second time and runs verify-pi again.
+
+**The overlay root.** Everything above is in the built root (`onpi`, `fixpi`) or is regenerated under `/run` at
+every boot: the uplink's `.network`, the carrier record, the leases, the state spool. Nothing on a running board
+installs, enables or writes configuration. verify-pi checks the overlay's tmpfs upper layer for any file
+under the network configuration's paths. Anything written there would be gone at the next boot
+(fpgas.online-infra #271).
 
 **Time.** systemd-timesyncd takes its server from the DHCP ntp-server option, which networkd passes on. That is
 its one source. `timesyncd.conf.d/fpgas.conf` names the gateway only as `FallbackNTP=` (`roles/fixpi/tasks/netboot.yml`).

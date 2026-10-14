@@ -70,6 +70,9 @@ def _generate(tmp_path: Path, route: str | None, base: str | None = BASE, cmdlin
     for dev in ("eth0", "eth-uplink", "end0"):
         (sysfs / dev).mkdir(parents=True)
         (sysfs / dev / "address").write_text(mac + "\n")
+        (sysfs / dev / "carrier_down_count").write_text("1\n")
+        (sysfs / dev / "carrier_up_count").write_text("2\n")
+        (sysfs / dev / "operstate").write_text("up\n")
     answer = tmp_path / "route.txt"
     answer.write_text(route or "")
     (stubs / "ip").write_text(
@@ -85,7 +88,7 @@ def _generate(tmp_path: Path, route: str | None, base: str | None = BASE, cmdlin
     out_dir = tmp_path / "network"
     env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", FPGAS_IPV6_BASE_FILE=str(base_file),
                FPGAS_UPLINK_CMDLINE=str(cmdline_file), FPGAS_UPLINK_NETWORK_DIR=str(out_dir),
-               FPGAS_UPLINK_SYSFS_NET=str(sysfs))
+               FPGAS_UPLINK_SYSFS_NET=str(sysfs), FPGAS_UPLINK_CARRIER_FILE=str(tmp_path / "carrier"))
     r = subprocess.run(["bash", str(GENERATOR)], env=env, capture_output=True, text=True, check=check)
     written = out_dir / "10-fpgas-uplink.network"
     return r.stdout + r.stderr, written.read_text() if written.exists() else None
@@ -741,3 +744,74 @@ def test_the_gateway_offers_a_ports_address_without_pinging_it_first():
     # its own address after any DHCP outage longer than the lease (the VM test saw "no address available").
     base = (REPO / "ansible/roles/pxe/templates/dnsmasq-base.conf.j2").read_text()
     assert re.search(r"^no-ping$", base, re.M)
+
+
+def test_the_generator_records_the_uplinks_carrier_counters_before_networkd(tmp_path):
+    _generate(tmp_path, _route("eth-uplink", "10.21.2.43"))
+    # verify-pi compares these with the live counters: a link that went down after networkd took it has a higher
+    # carrier_down_count (at ps1, networkd taking the kernel's link down killed the NFS mount)
+    assert (tmp_path / "carrier").read_text() == (
+        "interface=eth-uplink\ncarrier_down_count=1\ncarrier_up_count=2\noperstate=up\n")
+
+
+def test_the_network_file_sets_nothing_that_takes_the_link_down(network):
+    # networkd 252 takes a link down only for: a [Link] MACAddress= change, CAN settings, joining a bond,
+    # ActivationPolicy=down/always-down, BindCarrier= (networkd-setlink.c:491,502,538,1088; networkd-link.c:693,1676).
+    # The .network sets none of them: [Link] carries only RequiredForOnline, MACAddress= is in [Match] (it matches;
+    # it sets nothing), and no MTU, bond, bridge, activation policy or bound carrier is named.
+    assert network["Link"] == ["RequiredForOnline=routable"]
+    everything = [line.split("=", 1)[0] for lines in network.values() for line in lines]
+    for key in ("ActivationPolicy", "BindCarrier", "Bond", "Bridge", "VRF", "MTUBytes", "MACAddressPolicy",
+                "WakeOnLan", "Unmanaged", "ConfigureWithoutCarrier"):
+        assert key not in everything, key
+    assert "MACAddress" not in [line.split("=", 1)[0] for line in network["Network"] + network["Link"]]
+
+
+# Every file of the conversion that runs on the Pi
+PI_FILES = [ONPI / "files/usr/local/sbin/fpgas-uplink-network", HOOK, GENERATOR_UNIT, DISPATCHER_DROPIN,
+            ONPI / "files/etc/systemd/system/fpgas-network-state-flush.service",
+            ONPI / "files/etc/systemd/system/fpgas-network-state-flush.timer"]
+
+
+@pytest.mark.parametrize("path", PI_FILES, ids=lambda p: p.name)
+def test_nothing_on_the_pi_reconfigures_the_link_or_the_root(path):
+    text = path.read_text()
+    # no link down/up, no networkd reconfigure or restart, no install or enable at run time (#271: the root is
+    # read-only under a tmpfs overlay; anything installed or enabled on the Pi is gone at the next boot)
+    for forbidden in ("networkctl", "ip link set", "ifdown", "ifup", "restart systemd-networkd", "systemctl enable",
+                      "apt-get", "apt install", "dpkg -i"):
+        assert forbidden not in text, (path.name, forbidden)
+
+
+def test_the_pi_side_writes_only_under_run():
+    hook = _hook()
+    for path in (hook.SPOOL_DIR, hook.BAD_DIR, hook.LOCK_FILE):
+        assert path.startswith("/run/"), path
+    generator = GENERATOR.read_text()
+    assert "out_dir=${FPGAS_UPLINK_NETWORK_DIR:-/run/systemd/network}" in generator
+    assert "carrier_file=${FPGAS_UPLINK_CARRIER_FILE:-/run/fpgas-uplink-network.carrier}" in generator
+    # the only redirections in the generator go to those two files
+    assert sorted(set(re.findall(r'> "(\$[a-z_]+)', generator))) == ["$carrier_file", "$out_dir"]
+
+
+def test_only_our_network_file_can_configure_the_uplink():
+    # systemd 252's systemd-networkd.service has Also=systemd-network-generator.service, so enabling networkd
+    # enables the generator, whose 71-default.network (DHCP from ip=dhcp, no KeepConfiguration) is what killed the
+    # NFS root at ps1 (help-carl report1.md 3.2-3.4). It is masked, and networkd needs our generator to have run.
+    tasks = TASKS.read_text()
+    assert "name: systemd-network-generator.service\n    masked: true" in tasks
+    assert tasks.index("name: systemd-networkd.service\n    enabled: true") < tasks.index(
+        "name: systemd-network-generator.service\n    masked: true"), "mask after the enable that turns it on"
+    dropin = (ONPI / "files/etc/systemd/system/systemd-networkd.service.d/fpgas-uplink.conf").read_text()
+    assert "Requires=fpgas-uplink-network.service" in dropin and "After=fpgas-uplink-network.service" in dropin
+    text = VERIFY_PI.read_text()
+    assert "'Network File: /run/systemd/network/10-fpgas-uplink.network' in verify_pi_network.status.stdout" in text
+    assert "verify_pi_network.generator.stdout == 'masked'" in text
+
+
+def test_keep_configuration_says_why_it_must_be_explicit(network):
+    # networkd's own "yes on a network root" default checks / with statfs (systemd 252 path_is_network_fs,
+    # src/basic/stat-util.c), which sees the tmpfs overlay, not NFS.
+    generator = GENERATOR.read_text()
+    assert "/ is the tmpfs overlay (overlayroot=tmpfs), not NFS" in generator
+    assert "KeepConfiguration=yes" in network["Network"]

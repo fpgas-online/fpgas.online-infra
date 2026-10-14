@@ -13,13 +13,22 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    the Pi within RENEW_WAIT_S (T1 is half the lease).
 3. networkd restart: the IPv4 address (lifetime forever), the IPv6 address,
    both default routes and the NFS root survive; the gateway answers a
-   global IPv6 ping.
+   global IPv6 ping. The link never goes down: the uplink's carrier_down_count
+   is the same after the restart as before, and the kernel log shows no
+   "Link is Down" for it and no NFS "not responding" or ESTALE since boot
+   (at ps1, networkd taking the kernel-configured link down killed the
+   NFS mount).
 4. gateway DHCP down past the lease: dnsmasq stopped for OUTAGE_S. The Pi
    answers ssh and reads its NFS root every POLL_S and keeps its address
    with lifetime forever. Its lease does expire (networkd logs "DHCPv4
    connection considered critical") and networkd drops nothing ("DHCP lease
    lost" never appears). Once dnsmasq is back, it is acknowledged again
    within RENEW_WAIT_S.
+6. the negative control: the generator's DHCP-only .network in place of ours,
+   and networkd restarted, drops the address and loses the Pi (as at ps1:
+   help-carl report1.md 3.2-3.4, logs 071 and 072). It shows that the steps
+   above can fail. The second boot (run_tests.second_boot) resets the Pi
+   afterwards.
 5. carrier loss: the cable is pulled for CABLE_OUT_S (QMP set_link). The
    site receives a no-carrier record and then a routable one, and the
    no-carrier record, taken while the cable was out, still lists the port's
@@ -35,6 +44,7 @@ Each step prints what it read; the first failure returns False.
 """
 
 import json
+import re
 import shlex
 import time
 
@@ -82,6 +92,22 @@ def _site_records(server_sh, serial: str, after_id: int = 0) -> list[dict]:
     return json.loads(lines[0])
 
 
+PING_LOG = "ping-uplink.log"  # in the server user's home, not /tmp
+
+
+def _ping_start(srv, address: str, seconds: int) -> None:
+    """Ping the Pi from the server every 0.2 s for `seconds`, in the background, with timestamps (-D)."""
+    srv(f"rm -f {PING_LOG}; (nohup ping -D -n -i 0.2 -w {seconds} {address} > {PING_LOG} 2>&1 &)")
+
+
+def _ping_gap(srv, seconds: int) -> tuple[float, int]:
+    """(the longest time between two answers, the number of answers) once the background ping has ended."""
+    time.sleep(seconds + 2)
+    stamps = [float(m) for m in re.findall(r"^\[(\d+\.\d+)\] \d+ bytes from", srv(f"cat {PING_LOG}"), re.M)]
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    return (max(gaps) if gaps else float(seconds)), len(stamps)
+
+
 def _wait_for_ack(server_sh, address: str, mac: str, since_epoch: str, what: str) -> None:
     deadline = time.monotonic() + RENEW_WAIT_S
     pattern = f"DHCPACK(v2101) {address} {mac}"
@@ -96,8 +122,9 @@ def _wait_for_ack(server_sh, address: str, mac: str, since_epoch: str, what: str
         time.sleep(10)
 
 
-def run(pi_sh, server_sh, set_link, address: str) -> bool:
-    """pi_sh/server_sh run a shell command and return "rc=N\\n<output>"; set_link(up) pulls the cable."""
+def run(pi_sh, server_sh, set_link, address: str) -> str | None:
+    """pi_sh/server_sh run a shell command and return "rc=N\\n<output>"; set_link(up) pulls the cable. Returns the
+    boot id the steps ran in (the Pi is unreachable after the negative control), or None on a failure."""
     def pi(cmd: str) -> str:
         out = pi_sh(cmd)
         if not out.startswith("rc=0\n"):
@@ -130,8 +157,20 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
         mark = srv("date +%s").strip()
         _wait_for_ack(server_sh, address, mac, mark, "renewal")
 
-        # 3. networkd restart
+        # 3. networkd restart. The link must not go down (at ps1, networkd taking the kernel-configured link down
+        # killed the NFS mount): the carrier_down_count is the same after as before, and since the boot.
+        down_before = pi(f"cat /sys/class/net/{uplink}/carrier_down_count").strip()
+        _ping_start(srv, address, 25)
         pi("sudo systemctl restart systemd-networkd && sleep 10")
+        down_after = pi(f"cat /sys/class/net/{uplink}/carrier_down_count").strip()
+        gap, answers = _ping_gap(srv, 25)
+        if gap > 1.0 or answers < 25:
+            raise Step(f"the gateway's ping lost the Pi across the networkd restart: longest gap {gap:.2f} s, "
+                       f"{answers} answers in 25 s")
+        print(f"[net] networkd restart: the gateway's ping (every 0.2 s) saw at most {gap:.2f} s between answers")
+        if down_after != down_before:
+            raise Step(f"{uplink} went down during the networkd restart: carrier_down_count {down_before} -> {down_after}")
+        print(f"[net] networkd restart: {uplink} carrier_down_count stayed {down_before}")
         line = _forever_v4(pi, address)
         routes = pi("ip -4 route show default; ip -6 addr show scope global; ip -6 route show default")
         print(f"[net] after a networkd restart: {line}\n{routes}")
@@ -142,6 +181,17 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
                 raise Step(f"the IPv6 address or default route via {gw6} did not survive a networkd restart")
             print("[net] " + pi(f"ping -6 -c 2 -W 5 {gw6}"))
         print("[net] " + pi(NFS_READ))
+
+        # No link loss and no NFS trouble in the kernel log so far (boot, networkd's start and restart, the
+        # outage below adds none either; the cable pull in step 5 is the first deliberate link loss).
+        kernel = pi("sudo dmesg")
+        trouble = [l for l in kernel.splitlines()
+                   if (uplink in l and "Link is Down" in l) or "not responding" in l or "ESTALE" in l
+                   or ("nfs" in l.lower() and " EIO" in l)]
+        if trouble:
+            raise Step("the kernel log shows the uplink down or NFS trouble before any deliberate link loss:\n"
+                       + "\n".join(trouble))
+        print(f"[net] kernel log: no '{uplink}: Link is Down' and no NFS trouble since boot")
 
         # 4. the gateway's DHCP down past the lease
         outage_mark = pi("date +%s").strip()
@@ -166,6 +216,13 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
             mark = srv("date +%s").strip()
             srv("sudo systemctl start dnsmasq")
         _wait_for_ack(server_sh, address, mac, mark, "first DHCPACK after the outage")
+
+        # still none after the outage
+        kernel = pi("sudo dmesg")
+        trouble = [l for l in kernel.splitlines()
+                   if (uplink in l and "Link is Down" in l) or "not responding" in l or "ESTALE" in l]
+        if trouble:
+            raise Step("the kernel log shows the uplink down or NFS trouble after the DHCP outage:\n" + "\n".join(trouble))
 
         # 5. carrier loss
         before = max((r["id"] for r in _site_records(server_sh, serial)), default=0)
@@ -192,7 +249,23 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
                 raise Step(f"after the cable was out, the site's records after id {before} are {states}; "
                            "want no-carrier then routable")
             time.sleep(10)
+        # 6. The negative control (lab only): what killed the NFS root at ps1. Replace our .network with what
+        # systemd-network-generator would write from ip=dhcp (DHCP only, no KeepConfiguration) and restart networkd.
+        # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
+        # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address: the gateway loses the Pi for well
+        # over a second. That shows the steps above can fail. The Pi is reset afterwards (the second boot).
+        _ping_start(srv, address, 25)
+        pi("sudo systemd-run --unit=fpgas-negative-control --on-active=3 /bin/sh -c "
+           + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
+                         + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
+                         " && systemctl restart systemd-networkd"))
+        gap, answers = _ping_gap(srv, 25)
+        if gap <= 1.0 and answers >= 100:
+            raise Step(f"the negative control did not break the link (longest gap {gap:.2f} s, {answers} answers): "
+                       "a DHCP-only .network should have dropped the kernel's address, so these steps prove nothing")
+        print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi, longest gap "
+              f"{gap:.2f} s, {answers} answers in 25 s, as at ps1")
     except Step as e:
         print(f"ERROR: {e}")
-        return False
-    return True
+        return None
+    return boot_id
