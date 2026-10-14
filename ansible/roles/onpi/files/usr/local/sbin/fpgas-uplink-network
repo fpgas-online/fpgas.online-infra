@@ -48,6 +48,7 @@
 set -eu
 
 cmdline_file=${FPGAS_UPLINK_CMDLINE:-/proc/cmdline}
+carrier_file=${FPGAS_UPLINK_CARRIER_FILE:-/run/fpgas-uplink-network.carrier}
 sysfs_net=${FPGAS_UPLINK_SYSFS_NET:-/sys/class/net}
 base_file=${FPGAS_IPV6_BASE_FILE:-/etc/fpgas-online/ipv6-base}
 out_dir=${FPGAS_UPLINK_NETWORK_DIR:-/run/systemd/network}
@@ -85,6 +86,17 @@ GatewayOnLink=yes
 Metric=512"
 fi
 
+# The uplink's carrier counters before networkd touches it. networkd must never take the link down or drop
+# its address: that kills the NFS root under it, as it did at ps1. verify-pi compares these with the counters
+# later in the boot; a link that went down in between has a higher carrier_down_count.
+{
+    echo "interface=${dev}"
+    echo "carrier_down_count=$(cat "$sysfs_net/$dev/carrier_down_count")"
+    echo "carrier_up_count=$(cat "$sysfs_net/$dev/carrier_up_count")"
+    echo "operstate=$(cat "$sysfs_net/$dev/operstate")"
+} > "$carrier_file.tmp"
+mv "$carrier_file.tmp" "$carrier_file"
+
 mkdir -p "$out_dir"
 cat > "$out_dir/10-fpgas-uplink.network.tmp" <<EOF
 # Written at boot by /usr/local/sbin/fpgas-uplink-network: the interface that
@@ -102,7 +114,11 @@ DHCP=ipv4
 # foreign addresses and routes (link_drop_foreign_config returns at once for
 # "yes", systemd 252 src/network/networkd-link.c), gives the DHCP address an
 # infinite lifetime and ignores lease expiry (networkd-dhcp4.c), and keeps the
-# address when it stops (networkd-link.c, DHCP_ON_STOP).
+# address when it stops (networkd-link.c, DHCP_ON_STOP). Set here, explicitly:
+# networkd's own default of "yes" on a network root does not apply, because
+# / is the tmpfs overlay (overlayroot=tmpfs), not NFS, when networkd checks it
+# (path_is_network_fs). At ps1 that is how networkd dropped the kernel's
+# address and killed the NFS root (help-carl report1.md 3.2-3.4).
 KeepConfiguration=yes
 # Carrier loss would otherwise remove the address networkd took over from the
 # kernel: link_carrier_lost_impl() calls link_drop_managed_config(), which

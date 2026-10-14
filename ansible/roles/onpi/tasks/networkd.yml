@@ -66,6 +66,37 @@
     name: systemd-networkd.service
     enabled: true
 
+# networkd waits for, and needs, the uplink's .network (see the drop-in).
+- name: Create the systemd-networkd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd.service.d
+    state: directory
+    mode: "0755"
+
+- name: Start systemd-networkd only after the uplink's .network is written
+  ansible.builtin.copy:
+    src: etc/systemd/system/systemd-networkd.service.d/fpgas-uplink.conf
+    dest: /etc/systemd/system/systemd-networkd.service.d/fpgas-uplink.conf
+    mode: "0644"
+
+# Enabling networkd also enables systemd-network-generator.service (systemd
+# 252 systemd-networkd.service: Also=systemd-network-generator.service). That
+# generator turns the kernel's ip=dhcp into /run/systemd/network/71-default.network:
+# DHCP without KeepConfiguration, matching the NFS root's interface and every
+# other ethernet. At ps1 exactly that file, under an overlay root where networkd's
+# own network-root default does not apply, dropped the kernel's address and
+# killed the NFS root (help-carl report1.md 3.2-3.4). Only our .network may
+# configure the uplink, so the generator is masked.
+- name: Remove the generator's enable link
+  ansible.builtin.file:
+    path: /etc/systemd/system/sysinit.target.wants/systemd-network-generator.service
+    state: absent
+
+- name: Mask systemd-network-generator
+  ansible.builtin.systemd:
+    name: systemd-network-generator.service
+    masked: true
+
 # fpgas-ipv6.service is retired: networkd sets the IPv6 address and route.
 # An image converged from an older one still carries it.
 - name: Remove the retired fpgas-ipv6 unit and script
