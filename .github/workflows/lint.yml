@@ -64,8 +64,12 @@ jobs:
       # (tests/test_nfsroot_layers_podman.py, which needs sudo + podman).
       # device-tree-compiler: dtc/fdtput/fdtget for the sunxi DTB publish
       # (tests/test_fixpi_idempotent.py runs the role's script on a real DTB).
+      # dnsmasq-base, dnsmasq-utils, udhcpc, isc-dhcp-client: the lease release lab
+      # (tests/test_lease_release_lab.py, which needs sudo + network namespaces).
       - name: Install the tests' tools
-        run: sudo apt-get install -y --no-install-recommends attr device-tree-compiler
+        run: >-
+          sudo apt-get install -y --no-install-recommends attr device-tree-compiler
+          dnsmasq-base dnsmasq-utils udhcpc isc-dhcp-client
       # The collections the roles use: tests/test_jump_authorized_keys.py runs
       # roles/jump's real tasks, which call ansible.posix.authorized_key.
       - name: Install Ansible collections
@@ -73,4 +77,5 @@ jobs:
       - name: Run the unit tests
         env:
           NFSROOT_PODMAN_TEST: "1"
+          LEASE_LAB_TEST: "1"
         run: uv run pytest -q tests
