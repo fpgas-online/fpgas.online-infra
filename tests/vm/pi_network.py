@@ -24,15 +24,6 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    connection considered critical") and networkd drops nothing ("DHCP lease
    lost" never appears). Once dnsmasq is back, it is acknowledged again
    within RENEW_WAIT_S.
-6. the negative control: the generator's DHCP-only .network in place of ours,
-   and networkd restarted, drops the kernel's address (as at ps1: help-carl
-   report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
-   back from plain DHCP with a finite lifetime, which every check above
-   (_forever_v4) rejects, or the Pi stays lost and its console shows the NFS
-   client's "not responding". How long the gateway loses the Pi depends on
-   how fast DHCP answers (here at once: no-ping; 0.3 to 4.7 s in CI runs),
-   so the gap is reported, not judged. The second boot
-   (run_tests.second_boot) resets the Pi afterwards.
 5. carrier loss: the cable is pulled for CABLE_OUT_S (QMP set_link). The
    site receives a no-carrier record and then a routable one, and the
    no-carrier record, taken while the cable was out, still lists the port's
@@ -43,14 +34,25 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    and networkd drops the configuration in the carrier-loss handler itself
    (IgnoreCarrierLoss= unset means no delay), so a drop shows in it. The no-carrier record waits in the Pi's spool until the
    broker can be reached.
+6. the negative control: the generator's DHCP-only .network in place of ours,
+   and networkd restarted, drops the kernel's address (as at ps1: help-carl
+   report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
+   back from plain DHCP with a finite lifetime, which every check above
+   (_forever_v4) rejects, or the Pi stays lost and its console shows the NFS
+   client's "not responding". How long the gateway loses the Pi depends on
+   how fast DHCP answers (here at once: no-ping), so the gap is reported,
+   not judged. The second boot
+   (run_tests.second_boot) resets the Pi afterwards.
 
-Each step prints what it read; the first failure returns False.
+Each step prints what it read; the first failure returns None.
 """
 
 import json
 import re
 import shlex
 import time
+
+import paramiko
 
 RENEW_WAIT_S = 200      # T1 is 150 s on the 5 min lease; margin for the TCG Pi
 OUTAGE_S = 360          # past the 300 s lease (and T2, 262 s)
@@ -136,8 +138,8 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
     """pi_sh/server_sh run a shell command and return "rc=N\\n<output>"; set_link(up) pulls the cable. Returns the
     boot id the steps ran in (the Pi is unreachable after the negative control), or None on a failure. read_serial()
     returns the Pi's console log so far."""
-    def pi(cmd: str) -> str:
-        out = pi_sh(cmd)
+    def pi(cmd: str, timeout: int = 180) -> str:
+        out = pi_sh(cmd, timeout)
         if not out.startswith("rc=0\n"):
             raise Step(f"on the Pi, `{cmd}`: {out}")
         return out.split("\n", 1)[1]
@@ -275,26 +277,30 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
                          + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
                          " && systemctl restart systemd-networkd"))
         proof = ""
-        deadline = time.monotonic() + CONTROL_WINDOW_S
-        while not proof and time.monotonic() < deadline:
+        swapped = time.monotonic()
+        while not proof and time.monotonic() < swapped + CONTROL_WINDOW_S:
             time.sleep(5)
             try:
-                line = pi(f"ip -o -4 addr show dev {uplink}")
-            except Exception:  # noqa: BLE001 -- the Pi may be lost: decided from its console below
+                line = pi(f"ip -o -4 addr show dev {uplink}", timeout=20)
+            except (Step, OSError, EOFError, paramiko.SSHException):  # the Pi may be lost: its console decides
                 continue
-            if address in line and "valid_lft forever" not in line:
-                proof = f"its address came back from plain DHCP with a finite lifetime: {line.strip()}"
-        if not proof:
-            if "not responding" in read_serial()[serial_from:]:
-                proof = "it stayed lost; its console: " + next(
-                    l for l in read_serial()[serial_from:].splitlines() if "not responding" in l).strip()
+            held = next((l for l in line.splitlines() if f" {address}/" in l), "")
+            if held and "valid_lft forever" not in held:
+                proof = f"its address is now held by plain DHCP, with a finite lifetime: {held.strip()}"
+        # A Pi that stayed lost: the NFS client complains on the console once its RPCs time out (about a minute
+        # after the loss over TCP), so the console is watched for a while longer, timed from the swap.
+        while not proof and time.monotonic() < swapped + CONTROL_WINDOW_S + 180:
+            complaint = [l for l in read_serial()[serial_from:].splitlines() if "not responding" in l]
+            if complaint:
+                proof = "it stayed lost; its console: " + complaint[0].strip()
             else:
-                raise Step(f"the negative control proved nothing within {CONTROL_WINDOW_S} s: the address still has "
-                           "lifetime forever and the console shows no NFS complaint")
+                time.sleep(10)
+        if not proof:
+            raise Step(f"the negative control proved nothing: within {CONTROL_WINDOW_S} s the address still had "
+                       f"lifetime forever, and within {CONTROL_WINDOW_S + 180} s the console showed no NFS complaint")
         gap, answers = _ping_gap(srv, started, CONTROL_WINDOW_S)
-        print(f"[net] negative control (the generator's DHCP-only .network, as at ps1): networkd dropped the "
-              f"kernel's address; {proof}. The gateway's longest wait for an answer: {gap:.2f} s "
-              f"({answers} answers in {CONTROL_WINDOW_S} s)")
+        print(f"[net] negative control (the generator's DHCP-only .network, as at ps1): {proof}. The gateway's "
+              f"longest wait for an answer: {gap:.2f} s ({answers} answers in {CONTROL_WINDOW_S} s)")
     except Step as e:
         print(f"ERROR: {e}")
         return None
