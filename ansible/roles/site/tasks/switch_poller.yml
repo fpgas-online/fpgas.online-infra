@@ -2,6 +2,13 @@
 # The switch port poller (fpgas.online-poe's `manage.py switch_poller`, coord-56): per-port-VLAN hosts with a fleet
 # broker only (included from main.yml). It needs the switches (poe.env, written in gunicorn.yml), the broker, and
 # the release script and its sudoers rule (roles/pxe, lease_events.yml).
+- name: Every switch has a community (the poller stops at start without one)
+  ansible.builtin.assert:
+    that: switches | rejectattr('snmp_rw_community', 'defined') | list | length == 0
+    fail_msg: >-
+      switches without snmp_rw_community: {{ switches | rejectattr('snmp_rw_community', 'defined')
+      | map(attribute='index') | list }}; switch-poller (and the PoE views) cannot read them
+
 - name: Switch-poller systemd unit
   ansible.builtin.template:
     src: templates/switch-poller.service.j2
