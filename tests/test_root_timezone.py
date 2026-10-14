@@ -16,6 +16,8 @@ def test_fixpi_sets_the_roots_zone_to_utc():
     link = by_name["Point the root's localtime at UTC"]["ansible.builtin.file"]
     assert link["src"] == "/usr/share/zoneinfo/Etc/UTC" and link["state"] == "link"
     assert link["dest"] == "{{ nfs_root }}/root/etc/localtime"
+    # force: the target exists only inside the root; follow false: never follow the old link out to the host's file
+    assert link["force"] is True and link["follow"] is False
 
 
 def test_verify_pi_checks_the_zone():
