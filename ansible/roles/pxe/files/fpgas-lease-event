@@ -49,7 +49,8 @@ def port_table(text):
     """{address: (interface, lease seconds)} for every per-port address in ports.conf: each port interface v<vlan>
     has one IPv4 and one IPv6 range of a single address. This, not DNSMASQ_INTERFACE, says which port a lease is on:
     every port interface of a switch carries the same <base><switch>::ffff/64, so for an IPv6 lease dnsmasq names
-    the first interface with that prefix (seen 14 Oct 2026: DHCPREPLY on v2230, the script told v2202)."""
+    the first interface with that prefix (dnsmasq 2.91 lease.c find_interface_v6 keeps the first on a tie; seen on
+    14 Oct 2026: DHCPREPLY on v2230, the script told v2202)."""
     table = {}
     for line in text.splitlines():
         m = _RANGE.fullmatch(line.strip())
@@ -94,7 +95,7 @@ def record(args, env, now, ports):
     expires = env.get("DNSMASQ_LEASE_EXPIRES", "")
     remaining = env.get("DNSMASQ_TIME_REMAINING", "")
     remaining = int(remaining) if _DIGITS.fullmatch(remaining) else None
-    acked = action == "add" or (action == "old" and remaining is not None and lease_time is not None
+    acked = action == "add" or (action == "old" and remaining is not None
                                 and lease_time - ACK_SLACK <= remaining <= lease_time + ACK_SLACK)
     return {
         "schema": 1, "switch": switch, "port": port, "hostname": f"pi-sw{switch}-p{port}", "at": iso(now),

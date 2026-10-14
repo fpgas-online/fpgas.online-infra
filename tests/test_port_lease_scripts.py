@@ -445,3 +445,26 @@ def test_a_temporary_v6_lease_on_the_ports_address_is_left_to_run_out():
     text = LEASES + "1791959703 T318764444 2404:e80:a137:2102::48 pi-sw2-p48 00:04:a1\n"
     _, leases = release.parse_leases(text, PORT_48)
     assert [x.get("iaid") for x in leases] == [None, "318764444"]
+
+
+def test_the_port_table_reads_the_rendered_template_and_maps_v6_by_address_not_by_shared_prefix():
+    """ports.conf.j2 as roles/pxe renders it, switch 2 with 30 ports: ports 2 and 30 share the switch's /64."""
+    import sys
+
+    import jinja2
+
+    sys.path.insert(0, str(FILES.parents[2] / "filter_plugins"))
+    from port_vlans import port_vlan_map
+
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(FILES.parent / "templates"),
+                             undefined=jinja2.StrictUndefined)
+    env.filters["port_vlan_map"] = port_vlan_map
+    text = env.get_template("ports.conf.j2").render(
+        ansible_managed="test", switches=[{"index": 2, "access_ports": 30}], pib_network="10.21",
+        pib_network6_base="2404:e80:a137:21", pib_domain="test.example", eth_local="eth-local")
+    table = event.port_table(text)
+    assert len(table) == 60  # two addresses per port, none for the quarantine range
+    assert table[ipaddress.ip_address("2404:e80:a137:2102::30")] == ("v2230", 300)
+    assert table[ipaddress.ip_address("2404:e80:a137:2102::2")] == ("v2202", 300)
+    assert table[ipaddress.ip_address("10.21.2.30")] == ("v2230", 300)
+    assert ipaddress.ip_address("10.21.0.130") not in table
