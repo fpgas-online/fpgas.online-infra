@@ -22,6 +22,7 @@ verify-pi stop installing, feeding or checking them.
 import importlib.machinery
 import importlib.util
 import json
+import signal
 import os
 import re
 import subprocess
@@ -724,3 +725,12 @@ def test_a_dead_runs_temporary_file_is_cleared_and_never_sent(tmp_path):
     hook.spool({"ts": "2026-10-14T06:41:00+00:00"}, str(tmp_path), now=1_000 + hook.STALE_TMP_S + 1)
     assert not stale.exists() and fresh.exists()
     assert [Path(p).name.startswith(".") for p in hook.spooled(str(tmp_path))] == [False]
+
+
+def test_main_leaves_no_alarm_behind(pi, monkeypatch):
+    # A pending SIGALRM would fire into whatever runs next in the process (it did, into another test).
+    for env in ({"FAKE_BROKER": "up"}, {"FAKE_BROKER": "down"}):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        pi.hook.main(["fpgas-network-state"])
+        assert signal.alarm(0) == 0

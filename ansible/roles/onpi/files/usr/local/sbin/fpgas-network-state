@@ -330,6 +330,14 @@ def main(argv):
         return 1
     signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(TIMEOUT_S)
+    try:
+        return _run(flush, iface, want, serial.group(1))
+    finally:
+        signal.alarm(0)
+
+
+def _run(flush, iface, want, serial):
+    """main()'s work under the alarm."""
     what = "spool"
     try:
         if not flush:
@@ -342,7 +350,7 @@ def main(argv):
             fcntl.flock(lock, fcntl.LOCK_EX)
             fleet_agent, mqtt = _fleet()
             cfg = fleet_agent.load_config(FLEET_CONFIG)
-            topic = fleet_agent.topics(cfg["site"], serial.group(1))["event"]
+            topic = fleet_agent.topics(cfg["site"], serial)["event"]
             sent, queued = send_spool(cfg, topic, mqtt, fleet_agent.mqtt_client)
     except TimeoutError as e:  # the alarm outside the publish: collecting, spooling or waiting for the lock
         print(f"{what}: {e}" + ("" if flush else "; the record is in the spool if it was collected"),
