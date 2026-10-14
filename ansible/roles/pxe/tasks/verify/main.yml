@@ -129,11 +129,11 @@
 
 # --- lease events and port lease release (per-port hosts; roles/pxe/tasks/lease_events.yml) ---
 
-- name: Check the lease scripts are root's and executable
+- name: Check the lease scripts, and the directory sudo runs one from, are root's and only root's to change
   ansible.builtin.stat:
-    path: "/usr/local/sbin/{{ item }}"
+    path: "{{ item }}"
   register: pxe_v_lease_scripts
-  loop: [fpgas-lease-event, fpgas-release-port-lease]
+  loop: [/usr/local/sbin, /usr/local/sbin/fpgas-lease-event, /usr/local/sbin/fpgas-release-port-lease]
   when: switches is defined
 
 - name: Assert the lease scripts are root's and executable
@@ -142,7 +142,7 @@
       - item.stat.exists
       - item.stat.pw_name == "root"
       - item.stat.mode == "0755"
-    fail_msg: "/usr/local/sbin/{{ item.item }} is missing or not root:0755"
+    fail_msg: "{{ item.item }} is missing or not root:0755"
   loop: "{{ pxe_v_lease_scripts.results }}"
   loop_control:
     label: "{{ item.item }}"
@@ -197,7 +197,7 @@
     set -o pipefail &&
     journalctl -u dnsmasq --no-pager -o cat
     --since "$(systemctl show -p ActiveEnterTimestamp --value dnsmasq)"
-    | grep -c "failed to execute" || true
+    | { grep -c "failed to execute" || test $? -eq 1; }
   args:
     executable: /bin/bash
   changed_when: false

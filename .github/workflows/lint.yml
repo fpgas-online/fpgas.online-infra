@@ -51,7 +51,9 @@ jobs:
   # The harness and CI tooling's unit tests (tests/test_*.py), e.g. the
   # guard that the image's inputs key covers every file the build reads.
   pytest:
-    runs-on: ubuntu-latest
+    # pinned: the lease release lab needs dnsmasq, dnsmasq-utils, udhcpc and isc-dhcp-client as Ubuntu 24.04 has
+    # them, and ubuntu-latest moves to a newer release
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v5
