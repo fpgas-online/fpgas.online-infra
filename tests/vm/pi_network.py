@@ -35,7 +35,9 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    (IgnoreCarrierLoss= unset means no delay), so a drop shows in it. The no-carrier record waits in the Pi's spool until the
    broker can be reached.
 6. the negative control: the generator's DHCP-only .network in place of ours,
-   and networkd restarted, drops the kernel's address (as at ps1: help-carl
+   and networkd started afresh (stopped, its saved link and lease state
+   under /run/systemd/netif removed, started: a first start on the link, as
+   at ps1), drops the kernel's address (as at ps1: help-carl
    report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
    back from plain DHCP with a finite lifetime, which every check above
    (_forever_v4) rejects, or the Pi stays lost and its console shows the NFS
@@ -262,8 +264,12 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
                 raise Step(f"after the cable was out, the site's records after id {before} are {states}; "
                            "want no-carrier then routable")
             time.sleep(10)
-        # 6. The negative control (lab only): what killed the NFS root at ps1. Replace our .network with what
-        # systemd-network-generator would write from ip=dhcp (DHCP only, no KeepConfiguration) and restart networkd.
+        # 6. The negative control (lab only): what killed the NFS root at ps1. That was always networkd's first
+        # start on a link it had never managed (help-carl log 071; the pi9 reboot loop at ps1). So: put what
+        # systemd-network-generator would write from ip=dhcp (DHCP only, no KeepConfiguration) in place of our
+        # .network, stop networkd, remove the state it keeps for the link under /run/systemd/netif (links and
+        # leases), and start it. A plain restart is not that: networkd then carries its own state for the link
+        # it configured.
         # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
         # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address. The proof is the address
         # itself: plain DHCP puts it back with a finite lifetime, which _forever_v4, the check every step above
@@ -275,7 +281,9 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=2 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
                          + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
-                         " && systemctl restart systemd-networkd"))
+                         " && systemctl stop systemd-networkd.socket systemd-networkd"
+                         " && rm -f /run/systemd/netif/links/* /run/systemd/netif/leases/*"
+                         " && systemctl start systemd-networkd"))
         proof = ""
         swapped = time.monotonic()
         while not proof and time.monotonic() < swapped + CONTROL_WINDOW_S:
