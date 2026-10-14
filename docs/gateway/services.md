@@ -12,6 +12,15 @@
   both that and `bind-dynamic`. If
   dnsmasq will not start, look in the directory for a file the role did not write
   (`roles/pxe/tasks/main.yml`, read 2026-10-07).
+  On a per-port gateway it also writes `lease-events.conf`: dnsmasq runs `/usr/local/sbin/fpgas-lease-event` (as
+  `nobody`) on every lease event and renewal, and that script publishes each one to the site as a lease record
+  (MQTT topic `fpgas/<fleet_site>/gw/lease` on the fleet broker; site and broker in `/etc/fpgas/lease-events.conf`).
+  It replaces `send_stat.conf`, whose `send_stat.py` was never installed on the gateway (issue #194). The same
+  role installs `dnsmasq-utils`, `mosquitto-clients` and `/usr/local/sbin/fpgas-release-port-lease`, which
+  releases one port's leases (`dhcp_release`, `dhcp_release6`) and checks the lease file; the site's account may run
+  it, and only it through that rule, by `/etc/sudoers.d/fpgas-lease-release`. While that account also has
+  `NOPASSWD:ALL` (issue #290) the rule is a rail against mistakes, not a security boundary
+  (`roles/pxe/tasks/lease_events.yml`, read 2026-10-14).
 - **nfs-kernel-server and rpcbind** (`nfs`) export the read-only NFS roots, with `host=` in `/etc/default/nfs-kernel-server` set to the local NIC address (`eth_local_address`, `roles/nfs/tasks/main.yml`) so the export is not offered on the uplink.
 - **chrony** (`pxe`, `chrony.service`) serves NTP to the Pi LAN: `/etc/chrony/conf.d/fpgas-lan.conf` allows `<pib_network>.0.0/16` (welland: `10.21.0.0/16`). dnsmasq advertises the gateway as the time source with `dhcp-option ntp-server`. The Pis have no route to the internet, so without a LAN time source their clocks never leave the `fake-hwclock` date (rebuild record, entry C2-2).
 - **The image pipeline.** `img` pulls the CI-built root image into the NFS root, and `fixpi` writes the site layer into it: [What is in the NFS root](../netboot/root.md).
@@ -29,6 +38,12 @@
 
 - **nginx** (`site`, from `nginx-extras`, `nginx.service`) is installed first in the play, because the later web roles write into `/etc/nginx`. The role owns the port-80 catch-all vhost that serves ACME challenges and redirects everything else to HTTPS, plus the location includes that route each Django app.
 - **gunicorn** with the uvicorn worker class behind `/run/gunicorn.sock` (`gunicorn.socket`, `gunicorn.service`), **daphne** for the status WebSocket (`daphne.socket`, `daphne.service`), and **uvicorn** (`uvicorn.service`), all pip-installed into the Django venv and run as systemd units (`site`).
+- **switch-poller** (`site`, `switch-poller.service`, per-port gateways with a fleet broker) runs fpgas.online-poe's
+  `manage.py switch_poller` as the site's account: every 2 s it reads each board port's link from the switches,
+  publishes changes to the site (MQTT `fpgas/<fleet_site>/gw/port`), and releases the leases of a port whose link
+  went down or that is down and still leased. It is `Type=notify` with a 30 s watchdog. It and gunicorn read the
+  switches and their communities from `/etc/fpgas/poe.env` (root, 0600) (`roles/site/tasks/switch_poller.yml`,
+  read 2026-10-14).
 - **redis** (`site`, `redis-server.service`; the role installs the Debian `redis` package without naming a unit, and its own verify tasks assert `redis-server.service`) backs the `channels_redis` layer the live Pi status page uses.
 - **certbot** (`site`; the role writes no unit of its own, renewal is whatever the installed certbot ships, and on tweed that is the snap build) obtains the TLS certificate: [Certificates and the web at welland](certificates.md).
 - **webssh** (`wssh`, `wssh.socket`, `wssh.service`) runs in its own venv behind a systemd socket, with an nginx include that publishes the browser terminal.
