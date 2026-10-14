@@ -67,7 +67,9 @@ jobs:
       # dnsmasq-base, dnsmasq-utils, udhcpc, isc-dhcp-client: the lease release lab
       # (tests/test_lease_release_lab.py, which needs sudo + network namespaces).
       - name: Install the tests' tools
+        # update first: the image's lists can name a dnsmasq the archive has superseded (404, 14 Oct 2026)
         run: >-
+          sudo apt-get update &&
           sudo apt-get install -y --no-install-recommends attr device-tree-compiler
           dnsmasq-base dnsmasq-utils udhcpc isc-dhcp-client
       # The collections the roles use: tests/test_jump_authorized_keys.py runs
