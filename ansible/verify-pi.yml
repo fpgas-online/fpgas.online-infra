@@ -308,12 +308,25 @@
                       return tty
               return ""
           # The network under systemd-networkd (#230): the interface fpgas-uplink-network handed to networkd (the
-          # [Match] Name= of the .network it wrote at boot), the lease networkd last saved for it and how old that
-          # file is (networkd rewrites it at every DHCPACK, renewals included), and where timesyncd got its server.
+          # one with the [Match] MACAddress= of the .network it wrote at boot), the lease networkd last saved for
+          # it and how old that file is (networkd rewrites it at every DHCPACK, renewals included), when networkd
+          # first acquired the lease this boot (from the journal's monotonic time, which the clock's jump at the
+          # first NTP sync does not move), and where timesyncd got its server.
           def network_state():
               text = (read("/run/systemd/network/10-fpgas-uplink.network") or b"").decode()
               match = text.split("[Match]", 1)[1].split("[", 1)[0] if "[Match]" in text else ""
-              uplink = next((l.split("=", 1)[1].strip() for l in match.splitlines() if l.startswith("Name=")), "")
+              mac = next((l.split("=", 1)[1].strip().lower() for l in match.splitlines()
+                          if l.startswith("MACAddress=")), "")
+              uplink = next((n for n in sorted(os.listdir("/sys/class/net"))
+                             if mac and (read("/sys/class/net/" + n + "/address") or b"").decode().strip() == mac), "")
+              acquired = run("journalctl", "-b", "-u", "systemd-networkd", "-o", "json", "--no-pager",
+                             "--output-fields=MESSAGE")
+              first = next((json.loads(l) for l in acquired["stdout_lines"]
+                            if "DHCPv4 address" in l and "acquired from" in l), None)
+              with open("/proc/uptime") as f:
+                  uptime = float(f.read().split()[0])
+              acquired_epoch = (int(time.time() - uptime + int(first["__MONOTONIC_TIMESTAMP"]) / 1e6)
+                                if first else 0)
               ifindex = (read("/sys/class/net/" + uplink + "/ifindex") or b"").decode().strip() if uplink else ""
               lease_path = "/run/systemd/netif/leases/" + ifindex
               lease = {}
@@ -325,7 +338,8 @@
                            "age_s": int(time.time() - os.stat(lease_path).st_mtime)}
               return {
                   "uplink": uplink,
-                  "mac": (read("/sys/class/net/" + uplink + "/address") or b"").decode().strip() if uplink else "",
+                  "mac": mac,
+                  "acquired_epoch": acquired_epoch,
                   "units": run("systemctl", "is-active", "systemd-networkd.service", "fpgas-uplink-network.service",
                                "networkd-dispatcher.service"),
                   "packages": run("dpkg-query", "-W", "-f=${Package} ${db:Status-Abbrev}\n",
@@ -509,28 +523,44 @@
         verify_pi_gateway: "{{ hostvars[verify_pi_server].eth_local_address | default('10.21.0.1') }}"
 
     # The gateway's half of the heartbeat: dnsmasq logs (log-dhcp) a DHCPACK
-    # for this board's address and MAC at every renewal, so one must be in its
-    # journal within the last lease time (plus a minute for the renewal at T1
-    # to land).
-    - name: Read the gateway's recent DHCPACKs for this Pi
+    # at every renewal. A renewal is an ACK for this board's address and MAC
+    # at least 30 s after networkd first acquired the lease this boot: the
+    # firmware's, the kernel's and networkd's own boot-time exchanges all come
+    # before that. On a board up for less than T1 (half the lease) the first
+    # renewal is still due, so the check waits for it (the retries cover T1 on
+    # the 5 minute lease). Compared on the gateway's clock; the Pi's is synced
+    # to it (the timesyncd check above).
+    - name: Wait for the gateway to acknowledge a renewal by this Pi
       ansible.builtin.command:
         argv: [journalctl, -u, dnsmasq, --no-pager, -o, cat,
-               "--since=-{{ (verify_pi_network.lease.lifetime_s | default(0) | int) + 60 }}s"]
+               "--since=@{{ verify_pi_network.acquired_epoch | int + 30 }}"]
       delegate_to: "{{ verify_pi_server }}"
       become: true
       changed_when: false
       register: verify_pi_dhcpacks
+      until: >-
+        verify_pi_dhcpacks.stdout_lines
+        | select('search', 'DHCPACK\\(\\S+\\) ' ~ (verify_pi_expected_ip | regex_escape) ~ ' ' ~ verify_pi_network.mac ~ '( |$)')
+        | list | length > 0
+      retries: 24
+      delay: 10
+      failed_when: false
 
-    - name: Assert the gateway acknowledged this Pi within the lease time
+    - name: Assert the gateway acknowledged a renewal by this Pi
       ansible.builtin.assert:
-        that: >-
-          verify_pi_dhcpacks.stdout_lines
-          | select('search', 'DHCPACK\\(\\S+\\) ' ~ (verify_pi_expected_ip | regex_escape) ~ ' ' ~ verify_pi_network.mac ~ '( |$)')
-          | list | length > 0
+        that:
+          - verify_pi_network.acquired_epoch | int > 0
+          - verify_pi_dhcpacks.rc == 0
+          - >-
+            verify_pi_dhcpacks.stdout_lines
+            | select('search', 'DHCPACK\\(\\S+\\) ' ~ (verify_pi_expected_ip | regex_escape) ~ ' ' ~ verify_pi_network.mac ~ '( |$)')
+            | list | length > 0
         fail_msg: >-
-          No DHCPACK for {{ verify_pi_expected_ip }} {{ verify_pi_network.mac }} in {{ verify_pi_server }}'s dnsmasq
-          journal for the last {{ (verify_pi_network.lease.lifetime_s | default(0) | int) + 60 }} s: the Pi is not
-          renewing. Its DHCP lines: {{ verify_pi_dhcpacks.stdout_lines | select('search', verify_pi_network.mac) | list }}
+          {% if verify_pi_network.acquired_epoch | int == 0 %}networkd's journal on the Pi has no "DHCPv4 address ...
+          acquired from" this boot: networkd never took the lease.{% else %}No DHCPACK for {{ verify_pi_expected_ip }}
+          {{ verify_pi_network.mac }} in {{ verify_pi_server }}'s dnsmasq journal after networkd's acquisition
+          ({{ verify_pi_network.acquired_epoch }} + 30 s), waited 4 min: the Pi is not renewing. Its DHCP lines:
+          {{ verify_pi_dhcpacks.stdout_lines | select('search', verify_pi_network.mac) | list }}{% endif %}
 
     # IPv6 (Tim's answer welland-1, 2026-10-07): systemd-networkd gives the
     # board's interface (whatever its name) the port's address, <pib_network6_base><switch, two digits>::<port>, and a
@@ -1445,10 +1475,11 @@
           - verify_pi_network_record.rc == 0
           - (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
           - (verify_pi_network_record.stdout | from_json).interface == verify_pi_network.uplink
+          - (verify_pi_network_record.stdout | from_json).state == 'routable'
         fail_msg: >-
           The site's newest network-state record of this boot for {{ verify_pi_identity.stdout_lines[0] }} is
           {{ verify_pi_network_record.stdout | default('-', true) }} {{ verify_pi_network_record.stderr | default('') }};
-          want one from boot {{ verify_pi_identity.stdout_lines[1] }} for {{ verify_pi_network.uplink }}.
+          want a routable one from boot {{ verify_pi_identity.stdout_lines[1] }} for {{ verify_pi_network.uplink }}.
           `journalctl -b -u networkd-dispatcher` on the Pi shows the publisher's runs.
       when: verify_pi_fleet | default(false)
 
