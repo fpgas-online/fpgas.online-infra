@@ -133,7 +133,9 @@
     enabled: true
 
 # Spooled records (the broker was unreachable) go out within a minute of it
-# answering again, not only at the next state change.
+# answering again, not only at the next state change. The timer is not
+# enabled: the publisher starts it while records stay in the spool, so an
+# idle Pi runs nothing every minute.
 - name: Install the spool flush units
   ansible.builtin.copy:
     src: "etc/systemd/system/{{ item }}"
@@ -142,8 +144,3 @@
   loop:
     - fpgas-network-state-flush.service
     - fpgas-network-state-flush.timer
-
-- name: Enable the spool flush timer
-  ansible.builtin.systemd:
-    name: fpgas-network-state-flush.timer
-    enabled: true

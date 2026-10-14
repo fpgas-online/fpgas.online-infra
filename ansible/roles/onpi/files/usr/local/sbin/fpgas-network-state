@@ -17,15 +17,16 @@ fpgas/<site>/pi/<serial>/event, with the broker from /etc/fpgas-online/fleet.tom
 as a boot event. Without fleet.toml (a site with no broker) there is
 nothing to publish to, and the script exits 0.
 
-A record the broker does not acknowledge (it is unreachable while the cable
-is out, which loses the no-carrier record otherwise) is kept in SPOOL_DIR,
-under /run, so it lasts until the next boot. Spooled records go out oldest
-first, ahead of the next state change's record, and every minute through
-`--flush` (fpgas-network-state-flush.timer). Each is removed once the broker
-has acknowledged it. At most SPOOL_MAX are kept; beyond that the oldest are
-dropped, and the journal says how many. A spool file that is not JSON is
-moved to BAD_DIR and named in the journal, so it cannot block the rest. A
-lock serialises runs: the dispatcher's and the timer's.
+Every record is written to SPOOL_DIR (under /run, so until the next boot)
+before anything is sent, so a record is never held only in memory. A run then
+sends the whole spool, oldest first, and removes each record once the broker
+has acknowledged it. Records the broker does not take, such as the no-carrier
+record while the cable is out, stay in the spool. fpgas-network-state-flush.timer
+(started here when records stay, stopped by the flush that empties the spool)
+retries them every minute with `--flush`. At most SPOOL_MAX are kept; beyond
+that the oldest are dropped, and the journal says how many. A spool file that
+is not JSON is moved to BAD_DIR and named in the journal, so it cannot block
+the rest. A lock serialises the sending runs: the dispatcher's and the timer's.
 
 networkd-dispatcher waits for each script before it handles the next state
 change, so a run is bounded:
@@ -64,6 +65,10 @@ TIMEOUT_S = 30
 SPOOL_DIR = "/run/fpgas-network-state"
 BAD_DIR = "/run/fpgas-network-state.bad"
 LOCK_FILE = "/run/fpgas-network-state.lock"
+FLUSH_TIMER = "fpgas-network-state-flush.timer"
+SYSTEMCTL = ["systemctl"]
+CPUINFO = "/proc/cpuinfo"
+BOOT_ID = "/proc/sys/kernel/random/boot_id"
 SPOOL_MAX = 50
 STALE_TMP_S = 300
 FOREVER = 0xFFFFFFFF  # the kernel's "infinite" address lifetime
@@ -197,8 +202,8 @@ def collect(iface, env, mac):
 
 
 def spool(payload, spool_dir=SPOOL_DIR, keep=SPOOL_MAX, now=None):
-    """Keep an undelivered payload; drop the oldest beyond `keep`, and temporary files a dead run left
-    behind. Returns how many records were dropped."""
+    """Write a record to the spool (atomically: a temporary file, then a rename); drop the oldest beyond `keep`,
+    and temporary files a dead run left behind. Returns how many records were dropped."""
     os.makedirs(spool_dir, mode=0o700, exist_ok=True)
     now = time.time() if now is None else now
     for name in os.listdir(spool_dir):
@@ -226,8 +231,9 @@ def spooled(spool_dir=SPOOL_DIR):
 
 def publish(payloads, broker, port, topic, mqtt, mqtt_client, on_ack):
     """Publish each payload in order on one connection, calling on_ack(i) as the broker acknowledges payload i.
-    Stops at the first one not acknowledged in 10 s. Errors (OSError, the alarm's TimeoutError) propagate; the
-    acknowledged ones have been reported through on_ack by then."""
+    Stops at the first one not acknowledged in 10 s. Errors (OSError, the alarm's TimeoutError, paho's
+    RuntimeError or ValueError when the connection drops) propagate; the acknowledged ones have been reported
+    through on_ack by then."""
     client = mqtt_client(mqtt)
     client.connect(broker, port)
     client.loop_start()
@@ -243,9 +249,9 @@ def publish(payloads, broker, port, topic, mqtt, mqtt_client, on_ack):
         client.disconnect()
 
 
-def deliver(payload, cfg, topic, mqtt, mqtt_client, spool_dir=SPOOL_DIR, bad_dir=BAD_DIR):
-    """Send the spooled records, then `payload` (None: only the spool). Each spooled file is removed as the
-    broker acknowledges it; a payload that does not go is spooled. Returns (sent, still queued)."""
+def send_spool(cfg, topic, mqtt, mqtt_client, spool_dir=SPOOL_DIR, bad_dir=BAD_DIR):
+    """Send every spooled record, oldest first, removing each as the broker acknowledges it. Returns (sent,
+    still queued). A file that is not a record is moved to bad_dir; an empty spool connects to nothing."""
     files, payloads = [], []
     for path in spooled(spool_dir):
         try:
@@ -256,30 +262,33 @@ def deliver(payload, cfg, topic, mqtt, mqtt_client, spool_dir=SPOOL_DIR, bad_dir
             os.makedirs(bad_dir, mode=0o700, exist_ok=True)
             os.rename(path, os.path.join(bad_dir, os.path.basename(path)))
             print(f"{path} is not a record ({e}): moved to {bad_dir}", file=sys.stderr)
-    if payload is not None:
-        payloads.append(payload)
+    if not payloads:
+        return 0, 0
     acked = []
 
     def on_ack(i):
         acked.append(i)
-        if i < len(files):
-            os.unlink(files[i])
+        os.unlink(files[i])
 
     error = None
     try:
         publish(payloads, cfg["broker"], cfg["port"], topic, mqtt, mqtt_client, on_ack)
         if len(acked) < len(payloads):
             error = f"the broker {cfg['broker']}:{cfg['port']} did not acknowledge in 10 s"
-    except OSError as e:  # includes the alarm's TimeoutError
+    except (OSError, RuntimeError, ValueError) as e:  # OSError includes the alarm's TimeoutError
         error = f"{cfg['broker']}:{cfg['port']}: {type(e).__name__}: {e}"
-    if payload is not None and len(acked) < len(payloads):
-        dropped = spool(payload, spool_dir)
-        if dropped:
-            print(f"spool full: dropped the {dropped} oldest undelivered records", file=sys.stderr)
     queued = len(payloads) - len(acked)
     if error:
         print(f"not delivered ({error}): {queued} records kept in {spool_dir}", file=sys.stderr)
     return len(acked), queued
+
+
+def flush_timer(action):
+    """Start or stop fpgas-network-state-flush.timer, which retries the spool every minute while it holds
+    records (and so runs only then). Never fatal: the records are safe in the spool either way."""
+    r = subprocess.run([*SYSTEMCTL, action, "--no-block", FLUSH_TIMER], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"systemctl {action} {FLUSH_TIMER}: {r.stderr.strip()}", file=sys.stderr)
 
 
 def _timeout(*_):
@@ -295,6 +304,8 @@ def _fleet():
 
 
 def main(argv):
+    """A dispatcher run spools the uplink's record first, so it is never held only in memory, then sends the
+    spool under the lock. `--flush` (the timer) only sends the spool."""
     flush = argv[1:] == ["--flush"]
     if not flush and argv[1:]:
         print("usage: fpgas-network-state [--flush]", file=sys.stderr)
@@ -311,35 +322,39 @@ def main(argv):
     if not os.path.exists(FLEET_CONFIG):
         print(f"no {FLEET_CONFIG}: no broker to publish to")
         return 0
+    serial = re.search(r"^Serial\s*:\s*(\S+)", _read(CPUINFO), re.M)
+    if not serial:
+        # The fleet agent registers the machine by this serial (setup-pi collect.py): without it the site
+        # cannot place the record.
+        print(f"no Serial in {CPUINFO}: cannot address the record to this machine", file=sys.stderr)
+        return 1
     signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(TIMEOUT_S)
+    what = "spool"
     try:
+        if not flush:
+            doc = collect(iface, os.environ, want)
+            what = f"{iface} {doc['trigger']} ({doc['operational_state']}, {doc['administrative_state']})"
+            dropped = spool({"stage": STAGE, "boot_id": _read(BOOT_ID).strip(), "ts": doc["at"], "detail": doc})
+            if dropped:
+                print(f"spool full: dropped the {dropped} oldest undelivered records", file=sys.stderr)
         with open(LOCK_FILE, "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             fleet_agent, mqtt = _fleet()
-            if flush:
-                if not spooled():
-                    return 0
-                cfg = fleet_agent.load_config(FLEET_CONFIG)
-                serial = re.search(r"^Serial\s*:\s*(\S+)", _read("/proc/cpuinfo"), re.M)
-                payload, what = None, "spool"
-            else:
-                doc = collect(iface, os.environ, want)
-                serial = re.search(r"^Serial\s*:\s*(\S+)", _read("/proc/cpuinfo"), re.M)
-                cfg = fleet_agent.load_config(FLEET_CONFIG)
-                payload = {"stage": STAGE, "boot_id": fleet_agent.boot_id(), "ts": doc["at"], "detail": doc}
-                what = f"{iface} {doc['trigger']} ({doc['operational_state']}, {doc['administrative_state']})"
-            if not serial:
-                # The fleet agent registers the machine by this serial (setup-pi collect.py): without it the
-                # site cannot place the record.
-                print("no Serial in /proc/cpuinfo: cannot address the record to this machine", file=sys.stderr)
-                return 1
+            cfg = fleet_agent.load_config(FLEET_CONFIG)
             topic = fleet_agent.topics(cfg["site"], serial.group(1))["event"]
-            sent, queued = deliver(payload, cfg, topic, mqtt, fleet_agent.mqtt_client)
-            print(f"{what} -> {topic}: {sent} sent, {queued} queued")
-    except TimeoutError as e:  # the alarm, outside the publish (collecting, or waiting for the lock)
-        print(f"{e}: nothing published by this run", file=sys.stderr)
+            sent, queued = send_spool(cfg, topic, mqtt, fleet_agent.mqtt_client)
+    except TimeoutError as e:  # the alarm outside the publish: collecting, spooling or waiting for the lock
+        print(f"{what}: {e}" + ("" if flush else "; the record is in the spool if it was collected"),
+              file=sys.stderr)
+        flush_timer("start")
         return 1
+    print(f"{what}: {sent} sent, {queued} queued")
+    if queued:
+        flush_timer("start")
+        return 1 if flush else 0
+    if flush:
+        flush_timer("stop")
     return 0
 
 

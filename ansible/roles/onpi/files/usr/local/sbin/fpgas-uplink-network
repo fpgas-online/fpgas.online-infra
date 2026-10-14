@@ -22,8 +22,9 @@
 #
 # The file matches the interface by its MAC, not its name: the name is read
 # here, early, and a .link rename after this point would leave a Name= match
-# pointing at nothing. Nothing on the root creates a VLAN or bridge sharing
-# the uplink's MAC; Type=ether keeps out the rest.
+# pointing at nothing. The MAC is the filter: a VLAN, bridge or veth would
+# share it (Type=ether does not tell them apart), and nothing on the root
+# creates one.
 #
 # IPv6 (Tim's answer welland-1, 7 Oct 2026): the port's address is
 # <base><S, two digits>::<P>, the formula of the port_vlan_map filter
