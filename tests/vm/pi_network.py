@@ -296,8 +296,15 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
             else:
                 time.sleep(10)
         if not proof:
+            try:
+                state = pi_sh("sudo systemctl status --no-pager 'fpgas-negative-control*'; ls -l /run/systemd/network; "
+                              f"networkctl status --no-pager {uplink}; ip -o -4 addr show dev {uplink}; "
+                              "sudo journalctl -b -u systemd-networkd --no-pager -n 80", 60)
+            except (OSError, EOFError, paramiko.SSHException) as e:
+                state = f"(the Pi could not be read: {type(e).__name__}: {e})"
             raise Step(f"the negative control proved nothing: within {CONTROL_WINDOW_S} s the address still had "
-                       f"lifetime forever, and within {CONTROL_WINDOW_S + 180} s the console showed no NFS complaint")
+                       f"lifetime forever, and within {CONTROL_WINDOW_S + 180} s the console showed no NFS complaint. "
+                       f"The Pi's state:\n{state}")
         gap, answers = _ping_gap(srv, started, CONTROL_WINDOW_S)
         print(f"[net] negative control (the generator's DHCP-only .network, as at ps1): {proof}. The gateway's "
               f"longest wait for an answer: {gap:.2f} s ({answers} answers in {CONTROL_WINDOW_S} s)")
