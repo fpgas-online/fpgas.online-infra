@@ -14,6 +14,24 @@
 # has been masked since August 2026 and nothing started dhclient. All three
 # go. raspberrypi-net-mods (Wi-Fi tweaks for NetworkManager, its only reverse
 # dependency in the image) goes with network-manager.
+# apt removes reverse dependencies with them, silently: simulate first, and
+# stop if anything beyond these and raspberrypi-net-mods would go.
+- name: Simulate the removal of NetworkManager, ifupdown and dhclient
+  ansible.builtin.command:
+    argv: [apt-get, --simulate, purge, network-manager, ifupdown, isc-dhcp-client]
+  register: onpi_network_purge_sim
+  changed_when: false
+
+- name: Assert the removal takes nothing else
+  ansible.builtin.assert:
+    that: onpi_network_purge_extra | length == 0
+    fail_msg: "Purging network-manager, ifupdown and isc-dhcp-client would also remove {{ onpi_network_purge_extra }}"
+    quiet: true
+  vars:
+    onpi_network_purge_extra: >-
+      {{ onpi_network_purge_sim.stdout_lines | select('match', '^Purg ') | map('split') | map(attribute=1)
+         | reject('in', ['network-manager', 'ifupdown', 'isc-dhcp-client', 'raspberrypi-net-mods']) | list }}
+
 - name: Remove NetworkManager, ifupdown and dhclient
   ansible.builtin.apt:
     name:
@@ -112,4 +130,20 @@
 - name: Enable networkd-dispatcher
   ansible.builtin.systemd:
     name: networkd-dispatcher.service
+    enabled: true
+
+# Spooled records (the broker was unreachable) go out within a minute of it
+# answering again, not only at the next state change.
+- name: Install the spool flush units
+  ansible.builtin.copy:
+    src: "etc/systemd/system/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - fpgas-network-state-flush.service
+    - fpgas-network-state-flush.timer
+
+- name: Enable the spool flush timer
+  ansible.builtin.systemd:
+    name: fpgas-network-state-flush.timer
     enabled: true

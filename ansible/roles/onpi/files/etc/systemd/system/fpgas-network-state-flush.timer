@@ -1,0 +1,12 @@
+# Every minute: a spooled network-state record reaches the site within about a
+# minute of the broker being reachable again.
+[Unit]
+Description=Send spooled network-state records to the site every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

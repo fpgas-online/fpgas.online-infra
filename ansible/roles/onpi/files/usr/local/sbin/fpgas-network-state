@@ -4,11 +4,11 @@
 Tim, 14 Oct 2026: "Make sure the networkd status changes call a script to
 publish the data to the gateway site". networkd-dispatcher runs this script
 from /etc/networkd-dispatcher/<state>.d/ (onpi/tasks/networkd.yml links it
-into every state directory). It sets IFACE and STATE. The script only
-reports on the interface that fpgas-uplink-network handed to networkd, the
-Name= in /run/systemd/network/10-fpgas-uplink.network, and does nothing for
-any other interface. It only reads (ip, the lease file) and publishes. It
-never changes the link.
+into every state directory), with IFACE and STATE set. The script reports
+only on the interface that fpgas-uplink-network handed to networkd: the one
+whose MAC is the MACAddress= in /run/systemd/network/10-fpgas-uplink.network.
+For any other interface it does nothing. It only reads (ip, sysfs, the lease
+file) and publishes. It never changes the link.
 
 The record goes to the site on the fleet agent's MQTT event topic,
 fpgas/<site>/pi/<serial>/event, with the broker from /etc/fpgas-online/fleet.toml
@@ -17,18 +17,22 @@ fpgas/<site>/pi/<serial>/event, with the broker from /etc/fpgas-online/fleet.tom
 as a boot event. Without fleet.toml (a site with no broker) there is
 nothing to publish to, and the script exits 0.
 
-A record that cannot be delivered (the broker is unreachable, as it is
-while the cable is out: the no-carrier record) is kept in SPOOL_DIR, under
-/run, so it lasts until the next boot. It goes out, oldest first, ahead of
-the record of the next state change. The site then holds no-carrier and
-then routable, in order, with the time each happened. At most SPOOL_MAX
-records are kept; beyond that the oldest are dropped, and the journal of
-networkd-dispatcher says how many.
+A record the broker does not acknowledge (it is unreachable while the cable
+is out, which loses the no-carrier record otherwise) is kept in SPOOL_DIR,
+under /run, so it lasts until the next boot. Spooled records go out oldest
+first, ahead of the next state change's record, and every minute through
+`--flush` (fpgas-network-state-flush.timer). Each is removed once the broker
+has acknowledged it. At most SPOOL_MAX are kept; beyond that the oldest are
+dropped, and the journal says how many. A spool file that is not JSON is
+moved to BAD_DIR and named in the journal, so it cannot block the rest. A
+lock serialises runs: the dispatcher's and the timer's.
 
 networkd-dispatcher waits for each script before it handles the next state
-change, so this one is bounded: paho's 5 s connect timeout, a 10 s wait for
-the broker's acknowledgement of each record, and SIGALRM at TIMEOUT_S over
-everything.
+change, so a run is bounded:
+- paho's 5 s connect timeout;
+- a 10 s wait for the broker's acknowledgement of each record;
+- SIGALRM at TIMEOUT_S over everything.
+The broker is an address (fleet.toml), so no DNS lookup can outlast the alarm.
 
 The document, the same keys every time (null where there is no value):
   schema, serial, mac, hostname, switch, port, at, interface, trigger,
@@ -37,27 +41,34 @@ The document, the same keys every time (null where there is no value):
                preferred_lifetime_s}]  (null lifetime = forever),
   default_routes: [{family 4|6, gateway, metric, protocol}],
   lease: {address, server, lifetime_s, acked_at, expires}.
-acked_at is the mtime of networkd's lease file: networkd rewrites it at
-each DHCPACK, renewals included. switch and port come from the port's
-IPv4 address <net>.<switch>.<port>, where <net> is the NFS server's first two
-octets (kernel command line). The gateway's lease records
+acked_at is the mtime of networkd's lease file. networkd rewrites the file
+at every DHCPACK, renewals included, and also when the link's saved state
+changes, so this is the last ACK or later. switch and port come from the
+port's IPv4 address <net>.<switch>.<port>, where <net> is the NFS server's
+first two octets (kernel command line). The gateway's lease records
 (fpgas/<site>/gw/lease) use the same names.
 """
 
 import datetime
+import fcntl
 import json
 import os
 import re
 import signal
 import subprocess
 import sys
+import time
 
 SCHEMA = 1
 TIMEOUT_S = 30
 SPOOL_DIR = "/run/fpgas-network-state"
+BAD_DIR = "/run/fpgas-network-state.bad"
+LOCK_FILE = "/run/fpgas-network-state.lock"
 SPOOL_MAX = 50
+STALE_TMP_S = 300
 FOREVER = 0xFFFFFFFF  # the kernel's "infinite" address lifetime
 UPLINK_NETWORK = "/run/systemd/network/10-fpgas-uplink.network"
+SYSFS_NET = "/sys/class/net"
 LEASES_DIR = "/run/systemd/netif/leases"
 FLEET_LIB = "/usr/local/lib/fpgas-online/fleet"
 FLEET_CONFIG = "/etc/fpgas-online/fleet.toml"
@@ -68,15 +79,15 @@ def iso(ts):
     return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
 
 
-def uplink_name(network_file):
-    """The Name= of the [Match] section of the generated .network file, or None."""
+def uplink_mac(network_file):
+    """The MACAddress= of the [Match] section of the generated .network file (lower case), or None."""
     try:
         with open(network_file) as f:
             text = f.read()
     except FileNotFoundError:
         return None
-    m = re.search(r"^\[Match\]\s*$(?:(?!^\[).)*?^Name=(\S+)\s*$", text, re.M | re.S)
-    return m.group(1) if m else None
+    m = re.search(r"^\[Match\]\s*$(?:(?!^\[).)*?^MACAddress=(\S+)\s*$", text, re.M | re.S)
+    return m.group(1).lower() if m else None
 
 
 def _lifetime(value):
@@ -108,7 +119,7 @@ def default_routes(family, ip_route_json):
 
 
 def lease(lease_file):
-    """networkd's lease file: KEY=VALUE lines; its mtime is the last DHCPACK."""
+    """networkd's lease file: KEY=VALUE lines; its mtime is the last DHCPACK (or later)."""
     empty = {"address": None, "server": None, "lifetime_s": None, "acked_at": None, "expires": None}
     try:
         with open(lease_file) as f:
@@ -171,8 +182,8 @@ def _read(path):
         return f.read()
 
 
-def collect(iface, env):
-    ifindex = _read(f"/sys/class/net/{iface}/ifindex").strip()
+def collect(iface, env, mac):
+    ifindex = _read(f"{SYSFS_NET}/{iface}/ifindex").strip()
     return document(
         iface, env.get("STATE"), env,
         _ip_json("addr", "show", "dev", iface),
@@ -180,14 +191,20 @@ def collect(iface, env):
         _ip_json("-6", "route", "show", "default", "dev", iface),
         os.path.join(LEASES_DIR, ifindex),
         _read("/proc/cmdline"), _read("/proc/cpuinfo"),
-        _read(f"/sys/class/net/{iface}/address").strip(),
+        mac,
         os.uname().nodename.split(".")[0],
         datetime.datetime.now(datetime.timezone.utc).timestamp())
 
 
-def spool(payload, spool_dir=SPOOL_DIR, keep=SPOOL_MAX):
-    """Keep an undelivered payload; drop the oldest beyond `keep`. Returns how many were dropped."""
+def spool(payload, spool_dir=SPOOL_DIR, keep=SPOOL_MAX, now=None):
+    """Keep an undelivered payload; drop the oldest beyond `keep`, and temporary files a dead run left
+    behind. Returns how many records were dropped."""
     os.makedirs(spool_dir, mode=0o700, exist_ok=True)
+    now = time.time() if now is None else now
+    for name in os.listdir(spool_dir):
+        path = os.path.join(spool_dir, name)
+        if name.startswith(".") and now - os.stat(path).st_mtime > STALE_TMP_S:
+            os.unlink(path)
     name = f"{payload['ts']}-{os.getpid()}.json"
     tmp = os.path.join(spool_dir, "." + name)
     with open(tmp, "w") as f:
@@ -207,80 +224,124 @@ def spooled(spool_dir=SPOOL_DIR):
             and not n.startswith(".")]
 
 
-def publish(payloads, broker, port, topic, mqtt, mqtt_client):
-    """Publish each payload, in order, on one connection; the number delivered before the first failure."""
+def publish(payloads, broker, port, topic, mqtt, mqtt_client, on_ack):
+    """Publish each payload in order on one connection, calling on_ack(i) as the broker acknowledges payload i.
+    Stops at the first one not acknowledged in 10 s. Errors (OSError, the alarm's TimeoutError) propagate; the
+    acknowledged ones have been reported through on_ack by then."""
     client = mqtt_client(mqtt)
     client.connect(broker, port)
     client.loop_start()
-    delivered = 0
     try:
-        for payload in payloads:
+        for i, payload in enumerate(payloads):
             info = client.publish(topic, json.dumps(payload, sort_keys=True), qos=1)
             info.wait_for_publish(timeout=10)
             if not info.is_published():
-                break
-            delivered += 1
+                return
+            on_ack(i)
     finally:
         client.loop_stop()
         client.disconnect()
-    return delivered
 
 
-def deliver(doc, spool_dir=SPOOL_DIR):
-    """Send the spooled records and then this one; spool what does not go. Returns (topic, sent, queued)."""
-    sys.path.insert(0, FLEET_LIB)
-    import fleet_agent  # noqa: E402 -- fpgas-online-setup-pi's module, at FLEET_LIB on the Pi
-    import paho.mqtt.client as mqtt
+def deliver(payload, cfg, topic, mqtt, mqtt_client, spool_dir=SPOOL_DIR, bad_dir=BAD_DIR):
+    """Send the spooled records, then `payload` (None: only the spool). Each spooled file is removed as the
+    broker acknowledges it; a payload that does not go is spooled. Returns (sent, still queued)."""
+    files, payloads = [], []
+    for path in spooled(spool_dir):
+        try:
+            with open(path) as f:
+                payloads.append(json.load(f))
+            files.append(path)
+        except (ValueError, UnicodeDecodeError) as e:
+            os.makedirs(bad_dir, mode=0o700, exist_ok=True)
+            os.rename(path, os.path.join(bad_dir, os.path.basename(path)))
+            print(f"{path} is not a record ({e}): moved to {bad_dir}", file=sys.stderr)
+    if payload is not None:
+        payloads.append(payload)
+    acked = []
 
-    cfg = fleet_agent.load_config(FLEET_CONFIG)
-    topic = fleet_agent.topics(cfg["site"], doc["serial"])["event"]
-    payload = {"stage": STAGE, "boot_id": fleet_agent.boot_id(), "ts": doc["at"], "detail": doc}
-    waiting = spooled(spool_dir)
-    payloads = []
-    for path in waiting:
-        with open(path) as f:
-            payloads.append(json.load(f))
-    payloads.append(payload)
+    def on_ack(i):
+        acked.append(i)
+        if i < len(files):
+            os.unlink(files[i])
+
+    error = None
     try:
-        sent = publish(payloads, cfg["broker"], cfg["port"], topic, mqtt, fleet_agent.mqtt_client)
-        error = None if sent == len(payloads) else f"the broker {cfg['broker']}:{cfg['port']} did not acknowledge in 10 s"
-    except OSError as e:
-        sent, error = 0, f"{cfg['broker']}:{cfg['port']}: {e}"
-    for path in waiting[:sent]:
-        os.unlink(path)
-    if sent < len(payloads):
+        publish(payloads, cfg["broker"], cfg["port"], topic, mqtt, mqtt_client, on_ack)
+        if len(acked) < len(payloads):
+            error = f"the broker {cfg['broker']}:{cfg['port']} did not acknowledge in 10 s"
+    except OSError as e:  # includes the alarm's TimeoutError
+        error = f"{cfg['broker']}:{cfg['port']}: {type(e).__name__}: {e}"
+    if payload is not None and len(acked) < len(payloads):
         dropped = spool(payload, spool_dir)
         if dropped:
             print(f"spool full: dropped the {dropped} oldest undelivered records", file=sys.stderr)
-        print(f"not delivered ({error}): {len(payloads) - sent} records kept in {spool_dir}", file=sys.stderr)
-    return topic, sent, len(payloads) - sent
+    queued = len(payloads) - len(acked)
+    if error:
+        print(f"not delivered ({error}): {queued} records kept in {spool_dir}", file=sys.stderr)
+    return len(acked), queued
 
 
 def _timeout(*_):
     raise TimeoutError(f"{STAGE} took over {TIMEOUT_S} s")
 
 
-def main():
+def _fleet():
+    sys.path.insert(0, FLEET_LIB)
+    import fleet_agent  # noqa: E402 -- fpgas-online-setup-pi's module, at FLEET_LIB on the Pi
+    import paho.mqtt.client as mqtt
+
+    return fleet_agent, mqtt
+
+
+def main(argv):
+    flush = argv[1:] == ["--flush"]
+    if not flush and argv[1:]:
+        print("usage: fpgas-network-state [--flush]", file=sys.stderr)
+        return 2
+    want = uplink_mac(os.environ.get("FPGAS_UPLINK_NETWORK", UPLINK_NETWORK))
     iface = os.environ.get("IFACE", "")
-    uplink = uplink_name(os.environ.get("FPGAS_UPLINK_NETWORK", UPLINK_NETWORK))
-    if not iface or iface != uplink:
-        return 0  # not the uplink: nothing to report
+    if not flush:
+        try:
+            mac = _read(f"{SYSFS_NET}/{iface}/address").strip().lower() if iface else ""
+        except FileNotFoundError:  # the interface went away (linger)
+            mac = ""
+        if not want or mac != want:
+            return 0  # not the uplink: nothing to report
     if not os.path.exists(FLEET_CONFIG):
-        print(f"no {FLEET_CONFIG}: no broker to publish {iface} {os.environ.get('STATE')} to")
+        print(f"no {FLEET_CONFIG}: no broker to publish to")
         return 0
     signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(TIMEOUT_S)
-    doc = collect(iface, os.environ)
-    if not doc["serial"]:
-        # The fleet agent registers the machine by this serial (setup-pi collect.py): without it the site
-        # cannot place the record.
-        print(f"no Serial in /proc/cpuinfo: cannot address {iface} {doc['trigger']} to this machine", file=sys.stderr)
+    try:
+        with open(LOCK_FILE, "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            fleet_agent, mqtt = _fleet()
+            if flush:
+                if not spooled():
+                    return 0
+                cfg = fleet_agent.load_config(FLEET_CONFIG)
+                serial = re.search(r"^Serial\s*:\s*(\S+)", _read("/proc/cpuinfo"), re.M)
+                payload, what = None, "spool"
+            else:
+                doc = collect(iface, os.environ, want)
+                serial = re.search(r"^Serial\s*:\s*(\S+)", _read("/proc/cpuinfo"), re.M)
+                cfg = fleet_agent.load_config(FLEET_CONFIG)
+                payload = {"stage": STAGE, "boot_id": fleet_agent.boot_id(), "ts": doc["at"], "detail": doc}
+                what = f"{iface} {doc['trigger']} ({doc['operational_state']}, {doc['administrative_state']})"
+            if not serial:
+                # The fleet agent registers the machine by this serial (setup-pi collect.py): without it the
+                # site cannot place the record.
+                print("no Serial in /proc/cpuinfo: cannot address the record to this machine", file=sys.stderr)
+                return 1
+            topic = fleet_agent.topics(cfg["site"], serial.group(1))["event"]
+            sent, queued = deliver(payload, cfg, topic, mqtt, fleet_agent.mqtt_client)
+            print(f"{what} -> {topic}: {sent} sent, {queued} queued")
+    except TimeoutError as e:  # the alarm, outside the publish (collecting, or waiting for the lock)
+        print(f"{e}: nothing published by this run", file=sys.stderr)
         return 1
-    topic, sent, queued = deliver(doc)
-    print(f"{iface} {doc['trigger']} ({doc['operational_state']}, {doc['administrative_state']}) -> {topic}: "
-          f"{sent} sent, {queued} queued")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))
