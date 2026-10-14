@@ -58,3 +58,52 @@
     - /etc/systemd/system/multi-user.target.wants/fpgas-ipv6.service
     - /etc/systemd/system/fpgas-ipv6.service
     - /usr/local/sbin/fpgas-ipv6
+
+# Every networkd state change of the uplink is published to the site (Tim,
+# 14 Oct 2026: "Make sure the networkd status changes call a script to publish
+# the data to the gateway site"). networkd has no hooks of its own;
+# networkd-dispatcher (Debian bookworm 2.2.3) listens to networkd on D-Bus and
+# runs /etc/networkd-dispatcher/<state>.d/*, synchronously, for each
+# administrative and operational state an interface enters. Every state it
+# knows (its ADMIN_STATES and OPER_STATES) gets the one script, which reports
+# only on the uplink (see the script). Scripts and their directories must be
+# root-owned and 0755, or the dispatcher skips them.
+- name: Install networkd-dispatcher
+  ansible.builtin.apt:
+    name: networkd-dispatcher
+    state: present
+
+- name: Install the network state publisher
+  ansible.builtin.copy:
+    src: usr/local/sbin/fpgas-network-state
+    dest: /usr/local/sbin/fpgas-network-state
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the networkd-dispatcher state directories
+  ansible.builtin.file:
+    path: "/etc/networkd-dispatcher/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ onpi_networkd_states }}"
+
+- name: Run the publisher on every state
+  ansible.builtin.file:
+    src: /usr/local/sbin/fpgas-network-state
+    dest: "/etc/networkd-dispatcher/{{ item }}.d/50-fpgas-network-state"
+    state: link
+  loop: "{{ onpi_networkd_states }}"
+
+- name: Start networkd-dispatcher after the fleet agent
+  ansible.builtin.copy:
+    src: etc/systemd/system/networkd-dispatcher.service.d/fpgas-after-fleet-agent.conf
+    dest: /etc/systemd/system/networkd-dispatcher.service.d/fpgas-after-fleet-agent.conf
+    mode: "0644"
+
+- name: Enable networkd-dispatcher
+  ansible.builtin.systemd:
+    name: networkd-dispatcher.service
+    enabled: true
