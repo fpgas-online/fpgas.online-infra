@@ -1446,6 +1446,8 @@
           - "{{ hostvars[verify_pi_server].django_dir }}/venv/bin/python"
           - manage.py
           - shell
+          # Django 5.2's shell prints an auto-import count first ("N objects imported automatically") unless quiet
+          - --verbosity=0
           - -c
           - |
             import json
@@ -1464,7 +1466,7 @@
       register: verify_pi_network_record
       until: >-
         verify_pi_network_record.rc == 0
-        and (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
+        and (verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
       retries: 24
       delay: 5
       failed_when: false
@@ -1474,9 +1476,9 @@
       ansible.builtin.assert:
         that:
           - verify_pi_network_record.rc == 0
-          - (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
-          - (verify_pi_network_record.stdout | from_json).interface == verify_pi_network.uplink
-          - (verify_pi_network_record.stdout | from_json).state == 'routable'
+          - (verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
+          - (verify_pi_network_record.stdout_lines[-1] | from_json).interface == verify_pi_network.uplink
+          - (verify_pi_network_record.stdout_lines[-1] | from_json).state == 'routable'
         fail_msg: >-
           The site's newest network-state record of this boot for {{ verify_pi_identity.stdout_lines[0] }} is
           {{ verify_pi_network_record.stdout | default('-', true) }} {{ verify_pi_network_record.stderr | default('') }};

@@ -74,7 +74,7 @@ def _site_records(server_sh, serial: str, after_id: int = 0) -> list[dict]:
         " for e in q.order_by('id')]))\n"
     )
     # django_dir and user_name of tests/inventory (group_vars site.yml, host_vars test-vm.yml)
-    out = server_sh(f"cd {DJANGO_DIR} && sudo -u {SITE_USER} venv/bin/python manage.py shell -c {shlex.quote(code)}")
+    out = server_sh(f"cd {DJANGO_DIR} && sudo -u {SITE_USER} venv/bin/python manage.py shell --verbosity=0 -c {shlex.quote(code)}")
     rc, _, body = out.partition("\n")
     lines = [l for l in body.splitlines() if l.startswith("[")]
     if rc != "rc=0" or len(lines) != 1:
