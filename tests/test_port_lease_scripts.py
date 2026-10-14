@@ -94,12 +94,14 @@ def test_main_refuses_with_exit_2_before_reading_anything(monkeypatch):
 # --- the lease file -------------------------------------------------------------------------------------------
 
 
-def test_the_lease_file_is_read_with_its_server_duid():
-    duid, leases = release.parse_leases(LEASES)
+PORT_48 = {ipaddress.ip_address("10.21.2.48"), ipaddress.ip_address("2404:e80:a137:2102::48")}
+
+
+def test_the_ports_leases_are_read_with_the_server_duid():
+    duid, leases = release.parse_leases(LEASES, PORT_48)
     assert duid == SERVER_DUID
     assert [(str(x["address"]), x.get("mac"), x.get("iaid"), x["client_id"]) for x in leases] == [
         ("10.21.2.48", "b8:27:eb:e3:e7:e4", None, None),
-        ("10.21.1.1", "98:fe:54:13:f5:9c", None, "01:98:fe:54:13:f5:9c"),
         ("2404:e80:a137:2102::48", None, "318764444", CLIENT_DUID),
     ]
 
@@ -110,15 +112,52 @@ def test_the_lease_file_is_read_with_its_server_duid():
     "1791941144 b8:27:eb:e3:e7:e4 10.21.2.48 pi -x *",
     "1791941144 --iface 10.21.2.48 pi-sw2-p48 *",
     "1791959703 --server-id 2404:e80:a137:2102::48 pi-sw2-p48 00:04",
+    "1791959703 T318764444 2404:e80:a137:2102::48 pi-sw2-p48 00:04",
+    "\u0661791941144 b8:27:eb:e3:e7:e4 10.21.2.48 pi-sw2-p48 *",  # a digit isdigit() takes but int() should not
 ])
-def test_a_line_not_in_dnsmasqs_shape_refuses_the_file(bad):
+def test_a_line_of_the_ports_own_address_not_in_dnsmasqs_shape_is_a_failure(bad):
     with pytest.raises(release.Failed):
-        release.parse_leases(LEASES + bad + "\n")
+        release.parse_leases(LEASES + bad + "\n", PORT_48)
 
 
-def test_v6_leases_without_the_duid_line_are_a_half_written_file():
+@pytest.mark.parametrize("other", [
+    "1791941144 b8:27:eb:e3:e7:e4 10.21.0.130 Tims_MacBook 01:b8:27:eb:e3:e7:e4",  # "_" is legal in dnsmasq names
+    "1791959703 T318764444 2404:e80:a137:2102::99 my_laptop 00:04:a1",  # a temporary IPv6 lease
+    "1791941144 06-01:23:45:67:89:ab 10.21.0.131 ring *",  # a non-Ethernet hardware type
+    "1791941144 b8:27:eb",  # another line caught half written
+])
+def test_other_clients_lines_never_stop_a_ports_release(other):
+    duid, leases = release.parse_leases(LEASES + other + "\n", PORT_48)
+    assert [str(x["address"]) for x in leases] == ["10.21.2.48", "2404:e80:a137:2102::48"]
+
+
+def test_the_ports_v6_lease_without_the_duid_line_is_a_failure():
     with pytest.raises(release.Failed, match="duid"):
-        release.parse_leases(LEASES.replace(f"duid {SERVER_DUID}\n", ""))
+        release.parse_leases(LEASES.replace(f"duid {SERVER_DUID}\n", ""), PORT_48)
+
+
+def test_a_read_counts_only_when_two_reads_agree(tmp_path):
+    path = tmp_path / "leases"
+    texts = iter(["", LEASES, LEASES])  # caught empty mid-rewrite, then whole twice
+
+    def sleep(seconds):
+        path.write_text(next(texts))
+
+    path.write_text("1791941144 b8:27:eb")
+    duid, leases = release.read_leases(path, PORT_48, sleep)
+    assert len(leases) == 2
+
+
+def test_a_file_that_never_reads_the_same_twice_is_a_failure(tmp_path):
+    path = tmp_path / "leases"
+    count = iter(range(100))
+
+    def sleep(seconds):
+        path.write_text(LEASES * (next(count) + 2))  # different on every read
+
+    path.write_text(LEASES)
+    with pytest.raises(release.Failed, match="did not read the same"):
+        release.read_leases(path, PORT_48, sleep)
 
 
 # --- the release ----------------------------------------------------------------------------------------------
@@ -215,10 +254,20 @@ def test_a_new_v4_lease_is_a_record_with_the_shared_names():
                    "interface": "v2248"}
 
 
-def test_a_renewal_is_an_ack_and_dnsmasqs_restart_reread_is_not():
-    renewal = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], ENV, NOW)
-    reread = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], {**ENV, "DNSMASQ_DATA_MISSING": "1"}, NOW)
-    assert renewal["acked_at"] is not None and reread["acked_at"] is None
+def test_a_renewal_is_an_ack_and_a_restart_reread_of_an_older_lease_is_not():
+    # both come as "old", and on IPv4 both carry DNSMASQ_DATA_MISSING=1 (dnsmasq 2.91): the time left tells them apart
+    renewal = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], {**ENV, "DNSMASQ_DATA_MISSING": "1"}, NOW, 300)
+    reread = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"],
+                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "170"}, NOW, 300)
+    unknown = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], ENV, NOW, None)
+    assert renewal["acked_at"] is not None and renewal["lifetime_s"] == 300
+    assert reread["acked_at"] is None and unknown["acked_at"] is None
+
+
+def test_the_ports_lease_time_comes_from_its_ipv4_range():
+    assert event.lease_seconds(PORTS_CONF, "v2248") == 300
+    assert event.lease_seconds(PORTS_CONF, "v2299") is None
+    assert event.lease_seconds("dhcp-range=tag:v2248,10.21.2.48,10.21.2.48,255.255.0.0,12h\n", "v2248") == 43200
 
 
 def test_a_v6_lease_takes_its_mac_from_the_environment():
@@ -265,3 +314,51 @@ def test_a_config_without_a_site_and_a_broker_address_is_refused(tmp_path, text)
     for module in (release, event):
         with pytest.raises(ValueError):
             module.read_config(path)
+
+
+# --- the release script's main(), past the arguments ------------------------------------------------------------
+
+
+@pytest.fixture()
+def installed(tmp_path, monkeypatch):
+    """The release script's file constants pointed at test files, as an installed host has them."""
+    ports_conf, leases = write(tmp_path, LEASES)
+    monkeypatch.setattr(release, "PORTS_CONF", str(ports_conf))
+    monkeypatch.setattr(release, "LEASE_FILE", str(leases))
+    monkeypatch.setattr(release, "LOCK_FILE", str(tmp_path / "lock"))
+    monkeypatch.setattr(release.syslog, "syslog", lambda *a: None)
+    published = []
+    monkeypatch.setattr(release, "publish_record", published.append)
+    return leases, published
+
+
+def test_main_releases_and_exits_0(installed, monkeypatch):
+    leases, published = installed
+    gw = Gateway(leases)
+    monkeypatch.setattr(release.subprocess, "run", gw.run)
+    assert release.main(["v2248", "--cause", "power-off"]) == 0
+    assert len(gw.ran) == 2 and [r["cause"] for r in published] == ["power-off", "power-off"]
+
+
+def test_main_exits_1_when_the_lease_is_still_there(installed, monkeypatch):
+    leases, published = installed
+    gw = Gateway(leases, honour=False)
+    monkeypatch.setattr(release.subprocess, "run", gw.run)
+    monkeypatch.setattr(release, "CONFIRM_SECONDS", 0)
+    assert release.main(["v2248", "--cause", "link-down"]) == 1
+    assert published == []
+
+
+def test_main_refuses_an_interface_its_ports_conf_does_not_have(installed, monkeypatch):
+    def refuse(*a, **k):
+        raise AssertionError("ran a tool")
+    monkeypatch.setattr(release.subprocess, "run", refuse)
+    assert release.main(["v2299", "--cause", "link-down"]) == 2
+
+
+def test_a_broken_lease_events_config_does_not_stop_the_release(tmp_path, monkeypatch):
+    monkeypatch.setattr(release, "EVENTS_CONF", str(tmp_path / "missing.conf"))
+    logged = []
+    monkeypatch.setattr(release, "log", lambda priority, message: logged.append(message))
+    release.publish_record({"event": "released"})
+    assert any("not published" in m for m in logged)

@@ -4,7 +4,8 @@
 dnsmasq runs it (as nobody: dhcp-scriptuser in /etc/dnsmasq.d/lease-events.conf) as
 ``<action> <mac, or the client DUID for IPv6> <address> [<hostname>]`` with DNSMASQ_* variables in the environment
 (dnsmasq(8), --dhcp-script). With --script-on-renewal it also runs on every renewal, as "old", so each DHCPACK on a
-per-port interface becomes one record: the gateway's heartbeat of that board.
+per-port interface becomes one record with acked_at set: the gateway's heartbeat of that board (see record() for
+how a renewal is told from dnsmasq re-reading its leases at start).
 
 The record goes to the site's MQTT broker on topic fpgas/<site>/gw/lease (site and broker address from
 /etc/fpgas/lease-events.conf), with the field names the Pi's own network-state record uses. Events on the quarantine
@@ -26,20 +27,40 @@ import sys
 from datetime import datetime, timezone
 
 EVENTS_CONF = "/etc/fpgas/lease-events.conf"
+PORTS_CONF = "/etc/dnsmasq.d/ports.conf"
+# a lease whose time left is within this of the full lease time was just granted or renewed
+ACK_SLACK = 15
 MOSQUITTO_PUB = "/usr/bin/mosquitto_pub"
 CHILD_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C"}
 TIMEOUT = 3
 ACTIONS = ("add", "old", "del")
 _IFACE = re.compile(r"v([0-9]{4})")
 _MAC = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}")
+_DIGITS = re.compile(r"[0-9]+")
+_UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
 def iso(seconds):
     return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds")
 
 
-def record(args, env, now):
-    """The lease record for one dnsmasq call, or None for anything that is not a per-port lease event."""
+def lease_seconds(text, iface):
+    """The lease time of `iface`'s per-port IPv4 range in ports.conf, or None when it has none."""
+    for line in text.splitlines():
+        m = re.fullmatch(rf"dhcp-range=tag:{iface},[^,]+,[^,]+,[^,]+,([0-9]+)([smhd]?)", line.strip())
+        if m:
+            return int(m[1]) * _UNITS[m[2]]
+    return None
+
+
+def record(args, env, now, lease_time=None):
+    """The lease record for one dnsmasq call, or None for anything that is not a per-port lease event.
+
+    `lease_time` is the port's lease time. dnsmasq runs the script with "old" both for a renewal (script-on-renewal)
+    and for each lease it re-reads when it starts, and neither is marked: DNSMASQ_DATA_MISSING is set for both on
+    IPv4 (dnsmasq 2.91 rfc2131.c collects a client's extra data only on SELECTING and INIT-REBOOT). A renewal leaves
+    the full lease time, a re-read of an older lease less, so "old" is an ack when the time left is within ACK_SLACK
+    of the lease time; with no lease time known it is not counted as one."""
     if len(args) < 3 or args[0] not in ACTIONS:
         return None
     action, who, address = args[0], args[1], args[2]
@@ -56,17 +77,17 @@ def record(args, env, now):
     mac = who if family == 4 else env.get("DNSMASQ_MAC")
     if mac is not None and not _MAC.fullmatch(mac):
         mac = None
-    expires = env.get("DNSMASQ_LEASE_EXPIRES")
-    remaining = env.get("DNSMASQ_TIME_REMAINING")
-    # an ACK: a new lease, or a renewal (expiry changed); "old" at dnsmasq's start is a re-read, flagged
-    # DNSMASQ_DATA_MISSING, and "del" is the end of a lease
-    acked = action == "add" or (action == "old" and env.get("DNSMASQ_DATA_MISSING") != "1")
+    expires = env.get("DNSMASQ_LEASE_EXPIRES", "")
+    remaining = env.get("DNSMASQ_TIME_REMAINING", "")
+    remaining = int(remaining) if _DIGITS.fullmatch(remaining) else None
+    acked = action == "add" or (action == "old" and remaining is not None and lease_time is not None
+                                and remaining >= lease_time - ACK_SLACK)
     return {
         "schema": 1, "switch": switch, "port": port, "hostname": f"pi-sw{switch}-p{port}", "at": iso(now),
         "event": action, "family": family, "address": address, "mac": mac, "server": None,
-        "lifetime_s": int(remaining) if acked and remaining and remaining.isdigit() else None,
+        "lifetime_s": remaining if acked else None,
         "acked_at": iso(now) if acked else None,
-        "expires": int(expires) if expires and expires.isdigit() else None,
+        "expires": int(expires) if _DIGITS.fullmatch(expires) else None,
         "interface": m[0],
     }
 
@@ -87,7 +108,14 @@ def read_config(path):
 
 
 def main(args, env, now):
-    doc = record(args, env, now)
+    iface = env.get("DNSMASQ_INTERFACE", "")
+    try:
+        with open(PORTS_CONF, encoding="utf-8") as f:
+            lease_time = lease_seconds(f.read(), iface) if _IFACE.fullmatch(iface) else None
+    except OSError as exc:
+        print(f"fpgas-lease-event: {PORTS_CONF}: {exc}", file=sys.stderr)
+        lease_time = None
+    doc = record(args, env, now, lease_time)
     if doc is None:
         return 0
     try:

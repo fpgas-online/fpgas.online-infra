@@ -9,10 +9,10 @@ The interface is the only input that names anything, and it is checked before an
 `v` and four digits AND an `interface=` of /etc/dnsmasq.d/ports.conf. The port's addresses come from that file's
 dhcp-range lines for the interface, and the leases from dnsmasq's lease file; nothing from the caller reaches a
 command line. Each lease is released with dnsmasq's own tools (dnsmasq-utils: dhcp_release for IPv4, dhcp_release6
-for IPv6), then the lease file is read until the port's leases are gone. dhcp_release always exits 0 and hears no
-answer, so the lease file is the proof. Every release is logged (syslog, tag fpgas-lease-release) and published
-as a lease record on the site's MQTT broker (topic fpgas/<site>/gw/lease; site and broker address from
-/etc/fpgas/lease-events.conf).
+for IPv6), then the lease file is read until the port's leases are gone. dhcp_release hears no answer (it exits 0
+once the packet is sent), so the lease file is the proof. Every release is logged (syslog, tag
+fpgas-lease-release) and published as a lease record on the site's MQTT broker (topic fpgas/<site>/gw/lease; site
+and broker address from /etc/fpgas/lease-events.conf).
 
 Exit: 0 released or nothing to release; 1 a lease is still there, or a tool or file failed; 2 the arguments were
 refused (nothing was read or released).
@@ -44,14 +44,15 @@ CAUSES = ("link-down", "power-cycle", "power-off", "down-port")
 TOOL_TIMEOUT = 10
 # dhcp_release6 alone takes 1-5 s; this is how long the lease file is watched for the release to show
 CONFIRM_SECONDS = 8
-READ_TRIES = 3
+READ_TRIES = 6
 READ_PAUSE = 0.2
 
 _IFACE = re.compile(r"v[0-9]{4}")
 _RANGE = re.compile(r"dhcp-range=tag:(v[0-9]{4}),([^,]+),([^,]+),.*")
 _HEX = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2})*")
 _MAC = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}")
-_NAME = re.compile(r"\*|[A-Za-z0-9][A-Za-z0-9.-]{0,252}")
+_NAME = re.compile(r"\*|[A-Za-z0-9][A-Za-z0-9._-]{0,252}")
+_DIGITS = re.compile(r"[0-9]+")
 
 
 class Refused(Exception):
@@ -90,50 +91,57 @@ def port_addresses(text, iface):
     return addresses
 
 
-def parse_leases(text):
-    """(server DUID or None, [lease dict]) from dnsmasq's lease file; Failed on any line not in its shape."""
+def parse_leases(text, addresses):
+    """(server DUID or None, [lease dict]) for the leases of `addresses` (the port's own) in dnsmasq's lease file.
+
+    The file holds every client's leases (the quarantine pool's too), and dnsmasq writes lines this script has no
+    use for (host names with "_", T<iaid> temporary IPv6 leases, non-Ethernet hardware types). Those are passed over:
+    only a line for one of `addresses` must be in the exact shape, because its fields reach dhcp_release's command
+    line; such a line that is not is Failed. The `duid` line is checked when an IPv6 lease needs it."""
     server_duid, leases = None, []
     for number, line in enumerate(text.splitlines(), 1):
         f = line.split()
-        if not f:
-            continue
-        if f[0] == "duid":
-            if len(f) != 2 or not _HEX.fullmatch(f[1]):
-                raise Failed(f"lease file line {number}: bad duid line")
+        if len(f) == 2 and f[0] == "duid":
             server_duid = f[1]
             continue
-        if len(f) != 5 or not f[0].isdigit() or not _NAME.fullmatch(f[3]) or not (f[4] == "*" or _HEX.fullmatch(f[4])):
-            raise Failed(f"lease file line {number}: not a lease line")
+        if len(f) < 3:
+            continue
         try:
             address = ipaddress.ip_address(f[2])
         except ValueError:
-            raise Failed(f"lease file line {number}: bad address") from None
+            continue
+        if address not in addresses:
+            continue
+        if len(f) != 5 or not _DIGITS.fullmatch(f[0]) or not _NAME.fullmatch(f[3]) \
+                or not (f[4] == "*" or _HEX.fullmatch(f[4])):
+            raise Failed(f"lease file line {number}: the lease of {address} is not in dnsmasq's shape")
         lease = {"expires": int(f[0]), "address": address, "client_id": None if f[4] == "*" else f[4]}
         if address.version == 4:
             if not _MAC.fullmatch(f[1]):
-                raise Failed(f"lease file line {number}: bad MAC")
+                raise Failed(f"lease file line {number}: bad MAC for {address}")
             lease["mac"] = f[1]
         else:
-            if not f[1].isdigit():
-                raise Failed(f"lease file line {number}: bad IAID")
+            if not _DIGITS.fullmatch(f[1]):
+                raise Failed(f"lease file line {number}: bad IAID for {address}")
             lease["iaid"] = f[1]
         leases.append(lease)
-    if any(lease["address"].version == 6 for lease in leases) and server_duid is None:
-        raise Failed("the lease file has IPv6 leases but no duid line (caught mid-write?)")
+    if any(lease["address"].version == 6 for lease in leases) and not (server_duid and _HEX.fullmatch(server_duid)):
+        raise Failed("the lease file has the port's IPv6 lease but no server duid line")
     return server_duid, leases
 
 
-def read_leases(path, sleep=time.sleep):
-    """parse_leases(path), read again while dnsmasq is caught rewriting it."""
-    for attempt in range(READ_TRIES):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return parse_leases(f.read())
-        except (Failed, UnicodeDecodeError):
-            if attempt == READ_TRIES - 1:
-                raise
-            sleep(READ_PAUSE)
-    raise AssertionError("unreachable")
+def read_leases(path, addresses, sleep=time.sleep):
+    """parse_leases of the file, from a read that two consecutive reads agree on: dnsmasq truncates the file and
+    writes it again (lease.c), so a single read can be empty or cut off and look like a released lease."""
+    previous = None
+    for _ in range(READ_TRIES):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+        if text == previous:
+            return parse_leases(text, addresses)
+        previous = text
+        sleep(READ_PAUSE)
+    raise Failed(f"{path} did not read the same twice in {READ_TRIES} tries")
 
 
 def release_argv(iface, lease, server_duid):
@@ -162,8 +170,7 @@ def release_port(iface, cause, *, ports_conf, lease_file, run, publish, log, sle
     """Release every lease of the port `iface`. Returns the number released; Refused or Failed otherwise."""
     with open(ports_conf, encoding="utf-8") as f:
         addresses = set(port_addresses(f.read(), iface))
-    server_duid, leases = read_leases(lease_file, sleep)
-    held = [lease for lease in leases if lease["address"] in addresses]
+    server_duid, held = read_leases(lease_file, addresses, sleep)
     if not held:
         log(syslog.LOG_DEBUG, f"no lease on {iface} (cause: {cause})")
         return 0
@@ -177,8 +184,7 @@ def release_port(iface, cause, *, ports_conf, lease_file, run, publish, log, sle
             raise Failed(f"{argv[0]} for {lease['address']} exited {done.returncode}: {done.stderr.strip()[:200]}")
     deadline = clock() + CONFIRM_SECONDS
     while True:
-        _, now = read_leases(lease_file, sleep)
-        left = [lease for lease in now if lease["address"] in addresses]
+        _, left = read_leases(lease_file, addresses, sleep)
         if not left:
             break
         if clock() >= deadline:
@@ -240,7 +246,7 @@ def main(argv):
     except Refused as exc:
         log(syslog.LOG_WARNING, f"refused: {exc}")
         return 2
-    except (Failed, OSError) as exc:
+    except (Failed, OSError, ValueError) as exc:
         log(syslog.LOG_ERR, f"failed: {exc}")
         return 1
     return 0
