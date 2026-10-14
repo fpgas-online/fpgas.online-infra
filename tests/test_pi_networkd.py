@@ -734,3 +734,10 @@ def test_main_leaves_no_alarm_behind(pi, monkeypatch):
             monkeypatch.setenv(name, value)
         pi.hook.main(["fpgas-network-state"])
         assert signal.alarm(0) == 0
+
+
+def test_the_gateway_offers_a_ports_address_without_pinging_it_first():
+    # A board keeps its address past its lease; a ping-before-offer would find the board itself and refuse it
+    # its own address after any DHCP outage longer than the lease (the VM test saw "no address available").
+    base = (REPO / "ansible/roles/pxe/templates/dnsmasq-base.conf.j2").read_text()
+    assert re.search(r"^no-ping$", base, re.M)

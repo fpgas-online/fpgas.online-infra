@@ -184,6 +184,12 @@ change never renews, and its lease line lasts only 5 minutes after it boots. ver
 `DHCPACK` for the board at least 30 s after networkd last took its lease (at boot, or again after a networkd
 restart).
 
+**After the gateway's DHCP was down past the lease** the board still holds its address, so the gateway must not
+ping an address before offering it: the board would answer, and dnsmasq would refuse it its own address
+("no address available") until it rebooted. The gateway runs dnsmasq with `no-ping`
+(`roles/pxe/templates/dnsmasq-base.conf.j2`); a per-port range has one address for one device, so the ping could
+only ever find the board itself.
+
 ## The NFS root is shared and read-only
 
 There is one root per site, at `/srv/nfs/rpi/<dist>/{boot,root}` (`nfs_root`; `dist: bookworm`). Both halves
