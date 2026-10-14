@@ -320,7 +320,8 @@
                           if l.startswith("MACAddress=")), "")
               uplink = next((n for n in sorted(os.listdir("/sys/class/net"))
                              if mac and (read("/sys/class/net/" + n + "/address") or b"").decode().strip() == mac), "")
-              acquired = run("journalctl", "-b", "-u", "systemd-networkd", "-o", "json", "--no-pager",
+              # sudo: the system journal is not readable by the automation account (verify-pi's operator run).
+              acquired = run("sudo", "-n", "journalctl", "-b", "-u", "systemd-networkd", "-o", "json", "--no-pager",
                              "--output-fields=MESSAGE")
               last = next((json.loads(l) for l in reversed(acquired["stdout_lines"])
                             if "DHCPv4 address" in l and "acquired from" in l), None)
@@ -1464,9 +1465,11 @@
       become_user: "{{ hostvars[verify_pi_server].user_name }}"
       changed_when: false
       register: verify_pi_network_record
+      vars:
+        verify_pi_record_now: "{{ verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true) }}"
       until: >-
         verify_pi_network_record.rc == 0
-        and (verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
+        and verify_pi_record_now.boot_id | default('') == verify_pi_identity.stdout_lines[1]
       retries: 24
       delay: 5
       failed_when: false
@@ -1476,14 +1479,16 @@
       ansible.builtin.assert:
         that:
           - verify_pi_network_record.rc == 0
-          - (verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
-          - (verify_pi_network_record.stdout_lines[-1] | from_json).interface == verify_pi_network.uplink
-          - (verify_pi_network_record.stdout_lines[-1] | from_json).state == 'routable'
+          - verify_pi_record.boot_id | default('') == verify_pi_identity.stdout_lines[1]
+          - verify_pi_record.interface | default('') == verify_pi_network.uplink
+          - verify_pi_record.state | default('') == 'routable'
         fail_msg: >-
           The site's newest network-state record of this boot for {{ verify_pi_identity.stdout_lines[0] }} is
           {{ verify_pi_network_record.stdout | default('-', true) }} {{ verify_pi_network_record.stderr | default('') }};
           want a routable one from boot {{ verify_pi_identity.stdout_lines[1] }} for {{ verify_pi_network.uplink }}.
           `journalctl -b -u networkd-dispatcher` on the Pi shows the publisher's runs.
+      vars:
+        verify_pi_record: "{{ verify_pi_network_record.stdout_lines[-1] | default('null') | from_json | default({}, true) }}"
       when: verify_pi_fleet | default(false)
 
     # The gateway's jump account (roles/jump) can hop on to this board with
