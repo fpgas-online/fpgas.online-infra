@@ -130,9 +130,14 @@ October 2026). NetworkManager, `ifupdown` and `isc-dhcp-client` are purged from 
 **Which interface.** The interface name differs by board: `eth0` on most Pis, `eth-uplink` on a Pi 3B+ (setup-pi's
 `.link` files), and `end0` is possible. So nothing names it in advance. At each boot `fpgas-uplink-network.service`
 runs before networkd and takes the interface that routes to the NFS server named in `nfsroot=`. It writes
-`/run/systemd/network/10-fpgas-uplink.network` for that interface alone. Every other interface stays
-unmanaged, for example the USB adapter that an FPGA's Ethernet test configures for itself. If there is no route to
-the server, the unit fails, networkd manages nothing, and the kernel's address still carries the root.
+`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone, by its MAC address and
+`Type=ether` (a MAC survives a later rename; a name might not). Every other interface stays unmanaged, for
+example the USB adapter that an FPGA's Ethernet test configures for itself.
+
+If there is no route to the server, or the interface has no MAC, the unit fails and networkd manages nothing.
+The kernel's address still carries the root. `systemd-networkd-wait-online` then waits its full 2 minutes for a
+managed interface that never comes, so everything ordered after `network-online.target` (the fleet agent among
+them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
 
 **What the file sets** (`roles/onpi/files/usr/local/sbin/fpgas-uplink-network`; the reasons are from systemd
 252's source, the version in the root):
@@ -154,6 +159,9 @@ DNS is unchanged: `/etc/resolv.conf` is the gateway's address, which `ansible/ci
 
 **State changes go to the site.** networkd-dispatcher runs `/usr/local/sbin/fpgas-network-state` at every
 administrative and operational state the uplink enters: all 16 states the dispatcher knows (`onpi_networkd_states`).
+The dispatcher starts after the fleet agent, so states the uplink passed through before then are not sent. At its
+start it reports only the state each interface is in (its `--run-startup-triggers`), which at boot is normally
+`configured` and `routable`.
 The script sends one `network-state` record to the site on the fleet event topic,
 `fpgas/<site>/pi/<serial>/event`. The record holds:
 
@@ -163,12 +171,16 @@ The script sends one `network-state` record to the site on the fleet event topic
 - the DHCP lease, including the last ACK time from networkd's lease file;
 - the hostname, the serial, the MAC, and the switch and port.
 
-The site keeps it as a boot event. A record that cannot be delivered, such as the one sent while the cable is out,
-waits under `/run/fpgas-network-state` and goes out before the next one. Each run takes at most 30 s.
+The site keeps it as a boot event. A record the broker does not acknowledge, such as the one sent while the cable
+is out, waits under `/run/fpgas-network-state`. It goes out ahead of the next record, and within a minute anyway
+through `fpgas-network-state-flush.timer`. Each run stops after 30 s, and the dispatcher waits for it before
+handling the next state change.
 
 **What a lease line means.** A renewal changes no state, so it sends no record. The gateway's dnsmasq logs a
-`DHCPACK` for every renewal, so a board with a current lease line has renewed within the last 5 minutes. A board
-running a root from before this change never renews, and its lease line lasts only 5 minutes after it boots.
+`DHCPACK` for every renewal, so a current lease line means the board took or renewed its address within the last
+5 minutes. That is its boot only if it booted within those 5 minutes. A board running a root from before this
+change never renews, and its lease line lasts only 5 minutes after it boots. verify-pi checks for a renewal: a
+`DHCPACK` for the board at least 30 s after networkd first took its lease.
 
 ## The NFS root is shared and read-only
 

@@ -15,13 +15,19 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    both default routes and the NFS root survive; the gateway answers a
    global IPv6 ping.
 4. gateway DHCP down past the lease: dnsmasq stopped for OUTAGE_S. The Pi
-   answers ssh and reads its NFS root every POLL_S, keeps its address with
-   lifetime forever, and logs no lost lease. Once dnsmasq is back, it is
-   acknowledged again within RENEW_WAIT_S.
+   answers ssh and reads its NFS root every POLL_S and keeps its address
+   with lifetime forever. Its lease does expire (networkd logs "DHCPv4
+   connection considered critical") and networkd drops nothing ("DHCP lease
+   lost" never appears). Once dnsmasq is back, it is acknowledged again
+   within RENEW_WAIT_S.
 5. carrier loss: the cable is pulled for CABLE_OUT_S (QMP set_link). The
-   address survives, and the site receives a no-carrier record and then a
-   routable one. The no-carrier record waits in the Pi's spool until the
-   cable is back.
+   site receives a no-carrier record and then a routable one, and the
+   no-carrier record, taken while the cable was out, still lists the port's
+   IPv4 and IPv6 addresses. Without IgnoreCarrierLoss=yes networkd would have
+   removed them at that point. Getting the same address back by DHCP later
+   would hide that, so this is checked in the record rather than after the
+   cable is back. The no-carrier record waits in the Pi's spool until the
+   broker can be reached.
 
 Each step prints what it read; the first failure returns False.
 """
@@ -60,7 +66,7 @@ def _site_records(server_sh, serial: str, after_id: int = 0) -> list[dict]:
         "from fleet.models import BootEvent\n"
         f"q = BootEvent.objects.filter(machine__serial={serial!r}, stage='network-state')\n"
         + f"q = q.filter(id__gt={int(after_id)})\n"
-        + "print(json.dumps([{'id': e.id, 'boot_id': e.boot_id, 'ts': e.ts.isoformat(), 'trigger': e.detail.get('trigger'),"
+        + "print(json.dumps([{'id': e.id, 'boot_id': e.boot_id, 'addresses': e.detail.get('addresses'), 'ts': e.ts.isoformat(), 'trigger': e.detail.get('trigger'),"
         " 'operational_state': e.detail.get('operational_state'), 'interface': e.detail.get('interface')}"
         " for e in q.order_by('id')]))\n"
     )
@@ -103,8 +109,8 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
 
     try:
         network = pi("cat /run/systemd/network/10-fpgas-uplink.network")
-        uplink = next(l.split("=", 1)[1] for l in network.splitlines() if l.startswith("Name="))
-        mac = pi(f"cat /sys/class/net/{uplink}/address").strip()
+        mac = next(l.split("=", 1)[1].strip() for l in network.splitlines() if l.startswith("MACAddress="))
+        uplink = pi(f"grep -l -x {mac} /sys/class/net/*/address").strip().split("/")[-2]
         serial = pi("sed -n 's/^Serial[[:space:]]*: //p' /proc/cpuinfo").strip()
         boot_id = pi("cat /proc/sys/kernel/random/boot_id").strip()
         gw6 = next((l.split("=", 1)[1] for l in network.splitlines() if l.startswith("Gateway=")), "")
@@ -147,7 +153,10 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
             if "DHCP lease lost" in log:
                 raise Step(f"networkd dropped the lease during the outage:\n{log[-3000:]}")
             critical = [l for l in log.splitlines() if "considered critical" in l]
-            print(f"[net] networkd: {critical[-1] if critical else 'no expiry seen'}")
+            if not critical:
+                raise Step(f"the lease never expired in {OUTAGE_S} s without the gateway's DHCP, so the outage "
+                           f"proved nothing:\n{log[-3000:]}")
+            print(f"[net] networkd: {critical[-1]}")
         finally:
             mark = srv("date +%s").strip()
             srv("sudo systemctl start dnsmasq")
@@ -163,9 +172,16 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
         print("[net] " + pi("journalctl -b -u networkd-dispatcher --no-pager -o cat | tail -8"))
         deadline = time.monotonic() + 120
         while True:
-            states = [r["operational_state"] for r in _site_records(server_sh, serial, before)]
+            records = _site_records(server_sh, serial, before)
+            states = [r["operational_state"] for r in records]
             if "no-carrier" in states and "routable" in states[states.index("no-carrier"):]:
                 print(f"[net] cable out and in: the site received {states}")
+                held = {a["address"] for a in records[states.index("no-carrier")]["addresses"]}
+                want = {address} | ({gw6.rsplit("::", 1)[0] + "::" + address.rsplit(".", 1)[1]} if gw6 else set())
+                if not want <= held:
+                    raise Step(f"while the cable was out the uplink held {sorted(held)}, not {sorted(want)}: "
+                               "networkd removed the address on carrier loss")
+                print(f"[net] while the cable was out the uplink still held {sorted(want)}")
                 break
             if time.monotonic() > deadline:
                 raise Step(f"after the cable was out, the site's records after id {before} are {states}; "

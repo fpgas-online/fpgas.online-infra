@@ -55,11 +55,19 @@ def _port_vlan_map(switch: int, port: int) -> dict:
     return next(e for e in entries if e["port"] == port)
 
 
+MAC = "88:a2:9e:45:dd:be"
+
+
 def _generate(tmp_path: Path, route: str | None, base: str | None = BASE, cmdline: str = CMDLINE,
-              check: bool = True) -> tuple[str, str | None]:
-    """Run the generator with a stub `ip` answering `-o -4 route get` with `route` (None: no route)."""
+              check: bool = True, mac: str = MAC.upper()) -> tuple[str, str | None]:
+    """Run the generator with a stub `ip` answering `-o -4 route get` with `route` (None: no route), and a
+    stand-in /sys/class/net where every interface has the address `mac`."""
     stubs = tmp_path / "bin"
     stubs.mkdir()
+    sysfs = tmp_path / "sys-class-net"
+    for dev in ("eth0", "eth-uplink", "end0"):
+        (sysfs / dev).mkdir(parents=True)
+        (sysfs / dev / "address").write_text(mac + "\n")
     answer = tmp_path / "route.txt"
     answer.write_text(route or "")
     (stubs / "ip").write_text(
@@ -74,7 +82,8 @@ def _generate(tmp_path: Path, route: str | None, base: str | None = BASE, cmdlin
     cmdline_file.write_text(cmdline)
     out_dir = tmp_path / "network"
     env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", FPGAS_IPV6_BASE_FILE=str(base_file),
-               FPGAS_UPLINK_CMDLINE=str(cmdline_file), FPGAS_UPLINK_NETWORK_DIR=str(out_dir))
+               FPGAS_UPLINK_CMDLINE=str(cmdline_file), FPGAS_UPLINK_NETWORK_DIR=str(out_dir),
+               FPGAS_UPLINK_SYSFS_NET=str(sysfs))
     r = subprocess.run(["bash", str(GENERATOR)], env=env, capture_output=True, text=True, check=check)
     written = out_dir / "10-fpgas-uplink.network"
     return r.stdout + r.stderr, written.read_text() if written.exists() else None
@@ -105,10 +114,19 @@ def _sections(network: str) -> dict[str, list[str]]:
 
 # eth0: a Pi 4 or 5; eth-uplink: a Pi 3B+ as setup-pi's .link files name it; end0: a predictable name.
 @pytest.mark.parametrize("dev", ["eth0", "eth-uplink", "end0"])
-def test_the_file_matches_the_interface_that_routes_to_the_nfs_server(tmp_path, dev):
+def test_the_file_matches_the_interface_that_routes_to_the_nfs_server_by_its_mac(tmp_path, dev):
     out, network = _generate(tmp_path, _route(dev, "10.21.2.43"))
-    assert _sections(network)["Match"] == [f"Name={dev}"]
-    assert out.startswith(f"{dev}: routes to the NFS server 10.21.0.1 from 10.21.2.43"), out
+    # by MAC (lower case), not by name: a .link rename after the generator ran would orphan a Name= match
+    assert _sections(network)["Match"] == [f"MACAddress={MAC}", "Type=ether"]
+    assert f": {dev} at boot." in network
+    assert out.startswith(f"{dev} ({MAC}): routes to the NFS server 10.21.0.1 from 10.21.2.43"), out
+
+
+@pytest.mark.parametrize("mac", ["00:00:00:00:00:00", "", "not-a-mac"])
+def test_an_interface_without_a_mac_is_an_error(tmp_path, mac):
+    out, network = _generate(tmp_path, _route("eth0", "10.21.2.43"), mac=mac, check=False)
+    assert network is None
+    assert "eth0 has no MAC address" in out, out
 
 
 @pytest.fixture
@@ -276,9 +294,16 @@ def _run_hook(tmp_path, iface, network_text):
 
 
 def test_the_hook_does_nothing_for_another_interface(tmp_path):
-    # eth-fpga: the USB adapter an FPGA's Ethernet test configures itself
-    r = _run_hook(tmp_path, "eth-fpga", "[Match]\nName=eth0\n\n[Network]\nDHCP=ipv4\n")
-    assert r.returncode == 0 and r.stdout == "" and r.stderr == "", r
+    # eth-fpga: the USB adapter an FPGA's Ethernet test configures itself (absent on this machine, so its MAC
+    # reads as none); lo: present everywhere, with MAC 00:00:00:00:00:00
+    for iface in ("eth-fpga", "lo"):
+        r = _run_hook(tmp_path, iface, f"[Match]\nMACAddress={MAC}\nType=ether\n\n[Network]\nDHCP=ipv4\n")
+        assert r.returncode == 0 and r.stdout == "" and r.stderr == "", r
+
+
+def test_the_hook_refuses_arguments_it_does_not_know(tmp_path):
+    r = subprocess.run(["python3", str(HOOK), "--flsuh"], capture_output=True, text=True)
+    assert r.returncode == 2 and "usage: fpgas-network-state [--flush]" in r.stderr, r
 
 
 def test_the_hook_does_nothing_without_the_generated_file(tmp_path):
@@ -287,24 +312,18 @@ def test_the_hook_does_nothing_without_the_generated_file(tmp_path):
     assert r.returncode == 0 and r.stdout == "", r
 
 
-def test_the_hook_reads_the_uplink_from_the_match_section_only(tmp_path):
+def test_the_hook_reads_the_uplink_mac_from_the_match_section_only(tmp_path):
     hook = _hook()
     network_file = tmp_path / "10-fpgas-uplink.network"
-    # a Name= in another section (as [Link] Name= renames a link) is not the match
-    network_file.write_text("# routes to the NFS server\n[Link]\nName=renamed0\n\n[Match]\nName=eth-uplink\n\n"
-                            "[Network]\nDHCP=ipv4\n")
-    assert hook.uplink_name(str(network_file)) == "eth-uplink"
-    network_file.write_text("[Link]\nName=renamed0\n")
-    assert hook.uplink_name(str(network_file)) is None
-    assert hook.uplink_name(str(tmp_path / "absent")) is None
+    # a MACAddress= in another section ([Link] MACAddress= sets one) is not the match
+    network_file.write_text("# routes to the NFS server\n[Link]\nMACAddress=02:00:00:00:00:01\n\n[Match]\n"
+                            "MACAddress=88:A2:9E:45:DD:BE\nType=ether\n\n[Network]\nDHCP=ipv4\n")
+    assert hook.uplink_mac(str(network_file)) == MAC
+    network_file.write_text("[Link]\nMACAddress=02:00:00:00:00:01\n")
+    assert hook.uplink_mac(str(network_file)) is None
+    assert hook.uplink_mac(str(tmp_path / "absent")) is None
 
 
-def test_the_hook_is_bounded_and_publishes_on_the_fleet_event_topic():
-    text = HOOK.read_text()
-    assert "TIMEOUT_S = 30" in text and "signal.alarm(TIMEOUT_S)" in text
-    assert 'fleet_agent.topics(cfg["site"], doc["serial"])["event"]' in text
-    assert 'STAGE = "network-state"' in text
-    assert "wait_for_publish(timeout=10)" in text
 
 
 # --- the role, fixpi and verify-pi ----------------------------------------------------------------------------
@@ -362,7 +381,7 @@ def test_verify_pi_checks_networkd_the_renewals_ntp_and_the_sites_record():
     text = VERIFY_PI.read_text()
     for name in ("Assert systemd-networkd manages the uplink and renews its lease",
                  "Assert timesyncd takes its server from DHCP",
-                 "Assert the gateway acknowledged this Pi within the lease time",
+                 "Assert the gateway acknowledged a renewal by this Pi",
                  "Assert the site holds a network-state record from this boot",
                  "Assert no other network manager is installed",
                  "Assert the per-port IPv6 address and an IPv6 default route"):
@@ -370,8 +389,29 @@ def test_verify_pi_checks_networkd_the_renewals_ntp_and_the_sites_record():
     assert '"systemd-networkd.service", "fpgas-uplink-network.service"' in text
     assert "fpgas-ipv6" not in text
     # the gateway half runs on the gateway
-    ack = text.split("- name: Read the gateway's recent DHCPACKs for this Pi")[1].split("- name:")[0]
+    ack = text.split("- name: Wait for the gateway to acknowledge a renewal by this Pi")[1].split("- name:")[0]
     assert 'delegate_to: "{{ verify_pi_server }}"' in ack
+    # a renewal, not the boot's own exchanges: only ACKs from 30 s after networkd's first acquisition count
+    assert '"--since=@{{ verify_pi_network.acquired_epoch | int + 30 }}"' in ack
+    record = text.split("- name: Assert the site holds a network-state record from this boot")[1].split("- name:")[0]
+    assert "== 'routable'" in record
+
+
+def test_the_spool_is_flushed_every_minute_while_it_holds_records():
+    service = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.service").read_text()
+    timer = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.timer").read_text()
+    assert "ExecStart=/usr/local/sbin/fpgas-network-state --flush" in service
+    assert "ConditionDirectoryNotEmpty=/run/fpgas-network-state" in service
+    assert "OnUnitActiveSec=1min" in timer and "WantedBy=timers.target" in timer
+    assert "name: fpgas-network-state-flush.timer\n    enabled: true" in TASKS.read_text()
+
+
+def test_the_purge_stops_if_apt_would_remove_anything_else():
+    tasks = TASKS.read_text()
+    sim = tasks.index("argv: [apt-get, --simulate, purge, network-manager, ifupdown, isc-dhcp-client]")
+    assert sim < tasks.index("- name: Assert the removal takes nothing else") < tasks.index(
+        "- name: Remove NetworkManager, ifupdown and dhclient")
+    assert "reject('in', ['network-manager', 'ifupdown', 'isc-dhcp-client', 'raspberrypi-net-mods'])" in tasks
 
 
 class _Info:
@@ -388,12 +428,13 @@ class _Info:
 class _Client:
     """A stand-in paho client: acknowledges the first `acks` publishes, or refuses to connect."""
 
-    def __init__(self, acks=None, refuse=False):
-        self.acks, self.refuse, self.sent = acks, refuse, []
+    def __init__(self, acks=None, refuse=False, alarm_at=None):
+        self.acks, self.refuse, self.alarm_at, self.sent = acks, refuse, alarm_at, []
 
     def connect(self, broker, port):
         if self.refuse:
             raise OSError(113, "No route to host")
+        self.connected = (broker, port)
 
     def loop_start(self):
         pass
@@ -405,17 +446,82 @@ class _Client:
         pass
 
     def publish(self, topic, payload, qos):
+        assert qos == 1
         self.sent.append((topic, json.loads(payload)))
+        if self.alarm_at is not None and len(self.sent) == self.alarm_at:
+            raise TimeoutError("network-state took over 30 s")  # as the hook's SIGALRM handler raises it
         return _Info(self.acks is None or len(self.sent) <= self.acks)
 
 
-def test_records_publish_in_order_and_stop_at_the_first_unacknowledged(tmp_path):
+CFG = {"site": "welland", "broker": "10.21.0.1", "port": 1883}
+TOPIC = "fpgas/welland/pi/10000000ce8e3593/event"
+
+
+def _spool_three(hook, spool_dir):
+    for minute in (1, 2, 3):
+        hook.spool({"ts": f"2026-10-14T06:4{minute}:00+00:00", "n": minute}, str(spool_dir))
+
+
+def _deliver(tmp_path, client, payload={"ts": "2026-10-14T06:50:00+00:00", "n": "new"}):
     hook = _hook()
-    payloads = [{"ts": f"2026-10-14T06:4{i}:00+00:00", "n": i} for i in range(3)]
-    client = _Client(acks=1)
-    sent = hook.publish(payloads, "10.21.0.1", 1883, "fpgas/welland/pi/s/event", None, lambda _mqtt: client)
-    assert sent == 1
-    assert [p["n"] for _, p in client.sent] == [0, 1]
+    return hook.deliver(payload, CFG, TOPIC, None, lambda _mqtt: client, str(tmp_path / "spool"),
+                        str(tmp_path / "bad")), hook
+
+
+def _left(hook, tmp_path):
+    return [json.loads(Path(p).read_text())["n"] for p in hook.spooled(str(tmp_path / "spool"))]
+
+
+def test_deliver_sends_the_spool_oldest_first_then_the_new_record(tmp_path):
+    _spool_three(_hook(), tmp_path / "spool")
+    client = _Client()
+    (sent, queued), hook = _deliver(tmp_path, client)
+    assert (sent, queued) == (4, 0)
+    assert client.connected == ("10.21.0.1", 1883)
+    assert [p["n"] for topic, p in client.sent] == [1, 2, 3, "new"]
+    assert {topic for topic, _ in client.sent} == {TOPIC}
+    assert _left(hook, tmp_path) == []
+
+
+def test_deliver_removes_each_spooled_record_as_it_is_acknowledged(tmp_path):
+    _spool_three(_hook(), tmp_path / "spool")
+    (sent, queued), hook = _deliver(tmp_path, _Client(acks=2))
+    assert (sent, queued) == (2, 2)
+    assert _left(hook, tmp_path) == [3, "new"]  # the unacknowledged one stays, the new one joins it
+
+
+def test_an_alarm_mid_publish_keeps_what_was_acknowledged(tmp_path, capsys):
+    _spool_three(_hook(), tmp_path / "spool")
+    (sent, queued), hook = _deliver(tmp_path, _Client(alarm_at=3))
+    assert (sent, queued) == (2, 2)
+    assert _left(hook, tmp_path) == [3, "new"]  # not resent from the start next time
+    assert "TimeoutError" in capsys.readouterr().err
+
+
+def test_an_unreachable_broker_spools_the_new_record(tmp_path, capsys):
+    (sent, queued), hook = _deliver(tmp_path, _Client(refuse=True))
+    assert (sent, queued) == (0, 1)
+    assert _left(hook, tmp_path) == ["new"]
+    assert "No route to host" in capsys.readouterr().err
+
+
+def test_a_flush_with_an_empty_spool_sends_nothing(tmp_path):
+    client = _Client()
+    (sent, queued), _ = _deliver(tmp_path, client, payload=None)
+    assert (sent, queued) == (0, 0) and client.sent == []
+
+
+def test_a_spool_file_that_is_not_json_is_moved_aside_not_resent_for_ever(tmp_path, capsys):
+    hook = _hook()
+    _spool_three(hook, tmp_path / "spool")
+    broken = Path(hook.spooled(str(tmp_path / "spool"))[1])
+    broken.write_text("{not json")
+    client = _Client()
+    (sent, queued), _ = _deliver(tmp_path, client)
+    assert (sent, queued) == (3, 0)
+    assert [p["n"] for _, p in client.sent] == [1, 3, "new"]
+    assert (tmp_path / "bad" / broken.name).exists()
+    assert f"moved to {tmp_path / 'bad'}" in capsys.readouterr().err
 
 
 def test_undelivered_records_are_spooled_oldest_first_and_bounded(tmp_path):
@@ -425,3 +531,14 @@ def test_undelivered_records_are_spooled_oldest_first_and_bounded(tmp_path):
     kept = [json.loads(Path(p).read_text())["ts"] for p in hook.spooled(str(tmp_path))]
     assert kept == ["2026-10-14T06:42:00+00:00", "2026-10-14T06:43:00+00:00"]
     assert hook.spooled(str(tmp_path / "absent")) == []
+
+
+def test_a_dead_runs_temporary_file_is_cleared_and_never_sent(tmp_path):
+    hook = _hook()
+    stale, fresh = tmp_path / ".old.json", tmp_path / ".new.json"
+    stale.write_text("{}")
+    fresh.write_text("{}")
+    os.utime(stale, (1_000, 1_000))
+    hook.spool({"ts": "2026-10-14T06:41:00+00:00"}, str(tmp_path), now=1_000 + hook.STALE_TMP_S + 1)
+    assert not stale.exists() and fresh.exists()
+    assert [Path(p).name.startswith(".") for p in hook.spooled(str(tmp_path))] == [False]
