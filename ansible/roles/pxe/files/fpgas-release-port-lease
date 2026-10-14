@@ -113,6 +113,9 @@ def parse_leases(text, addresses):
             continue
         if address not in addresses:
             continue
+        if f[1].startswith("T") and _DIGITS.fullmatch(f[1][1:]):
+            # a temporary (IA_TA) IPv6 lease: dhcp_release6 releases IA_NA only, so it runs out by itself
+            continue
         if len(f) != 5 or not _DIGITS.fullmatch(f[0]) or not _NAME.fullmatch(f[3]) \
                 or not (f[4] == "*" or _HEX.fullmatch(f[4])):
             raise Failed(f"lease file line {number}: the lease of {address} is not in dnsmasq's shape")

@@ -16,6 +16,7 @@ Runs in CI (lint.yml's pytest job sets LEASE_LAB_TEST=1 and installs the tools) 
 
 import importlib.machinery
 import importlib.util
+import ipaddress
 import os
 import shutil
 import subprocess
@@ -125,7 +126,9 @@ def take_leases(work, script, peer):
 
 
 def leased(work):
-    _, leases = release.parse_leases((work / "leases").read_text())
+    """Which of the lab's port addresses hold a lease now."""
+    addresses = {ipaddress.ip_address(a) for _, *pair in PORTS.values() for a in pair}
+    _, leases = release.parse_leases((work / "leases").read_text(), addresses)
     return {str(x["address"]) for x in leases}
 
 

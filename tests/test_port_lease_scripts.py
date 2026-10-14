@@ -112,7 +112,6 @@ def test_the_ports_leases_are_read_with_the_server_duid():
     "1791941144 b8:27:eb:e3:e7:e4 10.21.2.48 pi -x *",
     "1791941144 --iface 10.21.2.48 pi-sw2-p48 *",
     "1791959703 --server-id 2404:e80:a137:2102::48 pi-sw2-p48 00:04",
-    "1791959703 T318764444 2404:e80:a137:2102::48 pi-sw2-p48 00:04",
     "\u0661791941144 b8:27:eb:e3:e7:e4 10.21.2.48 pi-sw2-p48 *",  # a digit isdigit() takes but int() should not
 ])
 def test_a_line_of_the_ports_own_address_not_in_dnsmasqs_shape_is_a_failure(bad):
@@ -375,3 +374,15 @@ def test_the_lock_waits_a_bounded_time_for_another_release(tmp_path):
         assert len(waits) == release.LOCK_SECONDS * 2
         fcntl.flock(holder, fcntl.LOCK_UN)
         release.take_lock(second, sleep=waits.append)  # free now: taken at once
+
+
+def test_a_lease_from_an_earlier_longer_lease_time_reread_at_start_is_not_an_ack():
+    reread = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"],
+                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "36000"}, NOW, 300)
+    assert reread["acked_at"] is None
+
+
+def test_a_temporary_v6_lease_on_the_ports_address_is_left_to_run_out():
+    text = LEASES + "1791959703 T318764444 2404:e80:a137:2102::48 pi-sw2-p48 00:04:a1\n"
+    _, leases = release.parse_leases(text, PORT_48)
+    assert [x.get("iaid") for x in leases] == [None, "318764444"]

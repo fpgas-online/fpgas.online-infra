@@ -60,7 +60,8 @@ def record(args, env, now, lease_time=None):
     and for each lease it re-reads when it starts, and neither is marked: DNSMASQ_DATA_MISSING is set for both on
     IPv4 (dnsmasq 2.91 rfc2131.c collects a client's extra data only on SELECTING and INIT-REBOOT). A renewal leaves
     the full lease time, a re-read of an older lease less, so "old" is an ack when the time left is within ACK_SLACK
-    of the lease time; with no lease time known it is not counted as one."""
+    of the lease time either way (a lease granted under an earlier, longer lease time has more left and is no ack);
+    with no lease time known it is not counted as one."""
     if len(args) < 3 or args[0] not in ACTIONS:
         return None
     action, who, address = args[0], args[1], args[2]
@@ -81,7 +82,7 @@ def record(args, env, now, lease_time=None):
     remaining = env.get("DNSMASQ_TIME_REMAINING", "")
     remaining = int(remaining) if _DIGITS.fullmatch(remaining) else None
     acked = action == "add" or (action == "old" and remaining is not None and lease_time is not None
-                                and remaining >= lease_time - ACK_SLACK)
+                                and lease_time - ACK_SLACK <= remaining <= lease_time + ACK_SLACK)
     return {
         "schema": 1, "switch": switch, "port": port, "hostname": f"pi-sw{switch}-p{port}", "at": iso(now),
         "event": action, "family": family, "address": address, "mac": mac, "server": None,
