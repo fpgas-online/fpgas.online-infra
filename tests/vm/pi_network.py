@@ -26,12 +26,13 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    within RENEW_WAIT_S.
 6. the negative control: the generator's DHCP-only .network in place of ours,
    and networkd restarted, drops the kernel's address (as at ps1: help-carl
-   report1.md 3.2-3.4, logs 071 and 072). The gateway loses the Pi for over a
-   second. Then either the address comes back from plain DHCP, with a finite
-   lifetime where ours is "forever" (here the gateway re-offers it at once:
-   no-ping), or the Pi stays lost and its console shows the NFS client's
-   "not responding". It shows that the steps above can fail. The second
-   boot (run_tests.second_boot) resets the Pi afterwards.
+   report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
+   back from plain DHCP with a finite lifetime, which every check above
+   (_forever_v4) rejects, or the Pi stays lost and its console shows the NFS
+   client's "not responding". How long the gateway loses the Pi depends on
+   how fast DHCP answers (here at once: no-ping; 0.3 to 4.7 s in CI runs),
+   so the gap is reported, not judged. The second boot
+   (run_tests.second_boot) resets the Pi afterwards.
 5. carrier loss: the cable is pulled for CABLE_OUT_S (QMP set_link). The
    site receives a no-carrier record and then a routable one, and the
    no-carrier record, taken while the cable was out, still lists the port's
@@ -55,6 +56,7 @@ RENEW_WAIT_S = 200      # T1 is 150 s on the 5 min lease; margin for the TCG Pi
 OUTAGE_S = 360          # past the 300 s lease (and T2, 262 s)
 POLL_S = 30
 CABLE_OUT_S = 20
+CONTROL_WINDOW_S = 120
 DJANGO_DIR = "/srv/www/pib"
 SITE_USER = "admin"
 # Read from the NFS root (not the tmpfs overlay), with the page cache dropped first so the bytes come from the
@@ -110,7 +112,7 @@ def _ping_gap(srv, started: float, seconds: int) -> tuple[float, int]:
     """(the longest time the Pi went unanswered within the window, the number of answers) once the background ping
     has ended. The window runs from `started` for `seconds`: silence before the first answer and after the last
     counts, so a Pi that stops answering for good shows the whole rest of the window as its gap."""
-    time.sleep(seconds + 2)
+    time.sleep(max(0.0, started + seconds + 2 - float(srv("date +%s.%N").strip())))  # the rest of the window
     stamps = [float(m) for m in re.findall(r"^\[(\d+\.\d+)\] \d+ bytes from", srv(f"cat {PING_LOG}"), re.M)]
     edges = [started, *stamps, started + seconds]
     return max(b - a for a, b in zip(edges, edges[1:])), len(stamps)
@@ -261,43 +263,38 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         # 6. The negative control (lab only): what killed the NFS root at ps1. Replace our .network with what
         # systemd-network-generator would write from ip=dhcp (DHCP only, no KeepConfiguration) and restart networkd.
         # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
-        # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address: the gateway loses the Pi for well
-        # over a second. That shows the steps above can fail. The Pi is reset afterwards (the second boot).
+        # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address. The proof is the address
+        # itself: plain DHCP puts it back with a finite lifetime, which _forever_v4, the check every step above
+        # makes, rejects; or the Pi stays lost and its console shows the NFS client's complaint. How long the
+        # gateway loses the Pi depends on how fast DHCP answers (here at once: no-ping), so the gap is reported,
+        # not judged. The Pi is reset afterwards (the second boot).
         serial_from = len(read_serial())
-        started = _ping_start(srv, address, 25)
-        pi("sudo systemd-run --unit=fpgas-negative-control --on-active=3 /bin/sh -c "
+        started = _ping_start(srv, address, CONTROL_WINDOW_S)
+        pi("sudo systemd-run --unit=fpgas-negative-control --on-active=2 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
                          + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
                          " && systemctl restart systemd-networkd"))
-        gap, answers = _ping_gap(srv, started, 25)
-        if gap <= 1.0:
-            raise Step(f"the negative control did not break the link (longest gap {gap:.2f} s, {answers} answers): "
-                       "a DHCP-only .network should have dropped the kernel's address, so these steps prove nothing")
-        # Silence alone could be a stalled emulated Pi. Proof that the address itself was dropped: if the Pi
-        # answers again, its address now has a finite lifetime, which only plain DHCP gives (our file's
-        # KeepConfiguration=yes gives "forever"), so networkd removed the kernel's address and DHCP put a new one in
-        # its place. If it does not answer again, the NFS client says so on the console ("not responding").
-        try:
-            line = pi(f"ip -o -4 addr show dev {uplink}")
-        except Exception as e:  # noqa: BLE001 -- unreachable is one of the two outcomes, decided below
-            line = ""
-            unreachable = f"{type(e).__name__}: {e}"
-        if line:
-            if address not in line or "valid_lft forever" in line:
-                raise Step(f"the gateway lost the Pi for {gap:.2f} s in the negative control, but its address is "
-                           f"unchanged afterwards ({line.strip()}): no proof that networkd dropped it")
-            proof = f"its address came back from plain DHCP with a finite lifetime: {line.strip()}"
-        else:
-            deadline = time.monotonic() + 180
-            while "not responding" not in read_serial()[serial_from:]:
-                if time.monotonic() > deadline:
-                    raise Step(f"the Pi did not come back after the negative control ({unreachable}) and its console "
-                               "shows no 'nfs: ... not responding' within 180 s")
-                time.sleep(10)
-            proof = "it did not come back; its console: " + next(
-                l for l in read_serial()[serial_from:].splitlines() if "not responding" in l).strip()
-        print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi for {gap:.2f} s "
-              f"({answers} answers in 25 s); {proof} (as at ps1)")
+        proof = ""
+        deadline = time.monotonic() + CONTROL_WINDOW_S
+        while not proof and time.monotonic() < deadline:
+            time.sleep(5)
+            try:
+                line = pi(f"ip -o -4 addr show dev {uplink}")
+            except Exception:  # noqa: BLE001 -- the Pi may be lost: decided from its console below
+                continue
+            if address in line and "valid_lft forever" not in line:
+                proof = f"its address came back from plain DHCP with a finite lifetime: {line.strip()}"
+        if not proof:
+            if "not responding" in read_serial()[serial_from:]:
+                proof = "it stayed lost; its console: " + next(
+                    l for l in read_serial()[serial_from:].splitlines() if "not responding" in l).strip()
+            else:
+                raise Step(f"the negative control proved nothing within {CONTROL_WINDOW_S} s: the address still has "
+                           "lifetime forever and the console shows no NFS complaint")
+        gap, answers = _ping_gap(srv, started, CONTROL_WINDOW_S)
+        print(f"[net] negative control (the generator's DHCP-only .network, as at ps1): networkd dropped the "
+              f"kernel's address; {proof}. The gateway's longest wait for an answer: {gap:.2f} s "
+              f"({answers} answers in {CONTROL_WINDOW_S} s)")
     except Step as e:
         print(f"ERROR: {e}")
         return None
