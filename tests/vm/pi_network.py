@@ -25,10 +25,13 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    lost" never appears). Once dnsmasq is back, it is acknowledged again
    within RENEW_WAIT_S.
 6. the negative control: the generator's DHCP-only .network in place of ours,
-   and networkd restarted, drops the address and loses the Pi (as at ps1:
-   help-carl report1.md 3.2-3.4, logs 071 and 072). It shows that the steps
-   above can fail. The second boot (run_tests.second_boot) resets the Pi
-   afterwards.
+   and networkd restarted, drops the kernel's address (as at ps1: help-carl
+   report1.md 3.2-3.4, logs 071 and 072). The gateway loses the Pi for over a
+   second. Then either the address comes back from plain DHCP, with a finite
+   lifetime where ours is "forever" (here the gateway re-offers it at once:
+   no-ping), or the Pi stays lost and its console shows the NFS client's
+   "not responding". It shows that the steps above can fail. The second
+   boot (run_tests.second_boot) resets the Pi afterwards.
 5. carrier loss: the cable is pulled for CABLE_OUT_S (QMP set_link). The
    site receives a no-carrier record and then a routable one, and the
    no-carrier record, taken while the cable was out, still lists the port's
@@ -270,17 +273,31 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         if gap <= 1.0:
             raise Step(f"the negative control did not break the link (longest gap {gap:.2f} s, {answers} answers): "
                        "a DHCP-only .network should have dropped the kernel's address, so these steps prove nothing")
-        # Silence alone could be a stalled emulated Pi. The NFS client's own complaint on the console shows the
-        # address really went: it prints "nfs: server <gateway> not responding" once its RPC times out.
-        deadline = time.monotonic() + 180
-        while "not responding" not in read_serial()[serial_from:]:
-            if time.monotonic() > deadline:
-                raise Step(f"the gateway lost the Pi in the negative control (gap {gap:.2f} s), but its console shows "
-                           "no 'nfs: ... not responding' within 180 s: no proof that the address was dropped")
-            time.sleep(10)
-        complaint = next(l for l in read_serial()[serial_from:].splitlines() if "not responding" in l)
-        print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi, longest gap "
-              f"{gap:.2f} s, {answers} answers in 25 s; its console: {complaint.strip()} (as at ps1)")
+        # Silence alone could be a stalled emulated Pi. Proof that the address itself was dropped: if the Pi
+        # answers again, its address now has a finite lifetime, which only plain DHCP gives (our file's
+        # KeepConfiguration=yes gives "forever"), so networkd removed the kernel's address and DHCP put a new one in
+        # its place. If it does not answer again, the NFS client says so on the console ("not responding").
+        try:
+            line = pi(f"ip -o -4 addr show dev {uplink}")
+        except Exception as e:  # noqa: BLE001 -- unreachable is one of the two outcomes, decided below
+            line = ""
+            unreachable = f"{type(e).__name__}: {e}"
+        if line:
+            if address not in line or "valid_lft forever" in line:
+                raise Step(f"the gateway lost the Pi for {gap:.2f} s in the negative control, but its address is "
+                           f"unchanged afterwards ({line.strip()}): no proof that networkd dropped it")
+            proof = f"its address came back from plain DHCP with a finite lifetime: {line.strip()}"
+        else:
+            deadline = time.monotonic() + 180
+            while "not responding" not in read_serial()[serial_from:]:
+                if time.monotonic() > deadline:
+                    raise Step(f"the Pi did not come back after the negative control ({unreachable}) and its console "
+                               "shows no 'nfs: ... not responding' within 180 s")
+                time.sleep(10)
+            proof = "it did not come back; its console: " + next(
+                l for l in read_serial()[serial_from:].splitlines() if "not responding" in l).strip()
+        print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi for {gap:.2f} s "
+              f"({answers} answers in 25 s); {proof} (as at ps1)")
     except Step as e:
         print(f"ERROR: {e}")
         return None
