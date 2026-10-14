@@ -44,6 +44,7 @@ CAUSES = ("link-down", "power-cycle", "power-off", "down-port")
 TOOL_TIMEOUT = 10
 # dhcp_release6 alone takes 1-5 s; this is how long the lease file is watched for the release to show
 CONFIRM_SECONDS = 8
+LOCK_SECONDS = 30
 READ_TRIES = 6
 READ_PAUSE = 0.2
 
@@ -235,12 +236,24 @@ def log(priority, message):
         print(message, file=sys.stderr)
 
 
+def take_lock(lock, sleep=time.sleep):
+    """The release lock, waiting at most LOCK_SECONDS for another release to finish (a caller's own timeout,
+    fpgas.online-poe's 60 s, counts on that bound); Failed after that."""
+    for _ in range(LOCK_SECONDS * 2):
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            sleep(0.5)
+    raise Failed(f"another release held {LOCK_FILE} for {LOCK_SECONDS} s")
+
+
 def main(argv):
     syslog.openlog("fpgas-lease-release", 0, syslog.LOG_DAEMON)
     try:
         iface, cause = parse_args(argv)
         with open(LOCK_FILE, "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)  # two dhcp_release6 runs would fight over UDP port 546
+            take_lock(lock)  # two dhcp_release6 runs would fight over UDP port 546
             release_port(iface, cause, ports_conf=PORTS_CONF, lease_file=LEASE_FILE,
                          run=subprocess.run, publish=publish_record, log=log)
     except Refused as exc:

@@ -41,7 +41,7 @@
 - **switch-poller** (`site`, `switch-poller.service`, per-port gateways with a fleet broker) runs fpgas.online-poe's
   `manage.py switch_poller` as the site's account: every 2 s it reads each board port's link from the switches,
   publishes changes to the site (MQTT `fpgas/<fleet_site>/gw/port`), and releases the leases of a port whose link
-  went down or that is down and still leased. It is `Type=notify` with a 30 s watchdog. It and gunicorn read the
+  went down or that is down and still leased. It is `Type=notify` with a 120 s watchdog. It and gunicorn read the
   switches and their communities from `/etc/fpgas/poe.env` (root, 0600) (`roles/site/tasks/switch_poller.yml`,
   read 2026-10-14).
 - **redis** (`site`, `redis-server.service`; the role installs the Debian `redis` package without naming a unit, and its own verify tasks assert `redis-server.service`) backs the `channels_redis` layer the live Pi status page uses.

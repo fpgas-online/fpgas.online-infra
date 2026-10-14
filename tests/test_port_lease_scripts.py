@@ -362,3 +362,16 @@ def test_a_broken_lease_events_config_does_not_stop_the_release(tmp_path, monkey
     monkeypatch.setattr(release, "log", lambda priority, message: logged.append(message))
     release.publish_record({"event": "released"})
     assert any("not published" in m for m in logged)
+
+
+def test_the_lock_waits_a_bounded_time_for_another_release(tmp_path):
+    import fcntl
+    path = tmp_path / "lock"
+    with open(path, "w") as holder, open(path, "w") as second:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        waits = []
+        with pytest.raises(release.Failed, match="another release"):
+            release.take_lock(second, sleep=waits.append)
+        assert len(waits) == release.LOCK_SECONDS * 2
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        release.take_lock(second, sleep=waits.append)  # free now: taken at once
