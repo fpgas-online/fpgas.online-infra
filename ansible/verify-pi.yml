@@ -310,8 +310,9 @@
           # The network under systemd-networkd (#230): the interface fpgas-uplink-network handed to networkd (the
           # one with the [Match] MACAddress= of the .network it wrote at boot), the lease networkd last saved for
           # it and how old that file is (networkd rewrites it at every DHCPACK, renewals included), when networkd
-          # first acquired the lease this boot (from the journal's monotonic time, which the clock's jump at the
-          # first NTP sync does not move), and where timesyncd got its server.
+          # last acquired the lease this boot (at boot, or again after a networkd restart or a lease that ran out;
+          # a renewal logs nothing at this level), from the journal's monotonic time, which the clock's jump at
+          # the first NTP sync does not move, and where timesyncd got its server.
           def network_state():
               text = (read("/run/systemd/network/10-fpgas-uplink.network") or b"").decode()
               match = text.split("[Match]", 1)[1].split("[", 1)[0] if "[Match]" in text else ""
@@ -321,12 +322,12 @@
                              if mac and (read("/sys/class/net/" + n + "/address") or b"").decode().strip() == mac), "")
               acquired = run("journalctl", "-b", "-u", "systemd-networkd", "-o", "json", "--no-pager",
                              "--output-fields=MESSAGE")
-              first = next((json.loads(l) for l in acquired["stdout_lines"]
+              last = next((json.loads(l) for l in reversed(acquired["stdout_lines"])
                             if "DHCPv4 address" in l and "acquired from" in l), None)
               with open("/proc/uptime") as f:
                   uptime = float(f.read().split()[0])
-              acquired_epoch = (int(time.time() - uptime + int(first["__MONOTONIC_TIMESTAMP"]) / 1e6)
-                                if first else 0)
+              acquired_epoch = (int(time.time() - uptime + int(last["__MONOTONIC_TIMESTAMP"]) / 1e6)
+                                if last else 0)
               ifindex = (read("/sys/class/net/" + uplink + "/ifindex") or b"").decode().strip() if uplink else ""
               lease_path = "/run/systemd/netif/leases/" + ifindex
               lease = {}
@@ -524,7 +525,7 @@
 
     # The gateway's half of the heartbeat: dnsmasq logs (log-dhcp) a DHCPACK
     # at every renewal. A renewal is an ACK for this board's address and MAC
-    # at least 30 s after networkd first acquired the lease this boot: the
+    # at least 30 s after networkd last acquired the lease this boot: the
     # firmware's, the kernel's and networkd's own boot-time exchanges all come
     # before that. On a board up for less than T1 (half the lease) the first
     # renewal is still due, so the check waits for it (the retries cover T1 on
