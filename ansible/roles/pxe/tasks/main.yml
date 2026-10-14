@@ -75,6 +75,10 @@
   when: switches is defined
   notify: Restart dnsmasq
 
+- name: Lease events and port lease release (per-port hosts)
+  ansible.builtin.include_tasks: lease_events.yml
+  when: switches is defined
+
 - name: Configure PXE test clients
   ansible.builtin.include_tasks: test_clients.yml
   when: pxe_test_clients is defined

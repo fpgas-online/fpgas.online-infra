@@ -126,3 +126,86 @@
     fail_msg: "/srv/tftp/{{ item.item.sn }}/cmdline.txt not found"
   with_items: "{{ pxe_cmdline_stat.results }}"
   when: switches is not defined
+
+# --- lease events and port lease release (per-port hosts; roles/pxe/tasks/lease_events.yml) ---
+
+- name: Check the lease scripts are root's and executable
+  ansible.builtin.stat:
+    path: "/usr/local/sbin/{{ item }}"
+  register: pxe_v_lease_scripts
+  loop: [fpgas-lease-event, fpgas-release-port-lease]
+  when: switches is defined
+
+- name: Assert the lease scripts are root's and executable
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.pw_name == "root"
+      - item.stat.mode == "0755"
+    fail_msg: "/usr/local/sbin/{{ item.item }} is missing or not root:0755"
+  loop: "{{ pxe_v_lease_scripts.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: switches is defined
+
+- name: Read the lease release sudoers rule
+  ansible.builtin.command: /usr/sbin/visudo -cf /etc/sudoers.d/fpgas-lease-release
+  changed_when: false
+  register: pxe_v_sudoers
+  failed_when: pxe_v_sudoers.rc != 0
+  when: switches is defined
+
+- name: Read the lease release sudoers rule's text
+  ansible.builtin.slurp:
+    src: /etc/sudoers.d/fpgas-lease-release
+  register: pxe_v_sudoers_text
+  when: switches is defined
+
+- name: Assert the rule allows that one script and nothing else
+  vars:
+    pxe_v_sudoers_rule: " ALL=(root) NOPASSWD: /usr/local/sbin/fpgas-release-port-lease\n"
+  ansible.builtin.assert:
+    that: (pxe_v_sudoers_text.content | b64decode) == (user_name ~ pxe_v_sudoers_rule)
+    fail_msg: "/etc/sudoers.d/fpgas-lease-release is not the one-script rule: {{ pxe_v_sudoers_text.content | b64decode }}"
+  when: switches is defined
+
+- name: Check the release refuses an interface that is not a port's
+  ansible.builtin.command: /usr/local/sbin/fpgas-release-port-lease eth-local --cause link-down
+  changed_when: false
+  register: pxe_v_refused
+  failed_when: pxe_v_refused.rc != 2
+  when: switches is defined
+
+- name: Check dnsmasq runs the lease event script and not send_stat.py
+  ansible.builtin.stat:
+    path: "/etc/dnsmasq.d/{{ item }}"
+  register: pxe_v_lease_conf
+  loop: [lease-events.conf, send_stat.conf]
+  when: switches is defined
+
+- name: Assert lease-events.conf is there and send_stat.conf is not
+  ansible.builtin.assert:
+    that:
+      - pxe_v_lease_conf.results[0].stat.exists
+      - not pxe_v_lease_conf.results[1].stat.exists
+    fail_msg: "expected /etc/dnsmasq.d/lease-events.conf and no send_stat.conf (#194)"
+  when: switches is defined
+
+# #194's acceptance: no "failed to execute" from dnsmasq since its last start.
+- name: Read dnsmasq's journal since it last started
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    journalctl -u dnsmasq --no-pager -o cat
+    --since "$(systemctl show -p ActiveEnterTimestamp --value dnsmasq)"
+    | grep -c "failed to execute" || true
+  args:
+    executable: /bin/bash
+  changed_when: false
+  register: pxe_v_failed_exec
+  when: switches is defined
+
+- name: Assert dnsmasq has not failed to run its script since it started
+  ansible.builtin.assert:
+    that: pxe_v_failed_exec.stdout | trim == "0"
+    fail_msg: "dnsmasq logged {{ pxe_v_failed_exec.stdout | trim }} 'failed to execute' lines since it started"
+  when: switches is defined
