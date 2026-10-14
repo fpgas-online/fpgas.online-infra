@@ -6,6 +6,7 @@ tests call its functions with test files, which its command line cannot do."""
 import importlib.machinery
 import importlib.util
 import ipaddress
+import json
 import types
 from pathlib import Path
 
@@ -243,10 +244,11 @@ def test_a_tool_that_fails_is_a_failure(tmp_path):
 
 NOW = 1_791_941_000.0
 ENV = {"DNSMASQ_INTERFACE": "v2248", "DNSMASQ_LEASE_EXPIRES": "1791941300", "DNSMASQ_TIME_REMAINING": "300"}
+PORTS = event.port_table(PORTS_CONF)
 
 
 def test_a_new_v4_lease_is_a_record_with_the_shared_names():
-    doc = event.record(["add", "b8:27:eb:e3:e7:e4", "10.21.2.48", "pi-sw2-p48"], ENV, NOW)
+    doc = event.record(["add", "b8:27:eb:e3:e7:e4", "10.21.2.48", "pi-sw2-p48"], ENV, NOW, PORTS)
     assert doc == {"schema": 1, "switch": 2, "port": 48, "hostname": "pi-sw2-p48", "at": "2026-10-14T01:23:20+00:00",
                    "event": "add", "family": 4, "address": "10.21.2.48", "mac": "b8:27:eb:e3:e7:e4", "server": None,
                    "lifetime_s": 300, "acked_at": "2026-10-14T01:23:20+00:00", "expires": 1791941300,
@@ -255,38 +257,95 @@ def test_a_new_v4_lease_is_a_record_with_the_shared_names():
 
 def test_a_renewal_is_an_ack_and_a_restart_reread_of_an_older_lease_is_not():
     # both come as "old", and on IPv4 both carry DNSMASQ_DATA_MISSING=1 (dnsmasq 2.91): the time left tells them apart
-    renewal = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], {**ENV, "DNSMASQ_DATA_MISSING": "1"}, NOW, 300)
+    renewal = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], {**ENV, "DNSMASQ_DATA_MISSING": "1"}, NOW,
+                           PORTS)
     reread = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"],
-                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "170"}, NOW, 300)
-    unknown = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"], ENV, NOW, None)
+                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "170"}, NOW, PORTS)
     assert renewal["acked_at"] is not None and renewal["lifetime_s"] == 300
-    assert reread["acked_at"] is None and unknown["acked_at"] is None
+    assert reread["acked_at"] is None
 
 
-def test_the_ports_lease_time_comes_from_its_ipv4_range():
-    assert event.lease_seconds(PORTS_CONF, "v2248") == 300
-    assert event.lease_seconds(PORTS_CONF, "v2299") is None
-    assert event.lease_seconds("dhcp-range=tag:v2248,10.21.2.48,10.21.2.48,255.255.0.0,12h\n", "v2248") == 43200
+def test_the_port_table_maps_each_ports_own_two_addresses_to_its_interface_and_lease_time():
+    assert PORTS == {
+        ipaddress.ip_address("10.21.1.1"): ("v2101", 300),
+        ipaddress.ip_address("2404:e80:a137:2101::1"): ("v2101", 300),
+        ipaddress.ip_address("10.21.2.48"): ("v2248", 300),
+        ipaddress.ip_address("2404:e80:a137:2102::48"): ("v2248", 300),
+    }  # the quarantine range (10.21.0.128-150) is not one address, so it is no port's
+    assert event.port_table("dhcp-range=tag:v2248,10.21.2.48,10.21.2.48,255.255.0.0,12h\n") == {
+        ipaddress.ip_address("10.21.2.48"): ("v2248", 43200)}
 
 
 def test_a_v6_lease_takes_its_mac_from_the_environment():
     doc = event.record(["add", CLIENT_DUID, "2404:e80:a137:2102::48"], {**ENV, "DNSMASQ_MAC": "b8:27:eb:e3:e7:e4"},
-                       NOW)
+                       NOW, PORTS)
     assert (doc["family"], doc["mac"]) == (6, "b8:27:eb:e3:e7:e4")
 
 
 @pytest.mark.parametrize("args, env", [
     (["add", "b8:27:eb:e3:e7:e4", "10.21.0.130"], {"DNSMASQ_INTERFACE": "eth-local"}),  # the quarantine pool
+    (["add", "b8:27:eb:e3:e7:e4", "10.21.2.47"], ENV),  # an address that is no port's own, whatever the interface
     (["tftp", "52624", "10.21.2.48", "/srv/tftp/bootcode.bin"], ENV),
     (["init"], {}),
     (["arp-add", "b8:27:eb:e3:e7:e4", "10.21.2.48"], ENV),
     (["add", "b8:27:eb:e3:e7:e4", "not-an-address"], ENV),
 ])
 def test_anything_but_a_per_port_lease_event_is_not_published(args, env):
-    assert event.record(args, env, NOW) is None
+    assert event.record(args, env, NOW, PORTS) is None
 
 
-def test_the_event_script_always_exits_0_and_says_when_it_could_not_publish(monkeypatch, capsys):
+@pytest.fixture()
+def gateway_ports(tmp_path, monkeypatch):
+    """The event script's ports.conf: the gateway's two port shapes, and port 30 of switch 2 beside port 2."""
+    path = tmp_path / "ports.conf"
+    path.write_text(PORTS_CONF + V2202_V2230)
+    monkeypatch.setattr(event, "PORTS_CONF", str(path))
+
+
+# as roles/pxe/templates/ports.conf.j2 renders switch 2's ports 2 and 30: both IPv6 ranges in 2404:e80:a137:2102::/64
+V2202_V2230 = """\
+interface=v2202
+dhcp-range=tag:v2202,10.21.2.2,10.21.2.2,255.255.0.0,5m
+dhcp-range=tag:v2202,2404:e80:a137:2102::2,2404:e80:a137:2102::2,off-link,64,5m
+interface=v2230
+dhcp-range=tag:v2230,10.21.2.30,10.21.2.30,255.255.0.0,5m
+dhcp-range=tag:v2230,2404:e80:a137:2102::30,2404:e80:a137:2102::30,off-link,64,5m
+"""
+
+
+def published(monkeypatch):
+    sent = []
+    monkeypatch.setattr(event, "read_config", lambda path: ("welland", "10.21.0.1"))
+    monkeypatch.setattr(event.subprocess, "run",
+                        lambda argv, **k: sent.append(json.loads(argv[-1])) or types.SimpleNamespace(returncode=0))
+    return sent
+
+
+def test_a_v6_lease_is_filed_under_its_addresss_port_not_the_interface_dnsmasq_names(gateway_ports, monkeypatch):
+    # what dnsmasq gave the script on the welland gateway on 14 Oct 2026 for the hub Pi on switch 2 port 30: its log
+    # said DHCPREPLY(v2230), the script was told DNSMASQ_INTERFACE=v2202 (every port of a switch shares the /64)
+    sent = published(monkeypatch)
+    env = {"DNSMASQ_INTERFACE": "v2202", "DNSMASQ_MAC": "98:fe:54:13:f5:9c", "DNSMASQ_LEASE_EXPIRES": "1791957002",
+           "DNSMASQ_TIME_REMAINING": "300", "DNSMASQ_IAID": "318764444"}
+    event.main(["old", "00:03:00:01:98:fe:54:13:f5:9c", "2404:e80:a137:2102::30", "rpi5-new-13f59c"], env, NOW)
+    (doc,) = sent
+    assert (doc["switch"], doc["port"], doc["hostname"], doc["interface"]) == (2, 30, "pi-sw2-p30", "v2230")
+
+
+def test_a_v4_lease_is_filed_under_its_addresss_port_too(gateway_ports, monkeypatch):
+    sent = published(monkeypatch)
+    event.main(["old", "98:fe:54:13:f5:9c", "10.21.2.30", "pi-sw2-p30"], {**ENV, "DNSMASQ_INTERFACE": "v2202"}, NOW)
+    assert [(d["port"], d["interface"]) for d in sent] == [(30, "v2230")]
+
+
+def test_without_ports_conf_nothing_is_published(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(event, "PORTS_CONF", str(tmp_path / "absent" / "ports.conf"))
+    sent = published(monkeypatch)
+    assert event.main(["add", "b8:27:eb:e3:e7:e4", "10.21.2.48"], ENV, NOW) == 0
+    assert sent == [] and "ports.conf" in capsys.readouterr().err
+
+
+def test_the_event_script_always_exits_0_and_says_when_it_could_not_publish(gateway_ports, monkeypatch, capsys):
     monkeypatch.setattr(event, "read_config", lambda path: ("welland", "10.21.0.1"))
     monkeypatch.setattr(event.subprocess, "run",
                         lambda argv, **k: types.SimpleNamespace(returncode=5, stderr="Connection refused"))
@@ -294,7 +353,7 @@ def test_the_event_script_always_exits_0_and_says_when_it_could_not_publish(monk
     assert "not published" in capsys.readouterr().err
 
 
-def test_the_event_script_publishes_to_the_sites_gw_lease_topic(monkeypatch):
+def test_the_event_script_publishes_to_the_sites_gw_lease_topic(gateway_ports, monkeypatch):
     ran = []
     monkeypatch.setattr(event, "read_config", lambda path: ("welland", "10.21.0.1"))
     monkeypatch.setattr(event.subprocess, "run",
@@ -378,7 +437,7 @@ def test_the_lock_waits_a_bounded_time_for_another_release(tmp_path):
 
 def test_a_lease_from_an_earlier_longer_lease_time_reread_at_start_is_not_an_ack():
     reread = event.record(["old", "b8:27:eb:e3:e7:e4", "10.21.2.48"],
-                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "36000"}, NOW, 300)
+                          {**ENV, "DNSMASQ_DATA_MISSING": "1", "DNSMASQ_TIME_REMAINING": "36000"}, NOW, PORTS)
     assert reread["acked_at"] is None
 
 
@@ -386,3 +445,26 @@ def test_a_temporary_v6_lease_on_the_ports_address_is_left_to_run_out():
     text = LEASES + "1791959703 T318764444 2404:e80:a137:2102::48 pi-sw2-p48 00:04:a1\n"
     _, leases = release.parse_leases(text, PORT_48)
     assert [x.get("iaid") for x in leases] == [None, "318764444"]
+
+
+def test_the_port_table_reads_the_rendered_template_and_maps_v6_by_address_not_by_shared_prefix():
+    """ports.conf.j2 as roles/pxe renders it, switch 2 with 30 ports: ports 2 and 30 share the switch's /64."""
+    import sys
+
+    import jinja2
+
+    sys.path.insert(0, str(FILES.parents[2] / "filter_plugins"))
+    from port_vlans import port_vlan_map
+
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(FILES.parent / "templates"),
+                             undefined=jinja2.StrictUndefined)
+    env.filters["port_vlan_map"] = port_vlan_map
+    text = env.get_template("ports.conf.j2").render(
+        ansible_managed="test", switches=[{"index": 2, "access_ports": 30}], pib_network="10.21",
+        pib_network6_base="2404:e80:a137:21", pib_domain="test.example", eth_local="eth-local")
+    table = event.port_table(text)
+    assert len(table) == 60  # two addresses per port, none for the quarantine range
+    assert table[ipaddress.ip_address("2404:e80:a137:2102::30")] == ("v2230", 300)
+    assert table[ipaddress.ip_address("2404:e80:a137:2102::2")] == ("v2202", 300)
+    assert table[ipaddress.ip_address("10.21.2.30")] == ("v2230", 300)
+    assert ipaddress.ip_address("10.21.0.130") not in table
