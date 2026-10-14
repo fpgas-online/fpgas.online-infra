@@ -378,6 +378,9 @@
               upper = next((o.split("=", 1)[1] for o in options.split(",") if o.startswith("upperdir=")), "")
               if not upper:
                   return {"upper": "", "error": "no overlay on / (want overlayroot=tmpfs)", "files": []}
+              # dpkg's empty lock files: whatever takes dpkg's lock creates them (apt-daily at boot did, in the VM), and
+              # nothing reads anything from them. dpkg's status and info stay watched.
+              OVERLAY_LOCKS = ("/var/lib/dpkg/lock", "/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/triggers/Lock")
               found = []
               for sub in OVERLAY_WATCHED:
                   for top, dirs, files in os.walk(os.path.join(upper, sub), onerror=lambda e: found.append("ERROR " + str(e))):
@@ -390,7 +393,8 @@
                       found += [os.path.join(top, d)[len(upper):] for d in dirs if os.path.islink(os.path.join(top, d))]
               # A watched path that does not exist in the upper layer was never written: the walk's onerror sees
               # ENOENT for it, which is the good case.
-              found = [f for f in found if not (f.startswith("ERROR ") and "No such file or directory" in f)]
+              found = [f for f in found if not (f.startswith("ERROR ") and "No such file or directory" in f)
+                       and f not in OVERLAY_LOCKS]
               return {"upper": upper, "error": "", "files": sorted(found)}
           print(json.dumps({
               "overlay_writes": overlay_writes(),
