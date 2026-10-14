@@ -9,7 +9,8 @@ how a renewal is told from dnsmasq re-reading its leases at start).
 
 The record goes to the site's MQTT broker on topic fpgas/<site>/gw/lease (site and broker address from
 /etc/fpgas/lease-events.conf), with the field names the Pi's own network-state record uses. Events on the quarantine
-pool and the other actions (init, tftp, arp-add, arp-del, relay-snoop, and any new one) publish nothing.
+pool and the other actions (init, tftp, arp-add, arp-del, relay-snoop, and any new one) publish nothing. A lease's
+port comes from its address through ports.conf, never from DNSMASQ_INTERFACE (see port_table()).
 
 dnsmasq waits for its script, so this is short: one mosquitto_pub with a timeout, no retry. A record that cannot be
 published is written to stderr (dnsmasq's journal) and the event is otherwise lost; the next renewal sends another.
@@ -34,7 +35,7 @@ MOSQUITTO_PUB = "/usr/bin/mosquitto_pub"
 CHILD_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C"}
 TIMEOUT = 3
 ACTIONS = ("add", "old", "del")
-_IFACE = re.compile(r"v([0-9]{4})")
+_RANGE = re.compile(r"dhcp-range=tag:(v([0-9]{4})),([^,]+),([^,]+),.*,([0-9]+)([smhd]?)")
 _MAC = re.compile(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}")
 _DIGITS = re.compile(r"[0-9]+")
 _UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -44,36 +45,48 @@ def iso(seconds):
     return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds")
 
 
-def lease_seconds(text, iface):
-    """The lease time of `iface`'s per-port IPv4 range in ports.conf, or None when it has none."""
+def port_table(text):
+    """{address: (interface, lease seconds)} for every per-port address in ports.conf: each port interface v<vlan>
+    has one IPv4 and one IPv6 range of a single address. This, not DNSMASQ_INTERFACE, says which port a lease is on:
+    every port interface of a switch carries the same <base><switch>::ffff/64, so for an IPv6 lease dnsmasq names
+    the first interface with that prefix (seen 14 Oct 2026: DHCPREPLY on v2230, the script told v2202)."""
+    table = {}
     for line in text.splitlines():
-        m = re.fullmatch(rf"dhcp-range=tag:{iface},[^,]+,[^,]+,[^,]+,([0-9]+)([smhd]?)", line.strip())
-        if m:
-            return int(m[1]) * _UNITS[m[2]]
-    return None
+        m = _RANGE.fullmatch(line.strip())
+        if not m or m[3] != m[4]:
+            continue
+        try:
+            address = ipaddress.ip_address(m[3])
+        except ValueError:
+            continue
+        table[address] = (m[1], int(m[5]) * _UNITS[m[6]])
+    return table
 
 
-def record(args, env, now, lease_time=None):
+def record(args, env, now, ports):
     """The lease record for one dnsmasq call, or None for anything that is not a per-port lease event.
 
-    `lease_time` is the port's lease time. dnsmasq runs the script with "old" both for a renewal (script-on-renewal)
-    and for each lease it re-reads when it starts, and neither is marked: DNSMASQ_DATA_MISSING is set for both on
-    IPv4 (dnsmasq 2.91 rfc2131.c collects a client's extra data only on SELECTING and INIT-REBOOT). A renewal leaves
-    the full lease time, a re-read of an older lease less, so "old" is an ack when the time left is within ACK_SLACK
-    of the lease time either way (a lease granted under an earlier, longer lease time has more left and is no ack);
-    with no lease time known it is not counted as one."""
+    `ports` is port_table() of ports.conf: the lease's address gives its port and the port's lease time. An address
+    that is no port's own (the quarantine pool on the trunk) is not a board's lease.
+
+    dnsmasq runs the script with "old" both for a renewal (script-on-renewal) and for each lease it re-reads when it
+    starts, and neither is marked: DNSMASQ_DATA_MISSING is set for both on IPv4 (dnsmasq 2.91 rfc2131.c collects a
+    client's extra data only on SELECTING and INIT-REBOOT). A renewal leaves the full lease time, a re-read of an
+    older lease less, so "old" is an ack when the time left is within ACK_SLACK of the lease time either way (a lease
+    granted under an earlier, longer lease time has more left and is no ack)."""
     if len(args) < 3 or args[0] not in ACTIONS:
         return None
     action, who, address = args[0], args[1], args[2]
-    m = _IFACE.fullmatch(env.get("DNSMASQ_INTERFACE", ""))
-    if not m:
-        return None  # the quarantine pool on the trunk, or a relay: not a board port
-    switch, port = divmod(int(m[1]) - 2000, 100)
-    if switch < 1 or port < 1:
-        return None
     try:
-        family = ipaddress.ip_address(address).version
+        ip = ipaddress.ip_address(address)
     except ValueError:
+        return None
+    if ip not in ports:
+        return None  # the quarantine pool, or any address that is not a port's own
+    family = ip.version
+    iface, lease_time = ports[ip]
+    switch, port = divmod(int(iface[1:]) - 2000, 100)
+    if switch < 1 or port < 1:
         return None
     mac = who if family == 4 else env.get("DNSMASQ_MAC")
     if mac is not None and not _MAC.fullmatch(mac):
@@ -89,7 +102,7 @@ def record(args, env, now, lease_time=None):
         "lifetime_s": remaining if acked else None,
         "acked_at": iso(now) if acked else None,
         "expires": int(expires) if _DIGITS.fullmatch(expires) else None,
-        "interface": m[0],
+        "interface": iface,
     }
 
 
@@ -109,14 +122,14 @@ def read_config(path):
 
 
 def main(args, env, now):
-    iface = env.get("DNSMASQ_INTERFACE", "")
     try:
         with open(PORTS_CONF, encoding="utf-8") as f:
-            lease_time = lease_seconds(f.read(), iface) if _IFACE.fullmatch(iface) else None
+            ports = port_table(f.read())
     except OSError as exc:
+        # no ports.conf, no way to tell which port a lease is on: nothing is published
         print(f"fpgas-lease-event: {PORTS_CONF}: {exc}", file=sys.stderr)
-        lease_time = None
-    doc = record(args, env, now, lease_time)
+        return 0
+    doc = record(args, env, now, ports)
     if doc is None:
         return 0
     try:
