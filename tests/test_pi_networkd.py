@@ -25,6 +25,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -397,21 +398,52 @@ def test_verify_pi_checks_networkd_the_renewals_ntp_and_the_sites_record():
     assert "== 'routable'" in record
 
 
-def test_the_spool_is_flushed_every_minute_while_it_holds_records():
+def test_the_spool_is_retried_every_minute_only_while_it_holds_records():
     service = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.service").read_text()
     timer = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.timer").read_text()
     assert "ExecStart=/usr/local/sbin/fpgas-network-state --flush" in service
     assert "ConditionDirectoryNotEmpty=/run/fpgas-network-state" in service
-    assert "OnUnitActiveSec=1min" in timer and "WantedBy=timers.target" in timer
-    assert "name: fpgas-network-state-flush.timer\n    enabled: true" in TASKS.read_text()
+    assert "OnActiveSec=1min" in timer and "OnUnitActiveSec=1min" in timer
+    # started by the publisher when records stay, not at boot
+    assert "[Install]" not in timer
+    assert "fpgas-network-state-flush.timer\n    enabled" not in TASKS.read_text()
 
 
-def test_the_purge_stops_if_apt_would_remove_anything_else():
+def _purge_extra(simulate_stdout: str) -> list:
+    """The purge guard's own expression from networkd.yml, rendered by Ansible as the play does."""
+    from ansible.parsing.dataloader import DataLoader
+    from ansible.template import Templar, trust_as_template
+
+    tasks = yaml.safe_load(TASKS.read_text())
+    guard = next(t for t in tasks if t.get("name") == "Assert the removal takes nothing else")
+    # ansible-core 2.19 renders only templates it trusts, as it trusts a playbook's own
+    expression = {name: trust_as_template(value) for name, value in guard["vars"].items()}
+    templar = Templar(loader=DataLoader(), variables={
+        "onpi_network_purge_sim": {"stdout_lines": simulate_stdout.splitlines()}, **expression})
+    return templar.template(trust_as_template("{{ onpi_network_purge_extra }}"))
+
+
+# `apt-get --simulate purge network-manager ifupdown isc-dhcp-client` output, in the shape apt prints
+SIMULATE = """Reading package lists...
+Building dependency tree...
+The following packages will be REMOVED:
+  ifupdown* isc-dhcp-client* network-manager* raspberrypi-net-mods*
+0 upgraded, 0 newly installed, 4 to remove and 0 not upgraded.
+Purg raspberrypi-net-mods [20230626]
+Purg network-manager [1.42.4-1+rpt1+deb12u1]
+Purg ifupdown [0.8.41]
+Purg isc-dhcp-client [4.4.3-P1-2]
+"""
+
+
+def test_the_purge_guard_passes_the_expected_four_and_names_anything_else():
     tasks = TASKS.read_text()
-    sim = tasks.index("argv: [apt-get, --simulate, purge, network-manager, ifupdown, isc-dhcp-client]")
-    assert sim < tasks.index("- name: Assert the removal takes nothing else") < tasks.index(
-        "- name: Remove NetworkManager, ifupdown and dhclient")
-    assert "reject('in', ['network-manager', 'ifupdown', 'isc-dhcp-client', 'raspberrypi-net-mods'])" in tasks
+    assert tasks.index("argv: [apt-get, --simulate, purge, network-manager, ifupdown, isc-dhcp-client]") \
+        < tasks.index("- name: Assert the removal takes nothing else") \
+        < tasks.index("- name: Remove NetworkManager, ifupdown and dhclient")
+    assert _purge_extra(SIMULATE) == []
+    assert _purge_extra(SIMULATE + "Purg rpi-connect-lite [2.1.0]\n") == ["rpi-connect-lite"]
+    assert _purge_extra("Package 'network-manager' is not installed, so not removed\n") == []
 
 
 class _Info:
@@ -426,10 +458,11 @@ class _Info:
 
 
 class _Client:
-    """A stand-in paho client: acknowledges the first `acks` publishes, or refuses to connect."""
+    """A stand-in paho client: acknowledges the first `acks` publishes, refuses to connect, raises the alarm's
+    TimeoutError at publish `alarm_at`, or raises paho's RuntimeError (a dropped connection) at `drop_at`."""
 
-    def __init__(self, acks=None, refuse=False, alarm_at=None):
-        self.acks, self.refuse, self.alarm_at, self.sent = acks, refuse, alarm_at, []
+    def __init__(self, acks=None, refuse=False, alarm_at=None, drop_at=None):
+        self.acks, self.refuse, self.alarm_at, self.drop_at, self.sent = acks, refuse, alarm_at, drop_at, []
 
     def connect(self, broker, port):
         if self.refuse:
@@ -450,6 +483,8 @@ class _Client:
         self.sent.append((topic, json.loads(payload)))
         if self.alarm_at is not None and len(self.sent) == self.alarm_at:
             raise TimeoutError("network-state took over 30 s")  # as the hook's SIGALRM handler raises it
+        if self.drop_at is not None and len(self.sent) == self.drop_at:
+            raise RuntimeError("Message publish failed: The client is not currently connected.")
         return _Info(self.acks is None or len(self.sent) <= self.acks)
 
 
@@ -457,71 +492,218 @@ CFG = {"site": "welland", "broker": "10.21.0.1", "port": 1883}
 TOPIC = "fpgas/welland/pi/10000000ce8e3593/event"
 
 
-def _spool_three(hook, spool_dir):
-    for minute in (1, 2, 3):
+def _spool_four(hook, spool_dir):
+    for minute in (1, 2, 3, 4):
         hook.spool({"ts": f"2026-10-14T06:4{minute}:00+00:00", "n": minute}, str(spool_dir))
 
 
-def _deliver(tmp_path, client, payload={"ts": "2026-10-14T06:50:00+00:00", "n": "new"}):
+def _send(tmp_path, client):
     hook = _hook()
-    return hook.deliver(payload, CFG, TOPIC, None, lambda _mqtt: client, str(tmp_path / "spool"),
-                        str(tmp_path / "bad")), hook
+    return hook.send_spool(CFG, TOPIC, None, lambda _mqtt: client, str(tmp_path / "spool"), str(tmp_path / "bad")), hook
 
 
 def _left(hook, tmp_path):
     return [json.loads(Path(p).read_text())["n"] for p in hook.spooled(str(tmp_path / "spool"))]
 
 
-def test_deliver_sends_the_spool_oldest_first_then_the_new_record(tmp_path):
-    _spool_three(_hook(), tmp_path / "spool")
+def test_the_spool_goes_out_oldest_first_on_the_fleet_topic(tmp_path):
+    _spool_four(_hook(), tmp_path / "spool")
     client = _Client()
-    (sent, queued), hook = _deliver(tmp_path, client)
+    (sent, queued), hook = _send(tmp_path, client)
     assert (sent, queued) == (4, 0)
     assert client.connected == ("10.21.0.1", 1883)
-    assert [p["n"] for topic, p in client.sent] == [1, 2, 3, "new"]
+    assert [p["n"] for _, p in client.sent] == [1, 2, 3, 4]
     assert {topic for topic, _ in client.sent} == {TOPIC}
     assert _left(hook, tmp_path) == []
 
 
-def test_deliver_removes_each_spooled_record_as_it_is_acknowledged(tmp_path):
-    _spool_three(_hook(), tmp_path / "spool")
-    (sent, queued), hook = _deliver(tmp_path, _Client(acks=2))
+def test_each_record_leaves_the_spool_as_it_is_acknowledged(tmp_path):
+    _spool_four(_hook(), tmp_path / "spool")
+    (sent, queued), hook = _send(tmp_path, _Client(acks=2))
     assert (sent, queued) == (2, 2)
-    assert _left(hook, tmp_path) == [3, "new"]  # the unacknowledged one stays, the new one joins it
+    assert _left(hook, tmp_path) == [3, 4]
 
 
-def test_an_alarm_mid_publish_keeps_what_was_acknowledged(tmp_path, capsys):
-    _spool_three(_hook(), tmp_path / "spool")
-    (sent, queued), hook = _deliver(tmp_path, _Client(alarm_at=3))
+@pytest.mark.parametrize("client,error", [
+    (_Client(alarm_at=3), "TimeoutError"),  # the 30 s alarm, mid-publish
+    (_Client(drop_at=3), "RuntimeError"),   # paho: the connection dropped (the cable was pulled)
+])
+def test_an_error_mid_publish_keeps_what_was_acknowledged_and_the_rest(tmp_path, capsys, client, error):
+    _spool_four(_hook(), tmp_path / "spool")
+    (sent, queued), hook = _send(tmp_path, client)
     assert (sent, queued) == (2, 2)
-    assert _left(hook, tmp_path) == [3, "new"]  # not resent from the start next time
-    assert "TimeoutError" in capsys.readouterr().err
+    assert _left(hook, tmp_path) == [3, 4]  # nothing lost, nothing resent from the start
+    assert error in capsys.readouterr().err
 
 
-def test_an_unreachable_broker_spools_the_new_record(tmp_path, capsys):
-    (sent, queued), hook = _deliver(tmp_path, _Client(refuse=True))
-    assert (sent, queued) == (0, 1)
-    assert _left(hook, tmp_path) == ["new"]
+def test_an_unreachable_broker_keeps_the_spool(tmp_path, capsys):
+    _spool_four(_hook(), tmp_path / "spool")
+    (sent, queued), hook = _send(tmp_path, _Client(refuse=True))
+    assert (sent, queued) == (0, 4)
+    assert _left(hook, tmp_path) == [1, 2, 3, 4]
     assert "No route to host" in capsys.readouterr().err
 
 
-def test_a_flush_with_an_empty_spool_sends_nothing(tmp_path):
-    client = _Client()
-    (sent, queued), _ = _deliver(tmp_path, client, payload=None)
+def test_an_empty_spool_connects_to_nothing(tmp_path):
+    client = _Client(refuse=True)  # would raise if connected
+    (sent, queued), _ = _send(tmp_path, client)
     assert (sent, queued) == (0, 0) and client.sent == []
 
 
 def test_a_spool_file_that_is_not_json_is_moved_aside_not_resent_for_ever(tmp_path, capsys):
     hook = _hook()
-    _spool_three(hook, tmp_path / "spool")
+    _spool_four(hook, tmp_path / "spool")
     broken = Path(hook.spooled(str(tmp_path / "spool"))[1])
     broken.write_text("{not json")
     client = _Client()
-    (sent, queued), _ = _deliver(tmp_path, client)
+    (sent, queued), _ = _send(tmp_path, client)
     assert (sent, queued) == (3, 0)
-    assert [p["n"] for _, p in client.sent] == [1, 3, "new"]
+    assert [p["n"] for _, p in client.sent] == [1, 3, 4]
     assert (tmp_path / "bad" / broken.name).exists()
     assert f"moved to {tmp_path / 'bad'}" in capsys.readouterr().err
+
+
+# --- main(): the dispatcher's run and the timer's, with fake fleet_agent and paho modules -----------------
+
+FAKE_FLEET_AGENT = '''
+import json, os
+CLIENT = None
+def load_config(path):
+    with open(path) as f:
+        return json.load(f)
+def topics(site, serial):
+    return {"event": f"fpgas/{site}/pi/{serial}/event"}
+def mqtt_client(mqtt):
+    return mqtt.Client()
+'''
+FAKE_PAHO = '''
+import json, os
+class _Info:
+    def __init__(self, ok): self.ok = ok
+    def wait_for_publish(self, timeout): pass
+    def is_published(self): return self.ok
+class Client:
+    def connect(self, broker, port):
+        if os.environ.get("FAKE_BROKER") == "down":
+            raise OSError(113, "No route to host")
+    def loop_start(self): pass
+    def loop_stop(self): pass
+    def disconnect(self): pass
+    def publish(self, topic, payload, qos):
+        with open(os.environ["FAKE_SENT"], "a") as f:
+            f.write(json.dumps({"topic": topic, "payload": json.loads(payload)}) + "\\n")
+        return _Info(True)
+'''
+
+
+@pytest.fixture
+def pi(tmp_path, monkeypatch):
+    """A stand-in Pi for main(): the generated file naming the uplink's MAC, sysfs, cpuinfo, boot id, a fleet
+    config, fake fleet_agent and paho, and a systemctl that only records its calls."""
+    hook = _hook()
+    lib = tmp_path / "fleet-lib"
+    (lib / "paho" / "mqtt").mkdir(parents=True)
+    (lib / "fleet_agent.py").write_text(FAKE_FLEET_AGENT)
+    (lib / "paho" / "__init__.py").write_text("")
+    (lib / "paho" / "mqtt" / "__init__.py").write_text("")
+    (lib / "paho" / "mqtt" / "client.py").write_text(FAKE_PAHO)
+    sysfs = tmp_path / "sys-class-net"
+    (sysfs / "eth0").mkdir(parents=True)
+    (sysfs / "eth0" / "address").write_text(MAC + "\n")
+    (sysfs / "eth-fpga").mkdir()
+    (sysfs / "eth-fpga" / "address").write_text("00:05:1b:b0:47:9d\n")
+    network = tmp_path / "10-fpgas-uplink.network"
+    network.write_text(f"[Match]\nMACAddress={MAC}\nType=ether\n")
+    (tmp_path / "cpuinfo").write_text("Serial\t\t: 10000000ce8e3593\n")
+    (tmp_path / "boot_id").write_text("d3adb33f\n")
+    (tmp_path / "fleet.toml").write_text(json.dumps(CFG))
+    systemctl = tmp_path / "systemctl.log"
+    for name, value in {"FLEET_LIB": str(lib), "FLEET_CONFIG": str(tmp_path / "fleet.toml"),
+                        "SYSFS_NET": str(sysfs), "CPUINFO": str(tmp_path / "cpuinfo"),
+                        "BOOT_ID": str(tmp_path / "boot_id"), "SPOOL_DIR": str(tmp_path / "spool"),
+                        "BAD_DIR": str(tmp_path / "bad"), "LOCK_FILE": str(tmp_path / "lock"),
+                        "SYSTEMCTL": ["sh", "-c", f'echo "$@" >> {systemctl}', "systemctl"]}.items():
+        monkeypatch.setattr(hook, name, value)
+    # send_spool's defaults were bound at definition: point them at the test's spool too
+    monkeypatch.setattr(hook.send_spool, "__defaults__", (str(tmp_path / "spool"), str(tmp_path / "bad")))
+    monkeypatch.setattr(hook.spool, "__defaults__", (str(tmp_path / "spool"), hook.SPOOL_MAX, None))
+    monkeypatch.setattr(hook.spooled, "__defaults__", (str(tmp_path / "spool"),))
+    doc = {"at": "2026-10-14T06:41:40+00:00", "trigger": "routable", "operational_state": "routable",
+           "administrative_state": "configured"}
+    monkeypatch.setattr(hook, "collect", lambda iface, env, mac: dict(doc, interface=iface, mac=mac))
+    sent = tmp_path / "sent.jsonl"
+    monkeypatch.setenv("FAKE_SENT", str(sent))
+    monkeypatch.setenv("FPGAS_UPLINK_NETWORK", str(network))
+    monkeypatch.setenv("IFACE", "eth0")
+    monkeypatch.setenv("STATE", "routable")
+    monkeypatch.delenv("FAKE_BROKER", raising=False)
+    monkeypatch.setattr(sys, "path", list(sys.path))  # _fleet() inserts FLEET_LIB
+    for module in ("fleet_agent", "paho", "paho.mqtt", "paho.mqtt.client"):
+        monkeypatch.delitem(sys.modules, module, raising=False)
+
+    class Pi:
+        pass
+
+    p = Pi()
+    p.hook, p.tmp, p.sent, p.systemctl = hook, tmp_path, sent, systemctl
+    p.records = lambda: [json.loads(line) for line in sent.read_text().splitlines()] if sent.exists() else []
+    p.calls = lambda: systemctl.read_text().splitlines() if systemctl.exists() else []
+    return p
+
+
+def test_main_sends_the_uplinks_record_to_the_site(pi):
+    assert pi.hook.main(["fpgas-network-state"]) == 0
+    [record] = pi.records()
+    assert record["topic"] == "fpgas/welland/pi/10000000ce8e3593/event"
+    assert record["payload"]["stage"] == "network-state" and record["payload"]["boot_id"] == "d3adb33f"
+    assert record["payload"]["ts"] == record["payload"]["detail"]["at"]
+    assert record["payload"]["detail"]["interface"] == "eth0" and record["payload"]["detail"]["mac"] == MAC
+    assert pi.hook.spooled() == [] and pi.calls() == []
+
+
+def test_main_ignores_another_interface(pi, monkeypatch):
+    monkeypatch.setenv("IFACE", "eth-fpga")
+    assert pi.hook.main(["fpgas-network-state"]) == 0
+    assert pi.records() == [] and pi.hook.spooled() == []
+
+
+def test_main_keeps_the_record_and_starts_the_retry_timer_when_the_broker_is_down(pi, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_BROKER", "down")
+    assert pi.hook.main(["fpgas-network-state"]) == 0
+    assert len(pi.hook.spooled()) == 1
+    assert pi.calls() == ["start --no-block fpgas-network-state-flush.timer"]
+    assert "1 queued" in capsys.readouterr().out
+    # the timer's flush, once the broker is back, sends it and stops the timer
+    monkeypatch.setenv("FAKE_BROKER", "up")
+    assert pi.hook.main(["fpgas-network-state", "--flush"]) == 0
+    assert [r["payload"]["detail"]["trigger"] for r in pi.records()] == ["routable"]
+    assert pi.hook.spooled() == []
+    assert pi.calls()[-1] == "stop --no-block fpgas-network-state-flush.timer"
+
+
+def test_a_flush_that_cannot_send_fails_so_the_unit_shows_it(pi, monkeypatch):
+    monkeypatch.setenv("FAKE_BROKER", "down")
+    pi.hook.main(["fpgas-network-state"])
+    assert pi.hook.main(["fpgas-network-state", "--flush"]) == 1
+    assert len(pi.hook.spooled()) == 1
+
+
+def test_an_alarm_before_the_send_leaves_the_record_spooled(pi, monkeypatch, capsys):
+    def stuck(*_):
+        raise TimeoutError("network-state took over 30 s")  # as the alarm raises it, waiting for the lock
+
+    monkeypatch.setattr(pi.hook.fcntl, "flock", stuck)
+    assert pi.hook.main(["fpgas-network-state"]) == 1
+    assert len(pi.hook.spooled()) == 1 and pi.records() == []
+    assert pi.calls() == ["start --no-block fpgas-network-state-flush.timer"]
+    assert "the record is in the spool" in capsys.readouterr().err
+
+
+def test_main_refuses_a_machine_without_a_serial(pi, capsys):
+    (pi.tmp / "cpuinfo").write_text("processor\t: 0\n")
+    assert pi.hook.main(["fpgas-network-state"]) == 1
+    assert pi.records() == [] and pi.hook.spooled() == []
+    assert "no Serial in" in capsys.readouterr().err
 
 
 def test_undelivered_records_are_spooled_oldest_first_and_bounded(tmp_path):

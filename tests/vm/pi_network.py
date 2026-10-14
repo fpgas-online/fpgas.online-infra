@@ -26,7 +26,9 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
    IPv4 and IPv6 addresses. Without IgnoreCarrierLoss=yes networkd would have
    removed them at that point. Getting the same address back by DHCP later
    would hide that, so this is checked in the record rather than after the
-   cable is back. The no-carrier record waits in the Pi's spool until the
+   cable is back. The record is read about a second after the carrier loss,
+   and networkd drops the configuration in the carrier-loss handler itself
+   (IgnoreCarrierLoss= unset means no delay), so a drop shows in it. The no-carrier record waits in the Pi's spool until the
    broker can be reached.
 
 Each step prints what it read; the first failure returns False.
@@ -42,8 +44,9 @@ POLL_S = 30
 CABLE_OUT_S = 20
 DJANGO_DIR = "/srv/www/pib"
 SITE_USER = "admin"
-# Files the Pi reads from its NFS root (not from the tmpfs overlay)
-NFS_READ = "md5sum /usr/lib/os-release /usr/bin/python3"
+# Read from the NFS root (not the tmpfs overlay), with the page cache dropped first so the bytes come from the
+# server, not from memory.
+NFS_READ = "sync && echo 3 | sudo tee /proc/sys/vm/drop_caches && md5sum /usr/lib/os-release /usr/bin/python3"
 
 
 class Step(Exception):
@@ -141,6 +144,7 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
         print("[net] " + pi(NFS_READ))
 
         # 4. the gateway's DHCP down past the lease
+        outage_mark = pi("date +%s").strip()
         srv("sudo systemctl stop dnsmasq")
         try:
             outage_end = time.monotonic() + OUTAGE_S
@@ -149,7 +153,8 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
                 _forever_v4(pi, address)
                 pi(NFS_READ)
             print(f"[net] dnsmasq down {OUTAGE_S} s: the Pi kept {address} (forever) and its NFS root")
-            log = pi("journalctl -b -u systemd-networkd --no-pager -o cat")
+            # From the outage's start only: step 3's restart logs the same notice when the client stops.
+            log = pi(f"journalctl -u systemd-networkd --since @{outage_mark} --no-pager -o cat")
             if "DHCP lease lost" in log:
                 raise Step(f"networkd dropped the lease during the outage:\n{log[-3000:]}")
             critical = [l for l in log.splitlines() if "considered critical" in l]

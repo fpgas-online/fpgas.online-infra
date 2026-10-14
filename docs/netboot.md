@@ -130,8 +130,9 @@ October 2026). NetworkManager, `ifupdown` and `isc-dhcp-client` are purged from 
 **Which interface.** The interface name differs by board: `eth0` on most Pis, `eth-uplink` on a Pi 3B+ (setup-pi's
 `.link` files), and `end0` is possible. So nothing names it in advance. At each boot `fpgas-uplink-network.service`
 runs before networkd and takes the interface that routes to the NFS server named in `nfsroot=`. It writes
-`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone, by its MAC address and
-`Type=ether` (a MAC survives a later rename; a name might not). Every other interface stays unmanaged, for
+`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone by its MAC address (a MAC
+survives a later rename; a name might not). The MAC is the filter: nothing on the root creates a VLAN, bridge or
+veth that would share it. Every other interface stays unmanaged, for
 example the USB adapter that an FPGA's Ethernet test configures for itself.
 
 If there is no route to the server, or the interface has no MAC, the unit fails and networkd manages nothing.
@@ -180,7 +181,8 @@ handling the next state change.
 `DHCPACK` for every renewal, so a current lease line means the board took or renewed its address within the last
 5 minutes. That is its boot only if it booted within those 5 minutes. A board running a root from before this
 change never renews, and its lease line lasts only 5 minutes after it boots. verify-pi checks for a renewal: a
-`DHCPACK` for the board at least 30 s after networkd first took its lease.
+`DHCPACK` for the board at least 30 s after networkd last took its lease (at boot, or again after a networkd
+restart).
 
 ## The NFS root is shared and read-only
 
