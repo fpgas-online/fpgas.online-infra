@@ -52,16 +52,17 @@ def _forever_v4(pi_sh, address: str) -> str:
     return line
 
 
-def _site_records(server_sh, serial: str, since: str = "") -> list[dict]:
-    """The site's network-state records for `serial`, oldest first, from the site's database."""
+def _site_records(server_sh, serial: str, after_id: int = 0) -> list[dict]:
+    """The site's network-state records for `serial` with an id above `after_id`, in arrival order, from the site's
+    database. Arrival order, not the record's time: that is the Pi's clock."""
     code = (
         "import json\n"
         "from fleet.models import BootEvent\n"
         f"q = BootEvent.objects.filter(machine__serial={serial!r}, stage='network-state')\n"
-        + (f"q = q.filter(ts__gte={since!r})\n" if since else "")
-        + "print(json.dumps([{'boot_id': e.boot_id, 'ts': e.ts.isoformat(), 'trigger': e.detail.get('trigger'),"
+        + f"q = q.filter(id__gt={int(after_id)})\n"
+        + "print(json.dumps([{'id': e.id, 'boot_id': e.boot_id, 'ts': e.ts.isoformat(), 'trigger': e.detail.get('trigger'),"
         " 'operational_state': e.detail.get('operational_state'), 'interface': e.detail.get('interface')}"
-        " for e in q.order_by('ts', 'id')]))\n"
+        " for e in q.order_by('id')]))\n"
     )
     # django_dir and user_name of tests/inventory (group_vars site.yml, host_vars test-vm.yml)
     out = server_sh(f"cd {DJANGO_DIR} && sudo -u {SITE_USER} venv/bin/python manage.py shell -c {shlex.quote(code)}")
@@ -153,7 +154,7 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
         _wait_for_ack(server_sh, address, mac, mark, "first DHCPACK after the outage")
 
         # 5. carrier loss
-        since = pi("date -u +%Y-%m-%dT%H:%M:%S+00:00").strip()
+        before = max((r["id"] for r in _site_records(server_sh, serial)), default=0)
         set_link(False)
         time.sleep(CABLE_OUT_S)
         set_link(True)
@@ -162,12 +163,12 @@ def run(pi_sh, server_sh, set_link, address: str) -> bool:
         print("[net] " + pi("journalctl -b -u networkd-dispatcher --no-pager -o cat | tail -8"))
         deadline = time.monotonic() + 120
         while True:
-            states = [r["operational_state"] for r in _site_records(server_sh, serial, since)]
+            states = [r["operational_state"] for r in _site_records(server_sh, serial, before)]
             if "no-carrier" in states and "routable" in states[states.index("no-carrier"):]:
                 print(f"[net] cable out and in: the site received {states}")
                 break
             if time.monotonic() > deadline:
-                raise Step(f"after the cable was out, the site's records since {since} are {states}; "
+                raise Step(f"after the cable was out, the site's records after id {before} are {states}; "
                            "want no-carrier then routable")
             time.sleep(10)
     except Step as e:

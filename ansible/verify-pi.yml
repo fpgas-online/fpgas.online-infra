@@ -1404,9 +1404,11 @@
 
     # Every networkd state change of the uplink reaches the site
     # (fpgas-network-state, run by networkd-dispatcher, on the fleet event
-    # topic): the newest network-state record the site holds for this board
-    # must come from the boot running now. Read from the site's own database
-    # through manage.py, as the service user (roles/site/tasks/django.yml).
+    # topic): the site must hold a network-state record of the boot running
+    # now, for the uplink. Chosen by boot id and arrival order, not by the
+    # record's time, which is the Pi's clock (restored and older until NTP
+    # syncs). Read from the site's own database through manage.py, as the
+    # service user (roles/site/tasks/django.yml).
     - name: Read the newest network-state record the site holds for this Pi
       ansible.builtin.command:
         argv:
@@ -1418,7 +1420,8 @@
             import json
             from fleet.models import BootEvent
             e = BootEvent.objects.filter(machine__serial="{{ verify_pi_identity.stdout_lines[0] }}",
-                                         stage="network-state").order_by("-ts", "-id").first()
+                                         stage="network-state",
+                                         boot_id="{{ verify_pi_identity.stdout_lines[1] }}").order_by("-id").first()
             print(json.dumps(None if e is None else {"boot_id": e.boot_id, "ts": e.ts.isoformat(),
                                                      "state": e.detail.get("operational_state"),
                                                      "interface": e.detail.get("interface")}))
@@ -1443,7 +1446,7 @@
           - (verify_pi_network_record.stdout | from_json | default({}, true)).boot_id | default('') == verify_pi_identity.stdout_lines[1]
           - (verify_pi_network_record.stdout | from_json).interface == verify_pi_network.uplink
         fail_msg: >-
-          The site's newest network-state record for {{ verify_pi_identity.stdout_lines[0] }} is
+          The site's newest network-state record of this boot for {{ verify_pi_identity.stdout_lines[0] }} is
           {{ verify_pi_network_record.stdout | default('-', true) }} {{ verify_pi_network_record.stderr | default('') }};
           want one from boot {{ verify_pi_identity.stdout_lines[1] }} for {{ verify_pi_network.uplink }}.
           `journalctl -b -u networkd-dispatcher` on the Pi shows the publisher's runs.
