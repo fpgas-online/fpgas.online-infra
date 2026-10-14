@@ -188,7 +188,10 @@ restart).
 ping an address before offering it: the board would answer, and dnsmasq would refuse it its own address
 ("no address available") until it rebooted. The gateway runs dnsmasq with `no-ping`
 (`roles/pxe/templates/dnsmasq-base.conf.j2`); a per-port range has one address for one device, so the ping could
-only ever find the board itself.
+only ever find the board itself. `no-ping` applies to every range dnsmasq serves, because it has no per-range form.
+So the VLAN 1 quarantine range and a site's `dhcp_range` pool (ps1's 10.21.0.128 to .254) also lose the
+duplicate-address check. A device that holds one of those addresses statically could be handed the same address.
+Addresses fixed by `dhcp-host` entries were never pinged.
 
 ## The NFS root is shared and read-only
 

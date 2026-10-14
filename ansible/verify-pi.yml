@@ -323,6 +323,9 @@
               # sudo: the system journal is not readable by the automation account (verify-pi's operator run).
               acquired = run("sudo", "-n", "journalctl", "-b", "-u", "systemd-networkd", "-o", "json", "--no-pager",
                              "--output-fields=MESSAGE")
+              if acquired["rc"] != 0:  # the read itself failed (sudo, journald): say so, not "networkd never took it"
+                  raise SystemExit("reading networkd's journal failed (rc " + str(acquired["rc"]) + "): "
+                                   + acquired["stderr"][:400])
               last = next((json.loads(l) for l in reversed(acquired["stdout_lines"])
                             if "DHCPv4 address" in l and "acquired from" in l), None)
               with open("/proc/uptime") as f:

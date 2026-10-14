@@ -41,8 +41,12 @@ log-dhcp
 # KeepConfiguration=yes: the NFS root runs over it). So after the gateway's
 # DHCP has been down past the lease, the only answer to the ping is the board
 # itself, and it would never get a lease back ("no address available"; seen
-# in the VM test, fpgas.online-infra #291). The quarantine range on the
-# trunk loses the same check: a device there is unconfigured by definition.
+# in the VM test, fpgas.online-infra #291). no-ping is daemon-wide (dnsmasq
+# has no per-range form), so every dynamic range loses the duplicate-address
+# check: the VLAN 1 quarantine range on the trunk, and `dhcp_range` where a
+# site sets one (ps1's 10.21.0.128-254 pool). A device there that holds one of
+# those addresses statically could be handed the same address. dhcp-host
+# entries (pibs.conf, switch.conf) were never pinged and are unchanged.
 no-ping
 
 # Don't use /etc/resolv.conf - we are the DNS server

@@ -22,9 +22,9 @@ verify-pi stop installing, feeding or checking them.
 import importlib.machinery
 import importlib.util
 import json
-import signal
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
