@@ -370,7 +370,8 @@
           # NFS root or be regenerated under /run every boot, so none of it may be in the upper layer: no unit,
           # .network, dispatcher hook, timesyncd drop-in, package or binary written on the Pi.
           OVERLAY_WATCHED = ("etc/systemd/system", "etc/systemd/network", "etc/systemd/timesyncd.conf.d",
-                             "etc/networkd-dispatcher", "etc/network", "etc/NetworkManager", "usr", "var/lib/dpkg")
+                             "etc/systemd/networkd.conf.d", "etc/networkd-dispatcher", "etc/network",
+                             "etc/NetworkManager", "etc/udev", "etc/sysctl.d", "usr", "var/lib/dpkg")
           def overlay_writes():
               options = next((l.split()[3] for l in (read("/proc/mounts") or b"").decode().splitlines()
                               if l.split()[1:3] == ["/", "overlay"]), "")
@@ -382,9 +383,11 @@
                   for top, dirs, files in os.walk(os.path.join(upper, sub), onerror=lambda e: found.append("ERROR " + str(e))):
                       # Python's bytecode caches are rewritten from the source at every boot and nothing depends on
                       # them surviving (seen: the fleet agent's __pycache__ under /usr/local/lib/fpgas-online/fleet).
-                      if os.path.basename(top) == "__pycache__":
-                          continue
-                      found += [os.path.join(top, f)[len(upper):] for f in files]
+                      # A symlink to a directory (a .wants link) is listed in dirs, not files, and os.walk does not
+                      # follow it: it counts as a write too.
+                      found += [os.path.join(top, f)[len(upper):] for f in files
+                                if not (os.path.basename(top) == "__pycache__" and f.endswith(".pyc"))]
+                      found += [os.path.join(top, d)[len(upper):] for d in dirs if os.path.islink(os.path.join(top, d))]
               # A watched path that does not exist in the upper layer was never written: the walk's onerror sees
               # ENOENT for it, which is the good case.
               found = [f for f in found if not (f.startswith("ERROR ") and "No such file or directory" in f)]

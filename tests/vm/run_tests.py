@@ -756,7 +756,8 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
     if rc == 0:
         first_boot = pi_network.run(pi_shell(pi, pi_host, key_path, proxy),
                                     lambda cmd: server_run(server, key_path, cmd, timeout=180),
-                                    pi.set_link, PI_ADDRESS)
+                                    pi.set_link, PI_ADDRESS,
+                                    lambda: pi.serial_log.read_text(errors="replace") if pi.serial_log.exists() else "")
         if first_boot is None:
             rc = 1
     # A second boot of the same root, nothing changed between (fpgas.online-infra #271, Tim 14 Oct 2026): the

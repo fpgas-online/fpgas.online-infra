@@ -20,9 +20,11 @@
 # timeout, 2 min, for a managed interface that never comes, so units after
 # network-online.target start late: a loud failure, not a silent one.)
 #
-# The file matches the interface by its MAC, not its name: the name is read
-# here, early, and a .link rename after this point would leave a Name= match
-# pointing at nothing. The MAC is the filter: a VLAN, bridge or veth would
+# The file matches the interface by its MAC, not its name. setup-pi's .link
+# rename (eth-uplink on a Pi 3B+) happens in the initramfs, before the root is
+# mounted (a board's kernel record was /run/net-eth-uplink.conf), and Linux
+# renames even an up interface in place. Still, a MAC match does not depend on
+# when or whether a rename happens. The MAC is the filter: a VLAN, bridge or veth would
 # share it (Type=ether does not tell them apart), and nothing on the root
 # creates one.
 #

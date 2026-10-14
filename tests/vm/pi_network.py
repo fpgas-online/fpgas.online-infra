@@ -98,9 +98,9 @@ PING_LOG = "ping-uplink.log"  # in the server user's home, not /tmp
 def _ping_start(srv, address: str, seconds: int) -> float:
     """Ping the Pi from the server every 0.2 s for `seconds`, in the background, with timestamps (-D). Returns the
     server's clock at the start, the beginning of the window."""
-    started = float(srv("date +%s.%N").strip())
-    srv(f"rm -f {PING_LOG}; (nohup ping -D -n -i 0.2 -w {seconds} {address} > {PING_LOG} 2>&1 &)")
-    return started
+    # The clock is read in the same command that starts the ping, so the window's start is the ping's start.
+    return float(srv(f"rm -f {PING_LOG}; date +%s.%N; (nohup ping -D -n -i 0.2 -w {seconds} {address} > {PING_LOG} 2>&1 &)")
+                 .strip().splitlines()[0])
 
 
 def _ping_gap(srv, started: float, seconds: int) -> tuple[float, int]:
@@ -127,9 +127,10 @@ def _wait_for_ack(server_sh, address: str, mac: str, since_epoch: str, what: str
         time.sleep(10)
 
 
-def run(pi_sh, server_sh, set_link, address: str) -> str | None:
+def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
     """pi_sh/server_sh run a shell command and return "rc=N\\n<output>"; set_link(up) pulls the cable. Returns the
-    boot id the steps ran in (the Pi is unreachable after the negative control), or None on a failure."""
+    boot id the steps ran in (the Pi is unreachable after the negative control), or None on a failure. read_serial()
+    returns the Pi's console log so far."""
     def pi(cmd: str) -> str:
         out = pi_sh(cmd)
         if not out.startswith("rc=0\n"):
@@ -169,7 +170,7 @@ def run(pi_sh, server_sh, set_link, address: str) -> str | None:
         pi("sudo systemctl restart systemd-networkd && sleep 10")
         down_after = pi(f"cat /sys/class/net/{uplink}/carrier_down_count").strip()
         gap, answers = _ping_gap(srv, started, 25)
-        if gap > 1.0 or answers < 25:
+        if gap > 1.0 or answers < 25 / 0.2 * 0.8:
             raise Step(f"the gateway's ping lost the Pi across the networkd restart: longest gap {gap:.2f} s, "
                        f"{answers} answers in 25 s")
         print(f"[net] networkd restart: the gateway's ping (every 0.2 s) saw at most {gap:.2f} s between answers")
@@ -259,6 +260,7 @@ def run(pi_sh, server_sh, set_link, address: str) -> str | None:
         # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
         # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address: the gateway loses the Pi for well
         # over a second. That shows the steps above can fail. The Pi is reset afterwards (the second boot).
+        serial_from = len(read_serial())
         started = _ping_start(srv, address, 25)
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=3 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
@@ -268,8 +270,17 @@ def run(pi_sh, server_sh, set_link, address: str) -> str | None:
         if gap <= 1.0:
             raise Step(f"the negative control did not break the link (longest gap {gap:.2f} s, {answers} answers): "
                        "a DHCP-only .network should have dropped the kernel's address, so these steps prove nothing")
+        # Silence alone could be a stalled emulated Pi. The NFS client's own complaint on the console shows the
+        # address really went: it prints "nfs: server <gateway> not responding" once its RPC times out.
+        deadline = time.monotonic() + 180
+        while "not responding" not in read_serial()[serial_from:]:
+            if time.monotonic() > deadline:
+                raise Step(f"the gateway lost the Pi in the negative control (gap {gap:.2f} s), but its console shows "
+                           "no 'nfs: ... not responding' within 180 s: no proof that the address was dropped")
+            time.sleep(10)
+        complaint = next(l for l in read_serial()[serial_from:].splitlines() if "not responding" in l)
         print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi, longest gap "
-              f"{gap:.2f} s, {answers} answers in 25 s, as at ps1")
+              f"{gap:.2f} s, {answers} answers in 25 s; its console: {complaint.strip()} (as at ps1)")
     except Step as e:
         print(f"ERROR: {e}")
         return None
