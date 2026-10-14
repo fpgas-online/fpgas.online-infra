@@ -1,0 +1,17 @@
+---
+# The switch port poller (fpgas.online-poe's `manage.py switch_poller`, coord-56): per-port-VLAN hosts with a fleet
+# broker only (included from main.yml). It needs the switches (poe.env, written in gunicorn.yml), the broker, and
+# the release script and its sudoers rule (roles/pxe, lease_events.yml).
+- name: Switch-poller systemd unit
+  ansible.builtin.template:
+    src: templates/switch-poller.service.j2
+    dest: /etc/systemd/system/switch-poller.service
+    mode: "0644"
+  notify: Restart switch-poller
+
+- name: Enable switch-poller
+  ansible.builtin.systemd:
+    service: switch-poller.service
+    daemon_reload: true
+    enabled: true
+    state: started

@@ -15,6 +15,7 @@
   notify:
     - Restart django services
     - Restart fleet-consumer
+    - Restart switch-poller
 
 - name: Install a PoE package branch on top (testing only, see defaults)
   ansible.builtin.pip:
@@ -25,6 +26,7 @@
   when: site_poe_package_override is defined
   notify:
     - Restart django services
+    - Restart switch-poller
 
 # Servers + the Channels redis layer (pib.settings uses channels_redis, which
 # the site package does not declare). Installed here, before the unit files

@@ -24,6 +24,12 @@
     state: restarted
   when: fleet_broker | default(false)
 
+- name: Restart switch-poller
+  ansible.builtin.systemd:
+    name: switch-poller
+    state: restarted
+  when: switches is defined and (fleet_broker | default(false))
+
 - name: Reload systemd
   ansible.builtin.systemd:
     daemon_reload: true
