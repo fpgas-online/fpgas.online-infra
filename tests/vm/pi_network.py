@@ -95,17 +95,22 @@ def _site_records(server_sh, serial: str, after_id: int = 0) -> list[dict]:
 PING_LOG = "ping-uplink.log"  # in the server user's home, not /tmp
 
 
-def _ping_start(srv, address: str, seconds: int) -> None:
-    """Ping the Pi from the server every 0.2 s for `seconds`, in the background, with timestamps (-D)."""
+def _ping_start(srv, address: str, seconds: int) -> float:
+    """Ping the Pi from the server every 0.2 s for `seconds`, in the background, with timestamps (-D). Returns the
+    server's clock at the start, the beginning of the window."""
+    started = float(srv("date +%s.%N").strip())
     srv(f"rm -f {PING_LOG}; (nohup ping -D -n -i 0.2 -w {seconds} {address} > {PING_LOG} 2>&1 &)")
+    return started
 
 
-def _ping_gap(srv, seconds: int) -> tuple[float, int]:
-    """(the longest time between two answers, the number of answers) once the background ping has ended."""
+def _ping_gap(srv, started: float, seconds: int) -> tuple[float, int]:
+    """(the longest time the Pi went unanswered within the window, the number of answers) once the background ping
+    has ended. The window runs from `started` for `seconds`: silence before the first answer and after the last
+    counts, so a Pi that stops answering for good shows the whole rest of the window as its gap."""
     time.sleep(seconds + 2)
     stamps = [float(m) for m in re.findall(r"^\[(\d+\.\d+)\] \d+ bytes from", srv(f"cat {PING_LOG}"), re.M)]
-    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
-    return (max(gaps) if gaps else float(seconds)), len(stamps)
+    edges = [started, *stamps, started + seconds]
+    return max(b - a for a, b in zip(edges, edges[1:])), len(stamps)
 
 
 def _wait_for_ack(server_sh, address: str, mac: str, since_epoch: str, what: str) -> None:
@@ -160,10 +165,10 @@ def run(pi_sh, server_sh, set_link, address: str) -> str | None:
         # 3. networkd restart. The link must not go down (at ps1, networkd taking the kernel-configured link down
         # killed the NFS mount): the carrier_down_count is the same after as before, and since the boot.
         down_before = pi(f"cat /sys/class/net/{uplink}/carrier_down_count").strip()
-        _ping_start(srv, address, 25)
+        started = _ping_start(srv, address, 25)
         pi("sudo systemctl restart systemd-networkd && sleep 10")
         down_after = pi(f"cat /sys/class/net/{uplink}/carrier_down_count").strip()
-        gap, answers = _ping_gap(srv, 25)
+        gap, answers = _ping_gap(srv, started, 25)
         if gap > 1.0 or answers < 25:
             raise Step(f"the gateway's ping lost the Pi across the networkd restart: longest gap {gap:.2f} s, "
                        f"{answers} answers in 25 s")
@@ -254,13 +259,13 @@ def run(pi_sh, server_sh, set_link, address: str) -> str | None:
         # On this overlay root networkd's own network-root default does not apply (systemd 252 checks / with
         # statfs: the tmpfs overlay, not NFS), so it drops the kernel's address: the gateway loses the Pi for well
         # over a second. That shows the steps above can fail. The Pi is reset afterwards (the second boot).
-        _ping_start(srv, address, 25)
+        started = _ping_start(srv, address, 25)
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=3 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
                          + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
                          " && systemctl restart systemd-networkd"))
-        gap, answers = _ping_gap(srv, 25)
-        if gap <= 1.0 and answers >= 100:
+        gap, answers = _ping_gap(srv, started, 25)
+        if gap <= 1.0:
             raise Step(f"the negative control did not break the link (longest gap {gap:.2f} s, {answers} answers): "
                        "a DHCP-only .network should have dropped the kernel's address, so these steps prove nothing")
         print(f"[net] negative control (the generator's DHCP-only .network): the gateway lost the Pi, longest gap "
