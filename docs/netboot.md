@@ -156,7 +156,7 @@ them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
 **Never taking the link down.** networkd must not take the uplink down or drop its address, at start, on a
 restart, on a carrier event, ever. That is what killed the NFS root on the blades at ps1. Their root is a different
 trixie root, which nothing in this repository builds. There, `systemd-network-generator` turned `ip=dhcp` into a
-DHCP-only `71-default.network`, and networkd's network-root default did not apply under the overlay. networkd
+DHCP-only `.network` (in our root's systemd 252 it is `91-default.network`), and networkd's network-root default did not apply under the overlay. networkd
 dropped the kernel's address as soon as it started, the root became unreachable, and the hardware watchdog reset
 the boards in a loop (systemd/systemd #44156, closed upstream as not a systemd bug). The guards:
 

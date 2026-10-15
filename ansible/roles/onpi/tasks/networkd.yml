@@ -81,7 +81,8 @@
 
 # Enabling networkd also enables systemd-network-generator.service (systemd
 # 252 systemd-networkd.service: Also=systemd-network-generator.service). That
-# generator turns the kernel's ip=dhcp into /run/systemd/network/71-default.network:
+# generator turns the kernel's ip=dhcp into /run/systemd/network/91-default.network
+# (systemd 252, src/network/generator/main.c):
 # DHCP without KeepConfiguration, matching the NFS root's interface and every
 # other ethernet. At ps1 exactly that file, under an overlay root where networkd's
 # own network-root default does not apply, dropped the kernel's address and

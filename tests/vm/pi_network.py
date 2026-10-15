@@ -281,7 +281,7 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         started = _ping_start(srv, address, CONTROL_WINDOW_S)
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=2 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
-                         + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
+                         + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/91-default.network"
                          " && systemctl stop systemd-networkd.socket systemd-networkd"
                          " && rm -f /run/systemd/netif/links/* /run/systemd/netif/leases/*"
                          " && systemctl start systemd-networkd"))

@@ -596,7 +596,8 @@
     # carrier_down_count now.
     # Only our .network may configure the uplink: networkd uses the first
     # file that matches, in lexical order, and the kernel-ip= generator's
-    # 71-default.network (DHCP without KeepConfiguration) is what killed the
+    # default .network (91-default.network in systemd 252; DHCP without
+    # KeepConfiguration) is what killed the
     # NFS root at ps1. The generator is masked, no other .network exists,
     # and networkd names our file for the uplink.
     - name: Assert the uplink is configured by our .network and nothing else

@@ -796,7 +796,8 @@ def test_the_pi_side_writes_only_under_run():
 
 def test_only_our_network_file_can_configure_the_uplink():
     # systemd 252's systemd-networkd.service has Also=systemd-network-generator.service, so enabling networkd
-    # enables the generator, whose 71-default.network (DHCP from ip=dhcp, no KeepConfiguration) is what killed the
+    # enables the generator, whose default .network (91-default.network in systemd 252; DHCP from ip=dhcp, no
+    # KeepConfiguration) is what killed the
     # NFS root at ps1 (systemd/systemd #44156). It is masked, and networkd needs our generator to have run.
     tasks = TASKS.read_text()
     assert "name: systemd-network-generator.service\n    masked: true" in tasks
