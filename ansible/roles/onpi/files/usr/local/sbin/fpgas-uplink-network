@@ -1,7 +1,6 @@
 #!/bin/bash
 # Hand the interface that carries the NFS root to systemd-networkd, the one
-# manager of the Pi's network (fpgas.online-infra #230, Tim's answer coord-57,
-# 14 Oct 2026).
+# manager of the Pi's network (fpgas.online-infra #230; decided 14 Oct 2026).
 #
 # The kernel's ip=dhcp configures that interface before userspace, for the
 # NFS mount. systemd-networkd then keeps that configuration, renews the IPv4
@@ -28,7 +27,7 @@
 # share it (Type=ether does not tell them apart), and nothing on the root
 # creates one.
 #
-# IPv6 (Tim's answer welland-1, 7 Oct 2026): the port's address is
+# IPv6 (decided 7 Oct 2026, PR #251): the port's address is
 # <base><S, two digits>::<P>, the formula of the port_vlan_map filter
 # (ansible/filter_plugins/port_vlans.py, "ip6"). The default route goes via
 # the gateway's <base><S, two digits>::ffff, which the gateway holds on every
@@ -120,7 +119,7 @@ DHCP=ipv4
 # networkd's own default of "yes" on a network root does not apply, because
 # / is the tmpfs overlay (overlayroot=tmpfs), not NFS, when networkd checks it
 # (path_is_network_fs). At ps1 that is how networkd dropped the kernel's
-# address and killed the NFS root (help-carl report1.md 3.2-3.4).
+# address and killed the NFS root (systemd/systemd #44156).
 KeepConfiguration=yes
 # Carrier loss would otherwise remove the address networkd took over from the
 # kernel: link_carrier_lost_impl() calls link_drop_managed_config(), which

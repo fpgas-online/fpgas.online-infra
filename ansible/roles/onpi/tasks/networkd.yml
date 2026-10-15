@@ -1,6 +1,6 @@
 ---
-# systemd-networkd manages the Pi's network (fpgas.online-infra #230, Tim's
-# answer coord-57, 14 Oct 2026). The kernel's ip=dhcp still configures the
+# systemd-networkd manages the Pi's network (fpgas.online-infra #230;
+# decided 14 Oct 2026). The kernel's ip=dhcp still configures the
 # NFS root's interface before userspace. networkd then takes it over with
 # KeepConfiguration=yes and renews the lease, so the gateway's per-port lease
 # shows that the board is alive. fpgas-uplink-network.service writes the
@@ -81,11 +81,12 @@
 
 # Enabling networkd also enables systemd-network-generator.service (systemd
 # 252 systemd-networkd.service: Also=systemd-network-generator.service). That
-# generator turns the kernel's ip=dhcp into /run/systemd/network/71-default.network:
+# generator turns the kernel's ip=dhcp into /run/systemd/network/91-default.network
+# (systemd 252, src/network/generator/main.c):
 # DHCP without KeepConfiguration, matching the NFS root's interface and every
 # other ethernet. At ps1 exactly that file, under an overlay root where networkd's
 # own network-root default does not apply, dropped the kernel's address and
-# killed the NFS root (help-carl report1.md 3.2-3.4). Only our .network may
+# killed the NFS root (systemd/systemd #44156). Only our .network may
 # configure the uplink, so the generator is masked.
 - name: Remove the generator's enable link
   ansible.builtin.file:
@@ -108,9 +109,8 @@
     - /etc/systemd/system/fpgas-ipv6.service
     - /usr/local/sbin/fpgas-ipv6
 
-# Every networkd state change of the uplink is published to the site (Tim,
-# 14 Oct 2026: "Make sure the networkd status changes call a script to publish
-# the data to the gateway site"). networkd has no hooks of its own;
+# Every networkd state change of the uplink is published to the site
+# (decided 14 Oct 2026). networkd has no hooks of its own;
 # networkd-dispatcher (Debian bookworm 2.2.3) listens to networkd on D-Bus and
 # runs /etc/networkd-dispatcher/<state>.d/*, synchronously, for each
 # administrative and operational state an interface enters. Every state it

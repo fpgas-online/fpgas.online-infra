@@ -760,7 +760,7 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
                                     lambda: pi.serial_log.read_text(errors="replace") if pi.serial_log.exists() else "")
         if first_boot is None:
             rc = 1
-    # A second boot of the same root, nothing changed between (fpgas.online-infra #271, Tim 14 Oct 2026): the
+    # A second boot of the same root, nothing changed between (fpgas.online-infra #271; decided 14 Oct 2026): the
     # root is read-only NFS under a tmpfs overlay (overlayroot=tmpfs), so anything a first boot wrote is gone.
     # verify-pi passing again proves no check rested on a write into the overlay.
     if rc == 0 and not second_boot(pi, first_boot, pi_host, key_path, proxy):

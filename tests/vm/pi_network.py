@@ -37,8 +37,8 @@ IgnoreCarrierLoss=yes in the .network that fpgas-uplink-network writes.
 6. the negative control: the generator's DHCP-only .network in place of ours,
    and networkd started afresh (stopped, its saved link and lease state
    under /run/systemd/netif removed, started: a first start on the link, as
-   at ps1), drops the kernel's address (as at ps1: help-carl
-   report1.md 3.2-3.4, logs 071 and 072). The proof is the address: it comes
+   at ps1), drops the kernel's address (as at ps1: systemd/systemd #44156). The proof is
+   the address: it comes
    back from plain DHCP with a finite lifetime, which every check above
    (_forever_v4) rejects, or the Pi stays lost: the gateway's ping gets no
    answer for at least LOST_S and nothing answers ARP for the address. How long the gateway loses the Pi depends on
@@ -266,7 +266,7 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
                            "want no-carrier then routable")
             time.sleep(10)
         # 6. The negative control (lab only): what killed the NFS root at ps1. That was always networkd's first
-        # start on a link it had never managed (help-carl log 071; the pi9 reboot loop at ps1). So: put what
+        # start on a link it had never managed (systemd/systemd #44156; the reboot loop of the blades at ps1). So: put what
         # systemd-network-generator would write from ip=dhcp (DHCP only, no KeepConfiguration) in place of our
         # .network, stop networkd, remove the state it keeps for the link under /run/systemd/netif (links and
         # leases), and start it. A plain restart is not that: networkd then carries its own state for the link
@@ -281,7 +281,7 @@ def run(pi_sh, server_sh, set_link, address: str, read_serial) -> str | None:
         started = _ping_start(srv, address, CONTROL_WINDOW_S)
         pi("sudo systemd-run --unit=fpgas-negative-control --on-active=2 /bin/sh -c "
            + shlex.quote("rm -f /run/systemd/network/10-fpgas-uplink.network && printf '[Match]\\nName="
-                         + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/71-default.network"
+                         + uplink + "\\n\\n[Network]\\nDHCP=ipv4\\n' > /run/systemd/network/91-default.network"
                          " && systemctl stop systemd-networkd.socket systemd-networkd"
                          " && rm -f /run/systemd/netif/links/* /run/systemd/netif/leases/*"
                          " && systemctl start systemd-networkd"))
