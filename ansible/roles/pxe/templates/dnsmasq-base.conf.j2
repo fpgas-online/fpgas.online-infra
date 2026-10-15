@@ -33,6 +33,22 @@ tftp-root={{ tftp_root }}
 # Log DHCP transactions for debugging
 log-dhcp
 
+# No ping before offering an address. dnsmasq pings an address that holds no
+# lease before it offers it (dnsmasq 2.91 src/rfc2131.c DHCPDISCOVER,
+# src/dhcp.c address_allocate) and offers nothing if the address answers.
+# A per-port range is one address for the one device on that port, and a
+# board keeps its address when its lease runs out (systemd-networkd
+# KeepConfiguration=yes: the NFS root runs over it). So after the gateway's
+# DHCP has been down past the lease, the only answer to the ping is the board
+# itself, and it would never get a lease back ("no address available"; seen
+# in the VM test, fpgas.online-infra #291). no-ping is daemon-wide (dnsmasq
+# has no per-range form), so every dynamic range loses the duplicate-address
+# check: the VLAN 1 quarantine range on the trunk, and `dhcp_range` where a
+# site sets one (ps1's 10.21.0.128-254 pool). A device there that holds one of
+# those addresses statically could be handed the same address. dhcp-host
+# entries (pibs.conf, switch.conf) were never pinged and are unchanged.
+no-ping
+
 # Don't use /etc/resolv.conf - we are the DNS server
 no-resolv
 server=8.8.8.8

@@ -16,7 +16,9 @@
 #    state: absent
 #
 
-- name: Remove etc/hostname (dhclient will get hostname from server)
+# No static name: the kernel's DHCP at boot, then systemd-networkd
+# (UseHostname=), set the per-port name the gateway gives (pi-sw<s>-p<p>).
+- name: Remove etc/hostname (the hostname comes from DHCP)
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/hostname"
     state: absent
@@ -48,11 +50,12 @@
     mode: "0644"
     directory_mode: "0755"
 
-- name: Resolve.conf
-  ansible.builtin.template:
-    src: templates/resolve.conf.j2
-    dest: "{{ nfs_root }}/root/etc/resolve.conf"
-    mode: "0644"
+# /etc/resolve.conf (sic) was written here for years and read by nothing:
+# the resolver reads /etc/resolv.conf, which ci-nfsroot.yml writes.
+- name: Remove the misnamed /etc/resolve.conf
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/etc/resolve.conf"
+    state: absent
 
 # The root's time zone is UTC, as the gateway's is (fpgas.online-infra #288).
 # Raspberry Pi OS ships Europe/London, so the Pis' logs, shell prompts and the
@@ -234,16 +237,17 @@
     name: serial-getty@ttyAMA0.service
   when: fixpi_server_monitor | default(true)
 
-# ifupdown is unused on the netbooted root (kernel ip=dhcp + NetworkManager):
-# networking.service fails on every Pi and ifupdown-pre.service (udevadm
-# settle) waits its full 2 min on the Orange Pi H3 before anything else starts
-# (spike 2026-08-28: userspace 2 m 16 s, of which ifupdown-pre 2 m 02 s).
-- name: Mask ifupdown units in NFS root
+# ifupdown is not in the root: systemd-networkd manages the network
+# (onpi/tasks/networkd.yml, which purges ifupdown). Until 14 Oct 2026 its
+# units were masked here (networking.service failed on every Pi, and
+# ifupdown-pre.service waited 2 min on the Orange Pi H3 at every boot), with a
+# static eth1/eth-fpga stanza that the mask kept from ever applying. A root
+# converged from an older one still carries the masks and the stanza.
+- name: Remove the ifupdown masks and the eth1/eth-fpga stanza
   ansible.builtin.file:
-    src: /dev/null
-    dest: "{{ nfs_root }}/root/etc/systemd/system/{{ item }}"
-    state: link
-    force: true
+    path: "{{ nfs_root }}/root/{{ item }}"
+    state: absent
   loop:
-    - networking.service
-    - ifupdown-pre.service
+    - etc/systemd/system/networking.service
+    - etc/systemd/system/ifupdown-pre.service
+    - etc/network/interfaces.d/eth1.conf

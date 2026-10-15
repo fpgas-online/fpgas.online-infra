@@ -1,0 +1,177 @@
+---
+# systemd-networkd manages the Pi's network (fpgas.online-infra #230, Tim's
+# answer coord-57, 14 Oct 2026). The kernel's ip=dhcp still configures the
+# NFS root's interface before userspace. networkd then takes it over with
+# KeepConfiguration=yes and renews the lease, so the gateway's per-port lease
+# shows that the board is alive. fpgas-uplink-network.service writes the
+# .network file at boot for whichever interface routes to the NFS server; the
+# script says why the name is not fixed. The same file carries the port's IPv6
+# address and default route, which fpgas-ipv6.service (PR #251) set until
+# 14 Oct 2026.
+#
+# NetworkManager only "assumed" the kernel's configuration ("connected
+# (externally)") and ran no DHCP client, so no board ever renewed. ifupdown
+# has been masked since August 2026 and nothing started dhclient. All three
+# go. raspberrypi-net-mods (Wi-Fi tweaks for NetworkManager, its only reverse
+# dependency in the image) goes with network-manager.
+# apt removes reverse dependencies with them, silently: simulate first, and
+# stop if anything beyond these and raspberrypi-net-mods would go.
+- name: Simulate the removal of NetworkManager, ifupdown and dhclient
+  ansible.builtin.command:
+    argv: [apt-get, --simulate, purge, network-manager, ifupdown, isc-dhcp-client]
+  register: onpi_network_purge_sim
+  changed_when: false
+
+- name: Assert the removal takes nothing else
+  ansible.builtin.assert:
+    that: onpi_network_purge_extra | length == 0
+    fail_msg: "Purging network-manager, ifupdown and isc-dhcp-client would also remove {{ onpi_network_purge_extra }}"
+    quiet: true
+  vars:
+    onpi_network_purge_extra: >-
+      {{ onpi_network_purge_sim.stdout_lines | select('match', '^Purg ') | map('split') | map(attribute=1)
+         | reject('in', ['network-manager', 'ifupdown', 'isc-dhcp-client', 'raspberrypi-net-mods']) | list }}
+
+- name: Remove NetworkManager, ifupdown and dhclient
+  ansible.builtin.apt:
+    name:
+      - network-manager
+      - ifupdown
+      - isc-dhcp-client
+    state: absent
+    purge: true
+
+- name: Install the uplink script
+  ansible.builtin.copy:
+    src: usr/local/sbin/fpgas-uplink-network
+    dest: /usr/local/sbin/fpgas-uplink-network
+    mode: "0755"
+
+- name: Install the uplink unit
+  ansible.builtin.copy:
+    src: etc/systemd/system/fpgas-uplink-network.service
+    dest: /etc/systemd/system/fpgas-uplink-network.service
+    mode: "0644"
+
+- name: Enable the uplink unit
+  ansible.builtin.systemd:
+    name: fpgas-uplink-network.service
+    enabled: true
+
+# Enabling networkd also enables systemd-networkd-wait-online.service (its
+# Also=), which network-online.target then waits on: the fleet agent's
+# network-online event starts after it.
+- name: Enable systemd-networkd
+  ansible.builtin.systemd:
+    name: systemd-networkd.service
+    enabled: true
+
+# networkd waits for, and needs, the uplink's .network (see the drop-in).
+- name: Create the systemd-networkd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd.service.d
+    state: directory
+    mode: "0755"
+
+- name: Start systemd-networkd only after the uplink's .network is written
+  ansible.builtin.copy:
+    src: etc/systemd/system/systemd-networkd.service.d/fpgas-uplink.conf
+    dest: /etc/systemd/system/systemd-networkd.service.d/fpgas-uplink.conf
+    mode: "0644"
+
+# Enabling networkd also enables systemd-network-generator.service (systemd
+# 252 systemd-networkd.service: Also=systemd-network-generator.service). That
+# generator turns the kernel's ip=dhcp into /run/systemd/network/71-default.network:
+# DHCP without KeepConfiguration, matching the NFS root's interface and every
+# other ethernet. At ps1 exactly that file, under an overlay root where networkd's
+# own network-root default does not apply, dropped the kernel's address and
+# killed the NFS root (help-carl report1.md 3.2-3.4). Only our .network may
+# configure the uplink, so the generator is masked.
+- name: Remove the generator's enable link
+  ansible.builtin.file:
+    path: /etc/systemd/system/sysinit.target.wants/systemd-network-generator.service
+    state: absent
+
+- name: Mask systemd-network-generator
+  ansible.builtin.systemd:
+    name: systemd-network-generator.service
+    masked: true
+
+# fpgas-ipv6.service is retired: networkd sets the IPv6 address and route.
+# An image converged from an older one still carries it.
+- name: Remove the retired fpgas-ipv6 unit and script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/multi-user.target.wants/fpgas-ipv6.service
+    - /etc/systemd/system/fpgas-ipv6.service
+    - /usr/local/sbin/fpgas-ipv6
+
+# Every networkd state change of the uplink is published to the site (Tim,
+# 14 Oct 2026: "Make sure the networkd status changes call a script to publish
+# the data to the gateway site"). networkd has no hooks of its own;
+# networkd-dispatcher (Debian bookworm 2.2.3) listens to networkd on D-Bus and
+# runs /etc/networkd-dispatcher/<state>.d/*, synchronously, for each
+# administrative and operational state an interface enters. Every state it
+# knows (its ADMIN_STATES and OPER_STATES) gets the one script, which reports
+# only on the uplink (see the script). Scripts and their directories must be
+# root-owned and 0755, or the dispatcher skips them.
+- name: Install networkd-dispatcher
+  ansible.builtin.apt:
+    name: networkd-dispatcher
+    state: present
+
+- name: Install the network state publisher
+  ansible.builtin.copy:
+    src: usr/local/sbin/fpgas-network-state
+    dest: /usr/local/sbin/fpgas-network-state
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the networkd-dispatcher state directories
+  ansible.builtin.file:
+    path: "/etc/networkd-dispatcher/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ onpi_networkd_states }}"
+
+- name: Run the publisher on every state
+  ansible.builtin.file:
+    src: /usr/local/sbin/fpgas-network-state
+    dest: "/etc/networkd-dispatcher/{{ item }}.d/50-fpgas-network-state"
+    state: link
+  loop: "{{ onpi_networkd_states }}"
+
+- name: Create the networkd-dispatcher drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/networkd-dispatcher.service.d
+    state: directory
+    mode: "0755"
+
+- name: Start networkd-dispatcher after the fleet agent
+  ansible.builtin.copy:
+    src: etc/systemd/system/networkd-dispatcher.service.d/fpgas-after-fleet-agent.conf
+    dest: /etc/systemd/system/networkd-dispatcher.service.d/fpgas-after-fleet-agent.conf
+    mode: "0644"
+
+- name: Enable networkd-dispatcher
+  ansible.builtin.systemd:
+    name: networkd-dispatcher.service
+    enabled: true
+
+# Spooled records (the broker was unreachable) go out within a minute of it
+# answering again, not only at the next state change. The timer is not
+# enabled: the publisher starts it while records stay in the spool, so an
+# idle Pi runs nothing every minute.
+- name: Install the spool flush units
+  ansible.builtin.copy:
+    src: "etc/systemd/system/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - fpgas-network-state-flush.service
+    - fpgas-network-state-flush.timer

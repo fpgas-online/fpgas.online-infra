@@ -1,0 +1,15 @@
+# Names the NFS root's interface for systemd-networkd before networkd starts:
+# see /usr/local/sbin/fpgas-uplink-network.
+[Unit]
+Description=Hand the NFS root's network interface to systemd-networkd
+DefaultDependencies=no
+Before=systemd-networkd.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/fpgas-uplink-network
+
+[Install]
+WantedBy=systemd-networkd.service

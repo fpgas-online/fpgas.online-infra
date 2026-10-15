@@ -1,0 +1,145 @@
+#!/bin/bash
+# Hand the interface that carries the NFS root to systemd-networkd, the one
+# manager of the Pi's network (fpgas.online-infra #230, Tim's answer coord-57,
+# 14 Oct 2026).
+#
+# The kernel's ip=dhcp configures that interface before userspace, for the
+# NFS mount. systemd-networkd then keeps that configuration, renews the IPv4
+# lease (the gateway's per-port lease then says the board is alive), and sets
+# the port's IPv6 address and route. It manages only the interface named in
+# the .network file written here. Every other interface, such as the USB
+# adapter an FPGA's Ethernet test configures for itself, is left alone.
+#
+# The interface is the one routing to the NFS server from the kernel command
+# line (nfsroot=<server>:<path>, fixpi's cmdline templates and the Orange Pi
+# PXE file). It is found at boot, not given as a fixed name: setup-pi's .link
+# files name a Pi 3B+'s NIC eth-uplink, other Pis have eth0, and on 8 Oct 2026
+# 7 of the 20 live welland Pis had no eth0. No route to the server is an
+# error, not a guess. Then networkd manages nothing, and the kernel's address
+# still carries the root. (systemd-networkd-wait-online then waits for its
+# timeout, 2 min, for a managed interface that never comes, so units after
+# network-online.target start late: a loud failure, not a silent one.)
+#
+# The file matches the interface by its MAC, not its name. setup-pi's .link
+# rename (eth-uplink on a Pi 3B+) happens in the initramfs, before the root is
+# mounted (a board's kernel record was /run/net-eth-uplink.conf), and Linux
+# renames even an up interface in place. Still, a MAC match does not depend on
+# when or whether a rename happens. The MAC is the filter: a VLAN, bridge or veth would
+# share it (Type=ether does not tell them apart), and nothing on the root
+# creates one.
+#
+# IPv6 (Tim's answer welland-1, 7 Oct 2026): the port's address is
+# <base><S, two digits>::<P>, the formula of the port_vlan_map filter
+# (ansible/filter_plugins/port_vlans.py, "ip6"). The default route goes via
+# the gateway's <base><S, two digits>::ffff, which the gateway holds on every
+# port interface of switch S and routes <address>/128 back to the port. S and
+# P come from the port's IPv4 address, <net>.S.P (port_vlan_map's "ip4"),
+# which the kernel's DHCP set; <net> is the NFS server's first two octets.
+# The base is the site's pib_network6_base, which fixpi writes to
+# /etc/fpgas-online/ipv6-base.
+# Static, not router advertisements or DHCPv6: the gateway's dnsmasq refreshes
+# advertisements on one port interface per switch prefix only, so an
+# advertised route lapses, and every board shares one machine-id, so a
+# DHCPv6 DUID derived from it would be the same on all of them (PR #251).
+# Without the base file (a site with no per-port IPv6), or with an address
+# that is not a per-port one (switch 0 is the quarantine range), the file
+# has no IPv6 address or route.
+#
+# Runs before systemd-networkd (fpgas-uplink-network.service). It writes to
+# /run, so every boot decides afresh.
+set -eu
+
+cmdline_file=${FPGAS_UPLINK_CMDLINE:-/proc/cmdline}
+carrier_file=${FPGAS_UPLINK_CARRIER_FILE:-/run/fpgas-uplink-network.carrier}
+sysfs_net=${FPGAS_UPLINK_SYSFS_NET:-/sys/class/net}
+base_file=${FPGAS_IPV6_BASE_FILE:-/etc/fpgas-online/ipv6-base}
+out_dir=${FPGAS_UPLINK_NETWORK_DIR:-/run/systemd/network}
+
+server=$(sed -n 's/.*nfsroot=\([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\):.*/\1/p' "$cmdline_file")
+[ -n "$server" ] || { echo "no nfsroot=<IPv4 server>:<path> in $cmdline_file: cannot tell the NFS root's interface" >&2; exit 1; }
+
+route=$(ip -o -4 route get "$server")
+dev=$(printf '%s\n' "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p')
+src=$(printf '%s\n' "$route" | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+[ -n "$dev" ] && [ -n "$src" ] || { echo "no interface routes to the NFS server ${server}: ${route}" >&2; exit 1; }
+mac=$(tr 'A-F' 'a-f' < "$sysfs_net/$dev/address")
+[[ $mac =~ ^[0-9a-f]{2}(:[0-9a-f]{2}){5}$ ]] && [ "$mac" != 00:00:00:00:00:00 ] || { echo "${dev} has no MAC address: ${mac}" >&2; exit 1; }
+
+ipv6=""
+net=${server%.*.*}
+if [ ! -r "$base_file" ]; then
+    echo "no $base_file: no IPv6"
+elif [[ ! $src =~ ^${net//./\\.}\.([0-9]+)\.([0-9]+)$ ]] || [ "${BASH_REMATCH[1]}" -eq 0 ]; then
+    echo "${src} is not a per-port address ${net}.<switch>.<port>: no IPv6"
+else
+    switch=${BASH_REMATCH[1]}
+    port=${BASH_REMATCH[2]}
+    base=$(tr -d '[:space:]' < "$base_file")
+    prefix=$(printf '%s%02d' "$base" "$switch")
+    ipv6="
+# The port's IPv6 address and the default route via the gateway's ::ffff on
+# this switch's prefix (switch ${switch}, port ${port}).
+[Address]
+Address=${prefix}::${port}/128
+
+[Route]
+Gateway=${prefix}::ffff
+GatewayOnLink=yes
+Metric=512"
+fi
+
+# The uplink's carrier counters before networkd touches it. networkd must never take the link down or drop
+# its address: that kills the NFS root under it, as it did at ps1. verify-pi compares these with the counters
+# later in the boot; a link that went down in between has a higher carrier_down_count.
+{
+    echo "interface=${dev}"
+    echo "carrier_down_count=$(cat "$sysfs_net/$dev/carrier_down_count")"
+    echo "carrier_up_count=$(cat "$sysfs_net/$dev/carrier_up_count")"
+    echo "operstate=$(cat "$sysfs_net/$dev/operstate")"
+} > "$carrier_file.tmp"
+mv "$carrier_file.tmp" "$carrier_file"
+
+mkdir -p "$out_dir"
+cat > "$out_dir/10-fpgas-uplink.network.tmp" <<EOF
+# Written at boot by /usr/local/sbin/fpgas-uplink-network: the interface that
+# routes to the NFS server ${server}, with the port's address ${src}: ${dev} at boot.
+[Match]
+MACAddress=${mac}
+Type=ether
+
+[Link]
+RequiredForOnline=routable
+
+[Network]
+DHCP=ipv4
+# The NFS root runs over the kernel's address. Never drop it: networkd keeps
+# foreign addresses and routes (link_drop_foreign_config returns at once for
+# "yes", systemd 252 src/network/networkd-link.c), gives the DHCP address an
+# infinite lifetime and ignores lease expiry (networkd-dhcp4.c), and keeps the
+# address when it stops (networkd-link.c, DHCP_ON_STOP). Set here, explicitly:
+# networkd's own default of "yes" on a network root does not apply, because
+# / is the tmpfs overlay (overlayroot=tmpfs), not NFS, when networkd checks it
+# (path_is_network_fs). At ps1 that is how networkd dropped the kernel's
+# address and killed the NFS root (help-carl report1.md 3.2-3.4).
+KeepConfiguration=yes
+# Carrier loss would otherwise remove the address networkd took over from the
+# kernel: link_carrier_lost_impl() calls link_drop_managed_config(), which
+# KeepConfiguration= does not guard (systemd 252 src/network/networkd-link.c
+# and link_drop_managed_addresses() in networkd-address.c).
+IgnoreCarrierLoss=yes
+IPv6AcceptRA=no
+LinkLocalAddressing=ipv6
+
+[DHCPv4]
+# By MAC: every board shares one machine-id, so the default DUID-based client
+# identifier would be the same on all of them.
+ClientIdentifier=mac
+UseHostname=yes
+UseNTP=yes
+UseDomains=no
+# A networkd restart must not make the gateway forget the board.
+SendRelease=no
+${ipv6}
+EOF
+mv "$out_dir/10-fpgas-uplink.network.tmp" "$out_dir/10-fpgas-uplink.network"
+echo "${dev} (${mac}): routes to the NFS server ${server} from ${src}; managed by systemd-networkd${ipv6:+, with IPv6}"

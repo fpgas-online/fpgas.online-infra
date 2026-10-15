@@ -39,7 +39,6 @@ CONFIG_FILES = [
     "root/etc/fstab",
     "root/etc/environment",
     "root/etc/resolv.conf",
-    "root/etc/resolve.conf",
     "root/etc/hostname",
     "root/etc/systemd/timesyncd.conf.d/fpgas.conf",
     "root/usr/sbin/policy-rc.d",

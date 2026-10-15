@@ -1,0 +1,11 @@
+# Retries the spooled network-state records every minute. Not enabled: the
+# publisher (/usr/local/sbin/fpgas-network-state) starts it when records stay
+# in the spool, and the flush that empties the spool stops it, so it runs only
+# while there is something to send.
+[Unit]
+Description=Send spooled network-state records to the site every minute
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=1min
+AccuracySec=10s

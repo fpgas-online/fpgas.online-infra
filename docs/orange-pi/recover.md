@@ -108,8 +108,9 @@ board's identity is not checked, and you must check its MAC yourself (below).
    ```
 
    The MAC must be the board's from [the table](../orange-pi.md#which-board-is-where). If another MAC answers,
-   stop. The lease line exists only for the first 5 minutes after the board boots (it never renews,
-   fpgas.online-infra issue #230), so the neighbour entry is the check.
+   stop. On a root with systemd-networkd the board renews its lease about every 150 s. On an older root the
+   lease line exists only for the first 5 minutes after the board boots (it never renews, fpgas.online-infra
+   issue #230), so there the neighbour entry is the check.
 3. **Power-cycle its port** on switch 2 ([Power-cycling a board](../network/power-cycle.md#at-welland)). Visitors
    may be using it; a cycle ends their session. The board comes back in FEL mode on the hub host, which loads
    U-Boot into it, within about 3 s; `journalctl -u 'fpgas-felboot@*'` on the hub host shows the attempts (three

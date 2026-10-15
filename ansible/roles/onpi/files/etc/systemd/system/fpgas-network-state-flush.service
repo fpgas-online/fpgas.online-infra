@@ -1,0 +1,12 @@
+# Sends network-state records that were spooled because the broker did not
+# take them, without waiting for the next networkd state change: see
+# /usr/local/sbin/fpgas-network-state. Runs only while the spool holds one.
+[Unit]
+Description=Send spooled network-state records to the site
+ConditionDirectoryNotEmpty=/run/fpgas-network-state
+ConditionPathExists=/etc/fpgas-online/fleet.toml
+After=fpgas-fleet-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fpgas-network-state --flush
