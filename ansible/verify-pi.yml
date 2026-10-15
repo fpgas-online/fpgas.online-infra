@@ -547,7 +547,7 @@
           Expected {{ verify_pi_expected_ip }} (from hostname
           {{ ansible_hostname }}) on an interface; not found
 
-    # systemd-networkd manages the network (#230, Tim's answer coord-57):
+    # systemd-networkd manages the network (#230; decided 14 Oct 2026):
     # fpgas-uplink-network handed it the interface carrying the NFS root, it
     # holds the port's address and renews its lease, and networkd-dispatcher
     # runs the state publisher. networkd rewrites the lease file at every
@@ -675,7 +675,7 @@
           ({{ verify_pi_network.acquired_epoch }} + 30 s), waited 4 min: the Pi is not renewing. Its DHCP lines:
           {{ verify_pi_dhcpacks.stdout_lines | select('search', verify_pi_network.mac) | list }}{% endif %}
 
-    # IPv6 (Tim's answer welland-1, 2026-10-07): systemd-networkd gives the
+    # IPv6 (decided 2026-10-07, PR #251): systemd-networkd gives the
     # board's interface (whatever its name) the port's address, <pib_network6_base><switch, two digits>::<port>, and a
     # default route via the gateway's <...>::ffff, from the .network file
     # fpgas-uplink-network writes at boot (onpi/tasks/networkd.yml). The

@@ -122,8 +122,8 @@ The PS1 Compute Blades boot a separate trixie root and have `console=tty1` with 
 ## The network after boot: systemd-networkd
 
 `ip=dhcp` makes the kernel take the port's address before userspace, because the NFS root is mounted over it. From
-then on systemd-networkd manages the network, IPv4 and IPv6 (fpgas.online-infra #230, Tim's answer coord-57, 14
-October 2026). NetworkManager, `ifupdown` and `isc-dhcp-client` are purged from the root
+then on systemd-networkd manages the network, IPv4 and IPv6 (fpgas.online-infra #230; decided 14 October
+2026). NetworkManager, `ifupdown` and `isc-dhcp-client` are purged from the root
 (`roles/onpi/tasks/networkd.yml`). Before that change, NetworkManager only took over the kernel's configuration
 ("connected (externally)") and ran no DHCP client, so no board ever renewed its lease.
 
@@ -154,10 +154,11 @@ them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
 | `IPv6AcceptRA=no` plus `[Address]` `<base><s, two digits>::<p>/128` and `[Route]` `Gateway=<base><s, two digits>::ffff` | the port's IPv6 address and default route are static. They are computed from the port's IPv4 address, `<net>.<s>.<p>`, and the site's `pib_network6_base` (fixpi writes it to `/etc/fpgas-online/ipv6-base`). Advertised routes are not used: the gateway refreshes its advertisements on one port interface per switch prefix only, so an advertised route lapses (PR #251) |
 
 **Never taking the link down.** networkd must not take the uplink down or drop its address, at start, on a
-restart, on a carrier event, ever. That is what killed the NFS root on the ps1 blades. There, systemd 257's
-`systemd-network-generator` turned `ip=dhcp` into a DHCP-only `71-default.network`, and networkd's network-root
-default did not apply under the overlay. networkd dropped the kernel's address 0.4 s after it started, and the
-hardware watchdog reset the boards every 95 s (help-carl `report1.md` 3.2 to 3.4). The guards:
+restart, on a carrier event, ever. That is what killed the NFS root on the blades at ps1. Their root is a different
+trixie root, which nothing in this repository builds. There, `systemd-network-generator` turned `ip=dhcp` into a
+DHCP-only `71-default.network`, and networkd's network-root default did not apply under the overlay. networkd
+dropped the kernel's address as soon as it started, the root became unreachable, and the hardware watchdog reset
+the boards in a loop (systemd/systemd #44156, closed upstream as not a systemd bug). The guards:
 
 - `systemd-network-generator` is masked. Enabling networkd would otherwise enable it too, through
   `Also=` in systemd 252's unit.
@@ -166,7 +167,7 @@ hardware watchdog reset the boards every 95 s (help-carl `report1.md` 3.2 to 3.4
 - The uplink's file sets nothing that makes networkd 252 take a link down: no `[Link] MACAddress=`, no bond,
   no `ActivationPolicy=down`, no `BindCarrier=`, no MTU.
 
-verify-pi checks four things:
+verify-pi checks each of these:
 
 - `networkctl status` names `10-fpgas-uplink.network` for the uplink.
 - No other `.network` exists.
@@ -174,7 +175,7 @@ verify-pi checks four things:
 - The uplink's `carrier_down_count` has not changed since before networkd started (`fpgas-uplink-network`
   records it in `/run/fpgas-uplink-network.carrier`).
 
-The VM test does three things:
+The VM test also does each of these:
 
 - It restarts networkd, with the gateway pinging every 0.2 s. No gap of more than 1 s is allowed, and the
   kernel log may show no link loss or NFS trouble.
@@ -193,7 +194,7 @@ DNS is unchanged: `/etc/resolv.conf` is the gateway's address, which `ansible/ci
 (without systemd-resolved) never writes the file.
 
 **State changes go to the site.** networkd-dispatcher runs `/usr/local/sbin/fpgas-network-state` at every
-administrative and operational state the uplink enters: all 16 states the dispatcher knows (`onpi_networkd_states`).
+administrative and operational state the uplink enters: every state the dispatcher knows (`onpi_networkd_states`).
 The dispatcher starts after the fleet agent, so states the uplink passed through before then are not sent. At its
 start it reports only the state each interface is in (its `--run-startup-triggers`), which at boot is normally
 `configured` and `routable`.

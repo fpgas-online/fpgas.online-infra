@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Publish the uplink's network state to the site at every networkd state change.
 
-Tim, 14 Oct 2026: "Make sure the networkd status changes call a script to
-publish the data to the gateway site". networkd-dispatcher runs this script
+Every networkd state change of the uplink is published to the site's server
+(decided 14 Oct 2026). networkd-dispatcher runs this script
 from /etc/networkd-dispatcher/<state>.d/ (onpi/tasks/networkd.yml links it
 into every state directory), with IFACE and STATE set. The script reports
 only on the interface that fpgas-uplink-network handed to networkd: the one

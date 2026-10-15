@@ -1,10 +1,10 @@
-"""The Pis' network under systemd-networkd (#230, Tim's answer coord-57, 14 Oct 2026).
+"""The Pis' network under systemd-networkd (#230; decided 14 Oct 2026).
 
 The kernel's ip=dhcp configures the NFS root's interface before userspace;
 fpgas-uplink-network then writes, before networkd starts, the .network that
 hands that interface (and only it) to networkd: DHCPv4 that renews but never
 drops the address (KeepConfiguration=yes, IgnoreCarrierLoss=yes), and the
-port's static IPv6 address and default route (Tim's answer welland-1, the
+port's static IPv6 address and default route (decided 7 Oct 2026, PR #251: the
 port_vlan_map formula <base><switch, two digits>::<port>, gateway ::ffff).
 Its name varies (eth0, eth-uplink, end0), so the script takes the interface
 that routes to the NFS server on the kernel command line.
@@ -797,7 +797,7 @@ def test_the_pi_side_writes_only_under_run():
 def test_only_our_network_file_can_configure_the_uplink():
     # systemd 252's systemd-networkd.service has Also=systemd-network-generator.service, so enabling networkd
     # enables the generator, whose 71-default.network (DHCP from ip=dhcp, no KeepConfiguration) is what killed the
-    # NFS root at ps1 (help-carl report1.md 3.2-3.4). It is masked, and networkd needs our generator to have run.
+    # NFS root at ps1 (systemd/systemd #44156). It is masked, and networkd needs our generator to have run.
     tasks = TASKS.read_text()
     assert "name: systemd-network-generator.service\n    masked: true" in tasks
     assert tasks.index("name: systemd-networkd.service\n    enabled: true") < tasks.index(
