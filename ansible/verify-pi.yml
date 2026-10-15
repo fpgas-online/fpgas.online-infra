@@ -397,6 +397,9 @@
                        and f not in OVERLAY_LOCKS]
               return {"upper": upper, "error": "", "files": sorted(found)}
           print(json.dumps({
+              "timezone": {"localtime": os.readlink("/etc/localtime") if os.path.islink("/etc/localtime") else "",
+                           "timezone": (read("/etc/timezone") or b"").decode().strip(),
+                           "date": run("date", "+%Z")["stdout"]},
               "overlay_writes": overlay_writes(),
               "network": network_state(),
               "mounts": run("mount"),
@@ -461,6 +464,7 @@
     - name: Results of the collected checks
       ansible.builtin.set_fact:
         verify_pi_mounts: "{{ verify_pi_state.mounts }}"
+        verify_pi_timezone: "{{ verify_pi_state.timezone }}"
         verify_pi_addrs: "{{ verify_pi_state.addrs }}"
         verify_pi_ping: "{{ verify_pi_state.ping }}"
         verify_pi_ssh: "{{ verify_pi_state.ssh }}"
@@ -502,6 +506,16 @@
         ansible_architecture: "{{ verify_pi_state.facts.architecture }}"
       vars:
         verify_pi_state: "{{ verify_pi_collected.stdout | from_json }}"
+
+    # The root's time zone is UTC, as the gateway's (#288): Raspberry Pi
+    # OS's Europe/London put the boards an hour ahead of the gateway in summer.
+    - name: Assert the Pi's time zone is UTC
+      ansible.builtin.assert:
+        that:
+          - verify_pi_timezone.localtime == '/usr/share/zoneinfo/Etc/UTC'
+          - verify_pi_timezone.timezone == 'Etc/UTC'
+          - verify_pi_timezone.date == 'UTC'
+        fail_msg: "{{ ansible_hostname }}: time zone {{ verify_pi_timezone }} (want Etc/UTC)"
 
     # Boot infrastructure
     - name: Assert NFS mount present

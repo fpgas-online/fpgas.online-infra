@@ -57,6 +57,25 @@
     path: "{{ nfs_root }}/root/etc/resolve.conf"
     state: absent
 
+# The root's time zone is UTC, as the gateway's is (fpgas.online-infra #288).
+# Raspberry Pi OS ships Europe/London, so the Pis' logs, shell prompts and the
+# camera clock overlay read an hour ahead of the gateway's UTC in summer. The
+# site names its own display zone (site_timezone); the boards keep UTC.
+- name: Set the root's time zone to UTC
+  ansible.builtin.copy:
+    content: "Etc/UTC\n"
+    dest: "{{ nfs_root }}/root/etc/timezone"
+    mode: "0644"
+
+- name: Point the root's localtime at UTC
+  ansible.builtin.file:
+    src: /usr/share/zoneinfo/Etc/UTC
+    dest: "{{ nfs_root }}/root/etc/localtime"
+    state: link
+    force: true
+    # The target is inside the root, not on the host running the play.
+    follow: false
+
 - name: Add time to bash prompt
   ansible.builtin.lineinfile:
     dest: "{{ nfs_root }}/root/home/pi/.bashrc"
