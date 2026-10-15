@@ -281,6 +281,41 @@ class QemuGuestAgent:
         return status.get("return", {})
 
 
+class QemuMonitor:
+    """QEMU's machine protocol (QMP) on a Unix socket: one command per connection."""
+
+    def __init__(self, socket_path: Path):
+        self.socket_path = socket_path
+
+    def command(self, command: str, arguments: dict | None = None, timeout: float = 10) -> dict:
+        """Run one QMP command; its "return" value. Raises on a QMP error or a closed socket."""
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(str(self.socket_path))
+            reader = sock.makefile("rb")
+
+            def reply() -> dict:
+                # QMP interleaves asynchronous events ({"event": ...}) with replies.
+                while True:
+                    line = reader.readline()
+                    if not line:
+                        raise ConnectionError(f"QMP socket {self.socket_path} closed")
+                    msg = json.loads(line)
+                    if "event" not in msg:
+                        return msg
+
+            reply()  # the greeting
+            for execute, args in (("qmp_capabilities", None), (command, arguments)):
+                msg = {"execute": execute}
+                if args:
+                    msg["arguments"] = args
+                sock.sendall(json.dumps(msg).encode() + b"\n")
+                answer = reply()
+                if "error" in answer:
+                    raise RuntimeError(f"QMP {execute}: {answer['error']}")
+            return answer.get("return", {})
+
+
 class VMManager:
     """Manage a QEMU VM lifecycle."""
 
@@ -295,6 +330,8 @@ class VMManager:
         # vm-test.yml uploads, so it is in the post-mortem artifact.
         self.qemu_log = self.workdir / f"{name}-serial.log.qemu"
         self.guest_agent = QemuGuestAgent(self.qga_socket)
+        self.qmp_socket = self.workdir / f"{name}-qmp.sock"
+        self.monitor = QemuMonitor(self.qmp_socket)
 
     def spawn(self, cmd: list[str]) -> None:
         """Start the VM process with its output going to self.qemu_log.
@@ -409,11 +446,14 @@ class VMManager:
             # PXE boot firmware (U-Boot with embedded VideoCore emulation)
             "-kernel", pxeboot_bin,
             "-dtb", pxeboot_dtb,
-            # Native GENET ethernet connected to the vswitch access port
-            "-nic", f"socket,connect=:{access_port},mac={mac}",
-            # Headless
+            # Native GENET ethernet connected to the vswitch access port.
+            # id: the name QMP's set_link takes to pull and replace the
+            # cable (the GENET model reports the change to the guest's PHY).
+            "-nic", f"socket,id={self.PI_NIC},connect=:{access_port},mac={mac}",
+            # Headless; QMP for the cable, no human monitor
             "-display", "none",
             "-monitor", "none",
+            "-qmp", f"unix:{self.qmp_socket},server=on,wait=off",
             # RPi 4B: serial0 = PL011 (kernel console), serial1 = mini UART (U-Boot)
             # Capture both to the same log file
             "-serial", f"file:{self.serial_log}",
@@ -423,6 +463,12 @@ class VMManager:
         print(f"[{self.name}] Booting Pi VM (raspi4b + qemu-rpi GENET + PXE, aarch64 TCG)...")
         print(f"[{self.name}] QEMU cmd: {' '.join(cmd)}")
         self.spawn(cmd)
+
+    PI_NIC = "pinic"
+
+    def set_link(self, up: bool) -> None:
+        """Pull (up=False) or replace the Pi's network cable."""
+        self.monitor.command("set_link", {"name": self.PI_NIC, "up": up})
 
     def wait_for_guest_agent(self, timeout: int = 180) -> bool:
         """Wait for guest agent to become responsive."""

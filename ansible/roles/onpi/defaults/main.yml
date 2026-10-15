@@ -41,3 +41,26 @@ onpi_fpga_verify_package: fpgas-online-all-boards
 # in the build's output (fpgas.online-infra issue #218). Set this false only for a root no Pi 5 or CM5 boots.
 # Nothing loads the driver at boot: the -common package deny-lists it, and the boot check does not load it.
 onpi_litepcie_modules: true
+
+# Every state networkd-dispatcher 2.2.3 runs scripts for: its ADMIN_STATES
+# and OPER_STATES (/usr/bin/networkd-dispatcher). fpgas-network-state is
+# linked into each (tasks/networkd.yml).
+onpi_networkd_states:
+  # administrative
+  - configured
+  - configuring
+  - failed
+  - initialized
+  - linger
+  - pending
+  - unmanaged
+  # operational
+  - carrier
+  - degraded
+  - degraded-carrier
+  - dormant
+  - enslaved
+  - missing
+  - no-carrier
+  - "off"  # quoted: a bare off is YAML 1.1 false
+  - routable

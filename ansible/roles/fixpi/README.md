@@ -50,7 +50,7 @@ the top of tasks/authorized_keys.yml).
 
 ### tweeks.yml
 
-remove etc/hostname (makes dhclient use hostname provided by dhcp)
+remove etc/hostname (the kernel's DHCP and systemd-networkd set the name the gateway gives)
 
 pi etc/hosts
 
@@ -71,7 +71,7 @@ avoid Wi-Fi is currently blocked by rfkill.
 tweeks.yml:# - name: avoid [FAILED] Failed to start Hostname Service.
 set pistat_host in /etc/environment
 etc overrides
-resolve.conf
+remove the misnamed etc/resolve.conf
 add time to bash prompt
 is server pi
 install packages on server

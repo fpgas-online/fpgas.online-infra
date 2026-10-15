@@ -168,21 +168,25 @@
     follow: true
     mode: "0644"
 
-# Pin the Pi's timesyncd at the server: Pis have no internet and timesyncd
-# does not reliably consume the DHCP ntp-server option under dhcpcd, so
-# without this every Pi's clock sits on the fake-hwclock date (C2-2). The
-# server side (chrony + dhcp-option) lives in the pxe role.
+# The Pi's time source is the gateway (Pis have no internet; without one every
+# Pi's clock sits on the fake-hwclock date, C2-2). systemd-timesyncd takes the
+# server from the DHCP ntp-server option, which systemd-networkd hands it
+# (UseNTP=, onpi/tasks/networkd.yml): that is the one source. FallbackNTP= is
+# used only when no server came that way, so a board without the option still
+# syncs. It is the gateway's address, the same variable ci-nfsroot.yml writes
+# into resolv.conf. The server side (chrony + dhcp-option) lives in the pxe
+# role.
 - name: Create timesyncd.conf.d in NFS root
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d"
     state: directory
     mode: "0755"
 
-- name: Point Pi timesyncd at the server
+- name: Fall back to the gateway for Pi timesyncd
   ansible.builtin.copy:
     content: |
       [Time]
-      NTP={{ eth_local_address | default('10.21.0.1') }}
+      FallbackNTP={{ eth_local_address | default('10.21.0.1') }}
     dest: "{{ nfs_root }}/root/etc/systemd/timesyncd.conf.d/fpgas.conf"
     mode: "0644"
 

@@ -21,9 +21,11 @@ $ grep ' 10.21.2.46 ' /var/lib/misc/dnsmasq.leases
 A lease line means a device on that port took or renewed the address within the lease time (5 minutes). The
 gateway releases a port's leases when its link goes down or bounces, when the site power-cycles it or switches it
 off, and when the switch poller finds a lease on a port that has read down twice (`switch-poller.service`,
-`fpgas-release-port-lease`; each release is a `fpgas-lease-release` line in the gateway's journal). Until the NFS
-root's Pis renew their leases (fpgas.online-infra issue #230), a netbooted Pi's line exists only for the first
-5 minutes after it boots, so check the neighbour entry first. The neighbour entry names the MAC that last answered; it can stay after the
+`fpgas-release-port-lease`; each release is a `fpgas-lease-release` line in the gateway's journal). A Pi on a root
+with systemd-networkd renews its lease about every 150 s, so its line stays while it is up
+([The network after boot](../netboot.md#the-network-after-boot)). On an older root a netbooted Pi never renews, and
+its line exists only for the first 5 minutes after it boots (fpgas.online-infra issue #230), so check the neighbour
+entry first. The neighbour entry names the MAC that last answered; it can stay after the
 Pi has gone (it did while ports were off on 6 October 2026), so it identifies the board but does not prove it
 is up. If another MAC answers, stop: something was moved.
 

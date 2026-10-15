@@ -16,7 +16,10 @@ gateway and switch](https://docs.fpgas.online/en/latest/sites/ps1-gateway.html))
 | `nfsroot-watchdog` units | the `nfsroot-watchdog` package, `onpi`, `stale_root.yml` | Reboot the Pi after a root update ([Updating the NFS root](../netboot/update-root.md)) | every Pi |
 | `fpgas-hostname-hosts.service` | `fixpi` | Writes the Pi's DHCP name into `/etc/hosts`, so `sudo` does not wait on DNS | every Pi |
 | `ssh.service` | `fixpi` | Remote login | every Pi |
-| `systemd-timesyncd.service` | `fixpi` (a drop-in) | Time from the gateway: the Pis have no internet and `timesyncd` does not reliably consume the DHCP ntp-server option, so without the drop-in every Pi's clock sits on the `fake-hwclock` date (comment in `fixpi/tasks/netboot.yml`) | every Pi |
+| `systemd-timesyncd.service` | `fixpi` (a drop-in) | Time from the gateway: the server comes from the DHCP ntp-server option, through systemd-networkd, and the drop-in names the gateway as `FallbackNTP=`. The Pis have no internet, so without a server every Pi's clock sits on the `fake-hwclock` date (comment in `fixpi/tasks/netboot.yml`) | every Pi |
+| `systemd-networkd.service` and `fpgas-uplink-network.service` | `onpi`, `networkd.yml` | Manage the interface that carries the NFS root: keep the kernel's address, renew the DHCP lease, set the port's IPv6 address and route ([The network after boot](../netboot.md#the-network-after-boot)) | every Pi |
+| `networkd-dispatcher.service` | the Debian package; `onpi`, `networkd.yml` | Runs `fpgas-network-state` at every state change of that interface, which sends a `network-state` record to the site | every Pi, once the site writes `/etc/fpgas-online/fleet.toml` |
+| `fpgas-network-state-flush.timer` | `onpi`, `networkd.yml` | Every minute, sends the `network-state` records the broker did not take (only while there are any) | every Pi, once the site writes `/etc/fpgas-online/fleet.toml` |
 | `atftpd.socket` | the Debian package; `onpi`, `tftpd.yml`, moves its port off 69 | TFTP on the Pi | every Pi |
 | `lldpd.service` | the Debian package | Names the Pi to its switch over LLDP | every Pi |
 
