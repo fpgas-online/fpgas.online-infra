@@ -13,6 +13,14 @@
     name: fpgas-online-setup-pi
     state: present
 
+# NOT FOR MERGE (VM proof for #299): setup-pi#18's 11-eth-uplink.link before
+# its deb is published, so this branch's VM test boots it.
+- name: VM proof only - setup-pi#18's 11-eth-uplink.link
+  ansible.builtin.copy:
+    src: vmproof/11-eth-uplink.link
+    dest: /etc/systemd/network/11-eth-uplink.link
+    mode: "0644"
+
 - name: Let the kernel pick the NFS version
   ansible.builtin.include_tasks: nonfs.yml
 - {name: Install the Tiny Tapeout bridge and site catalogue, ansible.builtin.include_tasks: tt.yml}

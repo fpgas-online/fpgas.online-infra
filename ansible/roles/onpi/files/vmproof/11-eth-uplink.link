@@ -1,0 +1,40 @@
+# The board's own wired NIC, the one that carries its NFS root, is named
+# eth-uplink on every model the fleet netboots (fpgas.online-infra #299).
+#
+# Matched by the NIC's device path (udev's ID_PATH), which is fixed by the
+# board's wiring, never by MAC or driver: a USB Ethernet adapter that an
+# FPGA's Ethernet test plugs in can use the same driver as the onboard NIC
+# (lan78xx), and is never on one of these paths. One path per SoC:
+#
+#   Pi 3B+             LAN7515 on the onboard USB hub, port 1.1.1:
+#                      platform-3f980000.usb-usb-0:1.1.1:1.0
+#   Pi 4B, CM4         BCM2711 GENET, /sys/devices/platform/scb/fd580000.ethernet:
+#                      platform-fd580000.ethernet
+#   Pi 5, CM5          RP1 Cadence GEM (macb),
+#                      /sys/devices/platform/axi/1000120000.pcie/1f00100000.ethernet:
+#                      platform-1f00100000.ethernet
+#   Orange Pi PC (H3)  dwmac-sun8i, /sys/devices/platform/soc/1c30000.ethernet:
+#                      platform-1c30000.ethernet
+#
+# udev's path_id names a platform device by its own name alone (it skips the
+# platform parents above it), so the Pi 5's RP1 NIC is not prefixed by its
+# PCIe controller.
+#
+# Only on a board booted with nfsroot= on its kernel command line: a host that
+# boots its own disk and carries this package (the Orange Pis' hub host) keeps
+# its own interface names and the network configuration written for them.
+#
+# The rename happens in the initramfs: initramfs-tools' udev hook copies
+# /etc/systemd/network/*.link into it, so configure_networking, netconsole
+# and everything after see eth-uplink. The kernel's own ip=dhcp has the
+# interface up by then; Linux renames an up interface in place (since 6.2,
+# "renamed from eth0 (while UP)") and netconsole follows the new name. The
+# Pi root checks the name at every boot (fpgas-uplink-network fails when the
+# interface routing to the NFS server is not eth-uplink).
+[Match]
+KernelCommandLine=nfsroot
+Type=ether
+Path=platform-3f980000.usb-usb-0:1.1.1:1.0 platform-fd580000.ethernet platform-1f00100000.ethernet platform-1c30000.ethernet
+
+[Link]
+Name=eth-uplink
