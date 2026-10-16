@@ -55,6 +55,30 @@
   register: nspawn_pi_kernel_initramfs_result
   changed_when: "'rebuilt' in nspawn_pi_kernel_initramfs_result.stdout"
 
+# The interface names are decided in the initramfs, by the .link files
+# initramfs-tools' udev hook copies there (fpgas-online-setup-pi's
+# 11-eth-uplink.link names the NIC carrying the NFS root eth-uplink, #299).
+# Every kernel's image must carry the root's .link files byte for byte, and
+# those files must name the onboard NIC of every netbooted model eth-uplink
+# (its ID_PATH, nfsroot_kernels.py UPLINK_ID_PATHS): a stale image, or a file
+# that lost a model, would boot that model with other names. It checks the
+# file against each model's device path; it does not boot one. The VM test
+# boots only the Pi 4B, and only boards prove the 3B+, Pi 5 and Orange Pi.
+# It reads /boot/initrd.img-<version>, not the copies the boards fetch
+# (boot/initramfs*, sunxi/initrd.img).
+- name: Assert every initramfs carries the root's .link files
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/sbin/nfsroot-kernels
+      --nfs-root {{ nfs_root }} --tftp-root {{ tftp_root }}
+      check-links
+  register: nspawn_pi_kernel_links_result
+  changed_when: false
+
+- name: Report the initramfs .link check
+  ansible.builtin.debug:
+    msg: "{{ nspawn_pi_kernel_links_result.stdout_lines }}"
+
 - name: Assert the NFS root kernel set has not drifted back
   ansible.builtin.command:
     cmd: >-

@@ -6,8 +6,8 @@ hands that interface (and only it) to networkd: DHCPv4 that renews but never
 drops the address (KeepConfiguration=yes, IgnoreCarrierLoss=yes), and the
 port's static IPv6 address and default route (decided 7 Oct 2026, PR #251: the
 port_vlan_map formula <base><switch, two digits>::<port>, gateway ::ffff).
-Its name varies (eth0, eth-uplink, end0), so the script takes the interface
-that routes to the NFS server on the kernel command line.
+It is named eth-uplink on every model (#299, setup-pi's 11-eth-uplink.link); the script takes the
+interface that routes to the NFS server on the kernel command line and fails unless it is eth-uplink.
 
 fpgas-network-state, run by networkd-dispatcher at every state change,
 publishes that interface's state to the site on the fleet event topic.
@@ -117,26 +117,35 @@ def _sections(network: str) -> dict[str, list[str]]:
     return out
 
 
-# eth0: a Pi 4 or 5; eth-uplink: a Pi 3B+ as setup-pi's .link files name it; end0: a predictable name.
-@pytest.mark.parametrize("dev", ["eth0", "eth-uplink", "end0"])
-def test_the_file_matches_the_interface_that_routes_to_the_nfs_server_by_its_mac(tmp_path, dev):
-    out, network = _generate(tmp_path, _route(dev, "10.21.2.43"))
-    # by MAC (lower case), not by name: a .link rename after the generator ran would orphan a Name= match
+def test_the_file_matches_the_interface_that_routes_to_the_nfs_server_by_its_mac(tmp_path):
+    out, network = _generate(tmp_path, _route("eth-uplink", "10.21.2.43"))
+    # by MAC (lower case), not by name: the MAC is what the .network was written for
     assert _sections(network)["Match"] == [f"MACAddress={MAC}", "Type=ether"]
-    assert f": {dev} at boot." in network
-    assert out.startswith(f"{dev} ({MAC}): routes to the NFS server 10.21.0.1 from 10.21.2.43"), out
+    assert ": eth-uplink at boot." in network
+    assert out.startswith(f"eth-uplink ({MAC}): routes to the NFS server 10.21.0.1 from 10.21.2.43"), out
+
+
+# #299: setup-pi's 11-eth-uplink.link names every model's NIC eth-uplink in the initramfs. eth0 is what a
+# Pi 4B or Pi 5 had before it (or a board whose device path the .link does not list); end0 is systemd's
+# predictable name for an onboard NIC. Either is an error, not a fallback.
+@pytest.mark.parametrize("dev", ["eth0", "end0"])
+def test_an_uplink_not_named_eth_uplink_is_an_error(tmp_path, dev):
+    out, network = _generate(tmp_path, _route(dev, "10.21.2.43"), check=False)
+    assert network is None
+    assert f"the interface routing to the NFS server 10.21.0.1 is {dev}, not eth-uplink" in out, out
+    assert "11-eth-uplink.link did not name this board's NIC" in out, out
 
 
 @pytest.mark.parametrize("mac", ["00:00:00:00:00:00", "", "not-a-mac"])
 def test_an_interface_without_a_mac_is_an_error(tmp_path, mac):
-    out, network = _generate(tmp_path, _route("eth0", "10.21.2.43"), mac=mac, check=False)
+    out, network = _generate(tmp_path, _route("eth-uplink", "10.21.2.43"), mac=mac, check=False)
     assert network is None
-    assert "eth0 has no MAC address" in out, out
+    assert "eth-uplink has no MAC address" in out, out
 
 
 @pytest.fixture
 def network(tmp_path):
-    return _sections(_generate(tmp_path, _route("eth0", "10.21.2.43"))[1])
+    return _sections(_generate(tmp_path, _route("eth-uplink", "10.21.2.43"))[1])
 
 
 def test_the_network_section_never_drops_the_nfs_roots_address(network):
@@ -163,7 +172,7 @@ def test_the_dhcp_client_identifies_by_mac_and_takes_hostname_and_ntp(network):
 @pytest.mark.parametrize("switch,port", [(2, 43), (1, 7), (1, 40), (2, 3)])
 def test_the_ipv6_address_and_route_are_port_vlan_maps(tmp_path, switch, port):
     entry = _port_vlan_map(switch, port)
-    _, text = _generate(tmp_path, _route("eth0", entry["ip4"]))
+    _, text = _generate(tmp_path, _route("eth-uplink", entry["ip4"]))
     network = _sections(text)
     gateway = f"{BASE}{switch:02d}::ffff"
     assert network["Address"] == [f"Address={entry['ip6']}/128"]
@@ -176,7 +185,7 @@ def test_the_ipv6_address_and_route_are_port_vlan_maps(tmp_path, switch, port):
     ("192.168.1.10", BASE, "not a per-port address"),
 ])
 def test_no_ipv6_without_a_base_or_off_a_per_port_address(tmp_path, src, base, why):
-    out, text = _generate(tmp_path, _route("eth0", src), base=base)
+    out, text = _generate(tmp_path, _route("eth-uplink", src), base=base)
     network = _sections(text)
     assert "Address" not in network and "Route" not in network
     assert network["Network"][0] == "DHCP=ipv4"
@@ -190,7 +199,7 @@ def test_no_route_to_the_server_is_an_error_not_a_guess(tmp_path):
 
 
 def test_no_nfs_server_on_the_command_line_is_an_error(tmp_path):
-    out, network = _generate(tmp_path, _route("eth0", "10.21.2.43"), cmdline="console=tty1 root=/dev/mmcblk0p2\n",
+    out, network = _generate(tmp_path, _route("eth-uplink", "10.21.2.43"), cmdline="console=tty1 root=/dev/mmcblk0p2\n",
                              check=False)
     assert network is None
     assert "no nfsroot=<IPv4 server>:<path>" in out, out
@@ -400,6 +409,25 @@ def test_verify_pi_checks_networkd_the_renewals_ntp_and_the_sites_record():
     assert '"--since=@{{ verify_pi_network.acquired_epoch | int + 30 }}"' in ack
     record = text.split("- name: Assert the site holds a network-state record from this boot")[1].split("- name:")[0]
     assert "== 'routable'" in record
+
+
+def test_verify_pi_checks_the_uplink_is_named_eth_uplink_from_the_initramfs_on():
+    """#299: on every board verify-pi runs on (the VM's virtual Pi 4B included), the uplink networkd manages,
+    the one fpgas-uplink-network found before networkd, and the one the initramfs configured are eth-uplink."""
+    text = VERIFY_PI.read_text()
+    check = text.split("- name: Assert the uplink is named eth-uplink, from the initramfs on\n")[1].split("- name:")[0]
+    assert "verify_pi_network.uplink == 'eth-uplink'" in check
+    assert "verify_pi_network.carrier_before_networkd.interface | default('') == 'eth-uplink'" in check
+    assert "'net-eth-uplink.conf' in verify_pi_network.initramfs_records" in check
+    assert '"initramfs_records": sorted(f for f in os.listdir("/run") if f.startswith("net-")' in text
+
+
+def test_netconsole_names_eth_uplink():
+    """netconsole is a module that initramfs-tools loads from netconsole= after udev renamed the NIC (#300's VM
+    run: "eth0 doesn't exist, aborting" with the old form), so the option must name eth-uplink."""
+    for name in ("cmdline.txt.j2", "cmdline-pi5.txt.j2"):
+        line = (FIXPI / "templates/boot" / name).read_text()
+        assert " netconsole=@/eth-uplink,@10.21.0.1/ " in line, name
 
 
 def test_the_spool_is_retried_every_minute_only_while_it_holds_records():

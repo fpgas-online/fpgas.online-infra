@@ -47,7 +47,7 @@ so means the Pi is rebooting in a loop: the kernel starts and something later fa
 
 ## 3. The kernel's own log, over the network
 
-The kernel command line carries `netconsole=@/,@10.21.0.1/`, which sends the kernel log to the gateway over
+The kernel command line carries `netconsole=@/eth-uplink,@10.21.0.1/`, which sends the kernel log to the gateway over
 UDP ([The kernel command line](../netboot.md#the-kernel-command-line)). Listen on the gateway (port 6666 is
 netconsole's default) while the Pi boots:
 

@@ -9,23 +9,30 @@
 # the .network file written here. Every other interface, such as the USB
 # adapter an FPGA's Ethernet test configures for itself, is left alone.
 #
-# The interface is the one routing to the NFS server from the kernel command
-# line (nfsroot=<server>:<path>, fixpi's cmdline templates and the Orange Pi
-# PXE file). It is found at boot, not given as a fixed name: setup-pi's .link
-# files name a Pi 3B+'s NIC eth-uplink, other Pis have eth0, and on 8 Oct 2026
-# 7 of the 20 live welland Pis had no eth0. No route to the server is an
+# The interface is named eth-uplink on every model (fpgas.online-infra #299;
+# Tim, 16 Oct 2026: "The ethernet uplink should always be properly named
+# eth-uplink."): setup-pi's 11-eth-uplink.link matches the onboard NIC of the
+# Pi 3B+, Pi 4B and CM4, Pi 5 and CM5 and Orange Pi PC by its device path, and
+# renames it in the initramfs, before configure_networking (the board's
+# record is /run/net-eth-uplink.conf). The kernel's ip=dhcp has it up by
+# then; the VM's Pi 4B logged "eth-uplink: renamed from eth0 (while UP)"
+# (#300's proof run, 16 Oct 2026). Real Pi 5, CM4, CM5 and Orange Pi boards
+# are not yet proven; a Pi 3B+ is.
+#
+# The name is checked here, not trusted: the interface is the one routing to
+# the NFS server from the kernel command line (nfsroot=<server>:<path>,
+# fixpi's cmdline templates and the Orange Pi PXE file), and it must be called
+# eth-uplink. Before #299 a Pi 4B or Pi 5 kept eth0. Another name means the
+# .link did not match this board (a model or device path it does not list) or
+# the initramfs does not carry it; that, and no route to the server, is an
 # error, not a guess. Then networkd manages nothing, and the kernel's address
 # still carries the root. (systemd-networkd-wait-online then waits for its
 # timeout, 2 min, for a managed interface that never comes, so units after
 # network-online.target start late: a loud failure, not a silent one.)
 #
-# The file matches the interface by its MAC, not its name. setup-pi's .link
-# rename (eth-uplink on a Pi 3B+) happens in the initramfs, before the root is
-# mounted (a board's kernel record was /run/net-eth-uplink.conf), and Linux
-# renames even an up interface in place. Still, a MAC match does not depend on
-# when or whether a rename happens. The MAC is the filter: a VLAN, bridge or veth would
-# share it (Type=ether does not tell them apart), and nothing on the root
-# creates one.
+# The .network file matches the interface by its MAC. The MAC is the filter:
+# a VLAN, bridge or veth would share it (Type=ether does not tell them apart),
+# and nothing on the root creates one.
 #
 # IPv6 (decided 7 Oct 2026, PR #251): the port's address is
 # <base><S, two digits>::<P>, the formula of the port_vlan_map filter
@@ -61,6 +68,7 @@ route=$(ip -o -4 route get "$server")
 dev=$(printf '%s\n' "$route" | sed -n 's/.* dev \([^ ]*\).*/\1/p')
 src=$(printf '%s\n' "$route" | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 [ -n "$dev" ] && [ -n "$src" ] || { echo "no interface routes to the NFS server ${server}: ${route}" >&2; exit 1; }
+[ "$dev" = eth-uplink ] || { echo "the interface routing to the NFS server ${server} is ${dev}, not eth-uplink: setup-pi's 11-eth-uplink.link did not name this board's NIC (its device: $(readlink -f "$sysfs_net/$dev/device"))" >&2; exit 1; }
 mac=$(tr 'A-F' 'a-f' < "$sysfs_net/$dev/address")
 [[ $mac =~ ^[0-9a-f]{2}(:[0-9a-f]{2}){5}$ ]] && [ "$mac" != 00:00:00:00:00:00 ] || { echo "${dev} has no MAC address: ${mac}" >&2; exit 1; }
 

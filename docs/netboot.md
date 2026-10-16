@@ -80,7 +80,7 @@ Each entry in `switch.nos` is `{port, mac, sn, model, loc, cable_color}` (the sh
 root=/dev/nfs
 nfsroot=10.21.0.1:/srv/nfs/rpi/bookworm/root,nfsvers=3,tcp ro
 ip=dhcp rootwait consoleblank=0
-netconsole=@/,@10.21.0.1/
+netconsole=@/eth-uplink,@10.21.0.1/
 overlayroot=tmpfs
 console=tty1
 systemd.log_level=debug systemd.log_target=kmsg log_buf_len=1M printk.devkmsg=on
@@ -92,6 +92,13 @@ systemd.log_level=debug systemd.log_target=kmsg log_buf_len=1M printk.devkmsg=on
   the record names (C1-4) was an empty export table on the gateway, since fixed in the `nfs` role (fpgas.online-infra commit 7c353ec).
   The bookworm VM that CI uses does not reproduce the UDP hang, so it was found only on real hardware (rebuild
   record, 2026-08-25). The flag is in the shared template for every site, because there is one template.
+
+- **`netconsole=@/eth-uplink,@10.21.0.1/`**: the kernel log over UDP to the gateway. It names `eth-uplink`
+  because netconsole is a module (`netconsole.ko` in every Pi kernel of the root), which initramfs-tools loads
+  from this option *after* udev has renamed the NIC. With no interface named, netconsole takes `eth0`, which
+  no longer exists by then. A VM run on 16 October 2026 logged "netconsole: eth0 doesn't exist, aborting"
+  right after "eth-uplink: renamed from eth0 (while UP)" (fpgas.online-infra #300). On a Pi 3B+ it has been
+  `eth-uplink` since before #299, so the old form never bound there either.
 
 - **`overlayroot=tmpfs`**: the writable layer ([below](#the-nfs-root-is-shared-and-read-only)).
 
@@ -127,15 +134,18 @@ then on systemd-networkd manages the network, IPv4 and IPv6 (fpgas.online-infra 
 (`roles/onpi/tasks/networkd.yml`). Before that change, NetworkManager only took over the kernel's configuration
 ("connected (externally)") and ran no DHCP client, so no board ever renewed its lease.
 
-**Which interface.** The interface name differs by board: `eth0` on most Pis, `eth-uplink` on a Pi 3B+ (setup-pi's
-`.link` files), and `end0` is possible. So nothing names it in advance. At each boot `fpgas-uplink-network.service`
-runs before networkd and takes the interface that routes to the NFS server named in `nfsroot=`. It writes
-`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone by its MAC address (a MAC
-survives a later rename; a name might not). The MAC is the filter: nothing on the root creates a VLAN, bridge or
-veth that would share it. Every other interface stays unmanaged, for
-example the USB adapter that an FPGA's Ethernet test configures for itself.
+**Which interface.** The interface that carries the NFS root is called `eth-uplink` on every model: the Pi 3B+,
+Pi 4B and CM4, Pi 5 and CM5, and the Orange Pi PC (fpgas.online-infra #299). Setup-pi's `11-eth-uplink.link`
+renames the board's onboard NIC in the initramfs, before `configure_networking` (see [interface
+naming](network.md#interface-naming-on-the-pi)), so the switches page shows `eth-uplink` as every board's LLDP
+port. At each boot `fpgas-uplink-network.service` runs before networkd, takes the interface that routes to the
+NFS server named in `nfsroot=`, and checks that it is `eth-uplink`. It writes
+`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone by its MAC address. The MAC is
+the filter: nothing on the root creates a VLAN, bridge or veth that would share it. Every other interface stays
+unmanaged, for example the USB adapter that an FPGA's Ethernet test configures for itself.
 
-If there is no route to the server, or the interface has no MAC, the unit fails and networkd manages nothing.
+If there is no route to the server, the interface that routes there is not called `eth-uplink` (the `.link` did
+not match this board), or the interface has no MAC, the unit fails and networkd manages nothing.
 The kernel's address still carries the root. `systemd-networkd-wait-online` then waits its full 2 minutes for a
 managed interface that never comes, so everything ordered after `network-online.target` (the fleet agent among
 them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
