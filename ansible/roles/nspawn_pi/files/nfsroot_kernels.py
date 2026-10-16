@@ -28,6 +28,8 @@ The roles suppress the blanket rebuild for the duration of the chroot session
   plan / prune       purge kernel packages that are neither served nor newest
   refresh-initramfs  rebuild only the initramfs images that are actually stale
   check              fail the run if the kernel set or /boot drifts back
+  check-links        fail the run if an initramfs does not carry the root's
+                     .link files (the interface names, eth-uplink above all)
 
 What is never removed
 ---------------------
@@ -57,6 +59,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # "6.12.96+rpt-rpi-v7l" -> ((6, 12, 96), "+rpt-rpi-v7l")
@@ -71,12 +74,38 @@ KERNEL_IMAGE_GLOB = "kernel*.img"
 # Trees whose contents end up inside every initramfs.  If any of them is newer
 # than an initramfs image, that image is stale and must be rebuilt; if none is,
 # a rebuild would reproduce the same content and is pure emulated waste.
+#
+# The udev hook (usr/share/initramfs-tools/hooks/udev, shipped by udev) copies
+# every *.link* under usr/lib/systemd/network and etc/systemd/network, every
+# etc/udev/rules.d rule, etc/udev/udev.conf, the hwdb and a fixed list of
+# usr/lib/udev/rules.d rules.  The .link files decide the interface names, in
+# the initramfs, before configure_networking: fpgas-online-setup-pi's
+# 11-eth-uplink.link names the NIC carrying the NFS root eth-uplink
+# (fpgas.online-infra #299), so a .link change that does not rebuild the
+# images never reaches a board.  A directory counts by its own mtime as well
+# as its files', so a file dpkg adds, replaces (it renames .dpkg-new into
+# place) or removes there marks the images stale even when the file keeps an
+# old mtime from the package.
 INITRAMFS_INPUT_DIRS = (
     "etc/initramfs-tools",
     "usr/share/initramfs-tools",
     "etc/modprobe.d",
     "etc/crypttab",
+    "etc/systemd/network",
+    "usr/lib/systemd/network",
+    "etc/udev",
+    "usr/lib/udev/rules.d",
+    "usr/lib/udev/hwdb.bin",
 )
+
+# Where the udev hook puts the .link files inside the initramfs, and where it
+# takes them from in the root, in its order: a file of the same name in
+# etc/systemd/network replaces the one from usr/lib/systemd/network.
+INITRAMFS_LINK_DIR = "usr/lib/systemd/network"
+ROOT_LINK_DIRS = ("usr/lib/systemd/network", "etc/systemd/network")
+
+# The name the NIC carrying the NFS root must get in every initramfs.
+UPLINK_NAME = "eth-uplink"
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -324,6 +353,118 @@ def stale_initramfs(nfs_root: Path, versions: list[str]) -> list[str]:
         if inputs > initrd.stat().st_mtime + 1:
             stale.append(version)
     return stale
+
+
+def root_links(nfs_root: Path) -> dict[str, bytes]:
+    """name -> content of the .link files the udev hook copies into an initramfs."""
+    links: dict[str, bytes] = {}
+    for relative in ROOT_LINK_DIRS:
+        directory = nfs_root / "root" / relative
+        if directory.is_dir():
+            for path in sorted(directory.glob("*.link")):
+                links[path.name] = path.read_bytes()
+    return links
+
+
+def link_names(content: bytes) -> list[str]:
+    """The Name= values of a .link file's [Link] section."""
+    section, names = "", []
+    for raw in content.decode(errors="replace").splitlines():
+        line = raw.strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif section == "Link" and line.startswith("Name="):
+            names.append(line[len("Name="):].strip())
+    return names
+
+
+def initramfs_links(nfs_root: Path, version: str) -> dict[str, bytes]:
+    """name -> content of the .link files inside one kernel's initramfs.
+
+    Unpacked with the root's own unmkinitramfs, in the chroot, so whatever
+    compression and archive layout the root's initramfs-tools chose is read
+    by the same tools that wrote it.  The main archive lands in <dir>/main
+    when early archives precede it, else in <dir> itself.
+    """
+    root = nfs_root / "root"
+    scratch = root / "tmp"
+    scratch.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch, prefix="nfsroot-kernels-") as tmp:
+        inside = "/" + str(Path(tmp).relative_to(root))
+        result = subprocess.run(
+            ["chroot", str(root), "unmkinitramfs", f"/boot/initrd.img-{version}", inside],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"unmkinitramfs /boot/initrd.img-{version} failed (rc {result.returncode}): "
+                f"{result.stdout}{result.stderr}".strip()
+            )
+        links: dict[str, bytes] = {}
+        for base in (Path(tmp) / "main", Path(tmp)):
+            directory = base / INITRAMFS_LINK_DIR
+            if directory.is_dir():
+                links = {p.name: p.read_bytes() for p in sorted(directory.glob("*.link"))}
+                break
+        return links
+
+
+def link_problems(
+    expected: dict[str, bytes], found: dict[str, dict[str, bytes]]
+) -> list[str]:
+    """What is wrong with the initramfs images' .link files.
+
+    ``expected`` is the root's set (``root_links``); ``found`` is version ->
+    that version's initramfs set (``initramfs_links``).  Every image must
+    carry exactly the root's files, byte for byte, and one of them must name
+    an interface eth-uplink: otherwise a board boots with names the root does
+    not describe, and its uplink is not eth-uplink.
+    """
+    problems = []
+    if not any(UPLINK_NAME in link_names(content) for content in expected.values()):
+        problems.append(
+            f"no .link file under {' or '.join(ROOT_LINK_DIRS)} in the root sets "
+            f"Name={UPLINK_NAME} (fpgas-online-setup-pi's 11-eth-uplink.link): "
+            f"no board's uplink would be named {UPLINK_NAME}"
+        )
+    for version, links in sorted(found.items()):
+        missing = sorted(set(expected) - set(links))
+        extra = sorted(set(links) - set(expected))
+        differ = sorted(n for n in set(expected) & set(links) if expected[n] != links[n])
+        if missing or extra or differ:
+            problems.append(
+                f"initrd.img-{version} does not carry the root's .link files "
+                f"(missing {missing or 'none'}, not in the root {extra or 'none'}, "
+                f"different {differ or 'none'}): the image is stale"
+            )
+    return problems
+
+
+def cmd_check_links(args: argparse.Namespace) -> int:
+    nfs_root = Path(args.nfs_root)
+    expected = root_links(nfs_root)
+    found = {}
+    for version in sorted(rootfs_kernels(nfs_root)):
+        try:
+            found[version] = initramfs_links(nfs_root, version)
+        except RuntimeError as error:
+            print(f"nfsroot-kernels: FAIL {error}", file=sys.stderr)
+            return 1
+    if not found:
+        print("nfsroot-kernels: FAIL no kernel in the root to check", file=sys.stderr)
+        return 1
+    problems = link_problems(expected, found)
+    for problem in problems:
+        print(f"nfsroot-kernels: FAIL {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print(
+        f"nfsroot-kernels: OK every initramfs ({' '.join(sorted(found))}) carries the root's "
+        f".link files ({' '.join(sorted(expected))}), naming the uplink {UPLINK_NAME}"
+    )
+    return 0
 
 
 def load_plan(args: argparse.Namespace) -> dict:
@@ -602,6 +743,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     refresh.add_argument("--dry-run", action="store_true")
     refresh.set_defaults(func=cmd_refresh_initramfs)
+
+    sub.add_parser(
+        "check-links",
+        help="assert every initramfs carries the root's .link files (needs the chroot)",
+    ).set_defaults(func=cmd_check_links)
 
     check = sub.add_parser("check", help="assert the root has not drifted back")
     check.add_argument("--max-trees", type=int, default=10)

@@ -341,3 +341,121 @@ def test_refresh_initramfs_rebuilds_stale_versions_in_parallel(tmp_path, monkeyp
     monkeypatch.setattr(nk.subprocess, "run", lambda cmd, **kw: (calls.append(cmd), Result(0))[1])
     assert nk.cmd_refresh_initramfs(Args()) == 0
     assert len(calls) == 2
+
+
+# --- the interface names inside the initramfs (#299) -------------------
+
+UPLINK_LINK = b"[Match]\nKernelCommandLine=nfsroot\nType=ether\nPath=platform-fd580000.ethernet\n\n[Link]\nName=eth-uplink\n"
+FPGA_LINK = b"[Match]\nPath=platform-3f980000.usb-usb-0:1.2:1.0\nType=ether\n\n[Link]\nName=eth-fpga\n"
+
+
+def add_root_links(root, links, where="etc/systemd/network"):
+    directory = root / "root" / where
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, content in links.items():
+        (directory / name).write_bytes(content)
+    return directory
+
+
+@pytest.mark.parametrize("where", ["etc/systemd/network", "usr/lib/systemd/network", "etc/udev/rules.d"])
+def test_stale_initramfs_follows_what_the_udev_hook_copies(tmp_path, where):
+    """A .link or udev rule change must rebuild the images: the hook copies them in, and the .link files
+    decide the interface names there (11-eth-uplink.link)."""
+    root = make_root(tmp_path, kernels={"6.12.96+rpt-rpi-v7": b"v7"})
+    initrd = root / "root" / "boot" / "initrd.img-6.12.96+rpt-rpi-v7"
+    directory = add_root_links(root, {"11-eth-uplink.link": UPLINK_LINK}, where)
+    built = os.stat(initrd).st_mtime
+    # The file keeps an old mtime (dpkg sets the package's), but the directory changed when it was put there.
+    os.utime(directory / "11-eth-uplink.link", (built - 3600, built - 3600))
+    os.utime(directory, (built - 3600, built - 3600))
+    assert nk.stale_initramfs(root, ["6.12.96+rpt-rpi-v7"]) == []
+    os.utime(directory, (built + 60, built + 60))
+    assert nk.stale_initramfs(root, ["6.12.96+rpt-rpi-v7"]) == ["6.12.96+rpt-rpi-v7"]
+
+
+def test_root_links_etc_replaces_usr_lib_by_name(tmp_path):
+    add_root_links(tmp_path, {"99-default.link": b"[Link]\nNamePolicy=keep\n", "73-usb-net-by-mac.link": b"x"},
+                   "usr/lib/systemd/network")
+    # RasPiOS masks both with empty files in /etc; the hook copies /etc's after /usr/lib's.
+    add_root_links(tmp_path, {"99-default.link": b"", "73-usb-net-by-mac.link": b"", "11-eth-uplink.link": UPLINK_LINK})
+    assert nk.root_links(tmp_path) == {"99-default.link": b"", "73-usb-net-by-mac.link": b"",
+                                       "11-eth-uplink.link": UPLINK_LINK}
+
+
+def test_link_names_reads_only_the_link_section():
+    assert nk.link_names(UPLINK_LINK) == ["eth-uplink"]
+    assert nk.link_names(b"[Match]\nName=eth0\n[Link]\nNamePolicy=keep\n") == []
+
+
+def test_link_problems_accepts_images_carrying_the_roots_links():
+    expected = {"11-eth-uplink.link": UPLINK_LINK, "12-eth-fpga.link": FPGA_LINK}
+    assert nk.link_problems(expected, {"6.12.96+rpt-rpi-v7": dict(expected), "6.1.0-50-armmp": dict(expected)}) == []
+
+
+def test_link_problems_fails_a_stale_image():
+    expected = {"11-eth-uplink.link": UPLINK_LINK, "12-eth-fpga.link": FPGA_LINK}
+    old = UPLINK_LINK.replace(b"Path=platform-fd580000.ethernet", b"Path=platform-3f980000.usb-usb-0:1.1.1:1.0")
+    problems = nk.link_problems(expected, {
+        "6.12.96+rpt-rpi-v7": {"11-eth-uplink.link": old, "12-eth-fpga.link": FPGA_LINK},
+        "6.12.96+rpt-rpi-v8": {"12-eth-fpga.link": FPGA_LINK, "10-old.link": b""},
+        "6.1.0-50-armmp": dict(expected),
+    })
+    assert len(problems) == 2, problems
+    assert "initrd.img-6.12.96+rpt-rpi-v7" in problems[0] and "different ['11-eth-uplink.link']" in problems[0]
+    assert ("initrd.img-6.12.96+rpt-rpi-v8" in problems[1] and "missing ['11-eth-uplink.link']" in problems[1]
+            and "not in the root ['10-old.link']" in problems[1])
+
+
+def test_link_problems_fails_a_root_that_names_no_uplink():
+    expected = {"12-eth-fpga.link": FPGA_LINK}
+    problems = nk.link_problems(expected, {"6.12.96+rpt-rpi-v7": dict(expected)})
+    assert problems and "Name=eth-uplink" in problems[0]
+
+
+def test_initramfs_links_unpacks_with_the_roots_own_tools(tmp_path, monkeypatch):
+    """unmkinitramfs runs in the chroot, into a directory under the root's /tmp that is gone afterwards;
+    the main archive is read from <dir>/main when early archives come first."""
+    (tmp_path / "root" / "tmp").mkdir(parents=True)
+    calls = []
+
+    class Result:
+        returncode, stdout, stderr = 0, "", ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        assert cmd[:2] == ["chroot", str(tmp_path / "root")] and cmd[2] == "unmkinitramfs"
+        out = tmp_path / "root" / cmd[4].lstrip("/")
+        (out / "early" / "kernel").mkdir(parents=True)
+        (out / "main" / "usr/lib/systemd/network").mkdir(parents=True)
+        (out / "main" / "usr/lib/systemd/network" / "11-eth-uplink.link").write_bytes(UPLINK_LINK)
+        return Result()
+
+    monkeypatch.setattr(nk.subprocess, "run", fake_run)
+    links = nk.initramfs_links(tmp_path, "6.12.96+rpt-rpi-v7")
+    assert links == {"11-eth-uplink.link": UPLINK_LINK}
+    assert calls[0][3] == "/boot/initrd.img-6.12.96+rpt-rpi-v7" and calls[0][4].startswith("/tmp/nfsroot-kernels-")
+    assert list((tmp_path / "root" / "tmp").iterdir()) == []
+
+
+def test_initramfs_links_fails_loud_when_unpacking_fails(tmp_path, monkeypatch):
+    (tmp_path / "root" / "tmp").mkdir(parents=True)
+
+    class Result:
+        returncode, stdout, stderr = 2, "", "cpio: premature end of archive"
+
+    monkeypatch.setattr(nk.subprocess, "run", lambda cmd, **kw: Result())
+    with pytest.raises(RuntimeError, match="premature end of archive"):
+        nk.initramfs_links(tmp_path, "6.12.96+rpt-rpi-v7")
+
+
+def test_check_links_command(tmp_path, monkeypatch):
+    root = make_root(tmp_path, kernels={"6.12.96+rpt-rpi-v7": b"v7", "6.1.0-50-armmp": b"armmp"})
+    add_root_links(root, {"11-eth-uplink.link": UPLINK_LINK})
+
+    class Args:
+        nfs_root = str(root)
+
+    monkeypatch.setattr(nk, "initramfs_links", lambda nfs_root, version: {"11-eth-uplink.link": UPLINK_LINK})
+    assert nk.cmd_check_links(Args()) == 0
+    monkeypatch.setattr(nk, "initramfs_links", lambda nfs_root, version: {})
+    assert nk.cmd_check_links(Args()) == 1
