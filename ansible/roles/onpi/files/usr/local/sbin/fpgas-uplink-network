@@ -14,8 +14,10 @@
 # eth-uplink."): setup-pi's 11-eth-uplink.link matches the onboard NIC of the
 # Pi 3B+, Pi 4B and CM4, Pi 5 and CM5 and Orange Pi PC by its device path, and
 # renames it in the initramfs, before configure_networking (the board's
-# kernel record is /run/net-eth-uplink.conf). Linux renames the interface in
-# place although the kernel's ip=dhcp has it up by then.
+# record is /run/net-eth-uplink.conf). The kernel's ip=dhcp has it up by
+# then; the VM's Pi 4B logged "eth-uplink: renamed from eth0 (while UP)"
+# (#300's proof run, 16 Oct 2026). Real Pi 5, CM4, CM5 and Orange Pi boards
+# are not yet proven; a Pi 3B+ is.
 #
 # The name is checked here, not trusted: the interface is the one routing to
 # the NFS server from the kernel command line (nfsroot=<server>:<path>,

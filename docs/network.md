@@ -162,10 +162,22 @@ Pis' hub host](orange-pi/hub-host.md), keeps its own names.
 
 The rename happens in the initramfs: initramfs-tools' udev hook copies every `.link` file under
 `/etc/systemd/network` and `/usr/lib/systemd/network` into it, so `configure_networking`, netconsole and
-everything after see `eth-uplink`. The kernel's `ip=dhcp` has the interface up by then; Linux renames an up
-interface in place (since 6.2) and netconsole follows the new name. The root build rebuilds every initramfs when
-those files change and fails if any kernel's initramfs does not carry the root's `.link` files
-(`nfsroot-kernels check-links`, `roles/nspawn_pi`). `fpgas-uplink-network` fails at boot when the interface that
+everything after see `eth-uplink`. The kernel's `ip=dhcp` has the interface up by then. What is proven, and on
+what:
+
+- **A Pi 3B+** has been renamed in the initramfs on the fleet: its record is `/run/net-eth-uplink.conf`.
+- **The VM's virtual Pi 4B** (kernel 6.12.109 `rpi-v8`, the kernel and initramfs a Pi 5 boots too) logged
+  `bcmgenet fd580000.ethernet eth-uplink: renamed from eth0 (while UP)` after the kernel's `IP-Config` had
+  configured `eth0`, then `IP-Config: eth-uplink complete` from the initramfs (fpgas.online-infra #300's proof
+  run, 16 October 2026). So the kernel renames an interface that is up.
+- **netconsole** is a module that initramfs-tools loads from the `netconsole=` option after the rename, so the
+  option names `eth-uplink` ([the kernel command line](netboot.md#the-kernel-command-line)). That it then
+  binds and its packets reach the gateway is not tested: the VM does not listen for them.
+- **A Pi 5, CM4, CM5 or Orange Pi PC** has not been booted with the new file. Only its device path is checked.
+
+The root build rebuilds every initramfs when those files change. It fails if any kernel's initramfs does not
+carry the root's `.link` files, or if they do not name each model's onboard NIC (`nfsroot-kernels check-links`,
+`roles/nspawn_pi`). `fpgas-uplink-network` fails at boot when the interface that
 routes to the NFS server is not `eth-uplink`, and `verify-pi.yml` checks the name on every board.
 
 The gateway does the same for its own two NICs: the `netif` role in fpgas.online-infra writes MAC-matched
