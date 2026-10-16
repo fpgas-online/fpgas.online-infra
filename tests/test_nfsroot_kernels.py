@@ -386,6 +386,24 @@ def test_root_links_etc_replaces_usr_lib_by_name(tmp_path):
                                        "11-eth-uplink.link": UPLINK_LINK}
 
 
+def test_a_dev_null_symlink_is_a_mask_and_replaces_usr_lib(tmp_path):
+    """RasPiOS masks the distribution defaults with /etc symlinks to /dev/null (build of 16 Oct: skipping them
+    let /usr/lib's real 99-default.link stand in, and every image looked stale)."""
+    add_root_links(tmp_path, {"99-default.link": b"[Match]\nOriginalName=*\n[Link]\nNamePolicy=keep\n"},
+                   "usr/lib/systemd/network")
+    etc = add_root_links(tmp_path, {"11-eth-uplink.link": UPLINK_LINK})
+    (etc / "99-default.link").symlink_to("/dev/null")
+    (etc / "10-elsewhere.link").symlink_to("/usr/lib/somewhere/x.link")
+    links = nk.root_links(tmp_path)
+    assert links["99-default.link"] == b""
+    assert links["10-elsewhere.link"] == b"@symlink /usr/lib/somewhere/x.link\n"
+    # the unknown symlink sorts first and might match any NIC, so coverage fails loudly
+    assert len(nk.coverage_problems(links)) == 4
+    # the masked default does not capture the NICs
+    del links["10-elsewhere.link"]
+    assert nk.coverage_problems(links) == []
+
+
 def test_link_names_reads_only_the_link_section():
     assert nk.link_names(UPLINK_LINK) == ["eth-uplink"]
     assert nk.link_names(b"[Match]\nName=eth0\n[Link]\nNamePolicy=keep\n") == []

@@ -383,12 +383,26 @@ def link_files(directory: Path) -> dict[str, bytes]:
     links: dict[str, bytes] = {}
     if directory.is_dir():
         for path in sorted(directory.glob("*.link")):
-            if path.is_file():
-                links[path.name] = path.read_bytes()
+            links[path.name] = link_content(path)
         for path in sorted(directory.glob("*.link.d/*.conf")):
-            if path.is_file():
-                links[str(path.relative_to(directory))] = path.read_bytes()
+            links[str(path.relative_to(directory))] = link_content(path)
     return links
+
+
+def link_content(path: Path) -> bytes:
+    """A .link file's content as udev sees it.
+
+    A symlink to /dev/null is a mask, as is an empty file: both read as b"".
+    RasPiOS masks 73-usb-net-by-mac.link and 99-default.link that way in
+    /etc/systemd/network, and the hook copies the symlinks as they are.  Any
+    other symlink is not followed (its target would resolve on the build
+    host, not in the root) and reads as a marker naming its target, so a
+    symlink is only ever equal to the same symlink.
+    """
+    if path.is_symlink():
+        target = os.readlink(path)
+        return b"" if target == "/dev/null" else f"@symlink {target}\n".encode()
+    return path.read_bytes()
 
 
 def root_links(nfs_root: Path) -> dict[str, bytes]:
