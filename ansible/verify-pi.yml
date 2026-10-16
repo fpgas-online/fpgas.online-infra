@@ -348,6 +348,8 @@
               return {
                   "uplink": uplink,
                   "mac": mac,
+                  # initramfs-tools' configure_networking records each interface it configured (#299).
+                  "initramfs_records": sorted(f for f in os.listdir("/run") if f.startswith("net-") and f.endswith(".conf")),
                   "carrier_before_networkd": before,
                   "carrier_now": now,
                   "acquired_epoch": acquired_epoch,
@@ -570,6 +572,25 @@
           networkctl status: {{ verify_pi_network.status.stdout_lines | default([]) }}
       vars:
         verify_pi_gateway: "{{ hostvars[verify_pi_server].eth_local_address | default('10.21.0.1') }}"
+
+    # The uplink is named eth-uplink on every model (#299; Tim, 16 Oct 2026: "The
+    # ethernet uplink should always be properly named eth-uplink."), and already
+    # in the initramfs: setup-pi's 11-eth-uplink.link renames the onboard NIC
+    # there, so initramfs-tools' configure_networking recorded it as
+    # /run/net-eth-uplink.conf, and fpgas-uplink-network found it by that name
+    # (its carrier record) before networkd started. The switches page shows
+    # this name as the board's LLDP port id.
+    - name: Assert the uplink is named eth-uplink, from the initramfs on
+      ansible.builtin.assert:
+        that:
+          - verify_pi_network.uplink == 'eth-uplink'
+          - verify_pi_network.carrier_before_networkd.interface | default('') == 'eth-uplink'
+          - "'net-eth-uplink.conf' in verify_pi_network.initramfs_records"
+        fail_msg: >-
+          {{ ansible_hostname }}: the uplink is '{{ verify_pi_network.uplink }}' (fpgas-uplink-network saw
+          '{{ verify_pi_network.carrier_before_networkd.interface | default('') }}'), want eth-uplink; the
+          initramfs configured {{ verify_pi_network.initramfs_records }} (want net-eth-uplink.conf among them).
+          setup-pi's 11-eth-uplink.link did not name this board's NIC, or the initramfs does not carry it.
 
     # Nothing of the network configuration may come from a write on the running
     # Pi: the overlay's tmpfs upper layer holds no file under the watched paths
