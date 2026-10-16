@@ -422,6 +422,14 @@ def test_verify_pi_checks_the_uplink_is_named_eth_uplink_from_the_initramfs_on()
     assert '"initramfs_records": sorted(f for f in os.listdir("/run") if f.startswith("net-")' in text
 
 
+def test_netconsole_names_eth_uplink():
+    """netconsole is a module that initramfs-tools loads from netconsole= after udev renamed the NIC (#300's VM
+    run: "eth0 doesn't exist, aborting" with the old form), so the option must name eth-uplink."""
+    for name in ("cmdline.txt.j2", "cmdline-pi5.txt.j2"):
+        line = (FIXPI / "templates/boot" / name).read_text()
+        assert " netconsole=@/eth-uplink,@10.21.0.1/ " in line, name
+
+
 def test_the_spool_is_retried_every_minute_only_while_it_holds_records():
     service = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.service").read_text()
     timer = (ONPI / "files/etc/systemd/system/fpgas-network-state-flush.timer").read_text()
