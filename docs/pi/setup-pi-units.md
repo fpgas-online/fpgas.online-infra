@@ -46,6 +46,6 @@ Two smaller oddities in the same package. The `pistat-scripts/` Python files are
 `/usr/local/bin/fpgas-pistat-*.py`, but they are server-side code: `send.py` imports `asgiref` (channels), and
 `send_stat.py` is a dnsmasq `--dhcp-script` with the shebang `#!/srv/www/pib/venv/bin/python3`, a path that does
 not exist on a Pi (`send_ncc.py` has the same shebang, from the earlier docs page, not re-checked). The `.link`
-files that name the two Ethernet interfaces come from this package too, under [interface
-naming](../network.md#interface-naming-on-the-pi).
+files that name the board's own link `eth-uplink` on every model, and a Pi 3B+'s FPGA test adapter `eth-fpga`,
+come from this package too, under [interface naming](../network.md#interface-naming-on-the-pi).
 

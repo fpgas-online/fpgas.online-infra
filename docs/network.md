@@ -137,14 +137,36 @@ Nothing in the sources reviewed for the earlier docs page described a lock or a 
 
 ## Interface naming on the Pi
 
-Some Pis have two Ethernet interfaces: their own, and a USB adapter wired to the FPGA board's Ethernet for
-testing it (the Arty hosts). The kernel's order between them is not stable. Two systemd `.link` files in
-[fpgas.online-setup-pi](https://github.com/fpgas-online/fpgas.online-setup-pi), `11-eth-uplink.link` and
-`12-eth-fpga.link`, name them by USB path rather than order: `eth-uplink` for the Pi's own link, `eth-fpga`
-for the adapter. The infra repo's `TECHDEBT.md` (item 1, main, read 2026-10-07) records why: in one instance the
-dongle got `eth0` and the onboard NIC `eth1`, and the onboard NIC ended up with both a DHCP lease and the dongle's
-static address. They match `Path=platform-3f980000.usb-usb-0:1.1.1:1.0` and
-`platform-3f980000.usb-usb-0:1.2:1.0`, so they rename only on a Pi whose USB layout matches those paths.
+Every netbooted board's own wired link, the one that carries its NFS root, is called `eth-uplink`, on every model
+(fpgas.online-infra #299; Tim, 16 October 2026: "The ethernet uplink should always be properly named
+eth-uplink."). Some Pis also have a USB adapter wired to the FPGA board's Ethernet for testing it (the Arty
+hosts), and the kernel's order between the two is not stable. The infra repo's `TECHDEBT.md` (item 1, main, read
+2026-10-07) records what that did: in one instance the dongle got `eth0` and the onboard NIC `eth1`, and the
+onboard NIC ended up with both a DHCP lease and the dongle's static address.
+
+Two systemd `.link` files in [fpgas.online-setup-pi](https://github.com/fpgas-online/fpgas.online-setup-pi) name
+them by device path (udev's `ID_PATH`), never by order, MAC or driver (a USB adapter can use the same `lan78xx`
+driver as the Pi 3B+'s own NIC):
+
+| Model | Onboard NIC | `ID_PATH` that `11-eth-uplink.link` names `eth-uplink` |
+|---|---|---|
+| Pi 3B+ | LAN7515 on the onboard USB hub | `platform-3f980000.usb-usb-0:1.1.1:1.0` |
+| Pi 4B, CM4 | BCM2711 GENET (`bcmgenet`) | `platform-fd580000.ethernet` |
+| Pi 5, CM5 | RP1 Cadence GEM (`macb`) | `platform-1f00100000.ethernet` |
+| Orange Pi PC | H3 EMAC (`dwmac-sun8i`) | `platform-1c30000.ethernet` |
+
+`12-eth-fpga.link` names the adapter in a Pi 3B+'s USB port 1.2 (`platform-3f980000.usb-usb-0:1.2:1.0`)
+`eth-fpga`. `11-eth-uplink.link` also requires `nfsroot=` on the kernel command line
+(`KernelCommandLine=nfsroot`), so a host that boots its own disk and carries the package, such as the [Orange
+Pis' hub host](orange-pi/hub-host.md), keeps its own names.
+
+The rename happens in the initramfs: initramfs-tools' udev hook copies every `.link` file under
+`/etc/systemd/network` and `/usr/lib/systemd/network` into it, so `configure_networking`, netconsole and
+everything after see `eth-uplink`. The kernel's `ip=dhcp` has the interface up by then; Linux renames an up
+interface in place (since 6.2) and netconsole follows the new name. The root build rebuilds every initramfs when
+those files change and fails if any kernel's initramfs does not carry the root's `.link` files
+(`nfsroot-kernels check-links`, `roles/nspawn_pi`). `fpgas-uplink-network` fails at boot when the interface that
+routes to the NFS server is not `eth-uplink`, and `verify-pi.yml` checks the name on every board.
 
 The gateway does the same for its own two NICs: the `netif` role in fpgas.online-infra writes MAC-matched
 `.link` files that name them `eth-local` and `eth-uplink`, which every downstream template refers to by variable. The

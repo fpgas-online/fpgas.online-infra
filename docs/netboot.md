@@ -127,15 +127,18 @@ then on systemd-networkd manages the network, IPv4 and IPv6 (fpgas.online-infra 
 (`roles/onpi/tasks/networkd.yml`). Before that change, NetworkManager only took over the kernel's configuration
 ("connected (externally)") and ran no DHCP client, so no board ever renewed its lease.
 
-**Which interface.** The interface name differs by board: `eth0` on most Pis, `eth-uplink` on a Pi 3B+ (setup-pi's
-`.link` files), and `end0` is possible. So nothing names it in advance. At each boot `fpgas-uplink-network.service`
-runs before networkd and takes the interface that routes to the NFS server named in `nfsroot=`. It writes
-`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone by its MAC address (a MAC
-survives a later rename; a name might not). The MAC is the filter: nothing on the root creates a VLAN, bridge or
-veth that would share it. Every other interface stays unmanaged, for
-example the USB adapter that an FPGA's Ethernet test configures for itself.
+**Which interface.** The interface that carries the NFS root is called `eth-uplink` on every model: the Pi 3B+,
+Pi 4B and CM4, Pi 5 and CM5, and the Orange Pi PC (fpgas.online-infra #299). Setup-pi's `11-eth-uplink.link`
+renames the board's onboard NIC in the initramfs, before `configure_networking` (see [interface
+naming](network.md#interface-naming-on-the-pi)), so the switches page shows `eth-uplink` as every board's LLDP
+port. At each boot `fpgas-uplink-network.service` runs before networkd, takes the interface that routes to the
+NFS server named in `nfsroot=`, and checks that it is `eth-uplink`. It writes
+`/run/systemd/network/10-fpgas-uplink.network`, which matches that interface alone by its MAC address. The MAC is
+the filter: nothing on the root creates a VLAN, bridge or veth that would share it. Every other interface stays
+unmanaged, for example the USB adapter that an FPGA's Ethernet test configures for itself.
 
-If there is no route to the server, or the interface has no MAC, the unit fails and networkd manages nothing.
+If there is no route to the server, the interface that routes there is not called `eth-uplink` (the `.link` did
+not match this board), or the interface has no MAC, the unit fails and networkd manages nothing.
 The kernel's address still carries the root. `systemd-networkd-wait-online` then waits its full 2 minutes for a
 managed interface that never comes, so everything ordered after `network-online.target` (the fleet agent among
 them) starts 2 minutes late. The failed unit is in `systemctl --failed`.
