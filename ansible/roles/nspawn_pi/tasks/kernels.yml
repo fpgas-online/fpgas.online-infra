@@ -58,10 +58,14 @@
 # The interface names are decided in the initramfs, by the .link files
 # initramfs-tools' udev hook copies there (fpgas-online-setup-pi's
 # 11-eth-uplink.link names the NIC carrying the NFS root eth-uplink, #299).
-# Every kernel's image must carry the root's .link files byte for byte, one of
-# them naming eth-uplink: a stale image would boot a model with other names.
-# This is the build's check for every kernel flavour, including those the VM
-# test cannot boot (v7 for the Pi 3B+, armmp for the Orange Pi PC).
+# Every kernel's image must carry the root's .link files byte for byte, and
+# those files must name the onboard NIC of every netbooted model eth-uplink
+# (its ID_PATH, nfsroot_kernels.py UPLINK_ID_PATHS): a stale image, or a file
+# that lost a model, would boot that model with other names. It checks the
+# file against each model's device path; it does not boot one. The VM test
+# boots only the Pi 4B, and only boards prove the 3B+, Pi 5 and Orange Pi.
+# It reads /boot/initrd.img-<version>, not the copies the boards fetch
+# (boot/initramfs*, sunxi/initrd.img).
 - name: Assert every initramfs carries the root's .link files
   ansible.builtin.command:
     cmd: >-

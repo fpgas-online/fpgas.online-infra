@@ -345,7 +345,11 @@ def test_refresh_initramfs_rebuilds_stale_versions_in_parallel(tmp_path, monkeyp
 
 # --- the interface names inside the initramfs (#299) -------------------
 
-UPLINK_LINK = b"[Match]\nKernelCommandLine=nfsroot\nType=ether\nPath=platform-fd580000.ethernet\n\n[Link]\nName=eth-uplink\n"
+# setup-pi#18's 11-eth-uplink.link (comments left out), and the 3B+-only file the root carried before it.
+UPLINK_LINK = (b"# the board's own NIC\n[Match]\nKernelCommandLine=nfsroot\nType=ether\n"
+               b"Path=platform-3f980000.usb-usb-0:1.1.1:1.0 platform-fd580000.ethernet "
+               b"platform-1f00100000.ethernet platform-1c30000.ethernet\n\n[Link]\nName=eth-uplink\n")
+OLD_UPLINK_LINK = b"[Match]\nPath=platform-3f980000.usb-usb-0:1.1.1:1.0\nType=ether\n\n[Link]\nName=eth-uplink\n"
 FPGA_LINK = b"[Match]\nPath=platform-3f980000.usb-usb-0:1.2:1.0\nType=ether\n\n[Link]\nName=eth-fpga\n"
 
 
@@ -394,7 +398,7 @@ def test_link_problems_accepts_images_carrying_the_roots_links():
 
 def test_link_problems_fails_a_stale_image():
     expected = {"11-eth-uplink.link": UPLINK_LINK, "12-eth-fpga.link": FPGA_LINK}
-    old = UPLINK_LINK.replace(b"Path=platform-fd580000.ethernet", b"Path=platform-3f980000.usb-usb-0:1.1.1:1.0")
+    old = OLD_UPLINK_LINK
     problems = nk.link_problems(expected, {
         "6.12.96+rpt-rpi-v7": {"11-eth-uplink.link": old, "12-eth-fpga.link": FPGA_LINK},
         "6.12.96+rpt-rpi-v8": {"12-eth-fpga.link": FPGA_LINK, "10-old.link": b""},
@@ -409,7 +413,41 @@ def test_link_problems_fails_a_stale_image():
 def test_link_problems_fails_a_root_that_names_no_uplink():
     expected = {"12-eth-fpga.link": FPGA_LINK}
     problems = nk.link_problems(expected, {"6.12.96+rpt-rpi-v7": dict(expected)})
-    assert problems and "Name=eth-uplink" in problems[0]
+    assert len(problems) == 4 and all("no .link file matches its onboard NIC" in p for p in problems), problems
+
+
+def test_the_old_3b_plus_only_file_fails_coverage():
+    """The root's file before setup-pi#18: propagated byte for byte into every image, and still wrong, because
+    it names only the Pi 3B+'s NIC. check-links must fail it for the three other models."""
+    expected = {"11-eth-uplink.link": OLD_UPLINK_LINK, "12-eth-fpga.link": FPGA_LINK,
+                "73-usb-net-by-mac.link": b"", "99-default.link": b""}
+    problems = nk.link_problems(expected, {"6.12.96+rpt-rpi-v7": dict(expected)})
+    assert [p.split(":")[0] for p in problems] == ["Pi 4B, CM4", "Pi 5, CM5", "Orange Pi PC"], problems
+
+
+def test_coverage_takes_the_first_matching_file_like_udev():
+    # A file sorting earlier that matches the NIC (here: no Path=, so it may match anything) wins in udev.
+    early = b"[Match]\nOriginalName=*\n\n[Link]\nNamePolicy=kernel\n"
+    problems = nk.coverage_problems({"10-early.link": early, "11-eth-uplink.link": UPLINK_LINK})
+    assert len(problems) == 4 and all("is 10-early.link" in p for p in problems), problems
+    # an empty file is a mask, not a match; the distribution defaults sort after 11-
+    assert nk.coverage_problems({"10-early.link": b"", "11-eth-uplink.link": UPLINK_LINK,
+                                 "99-default.link": early}) == []
+
+
+def test_coverage_list_is_setup_pis():
+    """The same four ID_PATHs as fpgas-online-setup-pi's tests/test_link_files.py (setup-pi#18)."""
+    assert sorted(nk.UPLINK_ID_PATHS.values()) == sorted(nk.link_match(UPLINK_LINK)["Path"].split())
+
+
+def test_drop_ins_are_compared_too(tmp_path):
+    directory = add_root_links(tmp_path, {"11-eth-uplink.link": UPLINK_LINK})
+    (directory / "11-eth-uplink.link.d").mkdir()
+    (directory / "11-eth-uplink.link.d" / "mtu.conf").write_bytes(b"[Link]\nMTUBytes=1500\n")
+    expected = nk.root_links(tmp_path)
+    assert set(expected) == {"11-eth-uplink.link", "11-eth-uplink.link.d/mtu.conf"}
+    problems = nk.link_problems(expected, {"6.12.96+rpt-rpi-v7": {"11-eth-uplink.link": UPLINK_LINK}})
+    assert len(problems) == 1 and "missing ['11-eth-uplink.link.d/mtu.conf']" in problems[0], problems
 
 
 def test_initramfs_links_unpacks_with_the_roots_own_tools(tmp_path, monkeypatch):

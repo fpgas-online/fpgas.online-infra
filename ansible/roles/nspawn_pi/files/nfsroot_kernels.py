@@ -29,7 +29,8 @@ The roles suppress the blanket rebuild for the duration of the chroot session
   refresh-initramfs  rebuild only the initramfs images that are actually stale
   check              fail the run if the kernel set or /boot drifts back
   check-links        fail the run if an initramfs does not carry the root's
-                     .link files (the interface names, eth-uplink above all)
+                     .link files, or they do not name every model's onboard
+                     NIC eth-uplink
 
 What is never removed
 ---------------------
@@ -106,6 +107,23 @@ ROOT_LINK_DIRS = ("usr/lib/systemd/network", "etc/systemd/network")
 
 # The name the NIC carrying the NFS root must get in every initramfs.
 UPLINK_NAME = "eth-uplink"
+
+# model -> udev ID_PATH of its onboard NIC, the one carrying the NFS root.
+# check-links requires that, for each of these, the first .link file udev
+# would apply (lexical order, after /etc replaces /usr/lib by name) sets
+# Name=eth-uplink: the root's files must cover every model the fleet
+# netboots, not merely name something eth-uplink.  fpgas-online-setup-pi's
+# tests/test_link_files.py holds the same list (with the sysfs paths each is
+# derived from) and tests the package's own file before it is published;
+# this copy checks the file the image actually carries, after every other
+# package's .link files, so a setup-pi deb that lost a model, or another
+# package's .link sorting first, fails the image build.
+UPLINK_ID_PATHS = {
+    "Pi 3B+": "platform-3f980000.usb-usb-0:1.1.1:1.0",
+    "Pi 4B, CM4": "platform-fd580000.ethernet",
+    "Pi 5, CM5": "platform-1f00100000.ethernet",
+    "Orange Pi PC": "platform-1c30000.ethernet",
+}
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -355,15 +373,78 @@ def stale_initramfs(nfs_root: Path, versions: list[str]) -> list[str]:
     return stale
 
 
+def link_files(directory: Path) -> dict[str, bytes]:
+    """name -> content of the .link files and their .link.d drop-ins in one directory.
+
+    The udev hook copies everything named *.link* (``find -L ... -name
+    '*.link*'``, recursively), so drop-ins (``<name>.link.d/<x>.conf``) reach
+    the initramfs too; they are keyed by their path relative to the directory.
+    """
+    links: dict[str, bytes] = {}
+    if directory.is_dir():
+        for path in sorted(directory.glob("*.link")):
+            if path.is_file():
+                links[path.name] = path.read_bytes()
+        for path in sorted(directory.glob("*.link.d/*.conf")):
+            if path.is_file():
+                links[str(path.relative_to(directory))] = path.read_bytes()
+    return links
+
+
 def root_links(nfs_root: Path) -> dict[str, bytes]:
-    """name -> content of the .link files the udev hook copies into an initramfs."""
+    """name -> content of the .link files (and drop-ins) the udev hook copies into an initramfs."""
     links: dict[str, bytes] = {}
     for relative in ROOT_LINK_DIRS:
-        directory = nfs_root / "root" / relative
-        if directory.is_dir():
-            for path in sorted(directory.glob("*.link")):
-                links[path.name] = path.read_bytes()
+        links.update(link_files(nfs_root / "root" / relative))
     return links
+
+
+def link_match(content: bytes) -> dict[str, str]:
+    """The [Match] section of a .link file, key -> value (a repeated key's values joined by spaces)."""
+    section, match = "", {}
+    for raw in content.decode(errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+        elif section == "Match" and "=" in line:
+            key, value = line.split("=", 1)
+            match[key.strip()] = (match.get(key.strip(), "") + " " + value.strip()).strip()
+    return match
+
+
+def coverage_problems(links: dict[str, bytes]) -> list[str]:
+    """Models whose onboard NIC the root's .link files would not name eth-uplink.
+
+    udev applies the first .link file, in lexical order, whose [Match]
+    matches; an empty file is a mask and is skipped.  For each model's
+    ID_PATH the first file that could match it (its Path= globs match, or it
+    has no Path= at all and so might) must set Name=eth-uplink.  Only Path=
+    is evaluated: the other match keys (Type=, KernelCommandLine=, ...) hold
+    on a netbooted board's NIC by construction.  Drop-ins are compared byte
+    for byte by link_problems but not interpreted here.
+    """
+    problems = []
+    files = sorted((n, c) for n, c in links.items() if n.endswith(".link") and c.strip())
+    for model, id_path in UPLINK_ID_PATHS.items():
+        first = None
+        for name, content in files:
+            paths = link_match(content).get("Path")
+            if paths is None or any(fnmatch.fnmatchcase(id_path, glob) for glob in paths.split()):
+                first = (name, content)
+                break
+        if first is None:
+            problems.append(
+                f"{model}: no .link file matches its onboard NIC ({id_path}), so it keeps the kernel's "
+                f"name, not {UPLINK_NAME}: fpgas-online-setup-pi's 11-eth-uplink.link must list it"
+            )
+        elif UPLINK_NAME not in link_names(first[1]):
+            problems.append(
+                f"{model}: the first .link file matching its onboard NIC ({id_path}) is {first[0]}, "
+                f"which does not set Name={UPLINK_NAME}"
+            )
+    return problems
 
 
 def link_names(content: bytes) -> list[str]:
@@ -402,13 +483,11 @@ def initramfs_links(nfs_root: Path, version: str) -> dict[str, bytes]:
                 f"unmkinitramfs /boot/initrd.img-{version} failed (rc {result.returncode}): "
                 f"{result.stdout}{result.stderr}".strip()
             )
-        links: dict[str, bytes] = {}
         for base in (Path(tmp) / "main", Path(tmp)):
             directory = base / INITRAMFS_LINK_DIR
             if directory.is_dir():
-                links = {p.name: p.read_bytes() for p in sorted(directory.glob("*.link"))}
-                break
-        return links
+                return link_files(directory)
+        return {}
 
 
 def link_problems(
@@ -418,17 +497,12 @@ def link_problems(
 
     ``expected`` is the root's set (``root_links``); ``found`` is version ->
     that version's initramfs set (``initramfs_links``).  Every image must
-    carry exactly the root's files, byte for byte, and one of them must name
-    an interface eth-uplink: otherwise a board boots with names the root does
-    not describe, and its uplink is not eth-uplink.
+    carry exactly the root's files (drop-ins included), byte for byte, and
+    those files must name every model's onboard NIC eth-uplink
+    (``coverage_problems``): otherwise a board boots with names the root does
+    not describe, or a model's uplink is not eth-uplink.
     """
-    problems = []
-    if not any(UPLINK_NAME in link_names(content) for content in expected.values()):
-        problems.append(
-            f"no .link file under {' or '.join(ROOT_LINK_DIRS)} in the root sets "
-            f"Name={UPLINK_NAME} (fpgas-online-setup-pi's 11-eth-uplink.link): "
-            f"no board's uplink would be named {UPLINK_NAME}"
-        )
+    problems = coverage_problems(expected)
     for version, links in sorted(found.items()):
         missing = sorted(set(expected) - set(links))
         extra = sorted(set(links) - set(expected))
@@ -462,7 +536,8 @@ def cmd_check_links(args: argparse.Namespace) -> int:
         return 1
     print(
         f"nfsroot-kernels: OK every initramfs ({' '.join(sorted(found))}) carries the root's "
-        f".link files ({' '.join(sorted(expected))}), naming the uplink {UPLINK_NAME}"
+        f".link files ({' '.join(sorted(expected))}), which name the onboard NIC of "
+        f"{', '.join(UPLINK_ID_PATHS)} {UPLINK_NAME}"
     )
     return 0
 
