@@ -1,0 +1,9 @@
+#!/bin/sh
+# Answers ssh's questions when there is no terminal, and records every
+# question so the results show exactly what a visitor would have been asked.
+printf '%s\n----\n' "$1" >> "${LAB_ASKPASS_LOG:-/root/askpass.log}"
+case "$1" in
+  *"continue connecting"*) printf '%s\n' "${LAB_HOSTKEY_ANSWER:-yes}" ;;
+  *assword*) printf '%s\n' "$LAB_PASSWORD" ;;
+  *) printf '\n' ;;
+esac
