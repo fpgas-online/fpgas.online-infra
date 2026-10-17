@@ -216,6 +216,20 @@
   notify:
     - Restart django services
 
+# Where the netconsole receiver (roles/netconsole) stores the Pis' kernel logs, one
+# <sender IPv4>.log each; the site reads them for the board pages. The three Django
+# services read /etc/environment (EnvironmentFile=). The value is the one group variable
+# both roles use, so a host that lacks it fails here rather than the site silently
+# having no logs.
+- name: Tell the site where the netconsole logs are (FPGAS_NETCONSOLE_DIR)
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    state: present
+    regexp: '^FPGAS_NETCONSOLE_DIR='
+    line: "FPGAS_NETCONSOLE_DIR={{ netconsole_dir }}"
+  notify:
+    - Restart django services
+
 - name: Set static dir
   ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"
