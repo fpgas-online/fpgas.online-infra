@@ -1,0 +1,21 @@
+---
+# Receiver for the Pis' kernel logs (Linux netconsole over UDP). Every Pi's kernel
+# command line carries netconsole=@/eth-uplink,@10.21.0.1/ (roles/fixpi), i.e. the
+# gateway's eth-local address and netconsole's default port.
+
+# Where the logs land (<dir>/<sender IPv4>.log) is NOT set here: the site role reads it
+# too (FPGAS_NETCONSOLE_DIR), so the one definition is the group variable
+# netconsole_dir in inventory/group_vars/all/site.yml.
+
+# What the receiver listens on. The Pis send to 10.21.0.1 -- the gateway's address on
+# the local network -- so that is what it binds, never the uplink side.
+netconsole_address: "{{ eth_local_address }}"
+netconsole_port: 6666
+
+netconsole_user: netconsole
+
+# A sender's file stops growing here until logrotate renames it (flood bound, in the
+# script); logrotate itself rotates daily or at this size, whichever the daily run sees.
+netconsole_max_file_bytes: 104857600
+netconsole_logrotate_size: 10M
+netconsole_logrotate_keep: 7

@@ -1,0 +1,6 @@
+---
+- name: Restart netconsole-recv
+  ansible.builtin.systemd:
+    name: netconsole-recv
+    state: restarted
+    daemon_reload: true

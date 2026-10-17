@@ -1,0 +1,60 @@
+---
+# update_cache: same reason as roles/mqtt (the gateway's lists can be weeks old).
+- name: Install logrotate
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+    update_cache: true
+    cache_valid_time: 86400
+
+- name: Create the netconsole system user
+  ansible.builtin.user:
+    name: "{{ netconsole_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
+# 0755: the site's process reads the files without being this user.
+- name: Create the log directory
+  ansible.builtin.file:
+    path: "{{ netconsole_dir }}"
+    state: directory
+    owner: "{{ netconsole_user }}"
+    group: "{{ netconsole_user }}"
+    mode: "0755"
+
+- name: Install the receiver
+  ansible.builtin.copy:
+    src: netconsole-recv
+    dest: /usr/local/sbin/netconsole-recv
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart netconsole-recv
+
+- name: Install the receiver's unit
+  ansible.builtin.template:
+    src: netconsole-recv.service.j2
+    dest: /etc/systemd/system/netconsole-recv.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart netconsole-recv
+
+- name: Rotate the logs
+  ansible.builtin.template:
+    src: netconsole.logrotate.j2
+    dest: /etc/logrotate.d/netconsole
+    owner: root
+    group: root
+    mode: "0644"
+
+# A change above restarts the service at the end of the play (handler); this makes sure it
+# is running and enabled on the first converge and after a failed one.
+- name: Enable and start the receiver
+  ansible.builtin.systemd:
+    name: netconsole-recv
+    daemon_reload: true
+    enabled: true
+    state: started

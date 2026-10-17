@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Receive the Pis' kernel logs (netconsole) on {{ netconsole_address }}:{{ netconsole_port }}
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+User={{ netconsole_user }}
+Group={{ netconsole_user }}
+ExecStart=/usr/local/sbin/netconsole-recv --address {{ netconsole_address }} --port {{ netconsole_port }} --dir {{ netconsole_dir }} --max-file-bytes {{ netconsole_max_file_bytes }}
+Restart=always
+RestartSec=2
+# Files readable by the site's process.
+UMask=0022
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{ netconsole_dir }}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

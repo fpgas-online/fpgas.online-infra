@@ -73,6 +73,11 @@
         name: pxe
         tasks_from: verify/main.yml
 
+    - name: Verify netconsole
+      ansible.builtin.include_role:
+        name: netconsole
+        tasks_from: verify/main.yml
+
     - name: Verify apt-cache
       ansible.builtin.include_role:
         name: apt_cache

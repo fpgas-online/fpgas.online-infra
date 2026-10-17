@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+# The receiver opens, appends to and closes the file for every datagram, so a rename is
+# all a rotation needs: the next datagram starts a new file.
+{{ netconsole_dir }}/*.log {
+    su {{ netconsole_user }} {{ netconsole_user }}
+    daily
+    maxsize {{ netconsole_logrotate_size }}
+    rotate {{ netconsole_logrotate_keep }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    nocreate
+}
