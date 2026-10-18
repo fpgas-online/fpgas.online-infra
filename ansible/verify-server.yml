@@ -342,6 +342,18 @@
         that: verify_eeprom_wp.rc == 0
         fail_msg: "eeprom_write_protect=1 missing from {{ nfs_root }}/boot/config.txt — bootloader EEPROM would be writable"
 
+    # Full USB current on a Pi 5 on every port (fixpi tweeks.yml): the setup
+    # port's tree, derived from this file, is checked to keep it below.
+    - name: Read the fleet's config.txt
+      ansible.builtin.slurp:
+        src: "{{ nfs_root }}/boot/config.txt"
+      register: verify_fleet_config
+
+    - name: Assert a Pi 5 boots with its full USB current
+      ansible.builtin.assert:
+        that: "'[pi5]\nusb_max_current_enable=1\n[all]' in (verify_fleet_config.content | b64decode)"
+        fail_msg: "{{ nfs_root }}/boot/config.txt does not set usb_max_current_enable=1 for [pi5]: a Pi 5 limits its USB to 600 mA"
+
     # The setup / config port's boot tree (roles/fixpi setup-port.yml,
     # docs/pi/setup-port.md): the fleet's, with the radios on, the EEPROM
     # unprotected and fpgas.setup_port=1, served to that port alone.
@@ -359,8 +371,13 @@
           - "'eeprom_write_protect=1' not in config"
           - "'dtoverlay=disable-wifi' not in config"
           - "'dtoverlay=disable-bt' not in config"
+          - "'dtparam=spi=on' in config"
+          - "'dtparam=i2c_arm=on' in config"
+          - "'usb_max_current_enable=1' in config"
           - "'fpgas.setup_port=1' in cmdline.split()"
           - "'fpgas.setup_port=1' in cmdline_pi5.split()"
+          - "'systemd.restore_state=0' in cmdline.split()"
+          - "'systemd.restore_state=0' in cmdline_pi5.split()"
         fail_msg: "{{ setup_port_tftp_root }} does not lift the fleet's restrictions"
       vars:
         config: "{{ (verify_setup_port_files.results[0].content | b64decode).splitlines() }}"

@@ -122,7 +122,8 @@ def test_the_derived_files_are_readable_whatever_the_umask(tmp_path):
     assert run.returncode == 0, run.stderr
     for name in ("config.txt", "cmdline.txt", "cmdline-pi5.txt"):
         assert (setup / name).stat().st_mode & 0o777 == 0o644
-    assert setup.stat().st_mode & 0o777 == 0o755
+    for directory in (setup, setup / "overlays"):
+        assert directory.stat().st_mode & 0o777 == 0o755
 
 
 @pytest.mark.parametrize("change, why", [
@@ -211,3 +212,16 @@ def test_the_tree_is_built_last_and_never_in_the_image():
     assert build["when"] == ["setup_port is defined", "not (fixpi_image_build | bool)"]
     assert build["ansible.builtin.script"]["cmd"] == \
         "files/scripts/setup_port_tree.py {{ tftp_root }} {{ setup_port_tftp_root }}"
+
+
+def test_every_boot_tree_gives_a_pi_5_its_full_usb_current():
+    # Tim, 18 Oct 2026: "make sure that the rpi devices are booting on all ports with proper configuration which
+    # enables full power mode". The fleet's config.txt carries it; the setup tree is derived from it and is checked
+    # to keep it (verify-server.yml).
+    tasks = yaml.safe_load((REPO / "ansible/roles/fixpi/tasks/tweeks.yml").read_text())
+    (block,) = [t["ansible.builtin.blockinfile"] for t in tasks if t.get("name") == "Config.txt full USB current on Pi 5"]
+    assert block["dest"] == "{{ nfs_root }}/boot/config.txt"
+    assert block["block"] == "[pi5]\nusb_max_current_enable=1\n[all]\n"
+    verify = (REPO / "ansible/verify-server.yml").read_text()
+    assert "'[pi5]\\nusb_max_current_enable=1\\n[all]' in (verify_fleet_config.content | b64decode)" in verify
+    assert "- \"'usb_max_current_enable=1' in config\"" in verify

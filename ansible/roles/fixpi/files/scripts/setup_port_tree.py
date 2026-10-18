@@ -74,6 +74,7 @@ def build(fleet, staged):
     for dirpath, dirnames, filenames in os.walk(fleet):
         rel = Path(dirpath).relative_to(fleet)
         (staged / rel).mkdir(exist_ok=True)
+        (staged / rel).chmod(0o755)  # dnsmasq reads the tree as its own user, whatever this process's umask
         # os.walk lists a symlink to a directory with the directories and does not follow it: it is kept as the
         # link it is, like a link to a file.
         for name in [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:
@@ -91,9 +92,8 @@ def build(fleet, staged):
     (staged / "config.txt").write_text(setup_config((fleet / "config.txt").read_text()))
     for name in CMDLINES:
         (staged / name).write_text(setup_cmdline(name, (fleet / name).read_text()))
-    for name in DERIVED:  # dnsmasq reads them as its own user, whatever this process's umask
+    for name in DERIVED:  # as the directories: readable by dnsmasq, whatever the umask
         (staged / name).chmod(0o644)
-    staged.chmod(0o755)
 
 
 def same(a, b):
