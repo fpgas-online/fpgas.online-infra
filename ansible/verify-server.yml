@@ -342,6 +342,40 @@
         that: verify_eeprom_wp.rc == 0
         fail_msg: "eeprom_write_protect=1 missing from {{ nfs_root }}/boot/config.txt — bootloader EEPROM would be writable"
 
+    # The setup / config port's boot tree (roles/fixpi setup-port.yml,
+    # docs/pi/setup-port.md): the fleet's, with the radios on, the EEPROM
+    # unprotected and fpgas.setup_port=1, served to that port alone.
+    - name: Read the setup port's boot tree
+      ansible.builtin.slurp:
+        src: "{{ setup_port_tftp_root }}/{{ item }}"
+      loop: [config.txt, cmdline.txt, cmdline-pi5.txt]
+      register: verify_setup_port_files
+      when: setup_port is defined
+
+    - name: Assert the setup port's boot tree lifts the restrictions
+      ansible.builtin.assert:
+        that:
+          - "'eeprom_write_protect=0' in config"
+          - "'eeprom_write_protect=1' not in config"
+          - "'dtoverlay=disable-wifi' not in config"
+          - "'dtoverlay=disable-bt' not in config"
+          - "'fpgas.setup_port=1' in cmdline.split()"
+          - "'fpgas.setup_port=1' in cmdline_pi5.split()"
+        fail_msg: "{{ setup_port_tftp_root }} does not lift the fleet's restrictions"
+      vars:
+        config: "{{ (verify_setup_port_files.results[0].content | b64decode).splitlines() }}"
+        cmdline: "{{ verify_setup_port_files.results[1].content | b64decode }}"
+        cmdline_pi5: "{{ verify_setup_port_files.results[2].content | b64decode }}"
+      when: setup_port is defined
+
+    - name: Check dnsmasq serves the setup port its boot tree on every switch
+      ansible.builtin.command: grep -c '^tftp-root={{ setup_port_tftp_root }},' /etc/dnsmasq.d/ports.conf
+      changed_when: false
+      register: verify_setup_port_dnsmasq
+      failed_when: verify_setup_port_dnsmasq.stdout | int != switches | length
+      when: setup_port is defined and switches is defined
+
+
 - name: Verify uhubctl
   hosts: uhubctl
   become: true
