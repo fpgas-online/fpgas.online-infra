@@ -54,6 +54,7 @@ sw2 port 48 has used since 3 Oct 2026 (`tftp-root=<tree>,v2248`).
 | Device node owners and modes (I2C, GPIO, SPI) | Raspberry Pi OS's own; fpgas.online adds no udev rule (`roles/onpi/tasks/i2c.yml` only loads `i2c-dev`) | Not changed: `pi` reaches every node through `sudo`, as on every Pi |
 | A board's own SPI flash (Acorn, Arty, Fomu, NeTV2) | No fpgas.online code leaves it write-protected (the Fomu check holds its `/WP` low only while it has the bus; `designs/_host/fomu_header_id.py` in fpgas.online-test-designs) | Nothing to lift |
 | Magic SysRq off (`kernel.sysrq = 0`) | `roles/fixpi/files/etc/sysctl.d/99-fpgas-no-sysrq.conf` | **Kept.** It is not a permission: it stops bytes from an FPGA on the header UART from rebooting the Pi |
+| (Not a restriction) Full USB current on a Pi 5: `usb_max_current_enable=1` | `config.txt`, `tweeks.yml`, on every port ([Boot-time configuration](boot-config.md)) | The same: the setup tree is derived from the fleet's and keeps it |
 | Changes do not survive a reboot (read-only root, `overlayroot=tmpfs`) | `cmdline.txt` | **Kept.** It is what returns the Pi to the fleet's rules when it moves to another port. Only the EEPROM and a board's flash keep what is written to them |
 | The Pi reboots itself after a root update (`nfsroot-watchdog`) | `roles/onpi/tasks/stale_root.yml` | **Kept.** Without it a Pi on the old root fails new programs after an update. It never reboots while the gateway's update lock is held; a flash written in the minutes after an update can still be cut short by it |
 | Tiny Tapeout demo boards: no file of ours is written to them | Tim's rule of 5 Oct 2026 (`fpgas-tt`, the boot check) | **Kept.** It binds our code, not the person at the Pi, who may write to a board on any port |
@@ -64,7 +65,8 @@ Serving `eeprom_write_protect=0` is all the boot files can do, and it is not kno
 3 Oct 2026 serving `=0` over netboot did **not** clear a Pi 5 that was already locked: its status register stayed
 `0xbc` in four boots, with the `TP14`-`TP1` bridge believed fitted. Why is not known (Raspberry Pi's documentation
 ties the Pi 5 lock to `/WP`, which is pulled low on a Pi 5; whether that is the cause was not established). Nothing
-fpgas.online runs writes the flash's status register from Linux. On a Pi 4 the effect of `=0` has not been measured.
+fpgas.online runs writes the flash's status register from Linux: Tim chose this on 18 Oct 2026 (question
+welland-setup-1, "Serve =0, test first"). On a Pi 4 the effect of `=0` has not been measured.
 The first Pi 5 booted on the setup port is checked with the read-only status register read on
 [Raspberry Pi 5: check](https://docs.fpgas.online/en/latest/setup/bootloader-eeprom-pi5-check.html), and the result
 is recorded here.
