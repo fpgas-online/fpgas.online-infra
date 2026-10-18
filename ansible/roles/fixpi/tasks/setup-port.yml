@@ -1,0 +1,40 @@
+---
+# The setup / config port (Tim, 18 Oct 2026: "Make port 1 (or the first PoE
+# controllable port) a special "setup / config" port. Any device plugged into
+# that port should boot with fully open permissions around spiflash / eeprom /
+# wlan0 / etc."). docs/pi/setup-port.md lists every restriction and how it is
+# lifted.
+#
+# The Pi learns it is there from what the gateway serves its port: roles/pxe
+# gives the setup port's VLAN of each switch the boot tree built here, not the
+# fleet's. No per-Pi variable, and nothing persists on the Pi.
+
+# In every root (the image build too): runs only when the boot tree's cmdline
+# says fpgas.setup_port=1.
+- name: Install the setup port's rfkill unit in the NFS root
+  ansible.builtin.copy:
+    src: files/fpgas-setup-port.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-setup-port.service"
+    mode: "0644"
+
+- name: Enable the setup port's rfkill unit in the NFS root
+  ansible.builtin.file:
+    src: /etc/systemd/system/fpgas-setup-port.service
+    dest: "{{ nfs_root }}/root/etc/systemd/system/multi-user.target.wants/fpgas-setup-port.service"
+    state: link
+    # The src path is absolute inside the NFS root, not on the server.
+    force: true
+
+# On a gateway with a setup port: the setup port's boot tree, derived from the
+# fleet's after tweeks.yml has written the fleet's config.txt, inside the root
+# update lock (site.yml), so it follows every root update. The script fails
+# loud if the fleet's files no longer carry what it lifts.
+- name: Build the setup port's boot tree from the fleet's
+  ansible.builtin.script:
+    cmd: "files/scripts/setup_port_tree.py {{ tftp_root }} {{ setup_port_tftp_root }}"
+    executable: python3
+  register: fixpi_setup_port_tree
+  changed_when: fixpi_setup_port_tree.stdout_lines == ['changed']
+  when:
+    - setup_port is defined
+    - not (fixpi_image_build | bool)

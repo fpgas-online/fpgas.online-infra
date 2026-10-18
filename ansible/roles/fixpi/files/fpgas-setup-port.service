@@ -1,0 +1,18 @@
+[Unit]
+Description=Lift the radio block on the setup / config port
+# Only on the setup port: the gateway serves that port's VLAN its own boot
+# tree (roles/fixpi setup-port.yml), whose cmdline carries fpgas.setup_port=1.
+# That tree's config.txt already leaves the radios enabled; this clears any
+# rfkill soft block, so wlan0 and Bluetooth are usable. Nothing persists: the
+# root is read-only under a tmpfs overlay, so the next boot on another port is
+# the fleet's.
+ConditionKernelCommandLine=fpgas.setup_port=1
+After=systemd-rfkill.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/rfkill unblock all
+
+[Install]
+WantedBy=multi-user.target

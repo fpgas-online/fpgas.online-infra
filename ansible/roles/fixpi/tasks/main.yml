@@ -22,3 +22,5 @@
 # Server-side fleet agent config (same reason).
 - {name: Bake the fleet agent config into the NFS root, ansible.builtin.include_tasks: fleet-site.yml, when: fleet_broker | default(false)}
 - {name: Write the site's IPv6 base prefix into the NFS root, ansible.builtin.include_tasks: ipv6-site.yml, when: not (fixpi_image_build | bool)}
+# Last: the setup port's boot tree is derived from the fleet's finished one.
+- {name: Install the setup / config port's unit and boot tree, ansible.builtin.include_tasks: setup-port.yml}

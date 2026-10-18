@@ -21,3 +21,8 @@ nfs_root: "/srv/nfs/rpi/{{ dist }}"
 # from the root -- so no per-Pi serial registration is needed. Legacy
 # MAC-table hosts keep /srv/tftp with per-serial symlinks from switch.nos.
 tftp_root: "{{ (nfs_root ~ '/boot') if switches is defined else '/srv/tftp' }}"
+
+# The setup / config port's boot tree (roles/fixpi setup-port.yml), served by
+# dnsmasq to port `setup_port` of every switch (roles/pxe ports.conf.j2). A
+# site names its setup port in its host_vars; with none, there is no tree.
+setup_port_tftp_root: "{{ nfs_root }}/boot-setup"
