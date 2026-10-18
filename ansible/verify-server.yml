@@ -385,6 +385,20 @@
         cmdline_pi5: "{{ verify_setup_port_files.results[2].content | b64decode }}"
       when: setup_port is defined
 
+    # Names, links and contents: the setup tree is the fleet's but for the three
+    # files it derives (diff exits 1 when trees differ, 2 on trouble).
+    - name: Compare the setup port's boot tree with the fleet's
+      ansible.builtin.command: diff -rq --no-dereference {{ tftp_root }} {{ setup_port_tftp_root }}
+      register: verify_setup_port_diff
+      changed_when: false
+      failed_when: >-
+        verify_setup_port_diff.rc not in [0, 1]
+        or (verify_setup_port_diff.stdout_lines | sort) != ([
+          'Files ' ~ tftp_root ~ '/cmdline-pi5.txt and ' ~ setup_port_tftp_root ~ '/cmdline-pi5.txt differ',
+          'Files ' ~ tftp_root ~ '/cmdline.txt and ' ~ setup_port_tftp_root ~ '/cmdline.txt differ',
+          'Files ' ~ tftp_root ~ '/config.txt and ' ~ setup_port_tftp_root ~ '/config.txt differ'] | sort)
+      when: setup_port is defined
+
     - name: Read dnsmasq's per-port config
       ansible.builtin.slurp:
         src: /etc/dnsmasq.d/ports.conf
