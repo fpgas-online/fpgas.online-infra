@@ -24,6 +24,11 @@ dhcp-range=tag:{{ e.iface }},{{ e.ip4 }},{{ e.ip4 }},255.255.0.0,5m
 # traffic routes via the gateway instead of assuming direct reachability.
 dhcp-range=tag:{{ e.iface }},{{ e.ip6 }},{{ e.ip6 }},off-link,64,5m
 host-record={{ e.hostname }},{{ e.hostname }}.{{ pib_domain }},{{ e.ip4 }},{{ e.ip6 }}
+{% if setup_port is defined and e.port == setup_port %}
+# The setup / config port: its own boot tree (radios on, EEPROM unprotected,
+# fpgas.setup_port=1 on the kernel command line; docs/pi/setup-port.md).
+tftp-root={{ setup_port_tftp_root }},{{ e.iface }}
+{% endif %}
 {% endfor %}
 
 # VLAN 1 quarantine on the untagged trunk: unconfigured ports land here,

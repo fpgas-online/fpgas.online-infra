@@ -53,6 +53,30 @@
   notify: Restart dnsmasq
   when: switches is not defined
 
+# The setup / config port (docs/pi/setup-port.md): ports.conf serves its VLAN
+# on every switch the boot tree roles/fixpi builds. dnsmasq refuses to start
+# when a tftp-root it is given does not exist, and on a fresh gateway fixpi
+# runs last (site.yml), so the directory is created here, empty, first.
+- name: Check the setup port is an access port of every switch
+  ansible.builtin.assert:
+    that:
+      - setup_port is integer
+      - setup_port >= 1
+      - setup_port <= item.access_ports
+    fail_msg: "setup_port {{ setup_port }} is not an access port of switch {{ item.index }} (1..{{ item.access_ports }})"
+    quiet: true
+  loop: "{{ switches }}"
+  loop_control:
+    label: "switch {{ item.index }}"
+  when: switches is defined and setup_port is defined
+
+- name: Create the setup port's TFTP root
+  ansible.builtin.file:
+    path: "{{ setup_port_tftp_root }}"
+    state: directory
+    mode: "0755"
+  when: switches is defined and setup_port is defined
+
 - name: Create dnsmasq.d ports.conf (per-port hosts)
   ansible.builtin.template:
     src: templates/ports.conf.j2
