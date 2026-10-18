@@ -21,17 +21,20 @@
       | list | length == 1
     fail_msg: "nothing listens on UDP {{ netconsole_address }}:{{ netconsole_port }}: {{ netconsole_verify_listeners.stdout }}"
 
-- name: Read the receiver's effective receive buffer from its journal
-  ansible.builtin.command: journalctl -u netconsole-recv --no-pager -o cat -g 'byte receive buffer'
+# The listening socket's own receive buffer (ss -m: skmem rb), not the receiver's start-up
+# journal line, which journal rotation removes from a long-running gateway.
+- name: Read the receiver socket's receive buffer
+  ansible.builtin.command:
+    argv: [ss, -H, -lunm, src, "{{ netconsole_address }}:{{ netconsole_port }}"]
   changed_when: false
-  register: netconsole_verify_journal
+  register: netconsole_verify_socket
 
 - name: Check the receive buffer is at least what was asked for
   ansible.builtin.assert:
-    that: >-
-      (netconsole_verify_journal.stdout | regex_findall('with a ([0-9]+)-byte') | last | int)
-      >= 2 * netconsole_rcvbuf_bytes
-    fail_msg: "the receiver's receive buffer is smaller than {{ 2 * netconsole_rcvbuf_bytes }}: {{ netconsole_verify_journal.stdout }}"
+    that:
+      - netconsole_verify_socket.stdout | regex_findall('\\brb([0-9]+)') | length == 1
+      - (netconsole_verify_socket.stdout | regex_findall('\\brb([0-9]+)') | first | int) >= 2 * netconsole_rcvbuf_bytes
+    fail_msg: "the receiver's socket buffer is not at least {{ 2 * netconsole_rcvbuf_bytes }} bytes: {{ netconsole_verify_socket.stdout }}"
 
 - name: Stat the log directory
   ansible.builtin.stat:

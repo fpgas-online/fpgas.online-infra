@@ -27,7 +27,7 @@ only the text kept; the kernel's `ncfrag` fragments of one long message are stor
 lines, not reassembled. The per-file size cap bounds one rotation period, not the week's disk.
 
 The log directory is `netconsole_dir`, one group variable
-(`inventory/group_vars/all/site.yml`) because the `site` role hands the same path to the
+(`inventory/group_vars/all/netconsole.yml`) because the `site` role hands the same path to the
 Django site as `FPGAS_NETCONSOLE_DIR`. The directory is `0755` and the files `0644`: the
 site reads them without being the `netconsole` user. The site selects a boot's lines by
 receive time against the Pi's boot time, so the receiver does no boot detection.
