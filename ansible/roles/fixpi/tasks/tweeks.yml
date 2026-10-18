@@ -167,6 +167,26 @@
       dtoverlay=uart0-pi5
       cmdline=cmdline-pi5.txt
       [all]
+# Full power on every port (Tim, 18 Oct 2026: "make sure that the rpi devices
+# are booting on all ports with proper configuration which enables full power
+# mode"). A Pi 5 limits its USB ports to 600 mA unless its supply says it can
+# give 5 A or config.txt forces the high limit; usb_max_current_enable=1 forces
+# 1.6 A ("The high level is automatically enabled if the power supply claims 5A
+# max-current OR usb_max_current_enable=1 is forced in config.txt", Raspberry
+# Pi documentation, configuration/reference.adoc, /chosen/power). The other way,
+# PSU_MAX_CURRENT=5000, is a bootloader EEPROM setting, and the fleet's EEPROMs
+# are write-protected. A Pi 3B+ or Pi 4 gives its USB ports 1.2 A with no
+# setting (the same documentation's power supply table), so nothing is set for
+# them. The setup port's tree is derived from this file and keeps the line.
+- name: Config.txt full USB current on Pi 5
+  ansible.builtin.blockinfile:
+    dest: "{{ nfs_root }}/boot/config.txt"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: pi5 usb max current"
+    block: |
+      [pi5]
+      usb_max_current_enable=1
+      [all]
+
 # USB gadget console (fpgas-online-setup-pi usb-console/): the Pi 4 and Pi 5
 # USB-C port is a dwc2 OTG controller that the firmware leaves in host mode;
 # in peripheral mode a laptop on that port gets the kernel log + a getty.
