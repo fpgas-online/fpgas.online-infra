@@ -90,6 +90,12 @@ pib_domain: fpgas.welland.mithis.com
 # The gateway (tweed) attaches to the GSM7252PS-s2, so it is the HEAD switch
 # (index 1); the S3300 is downstream (index 2). Ports are the switches' own
 # linear 1..52 index (library port_count=52); on the S3300 "1/xg51" = port 51.
+# The setup / config port (Tim, 18 Oct 2026): a device on this port of either
+# switch boots with every restriction lifted (radios, EEPROM write protection;
+# docs/pi/setup-port.md) and the site never offers it. Both switches' port 1
+# is PoE-controllable.
+setup_port: 1
+
 switches:
   - index: 1                      # GSM7252PS-s2 — HEAD (tweed eth-local trunks here)
     model: gsm7252ps

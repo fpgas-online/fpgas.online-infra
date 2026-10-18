@@ -230,6 +230,18 @@
   notify:
     - Restart django services
 
+# The setup / config port (docs/pi/setup-port.md): the site never offers a
+# machine registered on it and shows it failed, reason "setup port". A site
+# with no setup port has the line taken out.
+- name: Tell the site which port is the setup port (FPGAS_SETUP_PORT)
+  ansible.builtin.lineinfile:
+    path: /etc/environment
+    state: "{{ 'present' if setup_port is defined else 'absent' }}"
+    regexp: '^FPGAS_SETUP_PORT='
+    line: "FPGAS_SETUP_PORT={{ setup_port | default('') }}"
+  notify:
+    - Restart django services
+
 - name: Set static dir
   ansible.builtin.lineinfile:
     path: "{{ django_dir }}/{{ django_project_name }}/local_settings.py"

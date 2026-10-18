@@ -13,6 +13,10 @@ eeprom_write_protect=1
 [pi5]
 dtoverlay=uart0-pi5
 cmdline=cmdline-pi5.txt
+[all]
+[pi5]
+usb_max_current_enable=1
+[all]
 [pi4]
 dtoverlay=dwc2,dr_mode=peripheral
 [pi5]
@@ -33,6 +37,23 @@ through `overlay_map.dtb`, so the same two lines disable both radios on both mod
 disables `&mmc`/`&mmcnr`, a Pi 5 `&sdio2`; `disable-bt`: a Pi 4 `&bt`, a Pi 5 `&bluetooth`). `config.txt` is
 served from the read-only TFTP root, so the lines are applied at every boot: a user with root can bring a radio
 up for the life of a session, but never across a reboot (comment in `fixpi/tasks/tweeks.yml`, read 2026-10-07).
+
+**Full power.** Every Pi boots with the setting that lets its USB ports draw their full current, on every port (Tim, 18 Oct 2026: "make sure that the
+rpi devices are booting on all ports with proper configuration which enables full power mode"). A Pi 5 gives its
+USB ports 600 mA unless its supply says it can give 5 A or `config.txt` forces the high limit; `usb_max_current_enable=1`
+forces 1.6 A. Raspberry Pi's documentation: "The high level is automatically enabled if the power supply claims 5A
+max-current OR `usb_max_current_enable=1` is forced in `config.txt`" (`configuration/reference.adoc`, `/chosen/power`).
+The other way, `PSU_MAX_CURRENT=5000`, is a setting in the bootloader EEPROM ("Raspberry Pi 5 only. If set, this
+property instructions the firmware to skip USB power-delivery negotiation and assume that it is connected to a power
+supply with the given current rating", `raspberry-pi/eeprom-bootloader.adoc`), and the fleet's EEPROMs are
+write-protected, so it is not used. A Pi 3B+ or a Pi 4 gives its USB ports 1.2 A with no setting (the power supply
+table in `raspberry-pi/power-supplies.adoc`), so nothing is set for them. On a Pi 5, `vcgencmd get_config
+usb_max_current_enable` and `/proc/device-tree/chosen/power/usb_max_current_enable` say which limit the boot set.
+`verify-server.yml` checks the line in the served `config.txt`.
+These are the limits of the ports, not what the supply can give: Raspberry Pi pairs the Pi 5's 1.6 A with a 5 A
+supply, and a fleet Pi takes its power from a PoE HAT, which is not one. Forcing the high limit means a USB load near
+1.6 A could pull the Pi's supply down (an under-voltage); the fleet's boards draw far less. `vcgencmd get_throttled`
+on a Pi with its boards running says whether that happened (bit 0: under-voltage now; bit 16: since boot).
 
 **USB-C gadget mode.** `dtoverlay=dwc2,dr_mode=peripheral` is applied on the Pi 4 and Pi 5 only. Their USB-C
 port is a dwc2 OTG controller that the firmware leaves in host mode; in peripheral mode a laptop on that port

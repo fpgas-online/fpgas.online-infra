@@ -1,0 +1,10 @@
+# Managed by fpgas.online-infra (roles/fixpi setup-port.yml). The setup / config
+# port (docs/pi/setup-port.md): the gateway serves that port its own boot tree,
+# whose config.txt leaves the radios enabled and whose kernel command line
+# carries fpgas.setup_port=1 and systemd.restore_state=0. On it, every radio is
+# soft-unblocked as its rfkill device appears, so wlan0 and Bluetooth are usable
+# however late their drivers load. On any other port this rule does nothing (and
+# the fleet's config.txt disables the radios). The root is read-only under a
+# tmpfs overlay, so nothing of it persists on the Pi.
+IMPORT{cmdline}="fpgas.setup_port"
+SUBSYSTEM=="rfkill", ACTION=="add", ENV{fpgas.setup_port}=="1", ATTR{soft}="0"

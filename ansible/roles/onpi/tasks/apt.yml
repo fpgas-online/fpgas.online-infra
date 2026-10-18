@@ -69,6 +69,12 @@
       - ack
       - tcpdump
       - i2c-tools
+      # The radios' tools, for a Pi on the setup / config port, where the
+      # radios are left on (docs/pi/setup-port.md; fpgas-setup-port.service
+      # runs rfkill).
+      - rfkill
+      - iw
+      - wpasupplicant
       # Advertises this Pi's hostname on its link so the switch's LLDP
       # neighbour table names which Pi is on which port -- confirms the
       # assumed cabling instead of trusting it (fpgas.online-setup-pi#6;
