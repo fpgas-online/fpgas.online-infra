@@ -1,0 +1,6 @@
+---
+# Where the netconsole receiver (roles/netconsole) stores the Pis' kernel logs, one
+# <sender IPv4>.log each. A group variable, defined once, because two roles read it:
+# netconsole writes there and site hands it to the Django site as FPGAS_NETCONSOLE_DIR.
+# (The test inventory links this file.)
+netconsole_dir: /var/log/netconsole

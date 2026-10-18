@@ -48,17 +48,27 @@ so means the Pi is rebooting in a loop: the kernel starts and something later fa
 ## 3. The kernel's own log, over the network
 
 The kernel command line carries `netconsole=@/eth-uplink,@10.21.0.1/`, which sends the kernel log to the gateway over
-UDP ([The kernel command line](../netboot.md#the-kernel-command-line)). Listen on the gateway (port 6666 is
-netconsole's default) while the Pi boots:
+UDP ([The kernel command line](../netboot.md#the-kernel-command-line)). The gateway's `netconsole` role runs a
+receiver (`netconsole-recv.service`) on `10.21.0.1`, UDP port 6666 (netconsole's default), that stores what arrives
+in one file per sender, named for the Pi's address: `/var/log/netconsole/<Pi address>.log`. Each line is the gateway's
+receive time (ISO 8601 with offset and microseconds), a space, then the kernel's text:
 
 ```console
-$ nc -u -l 6666
+$ tail -f /var/log/netconsole/10.21.1.1.log
+2026-10-18T09:30:01.123456+10:30 [   12.345678] eth-uplink: Link is Up - 1Gbps/Full
 ```
 
-The gateway's rebuild log of 2026-08-25 records this both failing and working within one night: try it, do
-not rely on it. That log's entry C1-3 calls netconsole's dynamic cmdline form "a dead cmdline feature" that never
-transmits, and C1-3b then reports netconsole working on the next boot; the log's fallback was to plant a unit in the
-NFS root that streams the journal early.
+The time is the gateway's, not the Pi's clock, which is not set that early in the boot. Cut the file at the time the
+Pi was powered to get one boot. The files are readable by every user on the gateway; the site reads them for its
+board pages. They are rotated and the older ones compressed
+(`/etc/logrotate.d/netconsole`, sizes in the role's defaults); the unit's journal (`journalctl -u netconsole-recv`) says if the receiver
+failed or a flooding Pi's file reached its size cap.
+
+The gateway's rebuild log of 2026-08-25 records netconsole both failing and working within one night. That log's
+entry C1-3 calls netconsole's dynamic cmdline form "a dead cmdline feature" that never transmits, and C1-3b
+then reports it working on the next boot; the log's fallback was to plant a unit in the NFS root that streams the
+journal early. To read the datagrams as they arrive, bypassing the receiver,
+stop it first (`systemctl stop netconsole-recv`, then `nc -u -l 6666`): it holds the port.
 
 ## 4. A console on the Pi's USB-C port (Pi 4 and Pi 5)
 

@@ -1,0 +1,97 @@
+---
+# Read-only probe (noqa: command-instead-of-module): see roles/webrtc's verify.
+- name: Check the receiver service is active  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl is-active netconsole-recv
+  changed_when: false
+
+- name: Check the receiver is enabled  # noqa: command-instead-of-module
+  ansible.builtin.command: systemctl is-enabled netconsole-recv
+  changed_when: false
+
+- name: List the UDP listeners
+  ansible.builtin.command: ss -H -lun
+  changed_when: false
+  register: netconsole_verify_listeners
+
+- name: Check the receiver listens on its address and port
+  ansible.builtin.assert:
+    that: >-
+      netconsole_verify_listeners.stdout_lines
+      | select('search', (netconsole_address ~ ':' ~ netconsole_port) | regex_escape ~ '\s')
+      | list | length == 1
+    fail_msg: "nothing listens on UDP {{ netconsole_address }}:{{ netconsole_port }}: {{ netconsole_verify_listeners.stdout }}"
+
+# The listening socket's own receive buffer (ss -m: skmem rb), not the receiver's start-up
+# journal line, which journal rotation removes from a long-running gateway.
+- name: Read the receiver socket's receive buffer
+  ansible.builtin.command:
+    argv: [ss, -H, -lunm, src, "{{ netconsole_address }}:{{ netconsole_port }}"]
+  changed_when: false
+  register: netconsole_verify_socket
+
+- name: Check the receive buffer is at least what was asked for
+  ansible.builtin.assert:
+    that:
+      - netconsole_verify_socket.stdout | regex_findall('\\brb([0-9]+)') | length == 1
+      - (netconsole_verify_socket.stdout | regex_findall('\\brb([0-9]+)') | first | int) >= 2 * netconsole_rcvbuf_bytes
+    fail_msg: "the receiver's socket buffer is not at least {{ 2 * netconsole_rcvbuf_bytes }} bytes: {{ netconsole_verify_socket.stdout }}"
+
+- name: Stat the log directory
+  ansible.builtin.stat:
+    path: "{{ netconsole_dir }}"
+  register: netconsole_verify_dir
+
+- name: Check the log directory is the receiver's and readable by others
+  ansible.builtin.assert:
+    that:
+      - netconsole_verify_dir.stat.isdir
+      - netconsole_verify_dir.stat.pw_name == netconsole_user
+      - netconsole_verify_dir.stat.mode == '0755'
+
+# A datagram the gateway sends to its own listening address arrives in a file named for the
+# sender (the address the kernel picks as the source, this gateway's own). It travels on lo
+# and is accepted by the input chain's `iif "lo"` rule, so this proves bind, parse, write and
+# permissions, NOT that a Pi's datagram passes the firewall: that is checked in the VM test
+# (tests/vm/run_tests.py), on the virtual Pi's own netconsole log.
+- name: Send a probe datagram to the receiver
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import socket, sys
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((sys.argv[1], int(sys.argv[2])))
+        s.send(sys.argv[3].encode())
+        print(s.getsockname()[0])
+      - "{{ netconsole_address }}"
+      - "{{ netconsole_port }}"
+      - "netconsole-recv verify probe {{ ansible_date_time.epoch }}"
+  changed_when: false
+  register: netconsole_verify_probe
+
+- name: Wait for the probe line in the sender's file
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -E
+      - "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+[+-][0-9]{2}:[0-9]{2} netconsole-recv verify probe {{ ansible_date_time.epoch }}$"
+      - "{{ netconsole_dir }}/{{ netconsole_verify_probe.stdout | trim }}.log"
+  changed_when: false
+  register: netconsole_verify_line
+  until: netconsole_verify_line.rc == 0
+  retries: 10
+  delay: 1
+
+- name: Stat the sender's file
+  ansible.builtin.stat:
+    path: "{{ netconsole_dir }}/{{ netconsole_verify_probe.stdout | trim }}.log"
+  register: netconsole_verify_file
+
+- name: Check the sender's file is readable by others
+  ansible.builtin.assert:
+    that: netconsole_verify_file.stat.mode == '0644'
+
+- name: Check logrotate accepts the rotation config
+  ansible.builtin.command: logrotate --debug /etc/logrotate.d/netconsole
+  changed_when: false

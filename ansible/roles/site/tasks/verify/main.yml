@@ -269,3 +269,19 @@
       - site_v_switch_poller.stdout_lines | select('match', 'WatchdogUSec=(0|infinity)$') | list | length == 0
     fail_msg: "switch-poller.service: {{ site_v_switch_poller.stdout_lines }} (expected active, with a watchdog)"
   when: switches is defined and (fleet_broker | default(false))
+
+# The netconsole directory reaches the running site (roles/site/tasks/django.yml): read from
+# the live gunicorn process, not the file it was written to.
+- name: Read the running gunicorn's environment
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value gunicorn)/environ
+    executable: /bin/bash
+  changed_when: false
+  register: site_v_gunicorn_environ
+
+- name: Assert the site is told where the netconsole logs are
+  ansible.builtin.assert:
+    that: "('FPGAS_NETCONSOLE_DIR=' ~ netconsole_dir) in site_v_gunicorn_environ.stdout_lines"
+    fail_msg: "gunicorn's environment has no FPGAS_NETCONSOLE_DIR={{ netconsole_dir }}"

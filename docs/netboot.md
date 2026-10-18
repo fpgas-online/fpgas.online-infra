@@ -93,7 +93,9 @@ systemd.log_level=debug systemd.log_target=kmsg log_buf_len=1M printk.devkmsg=on
   The bookworm VM that CI uses does not reproduce the UDP hang, so it was found only on real hardware (rebuild
   record, 2026-08-25). The flag is in the shared template for every site, because there is one template.
 
-- **`netconsole=@/eth-uplink,@10.21.0.1/`**: the kernel log over UDP to the gateway. It names `eth-uplink`
+- **`netconsole=@/eth-uplink,@10.21.0.1/`**: the kernel log over UDP to the gateway, where the `netconsole` role's
+  receiver stores it per Pi in `/var/log/netconsole/<Pi address>.log`
+  ([When a Pi does not boot](netboot/not-booting.md#3-the-kernels-own-log-over-the-network)). It names `eth-uplink`
   because netconsole is a module (`netconsole.ko` in every Pi kernel of the root), which initramfs-tools loads
   from this option *after* udev has renamed the NIC. With no interface named, netconsole takes `eth0`, which
   no longer exists by then. A VM run on 16 October 2026 logged "netconsole: eth0 doesn't exist, aborting"

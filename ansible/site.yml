@@ -48,6 +48,9 @@
     # config into /etc/dnsmasq.d. It serves the root's boot/ dir, which nfs
     # has created (empty on a fresh server) and the last play fills.
     - pxe
+    # Receives the Pis' kernel logs (netconsole=@/eth-uplink,@10.21.0.1/ in the boot
+    # command line) into netconsole_dir, which the web tier below reads.
+    - netconsole
 
 - name: Configure USB hub power control
   hosts: uhubctl

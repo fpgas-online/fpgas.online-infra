@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Receive the Pis' kernel logs (Linux netconsole, UDP) and store them per sender.
+
+Every datagram is split into lines; each line is appended to <dir>/<sender IPv4>.log
+as "<receive time, ISO 8601 with offset and microseconds> <kernel text>". The time is
+the gateway's, taken when the datagram arrived: the Pi's own clock is not trusted, and
+the site selects "this boot's lines" by receive time against the Pi's boot time.
+
+Both netconsole formats are handled:
+  plain     the kernel's text, one or more lines per datagram;
+  extended  "<level>,<seq>,<ts>,<flags>[,key=value...];text", optionally followed by
+            continuation lines that start with a space (KEY=VALUE dictionary lines).
+            The header is dropped and the text kept.
+
+Each datagram is appended with one open/write/close, so logrotate can rename the files
+at any time and the next datagram starts a new one (no signal, no copytruncate). A file
+that reaches --max-file-bytes stops growing until it is rotated: one marker line is
+written and the drop is counted in the journal, so a flood cannot fill the disk.
+Any error writing is fatal (the unit restarts the process and the journal says why).
+"""
+
+import argparse
+import datetime
+import os
+import re
+import socket
+import sys
+
+# <level>,<seq>,<timestamp usec>,<flags>[,extra...];  -- the start of an extended message.
+EXTENDED_HEADER = re.compile(r"^\d+,\d+,\d+,[-cfo]+(?:,[^;\n]*)?;")
+# Bytes that would let a Pi forge or hide lines (or drive a terminal): all C0 controls
+# but tab, DEL and the C1 range once decoded.
+UNSAFE = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+DATAGRAM_MAX = 65535
+# Linux's IP_FREEBIND (linux/in.h); Python's socket module does not export it.
+IP_FREEBIND = 15
+
+
+def _escape(match: re.Match) -> str:
+    return f"\\x{ord(match.group()):02x}"
+
+
+def parse_datagram(data: bytes) -> list[str]:
+    """The kernel's text lines in one netconsole datagram, plain or extended."""
+    text = data.decode("utf-8", errors="replace")
+    header = EXTENDED_HEADER.match(text)
+    if header:
+        text = text[header.end():]
+    lines = []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = UNSAFE.sub(_escape, line.rstrip())
+        if line:
+            lines.append(line)
+    return lines
+
+
+def stamp(now: datetime.datetime) -> str:
+    return now.astimezone().isoformat(timespec="microseconds")
+
+
+def append(directory: str, sender: str, payload: bytes, max_file_bytes: int) -> bool:
+    """Append payload to the sender's file; False if the file is at its size cap."""
+    fd = os.open(os.path.join(directory, f"{sender}.log"),
+                 os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    try:
+        if os.fstat(fd).st_size >= max_file_bytes:
+            return False
+        view = memoryview(payload)
+        while view:
+            view = view[os.write(fd, view):]
+        return True
+    finally:
+        os.close(fd)
+
+
+def open_socket(address: str, port: int, rcvbuf: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # A boot is a burst of datagrams (the Pis log at systemd debug level): without a
+    # bigger buffer the kernel drops the overflow silently. The kernel silently caps the
+    # request at net.core.rmem_max and reports twice the granted size, so check it.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+    effective = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    if effective < 2 * rcvbuf:
+        raise SystemExit(f"receive buffer is {effective} bytes, wanted {2 * rcvbuf} (twice the {rcvbuf} requested): "
+                         "net.core.rmem_max is below the request")
+    # The gateway's address may not be configured yet when this starts (networkd brings
+    # the VLAN interfaces up in its own time): bind anyway, it works once it appears.
+    sock.setsockopt(socket.IPPROTO_IP, IP_FREEBIND, 1)
+    sock.bind((address, port))
+    return sock
+
+
+def serve(sock: socket.socket, directory: str, max_file_bytes: int) -> None:
+    capped = {}
+    while True:
+        data, (sender, _port) = sock.recvfrom(DATAGRAM_MAX)
+        lines = parse_datagram(data)
+        if not lines:
+            continue
+        when = stamp(datetime.datetime.now(datetime.timezone.utc))
+        payload = "".join(f"{when} {line}\n" for line in lines).encode()
+        if append(directory, sender, payload, max_file_bytes):
+            dropped = capped.pop(sender, None)
+            if dropped is not None:
+                print(f"{sender}: writing again after dropping {dropped} datagrams", file=sys.stderr, flush=True)
+            continue
+        if sender not in capped:
+            marker = f"{when} netconsole-recv: {sender}.log reached {max_file_bytes} bytes, dropping its lines until it is rotated\n"
+            # The marker goes in past the cap on purpose: it is the one line saying why the log stops.
+            append(directory, sender, marker.encode(), max_file_bytes + len(marker))
+            print(f"{sender}: {sender}.log is at its {max_file_bytes}-byte cap, dropping its datagrams", file=sys.stderr, flush=True)
+            capped[sender] = 0
+        capped[sender] += 1
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--address", required=True, help="IPv4 address to listen on")
+    parser.add_argument("--port", type=int, default=6666)
+    parser.add_argument("--dir", required=True, help="directory for the <sender>.log files")
+    parser.add_argument("--rcvbuf-bytes", type=int, required=True, help="UDP receive buffer to request (net.core.rmem_max must allow it)")
+    parser.add_argument("--max-file-bytes", type=int, required=True, help="stop writing a sender's file at this size")
+    args = parser.parse_args()
+    sock = open_socket(args.address, args.port, args.rcvbuf_bytes)
+    print(f"listening on {args.address}:{args.port} with a {sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)}-byte "
+          f"receive buffer, writing {args.dir}/<sender>.log", file=sys.stderr, flush=True)
+    serve(sock, args.dir, args.max_file_bytes)
+
+
+if __name__ == "__main__":
+    main()
