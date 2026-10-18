@@ -73,8 +73,16 @@ def append(directory: str, sender: str, payload: bytes, max_file_bytes: int) -> 
         os.close(fd)
 
 
-def open_socket(address: str, port: int) -> socket.socket:
+def open_socket(address: str, port: int, rcvbuf: int) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # A boot is a burst of datagrams (the Pis log at systemd debug level): without a
+    # bigger buffer the kernel drops the overflow silently. The kernel silently caps the
+    # request at net.core.rmem_max and reports twice the granted size, so check it.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+    effective = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+    if effective < 2 * rcvbuf:
+        raise SystemExit(f"receive buffer is {effective} bytes, wanted {2 * rcvbuf} (twice the {rcvbuf} requested): "
+                         "net.core.rmem_max is below the request")
     # The gateway's address may not be configured yet when this starts (networkd brings
     # the VLAN interfaces up in its own time): bind anyway, it works once it appears.
     sock.setsockopt(socket.IPPROTO_IP, IP_FREEBIND, 1)
@@ -110,10 +118,12 @@ def main() -> None:
     parser.add_argument("--address", required=True, help="IPv4 address to listen on")
     parser.add_argument("--port", type=int, default=6666)
     parser.add_argument("--dir", required=True, help="directory for the <sender>.log files")
+    parser.add_argument("--rcvbuf-bytes", type=int, required=True, help="UDP receive buffer to request (net.core.rmem_max must allow it)")
     parser.add_argument("--max-file-bytes", type=int, required=True, help="stop writing a sender's file at this size")
     args = parser.parse_args()
-    sock = open_socket(args.address, args.port)
-    print(f"listening on {args.address}:{args.port}, writing {args.dir}/<sender>.log", file=sys.stderr, flush=True)
+    sock = open_socket(args.address, args.port, args.rcvbuf_bytes)
+    print(f"listening on {args.address}:{args.port} with a {sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)}-byte "
+          f"receive buffer, writing {args.dir}/<sender>.log", file=sys.stderr, flush=True)
     serve(sock, args.dir, args.max_file_bytes)
 
 

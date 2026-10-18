@@ -120,6 +120,9 @@ def _wait_for(path: Path, text: str, timeout: float = 10) -> str:
     raise AssertionError(f"{path} never contained {text!r}: {path.read_text() if path.exists() else 'no file'}")
 
 
+receiver_first_line = [""]
+
+
 @pytest.fixture
 def receiver(tmp_path):
     port = _free_port()
@@ -127,9 +130,11 @@ def receiver(tmp_path):
     log_dir.mkdir()
     proc = subprocess.Popen(
         [sys.executable, str(SCRIPT), "--address", "127.0.0.1", "--port", str(port), "--dir", str(log_dir),
-         "--max-file-bytes", "400"],
+         "--rcvbuf-bytes", "65536", "--max-file-bytes", "400"],
         stderr=subprocess.PIPE, text=True)
-    assert "listening on 127.0.0.1" in proc.stderr.readline()
+    first = proc.stderr.readline()
+    assert "listening on 127.0.0.1" in first
+    receiver_first_line[:] = [first]
     yield port, log_dir
     proc.terminate()
     proc.wait(timeout=10)
@@ -169,6 +174,18 @@ def test_a_flood_stops_at_the_cap_with_one_marker_line_and_the_receiver_survives
     assert "after rotation" in _wait_for(log, "after rotation")
 
 
+def test_a_receive_buffer_the_kernel_will_not_grant_is_fatal_not_silent(tmp_path):
+    r = subprocess.run([sys.executable, str(SCRIPT), "--address", "127.0.0.1", "--port", str(_free_port()),
+                        "--dir", str(tmp_path), "--rcvbuf-bytes", str(2**30), "--max-file-bytes", "1000"],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode != 0
+    assert "net.core.rmem_max is below the request" in r.stderr
+
+
+def test_the_receiver_logs_the_buffer_it_got(receiver):
+    assert re.search(r"with a \d+-byte receive buffer", receiver_first_line[0])
+
+
 # --- the role's wiring ---------------------------------------------------------------------------
 
 
@@ -193,6 +210,13 @@ def test_the_unit_is_unprivileged_restarted_and_sandboxed():
                    "ReadWritePaths={{ netconsole_dir }}", "UMask=0022", "CapabilityBoundingSet=\n"):
         assert needed in unit, needed
     assert "--address {{ netconsole_address }} --port {{ netconsole_port }} --dir {{ netconsole_dir }}" in unit
+    assert "--rcvbuf-bytes {{ netconsole_rcvbuf_bytes }}" in unit
+    tasks = _yaml(ROLE / "tasks/main.yml")
+    names = [t["name"] for t in tasks]
+    buf = "Allow the receiver's receive buffer (net.core.rmem_max)"
+    sysctl = tasks[names.index(buf)]["ansible.posix.sysctl"]
+    assert sysctl["name"] == "net.core.rmem_max" and sysctl["value"] == "{{ netconsole_rcvbuf_bytes }}"
+    assert names.index(buf) < names.index("Enable and start the receiver")
     defaults = _yaml(ROLE / "defaults/main.yml")
     assert defaults["netconsole_port"] == 6666
     assert defaults["netconsole_address"] == "{{ eth_local_address }}"

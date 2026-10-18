@@ -24,6 +24,17 @@
     group: "{{ netconsole_user }}"
     mode: "0755"
 
+# Before the service starts: the receiver refuses to run with a smaller buffer than asked.
+- name: Allow the receiver's receive buffer (net.core.rmem_max)
+  ansible.posix.sysctl:
+    name: net.core.rmem_max
+    value: "{{ netconsole_rcvbuf_bytes }}"
+    sysctl_file: "{{ netconsole_sysctl_file }}"
+    sysctl_set: true
+    reload: true
+    state: present
+  notify: Restart netconsole-recv
+
 - name: Install the receiver
   ansible.builtin.copy:
     src: netconsole-recv

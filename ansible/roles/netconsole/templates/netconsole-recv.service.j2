@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 [Service]
 User={{ netconsole_user }}
 Group={{ netconsole_user }}
-ExecStart=/usr/local/sbin/netconsole-recv --address {{ netconsole_address }} --port {{ netconsole_port }} --dir {{ netconsole_dir }} --max-file-bytes {{ netconsole_max_file_bytes }}
+ExecStart=/usr/local/sbin/netconsole-recv --address {{ netconsole_address }} --port {{ netconsole_port }} --dir {{ netconsole_dir }} --rcvbuf-bytes {{ netconsole_rcvbuf_bytes }} --max-file-bytes {{ netconsole_max_file_bytes }}
 Restart=always
 RestartSec=2
 # Files readable by the site's process.
