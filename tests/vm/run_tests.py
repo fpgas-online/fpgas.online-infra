@@ -673,6 +673,29 @@ def start_pi(workdir: Path, switch: AccessPortSwitch) -> VMManager | None:
     return pi
 
 
+def netconsole_log_arrived(server: VMManager, key_path: Path, pi_address: str, timeout: int = 120) -> bool:
+    """The gateway holds a non-empty netconsole log for the Pi at pi_address (kernel log over UDP).
+
+    netconsole_dir is the group variable in ansible/inventory/group_vars/all/netconsole.yml.
+    The Pi is already up, so its boot's datagrams have been sent; the wait only covers the
+    receiver's last writes. Fails loudly with the directory listing.
+    """
+    directory = yaml.safe_load((ANSIBLE_DIR / "inventory/group_vars/all/netconsole.yml").read_text())["netconsole_dir"]
+    path = f"{directory}/{pi_address}.log"
+    deadline = time.monotonic() + timeout
+    while True:
+        out = server_run(server, key_path, f"test -s {path} && tail -n 3 {path}")
+        if out.startswith("rc=0"):
+            print(f"[netconsole] {path} holds the Pi's kernel log:\n{out}")
+            return True
+        if time.monotonic() > deadline:
+            print(f"ERROR: no netconsole log for the Pi at {path} {timeout} s after it booted.")
+            print(server_run(server, key_path, f"ls -la {directory}; systemctl status netconsole-recv --no-pager; "
+                                               "journalctl -u netconsole-recv --no-pager -n 20"))
+            return False
+        time.sleep(5)
+
+
 def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
     """Run the Pi phase: boot QEMU raspi4b with PXE from server.
 
@@ -720,6 +743,15 @@ def phase_pi(args, workdir: Path, server: VMManager, pi: VMManager) -> bool:
         ssh.close()
     except TimeoutError:
         print("ERROR: Pi VM SSH not reachable via ProxyJump.")
+        dump_pi_serial_logs(pi)
+        pi.shutdown()
+        return False
+
+    # The Pi's kernel sends its log by netconsole (netconsole=@/eth-uplink,@10.21.0.1/ on the
+    # command line) to the gateway's netconsole-recv. A line in <netconsole_dir>/<its address>.log
+    # is a Pi datagram that crossed the VLAN and the firewall's input chain, which the role's own
+    # probe (the gateway to itself, over lo) cannot show.
+    if not netconsole_log_arrived(server, key_path, pi_host):
         dump_pi_serial_logs(pi)
         pi.shutdown()
         return False
