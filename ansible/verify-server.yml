@@ -368,12 +368,27 @@
         cmdline_pi5: "{{ verify_setup_port_files.results[2].content | b64decode }}"
       when: setup_port is defined
 
-    - name: Check dnsmasq serves the setup port its boot tree on every switch
-      ansible.builtin.command: grep -c '^tftp-root={{ setup_port_tftp_root }},' /etc/dnsmasq.d/ports.conf
-      changed_when: false
+    - name: Read dnsmasq's per-port config
+      ansible.builtin.slurp:
+        src: /etc/dnsmasq.d/ports.conf
       register: verify_setup_port_dnsmasq
-      failed_when: verify_setup_port_dnsmasq.stdout | int != switches | length
-      when: setup_port is defined and switches is defined
+      when: setup_port is defined
+
+    # Exactly the setup port's VLAN of each switch, and no other port.
+    - name: Assert dnsmasq serves the setup port alone its boot tree, on every switch
+      ansible.builtin.assert:
+        that: served == wanted
+        fail_msg: "ports.conf serves {{ setup_port_tftp_root }} on {{ served }}, not on {{ wanted }}"
+      vars:
+        served: >-
+          {{ (verify_setup_port_dnsmasq.content | b64decode).splitlines()
+             | select('match', '^tftp-root=') | list | sort }}
+        wanted: >-
+          {{ switches | port_vlan_map(pib_network, pib_network6_base)
+             | selectattr('port', 'equalto', setup_port)
+             | map(attribute='iface') | map('regex_replace', '^', 'tftp-root=' ~ setup_port_tftp_root ~ ',')
+             | list | sort }}
+      when: setup_port is defined
 
 
 - name: Verify uhubctl

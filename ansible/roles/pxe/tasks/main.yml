@@ -57,6 +57,12 @@
 # on every switch the boot tree roles/fixpi builds. dnsmasq refuses to start
 # when a tftp-root it is given does not exist, and on a fresh gateway fixpi
 # runs last (site.yml), so the directory is created here, empty, first.
+- name: Check a setup port is named only where ports have their own VLANs
+  ansible.builtin.assert:
+    that: switches is defined
+    fail_msg: "setup_port {{ setup_port }} is set, but this gateway has no switches: no port has a VLAN of its own"
+  when: setup_port is defined
+
 - name: Check the setup port is an access port of every switch
   ansible.builtin.assert:
     that:
