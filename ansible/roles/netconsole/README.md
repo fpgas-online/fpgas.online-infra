@@ -17,6 +17,15 @@ those datagrams.
 - `/etc/logrotate.d/netconsole`: daily, or at `netconsole_logrotate_size`; the receiver
   reopens its file for every datagram, so a rename is a complete rotation.
 
+A boot is a burst of datagrams (the Pis log at systemd debug level), so the receiver
+asks for a `netconsole_rcvbuf_bytes` receive buffer and the role raises `net.core.rmem_max` to match
+(`/etc/sysctl.d/98-fpgas-netconsole.conf`) rather than giving the unit a capability for `SO_RCVBUFFORCE`; the
+receiver refuses to start if the kernel grants less, and logs the size it got.
+
+What is stored: the extended format's header (level, sequence, kernel timestamp) is dropped and
+only the text kept; the kernel's `ncfrag` fragments of one long message are stored as separate
+lines, not reassembled. The per-file size cap bounds one rotation period, not the week's disk.
+
 The log directory is `netconsole_dir`, one group variable
 (`inventory/group_vars/all/site.yml`) because the `site` role hands the same path to the
 Django site as `FPGAS_NETCONSOLE_DIR`. The directory is `0755` and the files `0644`: the

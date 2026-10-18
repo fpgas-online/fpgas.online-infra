@@ -21,6 +21,18 @@
       | list | length == 1
     fail_msg: "nothing listens on UDP {{ netconsole_address }}:{{ netconsole_port }}: {{ netconsole_verify_listeners.stdout }}"
 
+- name: Read the receiver's effective receive buffer from its journal
+  ansible.builtin.command: journalctl -u netconsole-recv --no-pager -o cat -g 'byte receive buffer'
+  changed_when: false
+  register: netconsole_verify_journal
+
+- name: Check the receive buffer is at least what was asked for
+  ansible.builtin.assert:
+    that: >-
+      (netconsole_verify_journal.stdout | regex_findall('with a ([0-9]+)-byte') | last | int)
+      >= 2 * netconsole_rcvbuf_bytes
+    fail_msg: "the receiver's receive buffer is smaller than {{ 2 * netconsole_rcvbuf_bytes }}: {{ netconsole_verify_journal.stdout }}"
+
 - name: Stat the log directory
   ansible.builtin.stat:
     path: "{{ netconsole_dir }}"
@@ -33,9 +45,11 @@
       - netconsole_verify_dir.stat.pw_name == netconsole_user
       - netconsole_verify_dir.stat.mode == '0755'
 
-# End to end: a datagram sent to the listening address arrives in a file named for the
-# sender (the address the kernel picks as the source, this gateway's own), through the
-# firewall's input chain.
+# A datagram the gateway sends to its own listening address arrives in a file named for the
+# sender (the address the kernel picks as the source, this gateway's own). It travels on lo
+# and is accepted by the input chain's `iif "lo"` rule, so this proves bind, parse, write and
+# permissions, NOT that a Pi's datagram passes the firewall: that is checked in the VM test
+# (tests/vm/run_tests.py), on the virtual Pi's own netconsole log.
 - name: Send a probe datagram to the receiver
   ansible.builtin.command:
     argv:
