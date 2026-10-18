@@ -8,11 +8,13 @@ learns where it is from what the gateway gives its port: no per-Pi variable.
 
 The tree is the fleet's boot tree, hard-linked file by file, except:
   config.txt        without `dtoverlay=disable-wifi` and `dtoverlay=disable-bt`
-                    (the radios, wlan0 included, come up) and with
-                    `eeprom_write_protect=0` in place of `=1`;
-  cmdline*.txt      with `fpgas.setup_port=1` (the root's units that lift
-                    runtime restrictions run on it: fpgas-setup-port.service)
-                    and `systemd.restore_state=0` (no saved rfkill block is
+                    (the radios, wlan0 included, come up), with
+                    `eeprom_write_protect=0` in place of `=1`, and with the
+                    header SPI and I2C buses on (`dtparam=spi=on`,
+                    `dtparam=i2c_arm=on`, off in the fleet's);
+  cmdline*.txt      with `fpgas.setup_port=1` (the root's udev rule that
+                    unblocks the radios acts on it) and
+                    `systemd.restore_state=0` (no saved rfkill block is
                     restored onto the radios).
 
 Fails loud when the fleet's files no longer carry what is lifted: the
@@ -31,6 +33,7 @@ from pathlib import Path
 
 LIFTED = ("dtoverlay=disable-wifi", "dtoverlay=disable-bt")
 PROTECT, UNPROTECT = "eeprom_write_protect=1", "eeprom_write_protect=0"
+ADDED = ("dtparam=spi=on", "dtparam=i2c_arm=on")
 CMDLINES = ("cmdline.txt", "cmdline-pi5.txt")
 FLAGS = ("fpgas.setup_port=1", "systemd.restore_state=0")
 DERIVED = ("config.txt", *CMDLINES)
@@ -45,10 +48,12 @@ def setup_config(text):
     for line in (*LIFTED, PROTECT):
         if lines.count(line) != 1:
             fail(f"the fleet config.txt carries {line!r} {lines.count(line)} times, not once")
-    if UNPROTECT in lines:
-        fail(f"the fleet config.txt already carries {UNPROTECT!r}")
+    for line in (UNPROTECT, *ADDED):
+        if line in lines:
+            fail(f"the fleet config.txt already carries {line!r}")
     out = [UNPROTECT if line == PROTECT else line for line in lines if line not in LIFTED]
-    return "\n".join(out) + "\n"
+    # In [all], after any model section the fleet's file ends in.
+    return "\n".join([*out, "[all]", *ADDED]) + "\n"
 
 
 def setup_cmdline(name, text):
@@ -69,6 +74,11 @@ def build(fleet, staged):
     for dirpath, dirnames, filenames in os.walk(fleet):
         rel = Path(dirpath).relative_to(fleet)
         (staged / rel).mkdir(exist_ok=True)
+        # os.walk lists a symlink to a directory with the directories and does not follow it: it is kept as the
+        # link it is, like a link to a file.
+        for name in [d for d in dirnames if (Path(dirpath) / d).is_symlink()]:
+            dirnames.remove(name)
+            os.symlink(os.readlink(Path(dirpath) / name), staged / rel / name)
         for name in filenames:
             if rel == Path(".") and name in DERIVED:
                 continue
@@ -81,11 +91,14 @@ def build(fleet, staged):
     (staged / "config.txt").write_text(setup_config((fleet / "config.txt").read_text()))
     for name in CMDLINES:
         (staged / name).write_text(setup_cmdline(name, (fleet / name).read_text()))
+    for name in DERIVED:  # dnsmasq reads them as its own user, whatever this process's umask
+        (staged / name).chmod(0o644)
+    staged.chmod(0o755)
 
 
 def same(a, b):
     """Whether two trees hold the same names, links and contents."""
-    cmp = filecmp.dircmp(a, b)
+    cmp = filecmp.dircmp(a, b, ignore=[], hide=[])  # its default ignore list hides .git, RCS, tags, ...
     if cmp.left_only or cmp.right_only or cmp.funny_files:
         return False
     for name in cmp.common_files:
@@ -95,7 +108,14 @@ def same(a, b):
                 return False
         elif os.stat(pa).st_ino != os.stat(pb).st_ino and not filecmp.cmp(pa, pb, shallow=False):
             return False
-    return all(same(Path(a) / d, Path(b) / d) for d in cmp.common_dirs)
+    for name in cmp.common_dirs:  # dircmp follows a link to a directory: compare it as the link it is
+        pa, pb = Path(a) / name, Path(b) / name
+        if pa.is_symlink() or pb.is_symlink():
+            if not (pa.is_symlink() and pb.is_symlink() and os.readlink(pa) == os.readlink(pb)):
+                return False
+        elif not same(pa, pb):
+            return False
+    return True
 
 
 def main(argv):
