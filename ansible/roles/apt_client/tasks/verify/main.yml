@@ -3,6 +3,18 @@
 # file in the order apt does, and indextargets lists every configured
 # source. Neither touches the network.
 
+- name: Read the HTTP pipelining depth apt resolves
+  ansible.builtin.command: apt-config dump --format '%v%n' Acquire::http::Pipeline-Depth
+  changed_when: false
+  register: apt_client_v_pipeline
+
+- name: Assert apt uses the configured pipelining depth
+  ansible.builtin.assert:
+    that: apt_client_v_pipeline.stdout_lines == [apt_client_http_pipeline_depth | string]
+    fail_msg: >-
+      apt's Acquire::http::Pipeline-Depth is {{ apt_client_v_pipeline.stdout_lines }},
+      not {{ apt_client_http_pipeline_depth }}
+
 - name: Read the apt proxy apt resolves
   ansible.builtin.command: apt-config dump --format '%v%n' Acquire::http::Proxy
   changed_when: false

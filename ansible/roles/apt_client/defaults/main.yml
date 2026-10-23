@@ -1,8 +1,8 @@
 ---
 # How the gateway's own apt reaches the network: through a site caching
 # proxy, when the site has one. (The Pi NFS root's apt is roles/apt_cache's:
-# it goes through the gateway's own cache.) Both empty = apt fetches straight
-# from each source, and this role writes nothing.
+# it goes through the gateway's own cache.) Both proxy settings empty = apt
+# fetches straight from each source.
 
 # The site proxy every source goes through: Acquire::http::Proxy. apt sends
 # https sources through it as well, as a CONNECT tunnel -- which
@@ -17,6 +17,16 @@ apt_client_proxy: ""
 # to this host directly (it cannot tunnel to the proxy through itself), and
 # that is the only host it does.
 apt_client_https_cache: ""
+
+# How many requests apt sends down one connection before the first answer
+# (Acquire::http::Pipeline-Depth; it covers https sources too). With apt's
+# default pipelining, a download from deb.debian.org sometimes goes silent
+# until apt's 30 s timeout, then apt reconnects. Packet captures in the VM
+# test showed the silence on the runner's side of QEMU's network too, so it
+# is not the VM: it is the mirror, its CDN or the path. With 0, five VM test runs had
+# none of these stalls; 22 of the 25 runs before had 1-5 of them (issue
+# #172, which has the measurements).
+apt_client_http_pipeline_depth: 0
 
 # apt.conf.d files this role replaced. Removed so apt reads only what the
 # variables above configure.
