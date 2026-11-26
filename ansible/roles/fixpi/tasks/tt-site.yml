@@ -51,6 +51,12 @@
     file: "{{ role_path }}/../onpi/defaults/main.yml"
     name: fixpi_tt_onpi_defaults
 
+# An inventory override of onpi_tt_library_max_bytes wins, as it does on the onpi path (the shared
+# onpi template reads that name, hence the noqa).
+- name: Take the VGA library size cap from the inventory, else the onpi default  # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    onpi_tt_library_max_bytes: "{{ onpi_tt_library_max_bytes | default(fixpi_tt_onpi_defaults.onpi_tt_library_max_bytes) }}"
+
 - name: Create the fpgas-tt.service drop-in directory in the NFS root
   ansible.builtin.file:
     path: "{{ nfs_root }}/root/etc/systemd/system/fpgas-tt.service.d"
@@ -62,5 +68,3 @@
     src: "{{ role_path }}/../onpi/templates/fpgas-tt-library.conf.j2"
     dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-tt.service.d/library.conf"
     mode: "0644"
-  vars:
-    onpi_tt_library_max_bytes: "{{ fixpi_tt_onpi_defaults.onpi_tt_library_max_bytes }}"

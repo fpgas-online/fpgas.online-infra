@@ -49,3 +49,8 @@ def test_the_template_renders_the_environment_line():
         onpi_tt_library_max_bytes=cap, ansible_managed="x"
     )
     assert f"Environment=FPGAS_TT_LIBRARY_MAX_BYTES={cap}" in out
+
+
+def test_an_inventory_override_wins_over_the_onpi_default():
+    text = TT_SITE.read_text()
+    assert "onpi_tt_library_max_bytes | default(fixpi_tt_onpi_defaults.onpi_tt_library_max_bytes)" in text
