@@ -32,6 +32,10 @@ onpi_nfsroot_watchdog_dry_run: false
 # it installs only that board's tools, and a Pi without that board fails its check.
 onpi_fpga_verify_package: fpgas-online-all-boards
 
+# Size cap, in bytes, of the VGA library the fpgas-tt daemon keeps on the Pi (tasks/tt.yml writes it to a
+# systemd drop-in as FPGAS_TT_LIBRARY_MAX_BYTES). The daemon's own default is the same 16 MiB.
+onpi_tt_library_max_bytes: 16777216
+
 # The prebuilt LitePCIe driver for the Acorn PCIe SoC (tasks/litepcie.yml): litepcie.ko for every kernel in
 # the root that a Pi 5 boots, which fpgas-verify's Acorn `dma` test needs. The fpgas.online apt repository
 # serves fpgas-online-acorn-litepcie-modules-<kernel> since 2026-10-04 (fpgas.online-test-designs releases
