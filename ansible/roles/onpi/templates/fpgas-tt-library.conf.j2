@@ -1,0 +1,5 @@
+# {{ ansible_managed }} (roles/onpi, tasks/tt.yml)
+#
+# Size cap, in bytes, of the VGA library the fpgas-tt daemon keeps on the Pi.
+[Service]
+Environment=FPGAS_TT_LIBRARY_MAX_BYTES={{ onpi_tt_library_max_bytes }}
