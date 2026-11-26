@@ -15,3 +15,7 @@ tt_commander_embed_sha256: ""
 # tt03p5).  Same empty-version semantics as above.
 tt_commander_legacy_embed_version: ""
 tt_commander_legacy_embed_sha256: ""
+# VGA video library base URL (TTSITE_LIBRARY_BASE_URL).  Empty => the library
+# panel and routes stay off; when set it must start with https:// and end
+# with /.
+ttsite_library_base_url: ""
