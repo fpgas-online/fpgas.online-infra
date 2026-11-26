@@ -41,3 +41,30 @@
     # with nfs_root/root as /) but does not exist on the server -- force,
     # like the other wants links in netboot.yml.
     force: true
+
+# The VGA library size cap drop-in: the same file, from the same template and
+# variable, as onpi/tasks/tt.yml (which only runs where onpi_tt_boards is
+# defined, never for a pull-mode root). The default is read from the onpi role
+# so there is one copy of the value.
+- name: Read the onpi role's defaults (the VGA library size cap)
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/../onpi/defaults/main.yml"
+    name: fixpi_tt_onpi_defaults
+
+# An inventory override of onpi_tt_library_max_bytes wins, as it does on the onpi path (the shared
+# onpi template reads that name, hence the noqa).
+- name: Take the VGA library size cap from the inventory, else the onpi default  # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    onpi_tt_library_max_bytes: "{{ onpi_tt_library_max_bytes | default(fixpi_tt_onpi_defaults.onpi_tt_library_max_bytes) }}"
+
+- name: Create the fpgas-tt.service drop-in directory in the NFS root
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/root/etc/systemd/system/fpgas-tt.service.d"
+    state: directory
+    mode: "0755"
+
+- name: Cap the fpgas-tt VGA library size in the NFS root
+  ansible.builtin.template:
+    src: "{{ role_path }}/../onpi/templates/fpgas-tt-library.conf.j2"
+    dest: "{{ nfs_root }}/root/etc/systemd/system/fpgas-tt.service.d/library.conf"
+    mode: "0644"

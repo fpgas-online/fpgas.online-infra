@@ -11,6 +11,7 @@
     - {key: TTSITE_HOST, value: "'{{ ttsite_domain }}'"}
     - {key: TTSITE_COMMANDER_VERSION, value: "'{{ tt_commander_embed_version }}'"}
     - {key: TTSITE_COMMANDER_LEGACY_VERSION, value: "'{{ tt_commander_legacy_embed_version }}'"}
+    - {key: TTSITE_LIBRARY_BASE_URL, value: "'{{ ttsite_library_base_url }}'"}
   loop_control:
     label: "{{ item.key }}"
   notify:

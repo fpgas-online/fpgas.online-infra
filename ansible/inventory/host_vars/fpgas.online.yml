@@ -329,13 +329,15 @@ tt_boards:
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
 
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
-tt_commander_embed_version: "0.2.0"
-tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
+tt_commander_embed_version: "0.3.0"
+tt_commander_embed_sha256: "bf33d3598e4659bd01c1bf9433835979610ff0c92944cc21f959154c9dbb171e"
 # Legacy Commander embed pin (release legacy-embed-v<ver>) for boards that
 # report an SDK older than 2 — the tt03p5 chip only works on 1.x demo-board
 # firmware, which the main Commander refuses.
 tt_commander_legacy_embed_version: "0.1.0"
 tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
+# VGA video library (the site's library panel and routes).
+ttsite_library_base_url: "https://data.wafer.space/big-storage/tinytapeout-vga-videos/"
 # tinytapeout.fpgas.online is a CNAME for welland.fpgas.online; TLS is
 # terminated on tweed (the upstream router's SNI router lists the name since 2026-08-23 via
 # the network sheet's alias on tweed's row), so certbot runs here (webroot http-01

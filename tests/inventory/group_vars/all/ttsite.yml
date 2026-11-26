@@ -5,3 +5,5 @@
 # No public DNS, so no certbot; the embed pins are in host_vars, as on tweed.
 ttsite_domain: tinytapeout.test.fpgas.online
 ttsite_certbot: false
+# The VGA library stays off in the test VM (the site role's default is also "").
+ttsite_library_base_url: ""

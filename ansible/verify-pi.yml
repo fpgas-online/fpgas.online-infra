@@ -1079,6 +1079,18 @@
         that: verify_pi_tt_demos.stat.exists
         fail_msg: "/usr/share/fpgas-tt/demos/index.json missing (fpgas-online-tt-demos not installed)"
 
+    # The VGA library size cap: fixpi/tasks/tt-site.yml bakes the drop-in into the NFS root (the Pi reads
+    # its own root), the same file onpi/tasks/tt.yml writes in a build that has tt_boards.
+    - name: Read the fpgas-tt library drop-in
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/fpgas-tt.service.d/library.conf
+      register: verify_pi_tt_library
+
+    - name: Assert the fpgas-tt library drop-in sets the size cap
+      ansible.builtin.assert:
+        that: "'FPGAS_TT_LIBRARY_MAX_BYTES=' in (verify_pi_tt_library.content | b64decode)"
+        fail_msg: "/etc/systemd/system/fpgas-tt.service.d/library.conf has no FPGAS_TT_LIBRARY_MAX_BYTES="
+
     # The Acorn's LitePCIe driver (roles/onpi/tasks/litepcie.yml): a root that carries it has litepcie.ko
     # for every kernel a Pi 5 boots, so on such a kernel `modinfo litepcie` finds it. The check takes what
     # to expect from the root itself: a root built without the driver (onpi_litepcie_modules off) has no

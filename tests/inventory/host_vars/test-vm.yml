@@ -146,8 +146,8 @@ tt_boards:
   - {slug: kianv-1, kind: kianv, title: "KianV (not connected)"}
 ttsite_certbot: false
 # The Commander embed bundles tweed pins (ansible/inventory/host_vars/fpgas.online.yml).
-tt_commander_embed_version: "0.2.0"
-tt_commander_embed_sha256: "e4e6d71b4acd52a9a0dcbdf869b7928a74d130250d1a25cde546fee7a1b06b39"
+tt_commander_embed_version: "0.3.0"
+tt_commander_embed_sha256: "bf33d3598e4659bd01c1bf9433835979610ff0c92944cc21f959154c9dbb171e"
 tt_commander_legacy_embed_version: "0.1.0"
 tt_commander_legacy_embed_sha256: "1e8e992cf017911bcf964e50a018a5d463c7ff4c5158594f73d869f0cad62ec2"
 # The VM test runs concurrently with the nfsroot build that produces the
