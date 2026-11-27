@@ -329,8 +329,8 @@ tt_boards:
      blurb: "iCE40UP5K ASIC simulator on a demo board", pcb: "TT FPGA breakout (iCE40UP5K) on TT demo board"}
 
 # Commander embed bundle pin (fpgas-online/tt-commander-app release embed-v<ver>).
-tt_commander_embed_version: "0.3.0"
-tt_commander_embed_sha256: "bf33d3598e4659bd01c1bf9433835979610ff0c92944cc21f959154c9dbb171e"
+tt_commander_embed_version: "0.4.0"
+tt_commander_embed_sha256: "835d006e96d2c726d9555a19bfa6aa56b9eb5f3bc2fd1e633fd2648b4d9d7f1d"
 # Legacy Commander embed pin (release legacy-embed-v<ver>) for boards that
 # report an SDK older than 2 — the tt03p5 chip only works on 1.x demo-board
 # firmware, which the main Commander refuses.
